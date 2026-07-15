@@ -1,0 +1,9 @@
+{
+  "id": "havemind-sync",
+  "name": "Havemind",
+  "version": "0.0.1",
+  "minAppVersion": "1.11.4",
+  "description": "Synchronize shared Markdown vaults with durable history and authorship.",
+  "author": "Mikolaj Pawel Sapek",
+  "isDesktopOnly": true
+}

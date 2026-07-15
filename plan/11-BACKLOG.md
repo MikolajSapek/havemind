@@ -1,0 +1,184 @@
+# 11 — BACKLOG.md
+
+Reguła kolejności: F0→F9 ściśle sekwencyjnie; SRV-* biegnie równolegle od F0, ale SRV-03/04/05
+są twardym blockerem dla F8 (patrz `09-pilotaz-i-decyzje.md`). Labels: `serwer`, `plugin`,
+`sapserver`, `bezpieczeństwo`, `decyzja-usera`. Milestones = fazy (F0…F9, SRV). Checkboxy w tym
+pliku są źródłem prawdy o postępie — subagent odhacza po przejściu AC, nie wcześniej.
+
+**Definition of Done fazy** (dokłada się do sumy AC issues fazy): `npm run build && npm run
+lint && npm test` zielone dla całego workspace; próg pokrycia 80%+ utrzymany; jeden wpis w
+raporcie fazy (co działa, co odłożone, dowód).
+
+## F0 — Fundament
+
+- [ ] **F0-01** `fundament` Skonfigurować strict TS/lint/Vitest na całym workspace (T002)
+  - AC: `npm run typecheck && npm run lint && npm test` zielone dla wszystkich pakietów
+    (funkcjonalne); próg pokrycia 80% wymuszony w konfiguracji, nie tylko w CI opisie
+    (jakościowe, metoda: `npm run test:coverage` raportuje próg z konfiguracji); żaden istniejący
+    test T004-T017 nie przestaje przechodzić (regresyjne).
+  - AC negatywne: brak `any` bez jawnego komentarza uzasadniającego w nowo dotkniętych plikach.
+  - Pliki: `tsconfig.base.json`, `eslint.config.js`, `vitest.config.ts`, `scripts/check-workspace.mjs`.
+
+- [ ] **F0-02** `fundament` Zweryfikować dane kanoniczne bez duplikacji
+  - AC: grep pakietu `plan/` na frazy skopiowane 1:1 z `specs/*.md`/`plans/*.md` dłuższe niż jedno
+    zdanie → 0 trafień (funkcjonalne, metoda: ręczny przegląd + grep).
+  - AC: tabela z `02-fundamenty.md` zweryfikowana — każdy wskazany plik istnieje (curl/cat
+    ścieżki).
+
+## F1 — Systemy przekrojowe
+
+- [ ] **F1-01** `serwer,bezpieczeństwo` Prymitywy tokenów i rotacji (T018)
+  - AC: `npm test --workspace @havemind/server -- auth` zielone (funkcjonalne).
+  - AC: retry z tym samym `rotation_id` sukces, reuse z innym → rewokacja rodziny (funkcjonalne,
+    metoda: test property z ≥1000 losowych kombinacji z `03-systemy-przekrojowe.md`).
+  - AC: 100% pokrycia branchy w ścieżce rewokacji (jakościowe, metoda: raport coverage).
+  - AC negatywne: żaden raw token nie trafia do logów (grep testowych fixture'ów na `console.log`
+    z tokenem w jawnej postaci).
+
+## F2 — Szkielet (serwer + plugin vertical slice)
+
+- [ ] **F2-01** `serwer` Zaproszenia i device approval (T019)
+  - AC: 256-bit/15-min/single-use zaproszenie, fraza weryfikacyjna race-safe (funkcjonalne,
+    `npm test --workspace @havemind/server -- invitations`).
+  - AC: redeem z zaproszeniem starszym niż 15 min → `410 Gone`, zaproszenie oznaczone zużyte,
+    brak retry (funkcjonalne, wiersz 2 tabeli w `04-serwer-auth-i-api.md`).
+  - AC: owner odrzuca frazę lub fraza się nie zgadza → pending device usunięty, zero wydanego
+    tokenu (funkcjonalne, wiersz 4 tabeli w `04`).
+  - AC negatywne: redeem tego samego tokenu drugi raz → `409`, brak drugiego pending device.
+
+- [ ] **F2-02** `serwer,bezpieczeństwo` Deny-by-default auth-routes (T020)
+  - AC: cross-vault IDOR próba → `403` bez wycieku istnienia zasobu (funkcjonalne + regresyjne
+    wobec tabeli zdarzeń w `04-serwer-auth-i-api.md`).
+  - AC: nagłówek podszywający się pod inny `actor_id` → `403`, log nie zawiera treści nagłówka
+    w plaintext (funkcjonalne + bezpieczeństwo, metoda: grep logów testowych na wartość nagłówka).
+  - AC: „vault nieistniejący" i „vault istniejący bez dostępu" zwracają identyczny kod/kształt
+    odpowiedzi (funkcjonalne, metoda: porównanie dwóch odpowiedzi bajt-w-bajt poza treścią błędu).
+  - AC: żądanie przed uwierzytelnieniem po przekroczeniu rate limitu → `429` bez informacji o
+    istnieniu konta (funkcjonalne).
+  - AC: `npm test --workspace @havemind/server -- auth-routes` zielone.
+
+- [ ] **F2-03** `serwer` Sync push/pull API (T021)
+  - AC: batch z cyklem w `parent_revision_ids` → `422`, cały batch odrzucony (funkcjonalne).
+  - AC: identyczny `revision_id` + identyczne bajty → oryginalny wynik; różne bajty → `409`
+    (funkcjonalne, `npm test --workspace @havemind/server -- sync-routes`).
+
+- [ ] **F2-04** `plugin` Vault-adapter i rekoncyliacja (T026)
+  - AC: create/modify/rename/delete zdeduplikowane po haszu (funkcjonalne).
+  - AC negatywne: `.obsidian/**` nigdy nie trafia do outboxu (`npm test --workspace
+    @havemind/obsidian-plugin -- vault-adapter`).
+
+## F3 — Onboarding (pierwsza wartość dla usera: da się połączyć)
+
+- [ ] **F3-01** `plugin,bezpieczeństwo` Bezpieczny onboarding zaproszeń (T025)
+  - AC: sekret zaproszenia nigdy w query `obsidian://havemind-join` (funkcjonalne, metoda: grep
+    kodu wizarda + test integracyjny sprawdzający URL).
+  - AC: resumable bootstrap po przerwaniu (funkcjonalne, `npm test --workspace
+    @havemind/obsidian-plugin -- onboarding`).
+  - AC negatywne: brak automatycznego scalenia dwóch istniejących vaultów.
+
+## F4 — Sync end-to-end
+
+- [ ] **F4-01** `plugin` Sync runner i bezpieczny remote apply (T027)
+  - AC: single-flight + backoff, echo suppression, brak duplikatu po restarcie (funkcjonalne,
+    `npm test --workspace @havemind/obsidian-plugin -- sync-runner`).
+  - AC: aktywny rozbieżny bufor → odroczenie/konflikt, nigdy cichy nadpis (regresyjne wobec
+    `plans/001-technical-plan.md` §14 „Never").
+
+## F5 — Historia
+
+- [ ] **F5-01** `plugin` Activity, diff, restore (T028)
+  - AC: restore tworzy NOWĄ rewizję z atrybucją przywracającego (funkcjonalne, `npm test
+    --workspace @havemind/obsidian-plugin -- activity`).
+
+## F6 — Atrybucja
+
+- [ ] **F6-01** `plugin` Author overlay (T029)
+  - AC: hash mismatch → overlay ukryty, Reading view nigdy nie zgaduje bez `getSectionInfo()`
+    (funkcjonalne + regresyjne, `npm test --workspace @havemind/obsidian-plugin -- attribution`).
+  - AC: kolor + underline + tooltip razem, nigdy sam kolor (jakościowe, metoda: manualny test
+    light/dark + screenshot do `screenshots/F6/`).
+
+## F7 — Polish
+
+- [ ] **F7-01** `serwer,bezpieczeństwo` Backup, restore, server epoch (T022)
+  - AC: restore do pustego katalogu weryfikuje manifest + `PRAGMA integrity_check` przed startem
+    (funkcjonalne, `npm test --workspace @havemind/server -- backup-restore`).
+  - AC: restored instancja zmienia epokę, stary cursor wymusza pojednanie (funkcjonalne).
+
+- [ ] **F7-02** `sapserver,bezpieczeństwo` Hardened Compose (T030)
+  - AC: `docker compose config` nie pokazuje żadnego portu poza `127.0.0.1:*` (funkcjonalne,
+    metoda: `docker compose config | grep -c '0.0.0.0'` → 0).
+  - AC: `npm run compose:smoke` zielone (funkcjonalne).
+  - AC negatywne: brak obrazu bez pinned digestu.
+
+- [ ] **F7-03** `serwer,bezpieczeństwo` Setup CLI: generator sekretów + `.env.example` + diagnostyka
+  - AC: `.env.example` nie zawiera działającego sekretu (funkcjonalne, metoda: grep pliku +
+    próba połączenia z wartościami z pliku → odrzucone).
+  - AC: komenda setupu generuje sekrety o entropii ≥256 bit, zapisane wyłącznie jako hash po
+    stronie serwera (funkcjonalne, test).
+  - AC: `havemind doctor` (lub równoważna komenda diagnostyczna) nie wypisuje surowego tokenu,
+    hasła ani zawartości pliku z `/srv/secrets` w żadnym trybie wyjścia (funkcjonalne,
+    bezpieczeństwo, metoda: test na fixture z wstrzykniętym sekretem, grep wyjścia → 0 trafień).
+  - Prerekwizyt dla: F8-02 (AC „diagnostyka" tego issue zakłada istnienie tej komendy).
+
+## F8 — Bramka decyzyjna (⏳ ZATRZYMAJ i zapytaj usera przed startem — patrz `09-pilotaz-i-decyzje.md`)
+
+- [ ] **F8-01** `bezpieczeństwo` E2E fault harness (T031)
+  - AC: dwuklientowa symulacja przechodzi cały fault matrix z `07-pakiet-wdrozeniowy-i-e2e.md`
+    (funkcjonalne, `npm run test:e2e`).
+
+- [ ] **F8-02** `decyzja-usera` Siedmiodniowy pilotaż na sapserverze (T032)
+  - AC: pełny checklist z `09-pilotaz-i-decyzje.md`, zapisany w `docs/pilot/checklist.md`.
+  - AC: codzienny zapis `df -h /` do `docs/pilot/checklist.md` przez 7 dni; alarm i wpis w
+    `DECISIONS.md` przy przyroście >20 GB względem dnia startu (jakościowe, metoda: 7 wpisów
+    z datami w checkliście).
+  - ⏳ ZABLOKOWANE: czeka na potwierdzenie usera (bramka decyzyjna) + SRV-03/04/05 + F7-03 ukończone.
+
+## F9 — Follow-up (odpowiednik Fazy 8 z `plans/001-technical-plan.md`; ⚠ HARD, osobne plany, sekwencyjnie)
+
+- [ ] **F9-01** `decyzja-usera` Przygotować 4 osobne plany follow-up (T033) — GitHub/BRAT alpha,
+  E2EE/recovery, attachments/quota, encrypted checkpoints.
+  - AC: 4 pliki `plans/00X-*.md` istnieją, każdy zawiera nagłówki `## Spec`, `## Threat model`,
+    `## Acceptance tests`, `## Rollout/rollback` (funkcjonalne, metoda: skrypt/grep sprawdzający
+    obecność 4 nagłówków w każdym z 4 plików → 16/16 trafień).
+  - AC: każdy plan cytuje konkretną bramkę Stage z `specs/003-open-source-release.md` (np.
+    „Stage 2 — public technical alpha") po nazwie, nie ogólnikowo (funkcjonalne).
+  - ⏳ ZABLOKOWANE: czeka na zamknięcie F8-02.
+
+## SRV — Sapserver operations (równolegle od F0, blokuje F8)
+
+- [ ] **SRV-01** `sapserver` Aktualizacja Tailscale na serwerze
+  - AC: `tailscale version` po aktualizacji ≥ wersja bieżąca na dzień wykonania (funkcjonalne).
+- [ ] **SRV-02** `sapserver,decyzja-usera` Wybór miejsca backupu
+  - ⏳ ZABLOKOWANE: czeka na decyzję usera (USB / NAS / Backblaze B2).
+- [ ] **SRV-03** `sapserver,bezpieczeństwo` Wdrożenie Restic
+  - AC: repo szyfrowane poza dyskiem systemowym serwera, retencja 7/4/6 skonfigurowana
+    (funkcjonalne, metoda: `restic snapshots` + `restic check`).
+  - Zależy od: F7-01 (backup/restore aplikacyjny musi mieć endpoint/CLI zanim Restic opakuje
+    tę samą logikę realnym repozytorium na serwerze — patrz `08-sapserver-operations.md`).
+  - Blokuje: F8-02.
+- [ ] **SRV-04** `sapserver` Test przywracania pojedynczego pliku
+  - AC: plik z backupu identyczny bajt-w-bajt z oryginałem (funkcjonalne, metoda: `diff`/hash).
+- [ ] **SRV-05** `sapserver` Test przywracania całej usługi na czystą instancję
+  - AC: Havemind wstaje z odzyskanych danych, `PRAGMA integrity_check` czysty (funkcjonalne).
+  - Blokuje: F8-02.
+- [ ] **SRV-06** `sapserver` Testowa strona Docker na `127.0.0.1:8080` + Tailscale Serve
+  - AC: strona dostępna wyłącznie przez tailnet, `ss -lntu` (bez `sudo` — nie wymagane do
+    sprawdzenia adresu bindowania) nie pokazuje portu na interfejsie publicznym (funkcjonalne
+    + regresyjne).
+- [ ] **SRV-07** `sapserver,decyzja-usera` Autostart po awarii zasilania w BIOS
+  - AC: agent NIE MOŻE tego wykonać ani zweryfikować zdalnie (brak IPMI/BMC na ASRock
+    Z370 Gaming-ITX/ac) — pierwszy raport tej fazy zwraca to jako jawną prośbę do usera
+    o fizyczne wejście w BIOS przy najbliższym restarcie, nie próbuje 3 podejść ani nie
+    odhacza „prawie zrobione" (manualne, metoda: potwierdzenie usera zapisane w
+    `docs/pilot/checklist.md`).
+  - Blokuje: F8-02 (pilotaż 7-dniowy).
+
+## GITLAB-IMPORT
+
+- Labels: `fundament`, `serwer`, `plugin`, `sapserver`, `bezpieczeństwo`, `decyzja-usera`.
+- Milestones: `F0`, `F1`, `F2`, `F3`, `F4`, `F5`, `F6`, `F7`, `F8`, `F9`, `SRV`.
+- Import: `glab issue create` per wiersz powyżej (tytuł = `Fx-NN: opis`, opis = AC), albo eksport
+  do CSV (`Title,Labels,Milestone,Description`) i `glab issue import` gdy dostępne.
+- Checkboxy w tym pliku pozostają źródłem prawdy o postępie — import do trackera jest kopią
+  do zarządzania widocznością zespołu, nie zastępuje odhaczania tutaj.

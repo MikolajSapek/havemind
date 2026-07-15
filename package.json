@@ -1,0 +1,40 @@
+{
+  "name": "havemind",
+  "version": "0.0.0-private",
+  "private": true,
+  "description": "Self-hosted, local-first collaboration for Obsidian vaults.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22.20.0 <23",
+    "npm": ">=10 <11"
+  },
+  "packageManager": "npm@10.9.4",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "check:workspace": "node scripts/check-workspace.mjs",
+    "dev:plugin": "npm run dev --workspace @havemind/obsidian-plugin",
+    "dev:server": "npm run dev --workspace @havemind/server",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:integration": "vitest run --passWithNoTests tests/integration",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "verify": "npm run check:workspace && npm run lint && npm run typecheck && npm test && npm run build"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/node": "22.20.1",
+    "@vitest/coverage-v8": "4.1.10",
+    "eslint": "10.7.0",
+    "fast-check": "4.9.0",
+    "globals": "17.7.0",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.64.0",
+    "vitest": "4.1.10"
+  }
+}

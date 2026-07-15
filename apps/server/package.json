@@ -1,0 +1,24 @@
+{
+  "name": "@havemind/server",
+  "version": "0.0.0-private",
+  "private": true,
+  "description": "Private Havemind synchronization server.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22.20.0 <23"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node scripts/copy-migrations.mjs",
+    "test": "vitest run --config vitest.config.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@havemind/protocol": "*",
+    "better-sqlite3": "12.11.1",
+    "fastify": "5.10.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "7.6.13"
+  }
+}

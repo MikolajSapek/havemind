@@ -1,0 +1,25 @@
+{
+  "name": "@havemind/protocol",
+  "version": "0.1.0",
+  "private": false,
+  "description": "Versioned wire contracts shared by Havemind clients and servers.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run --root ../.. packages/protocol",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "zod": "4.4.3"
+  }
+}

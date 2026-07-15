@@ -1,0 +1,28 @@
+{
+  "name": "@havemind/sync-core",
+  "version": "0.0.0-private",
+  "private": true,
+  "description": "Pure synchronization, merge and provenance engine for Havemind.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run --root ../.. packages/sync-core/src",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "fast-check": "4.9.0",
+    "typescript": "6.0.3",
+    "vitest": "4.1.10"
+  },
+  "dependencies": {
+    "@havemind/protocol": "*",
+    "diff": "9.0.0"
+  }
+}

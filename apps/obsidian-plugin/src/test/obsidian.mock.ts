@@ -1,0 +1,339 @@
+type Callback = () => unknown;
+
+export type MockElement = {
+  children: MockElement[];
+  createDiv: (options?: { text?: string }) => MockElement;
+  createEl: (tag: string, options?: { text?: string }) => MockElement;
+  empty: () => void;
+  onClickEvent: (callback: Callback) => void;
+  remove: () => void;
+  removed: boolean;
+  setText: (value: string) => void;
+  text: string;
+  triggerClick: () => unknown;
+};
+
+type ViewCreator = (leaf: WorkspaceLeaf) => ItemView;
+
+export type RegistrationState = {
+  commands: Command[];
+  editorExtensions: EditorExtension[];
+  markdownPostProcessors: Array<
+    (element: HTMLElement, context: unknown) => unknown
+  >;
+  protocolHandlers: Map<
+    string,
+    (data: ObsidianProtocolData) => unknown
+  >;
+  ribbons: MockElement[];
+  settingsTabs: PluginSettingTab[];
+  settingsRows: Setting[];
+  statusItems: MockElement[];
+  views: Map<string, ViewCreator>;
+};
+
+function createMockElement(): MockElement {
+  const children: MockElement[] = [];
+  let clickCallback: Callback = () => undefined;
+  const element: MockElement = {
+    children,
+    createDiv(options?: { text?: string }): MockElement {
+      const child = createMockElement();
+      child.text = options?.text ?? '';
+      children.push(child);
+      return child;
+    },
+    createEl(
+      _tag: string,
+      options?: { text?: string },
+    ): MockElement {
+      const child = createMockElement();
+      child.text = options?.text ?? '';
+      children.push(child);
+      return child;
+    },
+    empty(): void {
+      children.splice(0, children.length);
+    },
+    removed: false,
+    remove(): void {
+      element.removed = true;
+    },
+    setText(value: string): void {
+      element.text = value;
+    },
+    text: '',
+    triggerClick(): unknown {
+      return clickCallback();
+    },
+    onClickEvent(callback: Callback): void {
+      clickCallback = callback;
+    },
+  };
+
+  return element;
+}
+
+export interface ObsidianProtocolData {
+  action: string;
+  [key: string]: string;
+}
+
+export interface ViewState {
+  active?: boolean;
+  type: string;
+}
+
+export class WorkspaceLeaf {
+  readonly states: ViewState[] = [];
+
+  async setViewState(state: ViewState): Promise<void> {
+    this.states.push(state);
+  }
+}
+
+export class Workspace {
+  readonly detachedTypes: string[] = [];
+  readonly revealedLeaves: WorkspaceLeaf[] = [];
+  readonly leaves = new Map<string, WorkspaceLeaf[]>();
+  rightLeaf: WorkspaceLeaf | null = new WorkspaceLeaf();
+
+  detachLeavesOfType(type: string): void {
+    this.detachedTypes.push(type);
+    this.leaves.delete(type);
+  }
+
+  getLeavesOfType(type: string): WorkspaceLeaf[] {
+    return this.leaves.get(type) ?? [];
+  }
+
+  getRightLeaf(split: boolean): WorkspaceLeaf | null {
+    void split;
+    return this.rightLeaf;
+  }
+
+  async revealLeaf(leaf: WorkspaceLeaf): Promise<void> {
+    this.revealedLeaves.push(leaf);
+  }
+}
+
+export class App {
+  readonly secretStorage = new SecretStorage();
+  readonly workspace = new Workspace();
+  readonly vault = {
+    getMarkdownFilesCalls: 0,
+  };
+  readonly network = {
+    requestCalls: 0,
+  };
+}
+
+export class SecretStorage {
+  private readonly values = new Map<string, string>();
+
+  getSecret(id: string): string | null {
+    return this.values.get(id) ?? null;
+  }
+
+  listSecrets(): string[] {
+    return [...this.values.keys()];
+  }
+
+  setSecret(id: string, secret: string): void {
+    this.values.set(id, secret);
+  }
+}
+
+export interface PluginManifest {
+  author: string;
+  description: string;
+  id: string;
+  isDesktopOnly: boolean;
+  minAppVersion: string;
+  name: string;
+  version: string;
+}
+
+export interface Command {
+  callback: () => unknown;
+  id: string;
+  name: string;
+}
+
+export type EditorExtension = readonly unknown[];
+
+export const registrationState: RegistrationState = {
+  commands: [],
+  editorExtensions: [],
+  markdownPostProcessors: [],
+  protocolHandlers: new Map(),
+  ribbons: [],
+  settingsTabs: [],
+  settingsRows: [],
+  statusItems: [],
+  views: new Map(),
+};
+
+export function resetObsidianMock(): void {
+  registrationState.commands.splice(0);
+  registrationState.editorExtensions.splice(0);
+  registrationState.markdownPostProcessors.splice(0);
+  registrationState.protocolHandlers.clear();
+  registrationState.ribbons.splice(0);
+  registrationState.settingsTabs.splice(0);
+  registrationState.settingsRows.splice(0);
+  registrationState.statusItems.splice(0);
+  registrationState.views.clear();
+}
+
+export class Plugin {
+  readonly app: App;
+  readonly manifest: PluginManifest;
+  private readonly cleanup: Callback[] = [];
+
+  constructor(app: App, manifest: PluginManifest) {
+    this.app = app;
+    this.manifest = manifest;
+  }
+
+  addCommand(command: Command): void {
+    registrationState.commands.push(command);
+    this.cleanup.push(() => {
+      const index = registrationState.commands.indexOf(command);
+      if (index >= 0) registrationState.commands.splice(index, 1);
+    });
+  }
+
+  addRibbonIcon(
+    _icon: string,
+    _title: string,
+    callback: Callback,
+  ): HTMLElement {
+    const element = createMockElement();
+    element.onClickEvent(callback);
+    registrationState.ribbons.push(element);
+    this.cleanup.push(() => element.remove());
+    return element as unknown as HTMLElement;
+  }
+
+  addSettingTab(settingTab: PluginSettingTab): void {
+    registrationState.settingsTabs.push(settingTab);
+    this.cleanup.push(() => {
+      const index = registrationState.settingsTabs.indexOf(settingTab);
+      if (index >= 0) registrationState.settingsTabs.splice(index, 1);
+    });
+  }
+
+  addStatusBarItem(): HTMLElement {
+    const element = createMockElement();
+    registrationState.statusItems.push(element);
+    this.cleanup.push(() => element.remove());
+    return element as unknown as HTMLElement;
+  }
+
+  onload(): Promise<void> | void {}
+
+  onunload(): void {}
+
+  registerEditorExtension(extension: EditorExtension): void {
+    registrationState.editorExtensions.push(extension);
+    this.cleanup.push(() => {
+      const index = registrationState.editorExtensions.indexOf(extension);
+      if (index >= 0) registrationState.editorExtensions.splice(index, 1);
+    });
+  }
+
+  registerMarkdownPostProcessor(
+    processor: (element: HTMLElement, context: unknown) => unknown,
+  ): void {
+    registrationState.markdownPostProcessors.push(processor);
+    this.cleanup.push(() => {
+      const index = registrationState.markdownPostProcessors.indexOf(processor);
+      if (index >= 0) registrationState.markdownPostProcessors.splice(index, 1);
+    });
+  }
+
+  registerObsidianProtocolHandler(
+    action: string,
+    handler: (data: ObsidianProtocolData) => unknown,
+  ): void {
+    registrationState.protocolHandlers.set(action, handler);
+    this.cleanup.push(() => registrationState.protocolHandlers.delete(action));
+  }
+
+  registerView(type: string, creator: ViewCreator): void {
+    registrationState.views.set(type, creator);
+    this.cleanup.push(() => registrationState.views.delete(type));
+  }
+
+  unload(): void {
+    this.onunload();
+    for (const dispose of this.cleanup.reverse()) dispose();
+  }
+}
+
+export class ItemView {
+  readonly app: App;
+  readonly containerEl = createMockElement();
+  readonly leaf: WorkspaceLeaf;
+
+  constructor(leaf: WorkspaceLeaf) {
+    this.leaf = leaf;
+    this.app = new App();
+    this.containerEl.createDiv();
+    this.containerEl.createDiv();
+  }
+
+  getDisplayText(): string {
+    return '';
+  }
+
+  getIcon(): string {
+    return '';
+  }
+
+  getViewType(): string {
+    return '';
+  }
+
+  onClose(): Promise<void> | void {}
+
+  onOpen(): Promise<void> | void {}
+}
+
+export class PluginSettingTab {
+  readonly app: App;
+  readonly containerEl = createMockElement();
+  readonly plugin: Plugin;
+
+  constructor(app: App, plugin: Plugin) {
+    this.app = app;
+    this.plugin = plugin;
+  }
+
+  display(): void {}
+}
+
+export class Setting {
+  readonly descriptions: string[] = [];
+  readonly names: string[] = [];
+
+  constructor(containerEl: unknown) {
+    void containerEl;
+    registrationState.settingsRows.push(this);
+  }
+
+  setDesc(description: string): this {
+    this.descriptions.push(description);
+    return this;
+  }
+
+  setHeading(): this {
+    return this;
+  }
+
+  setName(name: string): this {
+    this.names.push(name);
+    return this;
+  }
+}
