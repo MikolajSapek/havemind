@@ -19,11 +19,14 @@ raporcie fazy (co działa, co odłożone, dowód).
   - AC negatywne: brak `any` bez jawnego komentarza uzasadniającego w nowo dotkniętych plikach.
   - Pliki: `tsconfig.base.json`, `eslint.config.js`, `vitest.config.ts`, `scripts/check-workspace.mjs`.
 
-- [ ] **F0-02** `fundament` Zweryfikować dane kanoniczne bez duplikacji
+- [x] **F0-02** `fundament` Zweryfikować dane kanoniczne bez duplikacji
   - AC: grep pakietu `plan/` na frazy skopiowane 1:1 z `specs/*.md`/`plans/*.md` dłuższe niż jedno
     zdanie → 0 trafień (funkcjonalne, metoda: ręczny przegląd + grep).
   - AC: tabela z `02-fundamenty.md` zweryfikowana — każdy wskazany plik istnieje (curl/cat
     ścieżki).
+  - Dowód (2026-07-16): sentence-level diff plan/*.md vs specs/*.md+plans/*.md → 0 duplicated
+    sentences (≥12 words); 6/6 repo files exist; Sapserver note found at
+    `~/Documents/Mikolaj Private/Wiedza/Sapserver - dostęp i konfiguracja.md`.
 
 ## F1 — Systemy przekrojowe
 
