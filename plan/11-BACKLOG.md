@@ -235,6 +235,16 @@ raporcie fazy (co działa, co odłożone, dowód).
   - Dowód (2026-07-16): pathOwners w PersistedSyncState (3 testy), ownership zapisywany po
     każdym write/rename, forget przy delete; kolizja nigdy nie nadpisuje ani nie przejmuje
     ścieżki; 551 pass, plugin branch ≥80%. dist przebudowany (631 959 B).
+- [ ] **F8-02d** `plugin,serwer` Luki UI onboardingu ujawnione w realnym pilotażu (2026-07-17),
+  obejście: mint/approve przez skrypt terminalowy na serwerze. Do domknięcia w pluginie:
+  1. **Copy invitation** — panel „Create invitation" musi mieć przycisk kopiowania koperty
+     `v1.…` (navigator.clipboard + fallback readonly select); dziś koperty nie da się zaznaczyć.
+  2. **Owner approve UI** — brak komendy/ekranu zatwierdzania: owner nie ma gdzie porównać frazy
+     weryfikacyjnej i wywołać POST /vaults/:id/invitations/:invId/approve (approvePendingDevice).
+     Dodać komendę „Approve pending device": lista pending + fraza + Approve.
+  3. **create-invitation / approve CLI** — serwerowe subkomendy (jak rotate-pairing) mintujące
+     kopertę i zatwierdzające pending device z terminala, na wypadek problemów z UI.
+  Wszystko: TDD, bramka, dist; sekrety nigdy w logach.
 - [ ] **F8-02** `decyzja-usera` Siedmiodniowy pilotaż na sapserverze (T032)
   - AC: pełny checklist z `09-pilotaz-i-decyzje.md`, zapisany w `docs/pilot/checklist.md`.
   - AC: codzienny zapis `df -h /` do `docs/pilot/checklist.md` przez 7 dni; alarm i wpis w
