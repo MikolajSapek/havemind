@@ -97,7 +97,12 @@ export interface SyncRunnerOptions {
   readonly maxBackoffMs?: number;
 }
 
-export type SyncCycleStatus = 'synced' | 'conflict' | 'deferred' | 'offline';
+export type SyncCycleStatus =
+  | 'synced'
+  | 'conflict'
+  | 'deferred'
+  | 'offline'
+  | 'unauthenticated';
 
 export interface SyncCycleResult {
   readonly status: SyncCycleStatus;
@@ -201,14 +206,21 @@ export class SyncRunner {
         status: apply.status,
         suppressed: apply.suppressed,
       };
-    } catch {
-      this.scheduleBackoff();
+    } catch (error) {
+      // A refused session (HTTP 401) is terminal: stop, never retry, and let the
+      // controller surface "reconnect required". Transient failures back off.
+      const status: SyncCycleStatus = isAuthDenied(error)
+        ? 'unauthenticated'
+        : 'offline';
+      if (status === 'offline') {
+        this.scheduleBackoff();
+      }
       return {
         applied: 0,
         conflicts: 0,
         deferred: 0,
         pushed: 0,
-        status: 'offline',
+        status,
         suppressed: 0,
       };
     }
@@ -298,6 +310,19 @@ export class SyncRunner {
       void this.trigger();
     }, delayMs);
   }
+}
+
+/**
+ * A transport or access-token error is terminal (auth denied, HTTP 401) when it
+ * carries `authDenied === true`. Structural check keeps the runner decoupled
+ * from the concrete error classes.
+ */
+function isAuthDenied(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    (error as { authDenied?: unknown }).authDenied === true
+  );
 }
 
 function resolveStatus(counts: {

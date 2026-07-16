@@ -58,7 +58,7 @@ function build(): {
     runner,
     hooks,
     intervalMs: 60_000,
-    onStatus: (view) => statuses.push(view),
+    onStatus: (_status, view) => statuses.push(view),
     now: () => 1_000,
   });
   return { controller, runner, hooks, statuses };
@@ -101,6 +101,24 @@ describe('HavemindSyncController', () => {
     await Promise.resolve();
     controller.stop();
     hooks.focus?.();
+    await Promise.resolve();
+    expect(runner.triggerCount).toBe(1);
+  });
+
+  it('halts the loop on an unauthenticated cycle — no 401 retry storm', async () => {
+    const { controller, runner, hooks, statuses } = build();
+    runner.result = { ...CLEAN, status: 'unauthenticated' };
+
+    controller.start();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(runner.triggerCount).toBe(1);
+    expect(statuses.at(-1)?.text).toBe('Havemind: Reconnect required');
+
+    // Further schedule events must not fire another request until reconnect.
+    hooks.focus?.();
+    hooks.interval?.run();
+    await Promise.resolve();
     await Promise.resolve();
     expect(runner.triggerCount).toBe(1);
   });

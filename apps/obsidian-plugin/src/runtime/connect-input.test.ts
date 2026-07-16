@@ -44,7 +44,7 @@ function fake(
         },
         apiBaseUrl: API,
         deviceLabel: 'Owner Mac',
-        initialRefreshToken: 'hm_rt_x',
+        initialRefreshTokenHash: 'a'.repeat(64),
         pairingToken: 'hm_pt_x',
       }),
   };
@@ -63,7 +63,7 @@ describe('pairOwnerDevice', () => {
     expect(call?.url).toBe(`${API}/owner/pair`);
     expect(JSON.parse(call?.body ?? '{}')).toEqual({
       deviceLabel: 'Owner Mac',
-      initialRefreshToken: 'hm_rt_x',
+      initialRefreshTokenHash: 'a'.repeat(64),
       pairingToken: 'hm_pt_x',
     });
   });

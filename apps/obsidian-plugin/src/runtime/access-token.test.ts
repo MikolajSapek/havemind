@@ -72,12 +72,21 @@ describe('RefreshTokenAccessProvider', () => {
     expect(calls).toHaveLength(1);
   });
 
-  it('throws on a failed rotation and does not persist a new refresh token', async () => {
+  it('marks a 401 as auth-denied (terminal) and keeps the refresh token', async () => {
     const { provider, savedRefresh } = build(() => ({
       status: 401,
       json: { error: { code: 'UNAUTHENTICATED' } },
     }));
-    await expect(provider.getAccessToken()).rejects.toThrow();
+    await expect(provider.getAccessToken()).rejects.toMatchObject({
+      authDenied: true,
+    });
     expect(savedRefresh).toEqual([]);
+  });
+
+  it('treats a 5xx as transient (not auth-denied) so the loop keeps retrying', async () => {
+    const { provider } = build(() => ({ status: 503, json: {} }));
+    await expect(provider.getAccessToken()).rejects.toMatchObject({
+      authDenied: false,
+    });
   });
 });

@@ -362,3 +362,34 @@ describe('SyncRunner remote apply', () => {
     expect(state.cursor).toBe(2);
   });
 });
+
+describe('SyncRunner auth denial', () => {
+  it('reports unauthenticated and does NOT schedule a retry on a 401 (no storm)', async () => {
+    const pull = vi.fn(async () => {
+      throw Object.assign(new Error('refused'), { authDenied: true });
+    });
+    const { runner, retries } = makeRunner({
+      transport: { push: vi.fn(async () => []), pull },
+    });
+
+    const result = await runner.trigger();
+
+    expect(result.status).toBe('unauthenticated');
+    // Terminal: no backoff retry is scheduled, so the loop cannot storm.
+    expect(retries).toHaveLength(0);
+  });
+
+  it('still backs off for a transient (non-auth) failure', async () => {
+    const pull = vi.fn(async () => {
+      throw new Error('offline');
+    });
+    const { runner, retries } = makeRunner({
+      transport: { push: vi.fn(async () => []), pull },
+    });
+
+    const result = await runner.trigger();
+
+    expect(result.status).toBe('offline');
+    expect(retries).toHaveLength(1);
+  });
+});

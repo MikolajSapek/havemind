@@ -12,7 +12,8 @@ export type ConnectionStatus =
   | 'syncing'
   | 'synced'
   | 'offline'
-  | 'conflict';
+  | 'conflict'
+  | 'reconnect-required';
 
 const LABELS: Readonly<Record<ConnectionStatus, string>> = {
   disconnected: 'disconnected',
@@ -20,6 +21,7 @@ const LABELS: Readonly<Record<ConnectionStatus, string>> = {
   synced: 'Synced',
   offline: 'Offline',
   conflict: 'Conflict',
+  'reconnect-required': 'Reconnect required',
 };
 
 const NO_E2EE_NOTE = 'Pilot data: no end-to-end encryption.';
@@ -36,6 +38,8 @@ export function connectionStatusFromCycle(
     case 'conflict':
     case 'deferred':
       return 'conflict';
+    case 'unauthenticated':
+      return 'reconnect-required';
   }
 }
 
@@ -62,4 +66,119 @@ export function formatStatusBar(input: StatusBarInput): StatusBarView {
 
 function defaultFormatTimestamp(timestamp: number): string {
   return new Date(timestamp).toISOString();
+}
+
+// ---------------------------------------------------------------------------
+// Connect-panel indicator model (F8-02f part C)
+// ---------------------------------------------------------------------------
+
+/**
+ * A live connection indicator for the Connect panel. Colour is never the only
+ * signal (`plan/06`): every state carries a Lucide `icon` name and a text
+ * `label` alongside its Obsidian colour token. `showForm` decides whether the
+ * paste form (disconnected / reconnect-required) or the connected panel is
+ * shown. `spin` is suppressed under reduced motion.
+ */
+export interface ConnectionPanelInput {
+  readonly status: ConnectionStatus;
+  readonly serverName?: string;
+  readonly lastSyncedAt?: number;
+  readonly reducedMotion?: boolean;
+  readonly errorMessage?: string;
+  readonly formatTimestamp?: (timestamp: number) => string;
+}
+
+export interface ConnectionPanelView {
+  readonly status: ConnectionStatus;
+  /** Lucide icon name — rendered via `setIcon`, never an emoji. */
+  readonly icon: string;
+  readonly label: string;
+  /** Obsidian CSS colour variable (e.g. `--text-success`). */
+  readonly colorToken: string;
+  /** Whether the spinner should animate (false under reduced motion). */
+  readonly spin: boolean;
+  /** Show the paste form (true) or the connected panel with Disconnect (false). */
+  readonly showForm: boolean;
+  readonly detail: string;
+}
+
+interface PanelStyle {
+  readonly icon: string;
+  readonly label: string;
+  readonly colorToken: string;
+  readonly spin: boolean;
+  readonly showForm: boolean;
+}
+
+const PANEL_STYLES: Readonly<Record<ConnectionStatus, PanelStyle>> = {
+  disconnected: {
+    icon: 'circle',
+    label: 'Not connected',
+    colorToken: '--text-muted',
+    spin: false,
+    showForm: true,
+  },
+  syncing: {
+    icon: 'loader',
+    label: 'Syncing…',
+    colorToken: '--text-accent',
+    spin: true,
+    showForm: false,
+  },
+  synced: {
+    icon: 'check-circle',
+    label: 'Connected — synced',
+    colorToken: '--text-success',
+    spin: false,
+    showForm: false,
+  },
+  offline: {
+    icon: 'cloud-off',
+    label: 'Offline — will retry',
+    colorToken: '--text-warning',
+    spin: false,
+    showForm: false,
+  },
+  conflict: {
+    icon: 'alert-triangle',
+    label: 'Conflict — see Havemind Conflicts',
+    colorToken: '--text-warning',
+    spin: false,
+    showForm: false,
+  },
+  'reconnect-required': {
+    icon: 'alert-triangle',
+    label: 'Reconnect required',
+    colorToken: '--text-error',
+    spin: false,
+    showForm: true,
+  },
+};
+
+export function buildConnectionPanel(
+  input: ConnectionPanelInput,
+): ConnectionPanelView {
+  const style = PANEL_STYLES[input.status];
+  const format = input.formatTimestamp ?? defaultFormatTimestamp;
+  const parts: string[] = [];
+  if (input.serverName !== undefined && input.serverName.length > 0) {
+    parts.push(`Server: ${input.serverName}`);
+  }
+  if (input.status === 'synced' && input.lastSyncedAt !== undefined) {
+    parts.push(`Last sync: ${format(input.lastSyncedAt)}`);
+  }
+  if (input.status === 'reconnect-required' || input.status === 'offline') {
+    parts.push(input.errorMessage ?? 'The server refused the session.');
+  }
+  parts.push(NO_E2EE_NOTE);
+
+  return {
+    status: input.status,
+    icon: style.icon,
+    label: style.label,
+    colorToken: style.colorToken,
+    spin: style.spin && input.reducedMotion !== true,
+    showForm: style.showForm,
+    detail: parts.join(' · '),
+  };
 }

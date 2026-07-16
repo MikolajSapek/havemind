@@ -349,3 +349,44 @@ workspace branch 81.16%). No commit; live server untouched (code only).
    forbids `consumed_at` without `consumed_by_device_id`. Local-CLI capability
    required; `NOT_INITIALIZED` when no owner exists. Reachable in the container —
    the Dockerfile already copies `bin/`.
+
+## 2026-07-16 — F8-02f: owner refresh 401 storm + Connect panel redesign
+
+Two production bugs + a Connect-panel redesign. Full gate green (580 tests,
+workspace branch 81.06%); dist rebuilt. Live server untouched (code only).
+
+**Bug A — 401 on every /auth/refresh after owner pair.** Root cause was NOT a
+missing token-hash persist (the raw-token path already stored the correct gen-0
+hash via `parseRefreshForInitial` == the rotate lookup). The real cause: the
+client's `RefreshTokenAccessProvider` was wired with
+`generateRotationId: () => crypto.randomUUID()`, but the server's
+`prepareRotation` requires `parseRefreshRotationId` — an `hm_ri_…` token. A UUID
+failed parsing → `INVALID_INPUT` → 401 on every refresh, forever. Fix: client
+generates a branded `hm_ri_` rotation id. Also hardened the pair contract per
+request: client sends only the SHA-256 hash of its refresh token to
+`POST /owner/pair` (new `pairOwnerDeviceFromHash` using
+`createInitialFamilyFromHashInCurrentTransaction`, mirroring the invitee
+approval); the raw secret never crosses the wire. Locked with a server
+integration test: pair → refresh → 200 (`accessToken` issued).
+
+**Bug B — 401 retry storm.** Auth denial is now terminal: `AccessTokenError`
+and `RequestUrlTransportError` carry `authDenied` (true on HTTP 401); the runner
+returns a new `'unauthenticated'` cycle status WITHOUT scheduling backoff; the
+controller stops the scheduler and surfaces `reconnect-required`. Transient
+(5xx/network) failures still back off. Tests cover runner (no-retry vs backoff),
+access-token (authDenied flag), and controller (loop halts, no further requests).
+
+**Part C — live Connect panel.** New pure `buildConnectionPanel` model (icon +
+label + Obsidian colour token + spin, never colour alone per plan/06); states
+gray Not-connected / blue-spinner Syncing / green ✓ Synced / amber Offline /
+red Reconnect-required. The onboarding view renders a live indicator fed by the
+same `connectionStatusFromCycle` source as the status bar (re-rendered on every
+status change), hides the token field once connected (secret never lingers),
+shows server name + Disconnect, and disables the form while connected. Reduced
+motion suppresses the spinner. Owner `createInvitationForOwner` now also works
+from an `ownerConnection` record (not only onboarding state), so a paired owner
+can mint invitations.
+
+Owner pairing must be re-run once after deploy: any owner paired before this fix
+holds a burned/again-rotating credential; `havemind rotate-pairing` mints a
+fresh token to reconnect.

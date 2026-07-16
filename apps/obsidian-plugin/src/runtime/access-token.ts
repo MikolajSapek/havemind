@@ -26,6 +26,18 @@ export interface RefreshTokenAccessProviderOptions {
 
 export class AccessTokenError extends Error {
   override readonly name = 'AccessTokenError';
+
+  /**
+   * True when the server refused the credential (HTTP 401) — a terminal state
+   * that must halt the sync loop until the user reconnects, never a retry. A
+   * missing token or a transient 5xx/network failure is not auth-denied.
+   */
+  readonly authDenied: boolean;
+
+  constructor(message: string, options?: { authDenied?: boolean }) {
+    super(message);
+    this.authDenied = options?.authDenied ?? false;
+  }
 }
 
 export class RefreshTokenAccessProvider {
@@ -67,7 +79,11 @@ export class RefreshTokenAccessProvider {
       }),
     });
     if (response.status < 200 || response.status >= 300) {
-      throw new AccessTokenError(`Refresh failed with HTTP ${response.status}.`);
+      // A 401 means the server refused the refresh credential — terminal, so the
+      // loop must stop until the user reconnects. Other statuses are transient.
+      throw new AccessTokenError(`Refresh failed with HTTP ${response.status}.`, {
+        authDenied: response.status === 401,
+      });
     }
     const body = response.json;
     if (

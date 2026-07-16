@@ -3,13 +3,20 @@ import {
   Plugin,
   PluginSettingTab,
   Setting,
+  setIcon,
   type WorkspaceLeaf,
 } from 'obsidian';
 
 import { isSafePassiveJoinProtocolData } from './onboarding/invite';
 import type { RevisionRecord } from './activity/activity';
 import { buildActivityViewModel } from './runtime/activity-render';
-import { formatStatusBar, type StatusBarView } from './runtime/status';
+import {
+  buildConnectionPanel,
+  formatStatusBar,
+  type ConnectionPanelView,
+  type ConnectionStatus,
+  type StatusBarView,
+} from './runtime/status';
 import {
   connectFromInput,
   createInvitationForOwner,
@@ -23,6 +30,14 @@ export const HAVEMIND_ONBOARDING_VIEW = 'havemind-onboarding';
 
 const EMPTY_ACTIVITY_TEXT =
   'Connect a disposable vault to begin the private pilot.';
+
+function prefersReducedMotion(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  );
+}
 
 /** Injected data + actions for the Activity surface (F5-01 feed + restore). */
 export interface ActivityViewOptions {
@@ -79,6 +94,8 @@ export type ConnectReporter = (message: string) => void;
 /** Injected data + actions for the onboarding surface. */
 export interface OnboardingViewOptions {
   readonly invitationProvider?: () => CreatedInvitation | null;
+  /** Live connection indicator model; defaults to the disconnected panel. */
+  readonly panelProvider?: () => ConnectionPanelView;
   /**
    * Runs the connect flow for the pasted input (invitation envelope `v1.…` or
    * owner pairing token `hm_pt_…`) against the given server URL, reporting
@@ -89,6 +106,8 @@ export interface OnboardingViewOptions {
     serverUrl: string,
     report: ConnectReporter,
   ) => void;
+  /** Stop the live sync loop so the paste form returns. */
+  readonly onDisconnect?: () => void;
 }
 
 export class HavemindOnboardingView extends ItemView {
@@ -112,6 +131,15 @@ export class HavemindOnboardingView extends ItemView {
   }
 
   override onOpen(): void {
+    this.render();
+  }
+
+  /** Re-renders from the current panel state — called on every status change. */
+  refresh(): void {
+    this.render();
+  }
+
+  private render(): void {
     const content = this.containerEl.children[1] as HTMLElement | undefined;
     if (!content) return;
 
@@ -128,18 +156,49 @@ export class HavemindOnboardingView extends ItemView {
       return;
     }
 
-    content.createDiv({
-      text: 'Paste an invitation (v1.…) or your owner pairing token (hm_pt_…).',
+    const panel =
+      this.options.panelProvider?.() ??
+      buildConnectionPanel({ status: 'disconnected' });
+    this.renderIndicator(content, panel);
+
+    if (panel.showForm) {
+      this.renderForm(content);
+    } else {
+      this.renderConnected(content);
+    }
+  }
+
+  private renderIndicator(content: HTMLElement, panel: ConnectionPanelView): void {
+    const row = content.createDiv({ text: '' });
+    row.addClass('havemind-status');
+    if (panel.spin) row.addClass('havemind-status-spin');
+    row.style.setProperty('color', `var(${panel.colorToken})`);
+    const icon = row.createEl('span');
+    setIcon(icon, panel.icon);
+    row.createEl('span', { text: ` ${panel.label}` });
+    content.createDiv({ text: panel.detail });
+  }
+
+  private renderConnected(content: HTMLElement): void {
+    const disconnect = content.createEl('button', { text: 'Disconnect' });
+    disconnect.onClickEvent(() => this.options.onDisconnect?.());
+  }
+
+  private renderForm(content: HTMLElement): void {
+    content.createEl('label', {
+      text: 'Invitation or owner pairing token',
     });
     const tokenInput = content.createEl('textarea', {
       placeholder: 'v1.… or hm_pt_…',
     });
+    content.createEl('label', { text: 'Server URL' });
     const serverInput = content.createEl('input', {
       type: 'text',
-      placeholder: 'Server URL (e.g. https://sapserver.tailnet.ts.net)',
+      placeholder: 'https://sapserver.tailnet.ts.net',
     });
     const status = content.createDiv({ text: '' });
     const connect = content.createEl('button', { text: 'Connect' });
+    connect.addClass('mod-cta');
     connect.onClickEvent(() => {
       const input = (tokenInput as unknown as { value: string }).value.trim();
       const serverUrl = (serverInput as unknown as { value: string }).value.trim();
@@ -171,6 +230,10 @@ export default class HavemindPlugin extends Plugin {
   private statusItem: HTMLElement | null = null;
   private connection: ConnectionHandle | null = null;
   private pendingInvitation: CreatedInvitation | null = null;
+  private connectionStatus: ConnectionStatus = 'disconnected';
+  private lastSyncedAt: number | undefined;
+  private connectionError: string | undefined;
+  private onboardingView: HavemindOnboardingView | null = null;
 
   override onload(): void {
     this.registerView(
@@ -178,16 +241,18 @@ export default class HavemindPlugin extends Plugin {
       (leaf: WorkspaceLeaf) =>
         new HavemindActivityView(leaf, this.activityOptions),
     );
-    this.registerView(
-      HAVEMIND_ONBOARDING_VIEW,
-      (leaf: WorkspaceLeaf) =>
-        new HavemindOnboardingView(leaf, {
-          invitationProvider: () => this.pendingInvitation,
-          onConnect: (input, serverUrl, report) => {
-            void this.connectFromInput(input, serverUrl, report);
-          },
-        }),
-    );
+    this.registerView(HAVEMIND_ONBOARDING_VIEW, (leaf: WorkspaceLeaf) => {
+      const view = new HavemindOnboardingView(leaf, {
+        invitationProvider: () => this.pendingInvitation,
+        panelProvider: () => this.connectionPanel(),
+        onConnect: (input, serverUrl, report) => {
+          void this.connectFromInput(input, serverUrl, report);
+        },
+        onDisconnect: () => this.disconnect(),
+      });
+      this.onboardingView = view;
+      return view;
+    });
 
     this.addCommand({
       id: 'open-activity',
@@ -244,8 +309,8 @@ export default class HavemindPlugin extends Plugin {
   }
 
   private async startConnection(): Promise<void> {
-    this.connection = await startHavemindConnection(this, (view) =>
-      this.setStatus(view),
+    this.connection = await startHavemindConnection(this, (status, view) =>
+      this.handleStatus(status, view),
     );
   }
 
@@ -262,12 +327,51 @@ export default class HavemindPlugin extends Plugin {
   ): Promise<void> {
     const handle = await connectFromInput(this, input, serverUrl, {
       report,
-      onStatus: (view) => this.setStatus(view),
+      onStatus: (status, view) => this.handleStatus(status, view),
     });
     if (handle !== null) {
       this.connection?.stop();
       this.connection = handle;
     }
+  }
+
+  /** Stops the live sync loop; the paste form returns so the user can reconnect. */
+  private disconnect(): void {
+    this.connection?.stop();
+    this.connection = null;
+    this.connectionStatus = 'disconnected';
+    this.lastSyncedAt = undefined;
+    this.connectionError = undefined;
+    this.setStatus(formatStatusBar({ status: 'disconnected' }));
+    this.onboardingView?.refresh();
+  }
+
+  /** Updates the status bar and live Connect indicator from a cycle status. */
+  private handleStatus(status: ConnectionStatus, view: StatusBarView): void {
+    this.connectionStatus = status;
+    if (status === 'synced') {
+      this.lastSyncedAt = Date.now();
+      this.connectionError = undefined;
+    }
+    if (status === 'reconnect-required') {
+      this.connectionError = 'The server refused the session — reconnect.';
+    }
+    this.setStatus(view);
+    this.onboardingView?.refresh();
+  }
+
+  private connectionPanel(): ConnectionPanelView {
+    return buildConnectionPanel({
+      status: this.connectionStatus,
+      serverName: this.connection?.serverName ?? '',
+      reducedMotion: prefersReducedMotion(),
+      ...(this.lastSyncedAt === undefined
+        ? {}
+        : { lastSyncedAt: this.lastSyncedAt }),
+      ...(this.connectionError === undefined
+        ? {}
+        : { errorMessage: this.connectionError }),
+    });
   }
 
   /**

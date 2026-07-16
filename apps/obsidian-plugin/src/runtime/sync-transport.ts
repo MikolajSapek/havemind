@@ -58,11 +58,16 @@ export interface RequestUrlTransportOptions {
 export class RequestUrlTransportError extends Error {
   override readonly name = 'RequestUrlTransportError';
 
+  /** True on HTTP 401 — the session was refused; the loop must stop, not retry. */
+  readonly authDenied: boolean;
+
   constructor(
     readonly reason: 'unresolved-envelope' | 'http-status' | 'malformed-response',
     message: string,
+    options?: { authDenied?: boolean },
   ) {
     super(message);
+    this.authDenied = options?.authDenied ?? false;
   }
 }
 
@@ -131,6 +136,7 @@ export class RequestUrlTransport implements SyncTransport {
       throw new RequestUrlTransportError(
         'http-status',
         `Server returned HTTP ${response.status}.`,
+        { authDenied: response.status === 401 },
       );
     }
     return response;

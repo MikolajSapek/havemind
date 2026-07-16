@@ -12,6 +12,7 @@ import { SyncScheduler, type SchedulerHooks } from './scheduler';
 import {
   connectionStatusFromCycle,
   formatStatusBar,
+  type ConnectionStatus,
   type StatusBarView,
 } from './status';
 import type { SyncCycleResult } from '../sync/sync-runner';
@@ -21,11 +22,16 @@ export interface SyncRunnerLike {
   trigger(): Promise<SyncCycleResult>;
 }
 
+export type StatusListener = (
+  status: ConnectionStatus,
+  view: StatusBarView,
+) => void;
+
 export interface HavemindSyncControllerOptions {
   readonly runner: SyncRunnerLike;
   readonly hooks: SchedulerHooks;
   readonly intervalMs: number;
-  readonly onStatus: (view: StatusBarView) => void;
+  readonly onStatus: StatusListener;
   readonly now?: () => number;
 }
 
@@ -56,13 +62,23 @@ export class HavemindSyncController {
   }
 
   async syncNow(): Promise<void> {
-    this.options.onStatus(formatStatusBar({ status: 'syncing' }));
+    this.report('syncing');
     const result = await this.options.runner.trigger();
     const status = connectionStatusFromCycle(result.status);
     if (status === 'synced') {
       this.lastSyncedAt = this.now();
     }
+    this.report(status);
+    // A refused session is terminal: stop the schedule so the plugin issues no
+    // further requests until the user reconnects (no 401 retry storm).
+    if (result.status === 'unauthenticated') {
+      this.stop();
+    }
+  }
+
+  private report(status: ConnectionStatus): void {
     this.options.onStatus(
+      status,
       formatStatusBar(
         this.lastSyncedAt === undefined
           ? { status }

@@ -26,6 +26,8 @@ declare module 'obsidian' {
     request: RequestUrlParam,
   ): Promise<RequestUrlResponse>;
 
+  export function setIcon(element: HTMLElement, iconId: string): void;
+
   export abstract class TAbstractFile {
     path: string;
     name: string;

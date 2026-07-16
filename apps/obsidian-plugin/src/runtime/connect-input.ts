@@ -25,7 +25,12 @@ export interface PairOwnerDeviceOptions {
   readonly requestUrl: RequestUrlFn;
   readonly apiBaseUrl: string;
   readonly deviceLabel: string;
-  readonly initialRefreshToken: string;
+  /**
+   * SHA-256 hex of the client-held refresh token. Only the hash crosses the
+   * wire; the server binds the refresh family to it and the client keeps the
+   * raw secret (mirrors the invitee redeem contract).
+   */
+  readonly initialRefreshTokenHash: string;
   readonly pairingToken: string;
 }
 
@@ -48,7 +53,7 @@ export async function pairOwnerDevice(
     throw: false,
     body: JSON.stringify({
       deviceLabel: options.deviceLabel,
-      initialRefreshToken: options.initialRefreshToken,
+      initialRefreshTokenHash: options.initialRefreshTokenHash,
       pairingToken: options.pairingToken,
     }),
   });

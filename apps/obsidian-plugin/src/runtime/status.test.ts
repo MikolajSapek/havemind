@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  buildConnectionPanel,
   connectionStatusFromCycle,
   formatStatusBar,
   type ConnectionStatus,
@@ -13,8 +14,57 @@ describe('connectionStatusFromCycle', () => {
     ['offline', 'offline'],
     ['conflict', 'conflict'],
     ['deferred', 'conflict'],
+    ['unauthenticated', 'reconnect-required'],
   ])('maps cycle %s to connection %s', (cycle, expected) => {
     expect(connectionStatusFromCycle(cycle)).toBe(expected);
+  });
+});
+
+describe('buildConnectionPanel', () => {
+  it('renders a green connected indicator with icon and text, form hidden', () => {
+    const panel = buildConnectionPanel({
+      status: 'synced',
+      serverName: 'sap.ts.net',
+      lastSyncedAt: 0,
+      formatTimestamp: () => 'now',
+    });
+    expect(panel.colorToken).toBe('--text-success');
+    expect(panel.icon).toBe('check-circle');
+    expect(panel.label).toBe('Connected — synced');
+    expect(panel.showForm).toBe(false);
+    expect(panel.detail).toContain('sap.ts.net');
+    expect(panel.detail).toContain('now');
+  });
+
+  it('shows the form when disconnected and when reconnect is required', () => {
+    expect(buildConnectionPanel({ status: 'disconnected' }).showForm).toBe(true);
+    const reconnect = buildConnectionPanel({ status: 'reconnect-required' });
+    expect(reconnect.showForm).toBe(true);
+    expect(reconnect.colorToken).toBe('--text-error');
+    expect(reconnect.icon).toBe('alert-triangle');
+  });
+
+  it('animates the spinner only while syncing and not under reduced motion', () => {
+    expect(buildConnectionPanel({ status: 'syncing' }).spin).toBe(true);
+    expect(
+      buildConnectionPanel({ status: 'syncing', reducedMotion: true }).spin,
+    ).toBe(false);
+    expect(buildConnectionPanel({ status: 'synced' }).spin).toBe(false);
+  });
+
+  it('never relies on colour alone — always an icon and a label', () => {
+    for (const status of [
+      'disconnected',
+      'syncing',
+      'synced',
+      'offline',
+      'conflict',
+      'reconnect-required',
+    ] as const) {
+      const panel = buildConnectionPanel({ status });
+      expect(panel.icon.length).toBeGreaterThan(0);
+      expect(panel.label.length).toBeGreaterThan(0);
+    }
   });
 });
 

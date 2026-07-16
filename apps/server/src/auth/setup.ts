@@ -123,6 +123,21 @@ export interface PairOwnerDeviceResult {
   readonly refreshExpiresAt: string;
 }
 
+export interface PairOwnerDeviceFromHashInput {
+  readonly deviceDisplayName: string;
+  readonly deviceId: string;
+  readonly pairingToken: string;
+  readonly publicKey: Buffer;
+  readonly refreshTokenHash: string;
+}
+
+export interface PairOwnerDeviceFromHashResult {
+  readonly deviceId: string;
+  readonly familyId: string;
+  readonly ownerUserId: string;
+  readonly refreshExpiresAt: string;
+}
+
 export interface RotateOwnerPairingResult {
   readonly ownerUserId: string;
   readonly pairingExpiresAt: string;
@@ -376,6 +391,78 @@ export class OwnerSetupService {
         refreshExpiresAt: session.refreshExpiresAt,
       };
     });
+
+    return pair.immediate();
+  }
+
+  /**
+   * Onboarding-friendly owner pairing: binds the refresh family to a client-held
+   * refresh-token *hash* (the raw token never reaches the server) and mints no
+   * access token — the device rotates via `/auth/refresh` to obtain access. This
+   * mirrors the invitee redeem contract, so the owner's `/auth/refresh` succeeds.
+   */
+  public pairOwnerDeviceFromHash(
+    input: PairOwnerDeviceFromHashInput,
+  ): PairOwnerDeviceFromHashResult {
+    const deviceId = requireUuid(input.deviceId);
+    const deviceDisplayName = requireDisplayName(input.deviceDisplayName);
+    const publicKey = requirePublicKey(input.publicKey);
+    const pairingToken = requirePairingToken(input.pairingToken);
+    const pairingTokenHash = hashPairingToken(pairingToken);
+    const now = readClock(this.#now);
+    const createdAt = now.toISOString();
+
+    const pair = this.#database.transaction(
+      (): PairOwnerDeviceFromHashResult => {
+        const pairing = this.#database
+          .prepare(
+            `SELECT id, user_id AS userId,
+                    expires_at AS expiresAt, consumed_at AS consumedAt
+             FROM owner_pairings WHERE token_hash = ?`,
+          )
+          .get(pairingTokenHash) as PairingRow | undefined;
+        if (
+          pairing === undefined ||
+          pairing.consumedAt !== null ||
+          Date.parse(pairing.expiresAt) <= now.getTime()
+        ) {
+          throw new OwnerSetupError('INVALID_PAIRING');
+        }
+
+        this.#database
+          .prepare(
+            `INSERT INTO devices (
+               id, user_id, display_name, public_key, status,
+               created_at, approved_at, revoked_at
+             ) VALUES (?, ?, ?, ?, 'approved', ?, ?, NULL)`,
+          )
+          .run(deviceId, pairing.userId, deviceDisplayName, publicKey, createdAt, createdAt);
+
+        const family = this.#sessions.createInitialFamilyFromHashInCurrentTransaction(
+          {
+            deviceId,
+            refreshTokenHash: input.refreshTokenHash,
+            refreshTokenTtlSeconds: this.#refreshTokenTtlSeconds,
+            userId: pairing.userId,
+          },
+        );
+
+        this.#database
+          .prepare(
+            `UPDATE owner_pairings
+             SET consumed_at = ?, consumed_by_device_id = ?
+             WHERE id = ?`,
+          )
+          .run(createdAt, deviceId, pairing.id);
+
+        return {
+          deviceId,
+          familyId: family.familyId,
+          ownerUserId: pairing.userId,
+          refreshExpiresAt: family.refreshExpiresAt,
+        };
+      },
+    );
 
     return pair.immediate();
   }

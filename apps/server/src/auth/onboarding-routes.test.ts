@@ -20,7 +20,9 @@ import {
   generateRefreshToken,
   generatePairingToken,
   hashPairingToken,
+  hashRefreshToken,
   parsePairingToken,
+  parseRefreshToken,
 } from './tokens.js';
 
 const TEST_ENV = {
@@ -603,6 +605,15 @@ describe('onboarding HTTP surface', () => {
 });
 
 describe('owner device pairing HTTP surface', () => {
+  const refreshTokenHash = (token: string): string =>
+    hashRefreshToken(parseRefreshToken(token));
+
+  const pairBody = (pairingToken: string, refreshToken = generateRefreshToken()) => ({
+    deviceLabel: 'Owner Mac',
+    initialRefreshTokenHash: refreshTokenHash(refreshToken),
+    pairingToken,
+  });
+
   it('pairs the owner device from a pairing token and returns the vault id', async () => {
     const fixture = makeFixture();
     const pairingToken = generatePairingToken();
@@ -610,11 +621,7 @@ describe('owner device pairing HTTP surface', () => {
     const app = createApp(fixture);
 
     const response = await app.inject({
-      body: {
-        deviceLabel: 'Owner Mac',
-        initialRefreshToken: generateRefreshToken(),
-        pairingToken,
-      },
+      body: pairBody(pairingToken),
       method: 'POST',
       url: '/owner/pair',
     });
@@ -625,6 +632,38 @@ describe('owner device pairing HTTP surface', () => {
     expect(body.deviceId).toMatch(/^[0-9a-f-]{36}$/u);
   });
 
+  it('lets the paired owner refresh to an access token (pair → refresh → 200)', async () => {
+    const fixture = makeFixture();
+    const pairingToken = generatePairingToken();
+    insertPairing(fixture.database, pairingToken);
+    const app = createApp(fixture);
+    const refreshToken = generateRefreshToken();
+
+    const paired = await app.inject({
+      body: pairBody(pairingToken, refreshToken),
+      method: 'POST',
+      url: '/owner/pair',
+    });
+    expect(paired.statusCode).toBe(200);
+
+    // The client keeps the raw refresh token and rotates it for access; this is
+    // the exact flow that produced a 401 storm before the hash contract fix.
+    const successor = createRefreshSuccessor();
+    const refreshed = await app.inject({
+      body: {
+        refreshToken,
+        rotationId: successor.rotationId,
+        successorRefreshToken: successor.refreshToken,
+      },
+      method: 'POST',
+      url: '/auth/refresh',
+    });
+    expect(refreshed.statusCode).toBe(200);
+    expect((refreshed.json() as { accessToken: string }).accessToken).toMatch(
+      /^hm_at_/u,
+    );
+  });
+
   it('rejects a reused pairing token with 401 (single-use)', async () => {
     const fixture = makeFixture();
     const pairingToken = generatePairingToken();
@@ -632,22 +671,14 @@ describe('owner device pairing HTTP surface', () => {
     const app = createApp(fixture);
 
     const first = await app.inject({
-      body: {
-        deviceLabel: 'Owner Mac',
-        initialRefreshToken: generateRefreshToken(),
-        pairingToken,
-      },
+      body: pairBody(pairingToken),
       method: 'POST',
       url: '/owner/pair',
     });
     expect(first.statusCode).toBe(200);
 
     const second = await app.inject({
-      body: {
-        deviceLabel: 'Owner Mac 2',
-        initialRefreshToken: generateRefreshToken(),
-        pairingToken,
-      },
+      body: pairBody(pairingToken),
       method: 'POST',
       url: '/owner/pair',
     });
@@ -659,11 +690,7 @@ describe('owner device pairing HTTP surface', () => {
     const app = createApp(fixture);
 
     const response = await app.inject({
-      body: {
-        deviceLabel: 'Owner Mac',
-        initialRefreshToken: generateRefreshToken(),
-        pairingToken: generatePairingToken(),
-      },
+      body: pairBody(generatePairingToken()),
       method: 'POST',
       url: '/owner/pair',
     });

@@ -65,7 +65,9 @@ const refreshBodySchema = z
 const ownerPairBodySchema = z
   .object({
     deviceLabel: z.string().min(1).max(80),
-    initialRefreshToken: z.string().min(1).max(200),
+    // The client sends only the SHA-256 hash of its refresh token; the raw
+    // secret never reaches the server (mirrors the invitee redeem contract).
+    initialRefreshTokenHash: z.string().regex(/^[0-9a-f]{64}$/u),
     pairingToken: z.string().min(1).max(200),
   })
   .strict();
@@ -282,12 +284,12 @@ export function registerPreAuthOnboardingRoutes(
       // The joining device has no keypair in the pilot, so a placeholder public
       // key is generated server-side (mirrors the invitee redeem flow). The
       // pairing is single-use: `pairOwnerDevice` consumes it in one transaction.
-      const result = service.pairOwnerDevice({
+      const result = service.pairOwnerDeviceFromHash({
         deviceDisplayName: body.data.deviceLabel,
         deviceId: randomUUID(),
-        initialRefreshToken: body.data.initialRefreshToken,
         pairingToken: body.data.pairingToken,
         publicKey: randomBytes(OWNER_DEVICE_PUBLIC_KEY_LENGTH),
+        refreshTokenHash: body.data.initialRefreshTokenHash,
       });
       const vaultId = loadFirstActiveVault(deps.database, result.ownerUserId);
       if (vaultId === null) {
@@ -295,8 +297,6 @@ export function registerPreAuthOnboardingRoutes(
       }
       reply.header('cache-control', 'no-store');
       return {
-        accessExpiresAt: result.accessExpiresAt,
-        accessToken: result.accessToken,
         deviceId: result.deviceId,
         vaultId,
       };

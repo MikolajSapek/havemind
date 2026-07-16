@@ -10,13 +10,18 @@ type CreateElOptions = {
 
 export type MockElement = {
   children: MockElement[];
+  classes: string[];
+  addClass: (cls: string) => void;
   createDiv: (options?: { text?: string }) => MockElement;
   createEl: (tag: string, options?: CreateElOptions) => MockElement;
+  disabled: boolean;
   empty: () => void;
+  iconName: string;
   onClickEvent: (callback: Callback) => void;
   remove: () => void;
   removed: boolean;
   setText: (value: string) => void;
+  style: { setProperty: (name: string, value: string) => void };
   tag: string;
   text: string;
   value: string;
@@ -42,11 +47,23 @@ export type RegistrationState = {
   views: Map<string, ViewCreator>;
 };
 
+export function setIcon(element: unknown, iconId: string): void {
+  (element as MockElement).iconName = iconId;
+}
+
 function createMockElement(): MockElement {
   const children: MockElement[] = [];
+  const classes: string[] = [];
   let clickCallback: Callback = () => undefined;
   const element: MockElement = {
     children,
+    classes,
+    addClass(cls: string): void {
+      classes.push(cls);
+    },
+    disabled: false,
+    iconName: '',
+    style: { setProperty: () => undefined },
     createDiv(options?: { text?: string }): MockElement {
       const child = createMockElement();
       child.text = options?.text ?? '';

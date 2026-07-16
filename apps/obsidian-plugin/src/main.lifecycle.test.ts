@@ -5,6 +5,7 @@ import HavemindPlugin, {
   HAVEMIND_ACTIVITY_VIEW,
   HAVEMIND_ONBOARDING_VIEW,
 } from './main';
+import { buildConnectionPanel } from './runtime/status';
 import {
   App,
   type MockElement,
@@ -278,6 +279,26 @@ describe('plugin lifecycle', () => {
 
     expect(captured).toEqual([{ input: 'v1.ABC', serverUrl: 'https://host' }]);
     expect(kids.some(({ text }) => text === 'Connecting to v1.ABC')).toBe(true);
+  });
+
+  it('shows the connected panel with Disconnect and hides the paste form', async () => {
+    let disconnected = 0;
+    const view = new HavemindOnboardingView(new WorkspaceLeaf(), {
+      panelProvider: () =>
+        buildConnectionPanel({ status: 'synced', serverName: 'sap.ts.net' }),
+      onDisconnect: () => {
+        disconnected += 1;
+      },
+    });
+    await view.onOpen();
+
+    const kids =
+      (view.containerEl as unknown as MockElement).children[1]?.children ?? [];
+    expect(kids.some(({ tag }) => tag === 'textarea')).toBe(false);
+    const disconnect = kids.find(({ text }) => text === 'Disconnect');
+    expect(disconnect).toBeDefined();
+    disconnect?.triggerClick();
+    expect(disconnected).toBe(1);
   });
 
   it('guards the Connect form against empty input', async () => {
