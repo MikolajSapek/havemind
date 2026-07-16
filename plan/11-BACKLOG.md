@@ -64,7 +64,10 @@ raporcie fazy (co działa, co odłożone, dowód).
     tokenu (funkcjonalne, wiersz 4 tabeli w `04`).
   - AC negatywne: redeem tego samego tokenu drugi raz → `409`, brak drugiego pending device.
 
-- [ ] **F2-02** `serwer,bezpieczeństwo` Deny-by-default auth-routes (T020)
+- [x] **F2-02** `serwer,bezpieczeństwo` Deny-by-default auth-routes (T020)
+  - Dowód (2026-07-16): auth-routes.test.ts 10/10 — cross-vault IDOR 403 bez wycieku; spoofed
+    actor-id header 403 + log bez wartości nagłówka; nieistniejący vs bez-dostępu identyczne
+    bajt-w-bajt; 429 przed auth bez info o koncie; workspace 323 pass / 3 skipped, branch 84.66%.
   - AC: cross-vault IDOR próba → `403` bez wycieku istnienia zasobu (funkcjonalne + regresyjne
     wobec tabeli zdarzeń w `04-serwer-auth-i-api.md`).
   - AC: nagłówek podszywający się pod inny `actor_id` → `403`, log nie zawiera treści nagłówka

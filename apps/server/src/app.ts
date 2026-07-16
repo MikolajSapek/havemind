@@ -10,6 +10,7 @@ import {
 } from '@havemind/protocol';
 import Fastify, { LogController, type FastifyInstance } from 'fastify';
 
+import { registerAuthRoutes, type AuthRoutesDeps } from './auth/auth-routes.js';
 import type { ServerConfig } from './config.js';
 
 const LOGGER_REDACTION_PATHS = [
@@ -36,6 +37,7 @@ export interface ReadinessResult {
 
 export interface BuildAppOptions {
   readonly config: ServerConfig;
+  readonly auth?: AuthRoutesDeps;
   readonly loggerStream?: Writable;
   readonly readiness?: () => Promise<ReadinessResult> | ReadinessResult;
 }
@@ -84,6 +86,10 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
     reply.header('cache-control', 'no-store');
     return { status: 'ok' };
   });
+
+  if (options.auth !== undefined) {
+    registerAuthRoutes(app, options.auth);
+  }
 
   app.get('/readyz', async (request, reply) => {
     reply.header('cache-control', 'no-store');
