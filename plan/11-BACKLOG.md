@@ -51,7 +51,11 @@ raporcie fazy (co działa, co odłożone, dowód).
 
 ## F2 — Szkielet (serwer + plugin vertical slice)
 
-- [ ] **F2-01** `serwer` Zaproszenia i device approval (T019)
+- [x] **F2-01** `serwer` Zaproszenia i device approval (T019)
+  - Dowód (2026-07-16): invitations.test.ts 17/17 zielone — 256-bit token (32B), tylko SHA-256
+    w DB, TTL 900 s; >15 min → 410 + burn + retry 409; phrase mismatch/reject → device usunięty,
+    zero tokenu; drugi redeem → 409, 1 pending device; workspace 313 pass / 3 skipped,
+    coverage branch 84.56%.
   - AC: 256-bit/15-min/single-use zaproszenie, fraza weryfikacyjna race-safe (funkcjonalne,
     `npm test --workspace @havemind/server -- invitations`).
   - AC: redeem z zaproszeniem starszym niż 15 min → `410 Gone`, zaproszenie oznaczone zużyte,

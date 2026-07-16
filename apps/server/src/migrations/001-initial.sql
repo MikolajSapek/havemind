@@ -86,13 +86,16 @@ CREATE TABLE invitations (
   vault_id TEXT NOT NULL REFERENCES vaults(id) ON DELETE CASCADE,
   created_by_membership_id TEXT NOT NULL
     REFERENCES memberships(id) ON DELETE RESTRICT,
+  inviter_device_id TEXT NOT NULL REFERENCES devices(id) ON DELETE RESTRICT,
   token_hash TEXT NOT NULL UNIQUE CHECK (length(token_hash) = 64),
+  verification_secret TEXT NOT NULL CHECK (length(verification_secret) > 0),
   intended_role TEXT NOT NULL DEFAULT 'editor'
     CHECK (intended_role IN ('owner', 'editor')),
   expires_at TEXT NOT NULL CHECK (length(expires_at) > 0),
   created_at TEXT NOT NULL CHECK (length(created_at) > 0),
   consumed_at TEXT,
   consumed_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+  pending_device_id TEXT REFERENCES devices(id) ON DELETE SET NULL,
   revoked_at TEXT
 ) STRICT;
 

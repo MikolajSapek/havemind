@@ -1,0 +1,626 @@
+import { randomUUID } from 'node:crypto';
+
+import type Database from 'better-sqlite3';
+
+import { SessionRepository } from './session-repository.js';
+import {
+  generateInvitationToken,
+  hashInvitationToken,
+  parseInvitationToken,
+  type AccessToken,
+} from './tokens.js';
+import {
+  deriveVerificationPhrase,
+  generateVerificationSecret,
+  parseVerificationPhrase,
+  parseVerificationSecret,
+} from './verification-phrase.js';
+
+const DEFAULT_ACCESS_TOKEN_TTL_SECONDS = 10 * 60;
+const DEFAULT_REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
+/** Invitations live for exactly 15 minutes and cannot be replayed. */
+export const INVITATION_TTL_SECONDS = 15 * 60;
+const MAX_DISPLAY_NAME_LENGTH = 80;
+const PUBLIC_KEY_LENGTH = 32;
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+const CONTROL_CHARACTER_CEILING = 0x20;
+
+function hasControlCharacter(value: string): boolean {
+  for (const character of value) {
+    const codePoint = character.codePointAt(0) ?? 0;
+    if (codePoint < CONTROL_CHARACTER_CEILING) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export type InvitationErrorCode =
+  | 'INVALID_INPUT'
+  | 'INVALID_INVITATION'
+  | 'INVITATION_ALREADY_REDEEMED'
+  | 'INVITATION_EXPIRED'
+  | 'NO_PENDING_DEVICE'
+  | 'NOT_AUTHORIZED'
+  | 'PHRASE_MISMATCH'
+  | 'REPOSITORY_INTEGRITY';
+
+const ERROR_MESSAGES: Readonly<Record<InvitationErrorCode, string>> = {
+  INVALID_INPUT: 'Invalid invitation input.',
+  INVALID_INVITATION: 'Invalid invitation.',
+  INVITATION_ALREADY_REDEEMED: 'The invitation was already redeemed.',
+  INVITATION_EXPIRED: 'The invitation has expired.',
+  NO_PENDING_DEVICE: 'No pending device awaits approval.',
+  NOT_AUTHORIZED: 'The membership may not perform this action.',
+  PHRASE_MISMATCH: 'The verification phrase did not match.',
+  REPOSITORY_INTEGRITY: 'Stored invitation state is invalid.',
+};
+
+const ERROR_HTTP_STATUS: Readonly<Record<InvitationErrorCode, number>> = {
+  INVALID_INPUT: 400,
+  INVALID_INVITATION: 404,
+  INVITATION_ALREADY_REDEEMED: 409,
+  INVITATION_EXPIRED: 410,
+  NO_PENDING_DEVICE: 409,
+  NOT_AUTHORIZED: 403,
+  PHRASE_MISMATCH: 403,
+  REPOSITORY_INTEGRITY: 500,
+};
+
+/** A deliberately secret-free invitation error safe to log or serialize. */
+export class InvitationError extends Error {
+  public readonly code: InvitationErrorCode;
+
+  public constructor(code: InvitationErrorCode) {
+    super(ERROR_MESSAGES[code]);
+    this.name = 'InvitationError';
+    this.code = code;
+  }
+
+  public get httpStatus(): number {
+    return ERROR_HTTP_STATUS[this.code];
+  }
+
+  public toJSON(): Readonly<{
+    name: string;
+    code: InvitationErrorCode;
+    message: string;
+  }> {
+    return { code: this.code, message: this.message, name: this.name };
+  }
+}
+
+export interface InvitationServiceOptions {
+  readonly accessTokenTtlSeconds?: number;
+  readonly refreshTokenTtlSeconds?: number;
+  readonly now?: () => Date;
+  readonly randomUuid?: () => string;
+}
+
+export type InvitationRole = 'editor' | 'owner';
+
+export interface CreateInvitationInput {
+  readonly vaultId: string;
+  readonly createdByMembershipId: string;
+  readonly inviterDeviceId: string;
+  readonly intendedRole?: InvitationRole;
+}
+
+export interface CreateInvitationResult {
+  readonly invitationId: string;
+  readonly invitationToken: string;
+  readonly expiresAt: string;
+}
+
+export interface RedeemInvitationInput {
+  readonly invitationToken: string;
+  readonly deviceId: string;
+  readonly deviceDisplayName: string;
+  readonly memberDisplayName: string;
+  readonly publicKey: Buffer;
+}
+
+export interface RedeemInvitationResult {
+  readonly state: 'pending_approval';
+  readonly invitationId: string;
+  readonly pendingDeviceId: string;
+  readonly userId: string;
+  readonly verificationPhrase: string;
+}
+
+export interface ApprovePendingDeviceInput {
+  readonly invitationId: string;
+  readonly approverMembershipId: string;
+  readonly verificationPhrase: string;
+  readonly initialRefreshToken: string;
+}
+
+export interface ApprovePendingDeviceResult {
+  readonly accessToken: AccessToken;
+  readonly accessExpiresAt: string;
+  readonly refreshExpiresAt: string;
+  readonly familyId: string;
+  readonly membershipId: string;
+  readonly deviceId: string;
+  readonly userId: string;
+}
+
+export interface RejectPendingDeviceInput {
+  readonly invitationId: string;
+  readonly approverMembershipId: string;
+}
+
+type RedeemOutcome =
+  | { readonly kind: 'expired' }
+  | { readonly kind: 'ok'; readonly result: RedeemInvitationResult };
+
+type ApproveOutcome =
+  | { readonly kind: 'mismatch' }
+  | { readonly kind: 'ok'; readonly result: ApprovePendingDeviceResult };
+
+interface InvitationRow {
+  readonly id: string;
+  readonly vaultId: string;
+  readonly inviterDeviceId: string;
+  readonly verificationSecret: string;
+  readonly intendedRole: string;
+  readonly expiresAt: string;
+  readonly consumedAt: string | null;
+  readonly consumedByUserId: string | null;
+  readonly pendingDeviceId: string | null;
+}
+
+interface OwnerMembershipRow {
+  readonly userId: string;
+  readonly role: string;
+  readonly status: string;
+  readonly vaultId: string;
+}
+
+function requireUuid(value: string): string {
+  if (typeof value !== 'string' || !UUID_PATTERN.test(value)) {
+    throw new InvitationError('INVALID_INPUT');
+  }
+  return value;
+}
+
+function requireDisplayName(value: string): string {
+  if (
+    typeof value !== 'string' ||
+    value.length === 0 ||
+    value.length > MAX_DISPLAY_NAME_LENGTH ||
+    value !== value.trim() ||
+    hasControlCharacter(value)
+  ) {
+    throw new InvitationError('INVALID_INPUT');
+  }
+  return value;
+}
+
+function requirePublicKey(value: Buffer): Buffer {
+  if (
+    !Buffer.isBuffer(value) ||
+    value.length !== PUBLIC_KEY_LENGTH ||
+    value.every((byte) => byte === 0)
+  ) {
+    throw new InvitationError('INVALID_INPUT');
+  }
+  return value;
+}
+
+function requireRole(value: InvitationRole | undefined): InvitationRole {
+  if (value === undefined) {
+    return 'editor';
+  }
+  if (value !== 'editor' && value !== 'owner') {
+    throw new InvitationError('INVALID_INPUT');
+  }
+  return value;
+}
+
+function readClock(now: () => Date): Date {
+  const value = now();
+  if (!(value instanceof Date) || !Number.isFinite(value.getTime())) {
+    throw new InvitationError('INVALID_INPUT');
+  }
+  return value;
+}
+
+function addSeconds(date: Date, seconds: number): string {
+  const milliseconds = date.getTime() + seconds * 1_000;
+  if (!Number.isSafeInteger(milliseconds)) {
+    throw new InvitationError('INVALID_INPUT');
+  }
+  return new Date(milliseconds).toISOString();
+}
+
+function requireStoredDate(value: string): number {
+  const milliseconds = Date.parse(value);
+  if (!Number.isFinite(milliseconds)) {
+    throw new InvitationError('REPOSITORY_INTEGRITY');
+  }
+  return milliseconds;
+}
+
+/**
+ * Owner-scoped invitations, race-safe single-use redemption and pending-device
+ * approval with a human-readable verification phrase. The server derives the
+ * phrase from a stored secret so both sides compare the same value in the pilot
+ * (before end-to-end encryption); it never mints vault credentials before the
+ * owner confirms the phrase.
+ */
+export class InvitationService {
+  readonly #database: Database.Database;
+  readonly #accessTokenTtlSeconds: number;
+  readonly #refreshTokenTtlSeconds: number;
+  readonly #now: () => Date;
+  readonly #randomUuid: () => string;
+  readonly #sessions: SessionRepository;
+
+  public constructor(
+    database: Database.Database,
+    options: InvitationServiceOptions = {},
+  ) {
+    this.#database = database;
+    this.#accessTokenTtlSeconds =
+      options.accessTokenTtlSeconds ?? DEFAULT_ACCESS_TOKEN_TTL_SECONDS;
+    this.#refreshTokenTtlSeconds =
+      options.refreshTokenTtlSeconds ?? DEFAULT_REFRESH_TOKEN_TTL_SECONDS;
+    this.#now = options.now ?? (() => new Date());
+    this.#randomUuid = options.randomUuid ?? randomUUID;
+    this.#sessions = new SessionRepository(database, {
+      accessTokenTtlSeconds: this.#accessTokenTtlSeconds,
+      now: this.#now,
+      randomUuid: this.#randomUuid,
+    });
+  }
+
+  public createInvitation(
+    input: CreateInvitationInput,
+  ): CreateInvitationResult {
+    const vaultId = requireUuid(input.vaultId);
+    const membershipId = requireUuid(input.createdByMembershipId);
+    const inviterDeviceId = requireUuid(input.inviterDeviceId);
+    const intendedRole = requireRole(input.intendedRole);
+    const now = readClock(this.#now);
+    const createdAt = now.toISOString();
+    const expiresAt = addSeconds(now, INVITATION_TTL_SECONDS);
+    const invitationToken = generateInvitationToken();
+    const tokenHash = hashInvitationToken(invitationToken);
+    const verificationSecret = generateVerificationSecret();
+
+    const create = this.#database.transaction((): CreateInvitationResult => {
+      const membership = this.#requireOwnerMembership(membershipId, vaultId);
+      this.#requireInviterDevice(inviterDeviceId, membership.userId);
+
+      const invitationId = this.#newUuid();
+      this.#database
+        .prepare(
+          `INSERT INTO invitations (
+             id, vault_id, created_by_membership_id, inviter_device_id,
+             token_hash, verification_secret, intended_role, expires_at,
+             created_at, consumed_at, consumed_by_user_id, pending_device_id,
+             revoked_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL)`,
+        )
+        .run(
+          invitationId,
+          vaultId,
+          membershipId,
+          inviterDeviceId,
+          tokenHash,
+          verificationSecret,
+          intendedRole,
+          expiresAt,
+          createdAt,
+        );
+
+      return { expiresAt, invitationId, invitationToken };
+    });
+
+    return create.immediate();
+  }
+
+  public redeemInvitation(
+    input: RedeemInvitationInput,
+  ): RedeemInvitationResult {
+    let tokenHash: string;
+    try {
+      tokenHash = hashInvitationToken(
+        parseInvitationToken(input.invitationToken),
+      );
+    } catch {
+      throw new InvitationError('INVALID_INPUT');
+    }
+    const deviceId = requireUuid(input.deviceId);
+    const deviceDisplayName = requireDisplayName(input.deviceDisplayName);
+    const memberDisplayName = requireDisplayName(input.memberDisplayName);
+    const publicKey = requirePublicKey(input.publicKey);
+    const now = readClock(this.#now);
+    const createdAt = now.toISOString();
+
+    const redeem = this.#database.transaction((): RedeemOutcome => {
+      const invitation = this.#loadInvitationByHash(tokenHash);
+      if (invitation.consumedAt !== null) {
+        throw new InvitationError('INVITATION_ALREADY_REDEEMED');
+      }
+      if (requireStoredDate(invitation.expiresAt) <= now.getTime()) {
+        // Burn the invitation so a replay cannot succeed, then surface the
+        // expiry outside the transaction so this write commits.
+        this.#burnInvitation(invitation.id, createdAt);
+        return { kind: 'expired' };
+      }
+
+      const userId = this.#newUuid();
+      this.#database
+        .prepare(
+          `INSERT INTO users (
+             id, display_name, is_instance_owner, status, created_at, revoked_at
+           ) VALUES (?, ?, 0, 'active', ?, NULL)`,
+        )
+        .run(userId, memberDisplayName, createdAt);
+      this.#database
+        .prepare(
+          `INSERT INTO devices (
+             id, user_id, display_name, public_key, status,
+             created_at, approved_at, revoked_at
+           ) VALUES (?, ?, ?, ?, 'pending', ?, NULL, NULL)`,
+        )
+        .run(deviceId, userId, deviceDisplayName, publicKey, createdAt);
+
+      const consumed = this.#database
+        .prepare(
+          `UPDATE invitations
+           SET consumed_at = ?, consumed_by_user_id = ?, pending_device_id = ?
+           WHERE id = ? AND consumed_at IS NULL`,
+        )
+        .run(createdAt, userId, deviceId, invitation.id);
+      if (consumed.changes !== 1) {
+        throw new InvitationError('INVITATION_ALREADY_REDEEMED');
+      }
+
+      const verificationPhrase = deriveVerificationPhrase(
+        parseVerificationSecret(invitation.verificationSecret),
+        {
+          invitationId: invitation.id,
+          inviterDeviceId: invitation.inviterDeviceId,
+          pendingDeviceId: deviceId,
+          vaultId: invitation.vaultId,
+        },
+      );
+
+      return {
+        kind: 'ok',
+        result: {
+          invitationId: invitation.id,
+          pendingDeviceId: deviceId,
+          state: 'pending_approval',
+          userId,
+          verificationPhrase,
+        },
+      };
+    });
+
+    const outcome = redeem.immediate();
+    if (outcome.kind === 'expired') {
+      throw new InvitationError('INVITATION_EXPIRED');
+    }
+    return outcome.result;
+  }
+
+  public approvePendingDevice(
+    input: ApprovePendingDeviceInput,
+  ): ApprovePendingDeviceResult {
+    const invitationId = requireUuid(input.invitationId);
+    const approverMembershipId = requireUuid(input.approverMembershipId);
+    let suppliedPhrase: string;
+    try {
+      suppliedPhrase = parseVerificationPhrase(input.verificationPhrase);
+    } catch {
+      throw new InvitationError('INVALID_INPUT');
+    }
+    const now = readClock(this.#now);
+    const approvedAt = now.toISOString();
+
+    const approve = this.#database.transaction((): ApproveOutcome => {
+        const invitation = this.#loadInvitationById(invitationId);
+        this.#requireOwnerMembership(approverMembershipId, invitation.vaultId);
+
+        const pendingDeviceId = invitation.pendingDeviceId;
+        const pendingUserId = invitation.consumedByUserId;
+        if (pendingDeviceId === null || pendingUserId === null) {
+          throw new InvitationError('NO_PENDING_DEVICE');
+        }
+        const device = this.#database
+          .prepare('SELECT status FROM devices WHERE id = ?')
+          .get(pendingDeviceId) as { status: string } | undefined;
+        if (device === undefined || device.status !== 'pending') {
+          throw new InvitationError('NO_PENDING_DEVICE');
+        }
+
+        const expectedPhrase = deriveVerificationPhrase(
+          parseVerificationSecret(invitation.verificationSecret),
+          {
+            invitationId: invitation.id,
+            inviterDeviceId: invitation.inviterDeviceId,
+            pendingDeviceId,
+            vaultId: invitation.vaultId,
+          },
+        );
+        if (suppliedPhrase !== expectedPhrase) {
+          // Discard the pending device and surface the mismatch outside the
+          // transaction so the deletion commits and no token is ever issued.
+          this.#deletePendingUser(pendingUserId);
+          return { kind: 'mismatch' };
+        }
+
+        const approved = this.#database
+          .prepare(
+            `UPDATE devices SET status = 'approved', approved_at = ?
+             WHERE id = ? AND status = 'pending'`,
+          )
+          .run(approvedAt, pendingDeviceId);
+        if (approved.changes !== 1) {
+          throw new InvitationError('REPOSITORY_INTEGRITY');
+        }
+
+        const membershipId = this.#newUuid();
+        this.#database
+          .prepare(
+            `INSERT INTO memberships (
+               id, vault_id, user_id, role, status, created_at, revoked_at
+             ) VALUES (?, ?, ?, ?, 'active', ?, NULL)`,
+          )
+          .run(
+            membershipId,
+            invitation.vaultId,
+            pendingUserId,
+            this.#normalizeStoredRole(invitation.intendedRole),
+            approvedAt,
+          );
+
+        const session = this.#sessions.createInitialSessionInCurrentTransaction(
+          {
+            deviceId: pendingDeviceId,
+            initialRefreshToken: input.initialRefreshToken,
+            refreshTokenTtlSeconds: this.#refreshTokenTtlSeconds,
+            userId: pendingUserId,
+          },
+        );
+
+        return {
+          kind: 'ok',
+          result: {
+            accessExpiresAt: session.accessExpiresAt,
+            accessToken: session.accessToken,
+            deviceId: pendingDeviceId,
+            familyId: session.familyId,
+            membershipId,
+            refreshExpiresAt: session.refreshExpiresAt,
+            userId: pendingUserId,
+          },
+        };
+      });
+
+    const outcome = approve.immediate();
+    if (outcome.kind === 'mismatch') {
+      throw new InvitationError('PHRASE_MISMATCH');
+    }
+    return outcome.result;
+  }
+
+  public rejectPendingDevice(input: RejectPendingDeviceInput): void {
+    const invitationId = requireUuid(input.invitationId);
+    const approverMembershipId = requireUuid(input.approverMembershipId);
+
+    const reject = this.#database.transaction((): void => {
+      const invitation = this.#loadInvitationById(invitationId);
+      this.#requireOwnerMembership(approverMembershipId, invitation.vaultId);
+      if (
+        invitation.pendingDeviceId === null ||
+        invitation.consumedByUserId === null
+      ) {
+        throw new InvitationError('NO_PENDING_DEVICE');
+      }
+      this.#deletePendingUser(invitation.consumedByUserId);
+    });
+
+    reject.immediate();
+  }
+
+  #loadInvitationByHash(tokenHash: string): InvitationRow {
+    const row = this.#database
+      .prepare(`${INVITATION_SELECT} WHERE token_hash = ?`)
+      .get(tokenHash) as InvitationRow | undefined;
+    if (row === undefined) {
+      throw new InvitationError('INVALID_INVITATION');
+    }
+    return row;
+  }
+
+  #loadInvitationById(invitationId: string): InvitationRow {
+    const row = this.#database
+      .prepare(`${INVITATION_SELECT} WHERE id = ?`)
+      .get(invitationId) as InvitationRow | undefined;
+    if (row === undefined) {
+      throw new InvitationError('INVALID_INVITATION');
+    }
+    return row;
+  }
+
+  #requireOwnerMembership(
+    membershipId: string,
+    vaultId: string,
+  ): OwnerMembershipRow {
+    const membership = this.#database
+      .prepare(
+        `SELECT user_id AS userId, role, status, vault_id AS vaultId
+         FROM memberships WHERE id = ?`,
+      )
+      .get(membershipId) as OwnerMembershipRow | undefined;
+    if (
+      membership === undefined ||
+      membership.status !== 'active' ||
+      membership.role !== 'owner' ||
+      membership.vaultId !== vaultId
+    ) {
+      throw new InvitationError('NOT_AUTHORIZED');
+    }
+    return membership;
+  }
+
+  #requireInviterDevice(inviterDeviceId: string, ownerUserId: string): void {
+    const device = this.#database
+      .prepare(
+        'SELECT user_id AS userId, status FROM devices WHERE id = ?',
+      )
+      .get(inviterDeviceId) as
+      | { userId: string; status: string }
+      | undefined;
+    if (
+      device === undefined ||
+      device.status !== 'approved' ||
+      device.userId !== ownerUserId
+    ) {
+      throw new InvitationError('NOT_AUTHORIZED');
+    }
+  }
+
+  #burnInvitation(invitationId: string, now: string): void {
+    this.#database
+      .prepare(
+        `UPDATE invitations SET consumed_at = ?
+         WHERE id = ? AND consumed_at IS NULL`,
+      )
+      .run(now, invitationId);
+  }
+
+  #deletePendingUser(userId: string): void {
+    this.#database.prepare('DELETE FROM users WHERE id = ?').run(userId);
+  }
+
+  #normalizeStoredRole(role: string): InvitationRole {
+    if (role !== 'editor' && role !== 'owner') {
+      throw new InvitationError('REPOSITORY_INTEGRITY');
+    }
+    return role;
+  }
+
+  #newUuid(): string {
+    return requireUuid(this.#randomUuid());
+  }
+}
+
+const INVITATION_SELECT = `
+  SELECT id,
+         vault_id AS vaultId,
+         inviter_device_id AS inviterDeviceId,
+         verification_secret AS verificationSecret,
+         intended_role AS intendedRole,
+         expires_at AS expiresAt,
+         consumed_at AS consumedAt,
+         consumed_by_user_id AS consumedByUserId,
+         pending_device_id AS pendingDeviceId
+  FROM invitations
+`;

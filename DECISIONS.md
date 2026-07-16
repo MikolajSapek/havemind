@@ -3,6 +3,15 @@
 Log of blockers, open questions and simpler-variant choices raised during
 `/loop` execution. One entry per decision; newest first.
 
+## 2026-07-16 — F2-01: invitations table completed inside 001-initial.sql
+
+The `invitations` table (forward-declared in the initial schema) was completed
+in `apps/server/src/migrations/001-initial.sql` instead of adding a second
+migration file: the DB is greenfield/pre-pilot and the F0/F1 migration suite
+hardcodes exactly one migration, so a new file would force invasive test
+rewrites for zero benefit. Once any real deployment exists, schema changes go
+into new migration files.
+
 ## 2026-07-16 — SRV-02: backup target = local NAS
 
 User chose the local-network NAS as the Restic backup target (over USB and
