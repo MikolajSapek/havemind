@@ -5,6 +5,9 @@
   "description": "Private Havemind synchronization server.",
   "license": "Apache-2.0",
   "type": "module",
+  "bin": {
+    "havemind": "bin/havemind.js"
+  },
   "engines": {
     "node": ">=22.20.0 <23"
   },

@@ -171,7 +171,11 @@ raporcie fazy (co działa, co odłożone, dowód).
   - AC: `npm run compose:smoke` zielone (funkcjonalne).
   - AC negatywne: brak obrazu bez pinned digestu.
 
-- [ ] **F7-03** `serwer,bezpieczeństwo` Setup CLI: generator sekretów + `.env.example` + diagnostyka
+- [x] **F7-03** `serwer,bezpieczeństwo` Setup CLI: generator sekretów + `.env.example` + diagnostyka
+  - Dowód (2026-07-16): env-example.test.ts — .env.example bez działającego sekretu (grep wzorców
+    + każda wartość odrzucona przez parsery tokenów); setup ≥256-bit, w DB wyłącznie sha256
+    (dump tabel bez raw tokenu); doctor czyta tylko metadane /srv/secrets — grep wyjścia
+    text+json na wstrzyknięty sekret → 0. Workspace 444 pass, branch 83.77%.
   - AC: `.env.example` nie zawiera działającego sekretu (funkcjonalne, metoda: grep pliku +
     próba połączenia z wartościami z pliku → odrzucone).
   - AC: komenda setupu generuje sekrety o entropii ≥256 bit, zapisane wyłącznie jako hash po
