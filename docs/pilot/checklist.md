@@ -39,10 +39,14 @@ Pre-pilot confirmations and the daily 7-day pilot log live here
 
 | Day | Date | `df -h /` | Sync status | Incidents |
 |-----|------|-----------|-------------|-----------|
-| 1 | | | | |
+| 1 | 2026-07-16 | /dev/nvme0n1p2  109G  8.5G   95G   9% / | Owner device connected — green Synced; /owner/pair 200, /auth/refresh 200, events polling 200 | F8-02f fixes deployed (rotationId, terminal-401, live panel) |
 | 2 | | | | |
 | 3 | | | | |
 | 4 | | | | |
 | 5 | | | | |
 | 6 | | | | |
 | 7 | | | | |
+
+- [x] **Owner device connected (2026-07-16, day 1)**: Vault A paired over HTTP,
+  live sync loop green (server logs: pair 200 -> refresh 200 -> events 200).
+  Vault B (friend) pending.
