@@ -42,6 +42,8 @@ export interface PersistedSyncState {
   readonly outbox: readonly OutboxEnvelope[];
   readonly locallyAuthored: readonly string[];
   readonly deferred: readonly RemoteEvent[];
+  /** Durable fileId↔path map for files Havemind has materialized/synced. */
+  readonly pathOwners: Readonly<Record<string, string>>;
 }
 
 /** Persistence boundary; wraps `Plugin.loadData`/`Plugin.saveData` in production. */
@@ -65,6 +67,7 @@ function emptyState(): PersistedSyncState {
     outbox: [],
     locallyAuthored: [],
     deferred: [],
+    pathOwners: {},
   };
 }
 
@@ -115,6 +118,32 @@ export class DurableSyncState implements SyncStatePort {
   async isLocallyAuthored(revisionId: string): Promise<boolean> {
     const state = await this.ensureLoaded();
     return state.locallyAuthored.includes(revisionId);
+  }
+
+  /**
+   * Synchronous owner lookup against the warmed cache. Returns the fileId that
+   * owns `path`, or null if Havemind has not materialized a file there. The
+   * vault adapter uses this to update already-synced files in place while
+   * routing genuine collisions (a foreign file at the path) to conflicts.
+   */
+  fileIdAtPath(path: string): string | null {
+    return this.cache?.pathOwners[path] ?? null;
+  }
+
+  async recordPathOwner(fileId: string, path: string): Promise<void> {
+    const state = await this.ensureLoaded();
+    await this.mutate({
+      ...state,
+      pathOwners: { ...state.pathOwners, [path]: fileId },
+    });
+  }
+
+  async forgetPath(path: string): Promise<void> {
+    const state = await this.ensureLoaded();
+    if (!(path in state.pathOwners)) return;
+    const pathOwners = { ...state.pathOwners };
+    delete pathOwners[path];
+    await this.mutate({ ...state, pathOwners });
   }
 
   async enqueue(envelope: OutboxEnvelope): Promise<void> {
@@ -217,13 +246,30 @@ function parsePersistedState(raw: unknown): PersistedSyncState {
     parsedDeferred.push(parsed);
   }
 
+  const pathOwners = parsePathOwners(raw.pathOwners);
+  if (pathOwners === null) return emptyState();
+
   return {
     version: 1,
     cursor: cursor as number,
     outbox: parsedOutbox,
     locallyAuthored: locallyAuthored as string[],
     deferred: parsedDeferred,
+    pathOwners,
   };
+}
+
+function parsePathOwners(
+  value: unknown,
+): Record<string, string> | null {
+  if (value === undefined) return {};
+  if (!isRecord(value)) return null;
+  const owners: Record<string, string> = {};
+  for (const [path, fileId] of Object.entries(value)) {
+    if (typeof fileId !== 'string') return null;
+    owners[path] = fileId;
+  }
+  return owners;
 }
 
 function parseEnvelope(value: unknown): OutboxEnvelope | null {

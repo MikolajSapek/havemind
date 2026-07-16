@@ -263,3 +263,27 @@ returns a copyable `v1.…` envelope (never logged, 15-min TTL). Wired as the
 `create-invitation` command; the envelope renders in the onboarding view. New
 tested modules: `runtime/{create-invitation}.ts` + refactored
 `{connection,vault-apply}.ts`; `packages/sync-core/src/payload-codec.ts`.
+
+## 2026-07-16 — F8-02b-C durable fileId↔path map for in-place updates (decision)
+
+Final pilot-wiring piece. Replaced F8-02b-B's conservative "any physical file =
+foreign" sentinel with a real ownership map so already-synced files update in
+place while only genuine collisions reach `Havemind Conflicts/`. TDD; full gate
+green (551 tests, workspace branch 81.84%).
+
+- **Source of truth: `DurableSyncState`** (not `PluginDataOnboardingStore`). The
+  path→fileId map lives alongside cursor/outbox/deferred under `data.json`
+  `syncState`, updated on every apply — the natural home for live-loop
+  bookkeeping. Onboarding store stays scoped to the connect handshake.
+- **`VaultApplyAdapter` records/forgets ownership** after each write/delete/
+  rename-move (new `VaultFilePort.recordPathOwner`/`forgetPath`). The glue's
+  `createVaultFilePort.fileIdAtPath` returns the recorded owner when present;
+  otherwise an untracked *physical* file at the path is still reported foreign
+  (→ conflict, never overwrite), and an empty path is a clean create.
+- **Zero-overwrite guarantee retained and tested**: a foreign owner (map or
+  untracked physical file) always diverts to `Havemind Conflicts/` and never
+  records ownership of the clashing path; a delete only removes a file the
+  tombstone's fileId owns. Tests: `records ownership on create so the next
+  revision updates in place`, `does not record ownership when a collision is
+  diverted to conflicts`, `forgets ownership when a file is deleted`, plus the
+  existing collision/delete-foreign cases.

@@ -128,6 +128,39 @@ describe('DurableSyncState', () => {
     expect((await reopened.listDeferred()).length).toBe(1);
   });
 
+  it('records, reads and forgets path ownership durably', async () => {
+    expect(state.fileIdAtPath('Notes/a.md')).toBeNull();
+    await state.recordPathOwner('file-1', 'Notes/a.md');
+    expect(state.fileIdAtPath('Notes/a.md')).toBe('file-1');
+
+    const reopened = new DurableSyncState({ persist });
+    await reopened.loadCursor(); // warm cache
+    expect(reopened.fileIdAtPath('Notes/a.md')).toBe('file-1');
+
+    await reopened.forgetPath('Notes/a.md');
+    expect(reopened.fileIdAtPath('Notes/a.md')).toBeNull();
+  });
+
+  it('rebinds a path to a new owner on re-record', async () => {
+    await state.recordPathOwner('file-1', 'Notes/a.md');
+    await state.recordPathOwner('file-2', 'Notes/a.md');
+    expect(state.fileIdAtPath('Notes/a.md')).toBe('file-2');
+  });
+
+  it('treats a malformed pathOwners map as empty', async () => {
+    const corrupt = new MemoryPersist({
+      version: 1,
+      cursor: 0,
+      outbox: [],
+      locallyAuthored: [],
+      deferred: [],
+      pathOwners: { 'Notes/a.md': 42 },
+    });
+    const recovered = new DurableSyncState({ persist: corrupt });
+    await recovered.loadCursor();
+    expect(recovered.fileIdAtPath('Notes/a.md')).toBeNull();
+  });
+
   it('deduplicates an envelope re-enqueued with the same revision id', async () => {
     await state.enqueue(envelope());
     await state.enqueue(envelope({ contentHash: 'hash-2', payloadBase64: 'BBBB' }));

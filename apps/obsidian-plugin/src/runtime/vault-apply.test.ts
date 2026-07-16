@@ -41,6 +41,14 @@ class FakeFiles implements VaultFilePort {
   async writeConflictArtifact(path: string, text: string): Promise<void> {
     this.conflicts.push({ path, content: text });
   }
+
+  async recordPathOwner(fileId: string, path: string): Promise<void> {
+    this.owners.set(path, fileId);
+  }
+
+  async forgetPath(path: string): Promise<void> {
+    this.owners.delete(path);
+  }
 }
 
 function build(
@@ -124,6 +132,47 @@ describe('VaultApplyAdapter', () => {
     await adapter.applyRemote(event('rev-4', 'file-1'));
     expect(files.deletes).toEqual(['Notes/a.md']);
     expect(files.writes).toEqual([{ path: 'Notes/b.md', content: 'A\n' }]);
+  });
+
+  it('records ownership on create so the next revision updates in place', async () => {
+    let text = 'A\n';
+    const files = new FakeFiles();
+    const adapter = new VaultApplyAdapter({
+      files,
+      conflictFolder: 'Havemind Conflicts',
+      resolveRevision: async () => content('Notes/a.md', text),
+    });
+
+    await adapter.applyRemote(event('rev-1', 'file-1'));
+    expect(files.owners.get('Notes/a.md')).toBe('file-1');
+
+    text = 'A2\n';
+    await adapter.applyRemote(event('rev-2', 'file-1'));
+    expect(files.writes).toEqual([
+      { path: 'Notes/a.md', content: 'A\n' },
+      { path: 'Notes/a.md', content: 'A2\n' },
+    ]);
+    expect(files.conflicts).toEqual([]);
+  });
+
+  it('forgets ownership when a file is deleted', async () => {
+    const { adapter, files } = build(() => ({
+      operation: 'delete',
+      path: 'Notes/a.md',
+      previousPath: null,
+      content: null,
+    }));
+    files.owners.set('Notes/a.md', 'file-1');
+    await adapter.applyRemote(event('rev-3', 'file-1'));
+    expect(files.owners.has('Notes/a.md')).toBe(false);
+  });
+
+  it('does not record ownership when a collision is diverted to conflicts', async () => {
+    const { adapter, files } = build(() => content('Notes/a.md', 'C\n'));
+    files.owners.set('Notes/a.md', 'other-file');
+    await adapter.applyRemote(event('rev-9', 'file-1'));
+    // The foreign owner is untouched — Havemind never claims the path.
+    expect(files.owners.get('Notes/a.md')).toBe('other-file');
   });
 
   it('records a conflict artifact for a divergent open buffer', async () => {

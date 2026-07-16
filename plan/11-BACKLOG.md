@@ -226,9 +226,15 @@ raporcie fazy (co działa, co odłożone, dowód).
     controller.start() na onLayoutReady gdy connected, pasywny gdy nie; dist przebudowany;
     workspace 529 pass, branch 82.23%. LUKA odroczona → F8-02b-B: materializacja plików
     remote-only (dekode nagłówka payloadu) + przycisk „create invitation" w UI ownera.
-- [ ] **F8-02b-B** `plugin` Materializacja plików remote-only (payload-header decode w
-  sync-core wystawiony do pathForFileId) + owner „create invitation" w UI — wymagane dla
-  dwukierunkowego pilotażu (nowe pliki znajomego muszą powstać u ownera).
+- [x] **F8-02b-B** `plugin` Materializacja plików remote-only + owner „create invitation" w UI.
+  - Dowód (2026-07-16): payload-codec (8 testów, odrzuca reserved/traversal paths); vault-apply
+    przepisany (8 testów — create/update/kolizja→Conflicts/delete/rename, zero nadpisań);
+    komenda create-invitation (koperta v1., TTL 15 min, nigdy w logach); 545 pass. Commit d282a46.
+- [x] **F8-02b-C** `plugin` Mapa fileId↔path w DurableSyncState → edycje zsynchronizowanych
+  plików in-place; do Havemind Conflicts/ tylko realne kolizje.
+  - Dowód (2026-07-16): pathOwners w PersistedSyncState (3 testy), ownership zapisywany po
+    każdym write/rename, forget przy delete; kolizja nigdy nie nadpisuje ani nie przejmuje
+    ścieżki; 551 pass, plugin branch ≥80%. dist przebudowany (631 959 B).
 - [ ] **F8-02** `decyzja-usera` Siedmiodniowy pilotaż na sapserverze (T032)
   - AC: pełny checklist z `09-pilotaz-i-decyzje.md`, zapisany w `docs/pilot/checklist.md`.
   - AC: codzienny zapis `df -h /` do `docs/pilot/checklist.md` przez 7 dni; alarm i wpis w

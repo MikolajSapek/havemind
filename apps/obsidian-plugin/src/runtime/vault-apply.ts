@@ -28,6 +28,10 @@ export interface VaultFilePort {
   deleteByPath(path: string): Promise<void>;
   /** Write a conflict artifact at an explicit vault-relative path. */
   writeConflictArtifact(path: string, content: string): Promise<void>;
+  /** Durably record that `fileId` now owns `path` (for in-place updates). */
+  recordPathOwner(fileId: string, path: string): Promise<void>;
+  /** Durably forget the owner of `path` (after a delete or rename move). */
+  forgetPath(path: string): Promise<void>;
 }
 
 export interface VaultApplyAdapterOptions {
@@ -61,6 +65,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
       // Only remove a file this revision actually owns.
       if (this.files.fileIdAtPath(decoded.path) === fileId) {
         await this.files.deleteByPath(decoded.path);
+        await this.files.forgetPath(decoded.path);
       }
       return;
     }
@@ -74,16 +79,19 @@ export class VaultApplyAdapter implements VaultApplyPort {
       this.files.fileIdAtPath(decoded.previousPath) === fileId
     ) {
       await this.files.deleteByPath(decoded.previousPath);
+      await this.files.forgetPath(decoded.previousPath);
     }
 
     const owner = this.files.fileIdAtPath(decoded.path);
     if (owner !== null && owner !== fileId) {
-      // A different local file already occupies this path — never overwrite it.
+      // A different local file already occupies this path — never overwrite it,
+      // and never claim ownership of it.
       await this.files.writeConflictArtifact(this.conflictPath(event), text);
       return;
     }
 
     await this.files.writeByPath(decoded.path, text);
+    await this.files.recordPathOwner(fileId, decoded.path);
   }
 
   async recordConflict(event: RemoteEvent): Promise<void> {
