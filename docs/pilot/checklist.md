@@ -17,8 +17,14 @@ Pre-pilot confirmations and the daily 7-day pilot log live here
   "restore from backup onto a clean instance" step will use the app-level
   backup CLI (F7-01) locally on the server — this is NOT a full off-host
   backup round-trip and is marked as such.
-- [ ] **T032 gate**: two disposable vault names + machines + 7-day window —
-  awaiting user decision.
+- [x] **T032 gate — user decision recorded (2026-07-16)**:
+  - Vault A: `~/HavemindPilotA` on the user's MacBook (created, 3 test notes).
+  - Vault B: `HavemindPilotB` on a friend's MacBook (friend installs Obsidian +
+    plugin + Tailscale; will test together with the user).
+  - Window: 7 days starting at server deploy; user available to react to
+    `Conflict`/`Offline` throughout.
+  - Prerequisite for Vault B: friend's device joins the user's tailnet (Tailscale
+    device invite / node share) — server is tailnet-only, never public.
 
 ## Daily log (fill during the 7-day pilot)
 
