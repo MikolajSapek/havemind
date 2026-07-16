@@ -87,7 +87,11 @@ raporcie fazy (co działa, co odłożone, dowód).
   - AC: identyczny `revision_id` + identyczne bajty → oryginalny wynik; różne bajty → `409`
     (funkcjonalne, `npm test --workspace @havemind/server -- sync-routes`).
 
-- [ ] **F2-04** `plugin` Vault-adapter i rekoncyliacja (T026)
+- [x] **F2-04** `plugin` Vault-adapter i rekoncyliacja (T026)
+  - Dowód (2026-07-16): vault-adapter + reconciliation 11/11 — dedup po SHA-256 (modify o tym
+    samym haszu → null), rename zachowuje fileId; classifyVaultPath odrzuca `.obsidian/**`,
+    `.trash`, `Havemind Conflicts` (reconciliation ignored:2, zero commitów); pliki
+    .todo-F2-04 przywrócone i zielone; workspace 349 pass / 3 skipped, branch 84.53%.
   - AC: create/modify/rename/delete zdeduplikowane po haszu (funkcjonalne).
   - AC negatywne: `.obsidian/**` nigdy nie trafia do outboxu (`npm test --workspace
     @havemind/obsidian-plugin -- vault-adapter`).

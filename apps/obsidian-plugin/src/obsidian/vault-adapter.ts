@@ -1,0 +1,323 @@
+const RESERVED_TOP_LEVEL_DIRECTORIES = new Set(['Havemind Conflicts']);
+
+export type LocalVaultErrorCode = 'path-collision';
+
+export class LocalVaultError extends Error {
+  override readonly name = 'LocalVaultError';
+
+  constructor(
+    readonly code: LocalVaultErrorCode,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+export type LocalChangeKind = 'create' | 'update' | 'rename' | 'delete';
+
+export interface LocalFileMapping {
+  collisionKey: string;
+  content: string;
+  contentHash: string;
+  fileId: string;
+  path: string;
+}
+
+export interface LocalChangeOperation {
+  content: string | null;
+  contentHash: string | null;
+  fileId: string;
+  kind: LocalChangeKind;
+  observedAt: number;
+  operationId: string;
+  path: string;
+  previousContent: string | null;
+  previousContentHash: string | null;
+  previousPath: string | null;
+}
+
+export interface LocalChangeCommit {
+  operation: LocalChangeOperation;
+  removeFileId: string | null;
+  upsertMapping: LocalFileMapping | null;
+}
+
+export interface VaultSnapshotPort {
+  listMarkdownPaths(): Promise<readonly string[]>;
+  readText(path: string): Promise<string>;
+}
+
+export interface LocalChangeRepository {
+  commitLocalChange(commit: LocalChangeCommit): Promise<void>;
+  listMappings(): Promise<readonly LocalFileMapping[]>;
+}
+
+export type VaultPathClassification =
+  | { eligible: false }
+  | { canonicalPath: string; collisionKey: string; eligible: true };
+
+export interface VaultChangeObserverOptions {
+  clock: () => number;
+  generateFileId: () => string;
+  generateOperationId: () => string;
+  repository: LocalChangeRepository;
+  vault: VaultSnapshotPort;
+}
+
+export function classifyVaultPath(path: string): VaultPathClassification {
+  const canonicalPath = path.normalize('NFC');
+  if (!isEligiblePath(canonicalPath)) {
+    return { eligible: false };
+  }
+
+  return {
+    canonicalPath,
+    collisionKey: canonicalPath.toLowerCase(),
+    eligible: true,
+  };
+}
+
+function isEligiblePath(canonicalPath: string): boolean {
+  if (!canonicalPath.toLowerCase().endsWith('.md')) {
+    return false;
+  }
+
+  const segments = canonicalPath.split('/');
+  if (segments.some((segment) => segment === '' || segment.startsWith('.'))) {
+    return false;
+  }
+
+  const [top] = segments;
+  return top !== undefined && !RESERVED_TOP_LEVEL_DIRECTORIES.has(top);
+}
+
+export class VaultChangeObserver {
+  private readonly options: VaultChangeObserverOptions;
+  private tail: Promise<unknown> = Promise.resolve();
+
+  constructor(options: VaultChangeObserverOptions) {
+    this.options = options;
+  }
+
+  async observeCreate(path: string): Promise<LocalChangeOperation | null> {
+    return this.enqueue(() => this.handleCreate(path));
+  }
+
+  async observeModify(path: string): Promise<LocalChangeOperation | null> {
+    return this.enqueue(() => this.handleModify(path));
+  }
+
+  async observeRename(
+    previousPath: string,
+    nextPath: string,
+  ): Promise<LocalChangeOperation | null> {
+    return this.enqueue(() => this.handleRename(previousPath, nextPath));
+  }
+
+  async observeDelete(path: string): Promise<LocalChangeOperation | null> {
+    return this.enqueue(() => this.handleDelete(path));
+  }
+
+  private enqueue<T>(task: () => Promise<T>): Promise<T> {
+    const run = this.tail.then(task, task);
+    this.tail = run.then(noop, noop);
+    return run;
+  }
+
+  private async handleCreate(
+    path: string,
+  ): Promise<LocalChangeOperation | null> {
+    const classified = classifyVaultPath(path);
+    if (!classified.eligible) return null;
+    return this.commitCreate(path, classified.canonicalPath, classified.collisionKey);
+  }
+
+  private async commitCreate(
+    readPath: string,
+    canonicalPath: string,
+    collisionKey: string,
+  ): Promise<LocalChangeOperation> {
+    const content = normalizeContent(await this.options.vault.readText(readPath));
+    const contentHash = await sha256Hex(content);
+    const fileId = this.options.generateFileId();
+    const operation = this.buildOperation({
+      content,
+      contentHash,
+      fileId,
+      kind: 'create',
+      path: canonicalPath,
+      previousContent: null,
+      previousContentHash: null,
+      previousPath: null,
+    });
+
+    await this.options.repository.commitLocalChange({
+      operation,
+      removeFileId: null,
+      upsertMapping: { collisionKey, content, contentHash, fileId, path: canonicalPath },
+    });
+    return operation;
+  }
+
+  private async handleModify(
+    path: string,
+  ): Promise<LocalChangeOperation | null> {
+    const classified = classifyVaultPath(path);
+    if (!classified.eligible) return null;
+
+    const mapping = await this.findMapping(classified.collisionKey);
+    if (mapping === undefined) {
+      return this.commitCreate(path, classified.canonicalPath, classified.collisionKey);
+    }
+
+    const content = normalizeContent(await this.options.vault.readText(path));
+    const contentHash = await sha256Hex(content);
+    if (contentHash === mapping.contentHash) return null;
+
+    const operation = this.buildOperation({
+      content,
+      contentHash,
+      fileId: mapping.fileId,
+      kind: 'update',
+      path: classified.canonicalPath,
+      previousContent: mapping.content,
+      previousContentHash: mapping.contentHash,
+      previousPath: null,
+    });
+
+    await this.options.repository.commitLocalChange({
+      operation,
+      removeFileId: null,
+      upsertMapping: {
+        collisionKey: classified.collisionKey,
+        content,
+        contentHash,
+        fileId: mapping.fileId,
+        path: classified.canonicalPath,
+      },
+    });
+    return operation;
+  }
+
+  private async handleRename(
+    previousPath: string,
+    nextPath: string,
+  ): Promise<LocalChangeOperation | null> {
+    const from = classifyVaultPath(previousPath);
+    const to = classifyVaultPath(nextPath);
+
+    if (!from.eligible) {
+      return to.eligible
+        ? this.commitCreate(nextPath, to.canonicalPath, to.collisionKey)
+        : null;
+    }
+    if (!to.eligible) {
+      return this.commitDelete(from.collisionKey);
+    }
+
+    const mapping = await this.findMapping(from.collisionKey);
+    if (mapping === undefined) {
+      return this.commitCreate(nextPath, to.canonicalPath, to.collisionKey);
+    }
+
+    const occupant = await this.findMapping(to.collisionKey);
+    if (occupant !== undefined && occupant.fileId !== mapping.fileId) {
+      throw new LocalVaultError(
+        'path-collision',
+        `A different file already occupies ${to.canonicalPath}.`,
+      );
+    }
+
+    const content = normalizeContent(await this.options.vault.readText(nextPath));
+    const contentHash = await sha256Hex(content);
+    const operation = this.buildOperation({
+      content,
+      contentHash,
+      fileId: mapping.fileId,
+      kind: 'rename',
+      path: to.canonicalPath,
+      previousContent: mapping.content,
+      previousContentHash: mapping.contentHash,
+      previousPath: from.canonicalPath,
+    });
+
+    await this.options.repository.commitLocalChange({
+      operation,
+      removeFileId: null,
+      upsertMapping: {
+        collisionKey: to.collisionKey,
+        content,
+        contentHash,
+        fileId: mapping.fileId,
+        path: to.canonicalPath,
+      },
+    });
+    return operation;
+  }
+
+  private async handleDelete(
+    path: string,
+  ): Promise<LocalChangeOperation | null> {
+    const classified = classifyVaultPath(path);
+    if (!classified.eligible) return null;
+    return this.commitDelete(classified.collisionKey);
+  }
+
+  private async commitDelete(
+    collisionKey: string,
+  ): Promise<LocalChangeOperation | null> {
+    const mapping = await this.findMapping(collisionKey);
+    if (mapping === undefined) return null;
+
+    const operation = this.buildOperation({
+      content: null,
+      contentHash: null,
+      fileId: mapping.fileId,
+      kind: 'delete',
+      path: mapping.path,
+      previousContent: mapping.content,
+      previousContentHash: mapping.contentHash,
+      previousPath: null,
+    });
+
+    await this.options.repository.commitLocalChange({
+      operation,
+      removeFileId: mapping.fileId,
+      upsertMapping: null,
+    });
+    return operation;
+  }
+
+  private async findMapping(
+    collisionKey: string,
+  ): Promise<LocalFileMapping | undefined> {
+    const mappings = await this.options.repository.listMappings();
+    return mappings.find((mapping) => mapping.collisionKey === collisionKey);
+  }
+
+  private buildOperation(
+    fields: Omit<LocalChangeOperation, 'observedAt' | 'operationId'>,
+  ): LocalChangeOperation {
+    return {
+      ...fields,
+      observedAt: this.options.clock(),
+      operationId: this.options.generateOperationId(),
+    };
+  }
+}
+
+function normalizeContent(text: string): string {
+  return text.replace(/\r\n?/gu, '\n');
+}
+
+async function sha256Hex(text: string): Promise<string> {
+  const data = new TextEncoder().encode(text);
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', data);
+  return [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+function noop(): undefined {
+  return undefined;
+}

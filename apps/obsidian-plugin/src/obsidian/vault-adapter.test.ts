@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
-  LocalVaultError,
   VaultChangeObserver,
   classifyVaultPath,
   type LocalChangeCommit,
   type LocalChangeRepository,
   type LocalFileMapping,
+  type LocalVaultError,
   type VaultSnapshotPort,
 } from './vault-adapter';
 
