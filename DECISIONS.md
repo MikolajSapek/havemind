@@ -3,6 +3,13 @@
 Log of blockers, open questions and simpler-variant choices raised during
 `/loop` execution. One entry per decision; newest first.
 
+## 2026-07-16 — security incident closed: sapserver password rotated
+
+The sapserver user password was accidentally disclosed in a chat transcript.
+The agent refused to use it (plan/01 rule 9) and advised immediate rotation;
+the user confirmed the password has been changed. No secrets stored anywhere
+by the agent.
+
 ## 2026-07-16 — F2-01: invitations table completed inside 001-initial.sql
 
 The `invitations` table (forward-declared in the initial schema) was completed
