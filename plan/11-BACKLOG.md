@@ -100,7 +100,11 @@ raporcie fazy (co działa, co odłożone, dowód).
 
 ## F3 — Onboarding (pierwsza wartość dla usera: da się połączyć)
 
-- [ ] **F3-01** `plugin,bezpieczeństwo` Bezpieczny onboarding zaproszeń (T025)
+- [x] **F3-01** `plugin,bezpieczeństwo` Bezpieczny onboarding zaproszeń (T025)
+  - Dowód (2026-07-16): handler havemind-join przyjmuje wyłącznie {action} — testy it.each
+    token/envelope/secret/harmless → brak widoku, requestCalls=0; onboarding resume() zielony;
+    brak logiki merge w ścieżce onboardingu (grep); kwarantanna F3-01 zdjęta — lifecycle 11/11
+    (RED 3 failed → GREEN); workspace coverage branch 84.62%.
   - AC: sekret zaproszenia nigdy w query `obsidian://havemind-join` (funkcjonalne, metoda: grep
     kodu wizarda + test integracyjny sprawdzający URL).
   - AC: resumable bootstrap po przerwaniu (funkcjonalne, `npm test --workspace
