@@ -83,10 +83,23 @@ onboarding automatically (on Obsidian's layout-ready), so a restart mid-connect
 picks up where it left off. If there is no connection it stays the passive
 shell — zero networking, `Havemind: disconnected`.
 
-Note: the owner-side "create invitation" button and the full remote-file
-materialisation (writing files that only ever existed on the *other* device)
-are the remaining follow-up — see `DECISIONS.md` (F8-02b-A). Edits to files that
-exist locally sync both ways today.
+## Owner: create an invitation from the plugin
+
+The owner (whoever ran `setup`) can mint invitations without touching a
+terminal. On the owner's connected machine: command palette (`Cmd+P`) →
+**Havemind: Create invitation (owner)**. The plugin calls the server's
+owner-only invitation endpoint with its access token and opens the Connect
+screen showing the `v1.…` envelope to copy. The envelope contains a secret, is
+single-use, and expires in **15 minutes** — hand it to the second participant
+over a trusted channel promptly and never paste it into logs or chat.
+
+## Remote-only files
+
+Files that only ever existed on the *other* device now materialise locally: the
+client fetches the opaque payload, decodes its path and content, and creates the
+file. If the target path is already occupied by a *different* local file, the
+incoming content is written to `Havemind Conflicts/` instead — Havemind never
+overwrites pre-existing local content.
 
 ## Uninstall / reset
 

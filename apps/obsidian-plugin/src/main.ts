@@ -11,9 +11,11 @@ import type { RevisionRecord } from './activity/activity';
 import { buildActivityViewModel } from './runtime/activity-render';
 import { formatStatusBar, type StatusBarView } from './runtime/status';
 import {
+  createInvitationForOwner,
   startHavemindConnection,
   type ConnectionHandle,
 } from './runtime/obsidian-adapters';
+import type { CreatedInvitation } from './runtime/create-invitation';
 
 export const HAVEMIND_ACTIVITY_VIEW = 'havemind-activity';
 export const HAVEMIND_ONBOARDING_VIEW = 'havemind-onboarding';
@@ -70,7 +72,19 @@ class HavemindActivityView extends ItemView {
   }
 }
 
+/** Injected data for the onboarding surface (owner-created invitation display). */
+export interface OnboardingViewOptions {
+  readonly invitationProvider?: () => CreatedInvitation | null;
+}
+
 class HavemindOnboardingView extends ItemView {
+  private readonly options: OnboardingViewOptions;
+
+  constructor(leaf: WorkspaceLeaf, options: OnboardingViewOptions = {}) {
+    super(leaf);
+    this.options = options;
+  }
+
   override getDisplayText(): string {
     return 'Connect to Havemind';
   }
@@ -89,6 +103,17 @@ class HavemindOnboardingView extends ItemView {
 
     content.empty();
     content.createEl('h3', { text: 'Connect to Havemind' });
+
+    const invitation = this.options.invitationProvider?.() ?? null;
+    if (invitation) {
+      content.createDiv({
+        text: 'Invitation created. Copy it now — it is single-use and expires in 15 minutes.',
+      });
+      content.createEl('code', { text: invitation.envelope });
+      content.createDiv({ text: `Expires: ${invitation.expiresAt}` });
+      return;
+    }
+
     content.createDiv({
       text: 'Paste the secure invitation copied from the HTTPS join page.',
     });
@@ -110,6 +135,7 @@ export default class HavemindPlugin extends Plugin {
   private activityOptions: ActivityViewOptions = {};
   private statusItem: HTMLElement | null = null;
   private connection: ConnectionHandle | null = null;
+  private pendingInvitation: CreatedInvitation | null = null;
 
   override onload(): void {
     this.registerView(
@@ -119,7 +145,10 @@ export default class HavemindPlugin extends Plugin {
     );
     this.registerView(
       HAVEMIND_ONBOARDING_VIEW,
-      (leaf: WorkspaceLeaf) => new HavemindOnboardingView(leaf),
+      (leaf: WorkspaceLeaf) =>
+        new HavemindOnboardingView(leaf, {
+          invitationProvider: () => this.pendingInvitation,
+        }),
     );
 
     this.addCommand({
@@ -131,6 +160,11 @@ export default class HavemindPlugin extends Plugin {
       id: 'connect',
       name: 'Connect to Havemind',
       callback: () => this.openConnectView(),
+    });
+    this.addCommand({
+      id: 'create-invitation',
+      name: 'Create invitation (owner)',
+      callback: () => this.createInvitation(),
     });
 
     this.addRibbonIcon('users-round', 'Open Havemind activity', () => {
@@ -175,6 +209,25 @@ export default class HavemindPlugin extends Plugin {
     this.connection = await startHavemindConnection(this, (view) =>
       this.setStatus(view),
     );
+  }
+
+  /**
+   * Owner action: create an invitation for the connected vault and show the
+   * copyable envelope in the onboarding view. The envelope (a secret) is only
+   * rendered for the owner to copy — never written to logs.
+   */
+  private async createInvitation(): Promise<void> {
+    const invitation = await createInvitationForOwner(this, {
+      intendedRole: 'editor',
+    });
+    if (invitation === null) return;
+    this.setPendingInvitation(invitation);
+    await this.openView(HAVEMIND_ONBOARDING_VIEW);
+  }
+
+  /** Stores the created invitation so the onboarding view can display it. */
+  setPendingInvitation(invitation: CreatedInvitation | null): void {
+    this.pendingInvitation = invitation;
   }
 
   private setStatus(view: StatusBarView): void {

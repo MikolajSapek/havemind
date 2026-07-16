@@ -231,3 +231,35 @@ access-token,connection,connect-driver}.ts` (+ tests). Glue assembly
 (`startHavemindConnection`, `buildOnboardingController`) lives in the
 coverage-excluded `runtime/obsidian-adapters.ts`; `main.ts` gained a Connect
 command and an `onLayoutReady` resume-and-start, staying passive until connected.
+
+## 2026-07-16 — F8-02b-B remote-file materialization + owner invitation (decisions)
+
+Closed the two follow-ups from F8-02b-A. All new logic TDD'd. Two notes:
+
+1. **Payload decode lives in `@havemind/sync-core` (`decodeRevisionPayload`).**
+   The opaque payload is the plaintext-JSON `InnerRevisionPayload`; the new
+   focused decoder extracts operation/path/previousPath/content and rejects
+   reserved or non-canonical paths (so a payload can never steer a write into
+   `.obsidian/`, `Havemind Conflicts/` or a traversal target). It validates the
+   materialization-relevant fields rather than re-running the full protocol zod
+   schema (recipe/hashes are validated by the producing client at creation).
+   `connection.ts` now exposes `resolveRevision` (blob fetch → decode) and
+   `VaultApplyAdapter` writes at the payload's own path. sync-core must be built
+   (`npm run build`) before the plugin — it resolves sync-core from `dist`.
+
+2. **Conservative path-ownership in the glue.** `VaultApplyAdapter` routes to
+   `Havemind Conflicts/` when a path is owned by a foreign fileId and overwrites
+   only same-fileId paths — unit-tested. The live Obsidian `createVaultFilePort`
+   currently reports any physically-existing path as foreign (a sentinel), so it
+   never overwrites pre-existing local content: remote-only files create
+   cleanly, and any path clash goes to Conflicts. A precise fileId↔path map
+   (reconciliation store) can replace the sentinel to allow in-place updates of
+   already-synced files — that refinement is the only remaining nuance and does
+   not affect the safety guarantee (rule 4, never overwrite/guess).
+
+Owner "create invitation": `create-invitation.ts` (`createVaultInvitation`,
+TDD) posts to `POST /vaults/:id/invitations` with the Bearer access token and
+returns a copyable `v1.…` envelope (never logged, 15-min TTL). Wired as the
+`create-invitation` command; the envelope renders in the onboarding view. New
+tested modules: `runtime/{create-invitation}.ts` + refactored
+`{connection,vault-apply}.ts`; `packages/sync-core/src/payload-codec.ts`.

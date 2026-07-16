@@ -41,6 +41,7 @@ declare module 'obsidian' {
     read(file: TFile): Promise<string>;
     create(path: string, data: string): Promise<TFile>;
     modify(file: TFile, data: string): Promise<void>;
+    delete(file: TAbstractFile): Promise<void>;
     createFolder(path: string): Promise<void>;
   }
 

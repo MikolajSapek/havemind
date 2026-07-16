@@ -45,6 +45,7 @@ describe('plugin lifecycle', () => {
     expect(registrationState.commands.map(({ id }) => id)).toEqual([
       'open-activity',
       'connect',
+      'create-invitation',
     ]);
     expect(app.vault.getMarkdownFilesCalls).toBe(0);
     expect(app.network.requestCalls).toBe(0);
@@ -191,6 +192,26 @@ describe('plugin lifecycle', () => {
       { active: true, type: HAVEMIND_ONBOARDING_VIEW },
     ]);
     expect(app.workspace.revealedLeaves).toEqual([app.workspace.rightLeaf]);
+  });
+
+  it('renders an owner-created invitation envelope in the onboarding view', async () => {
+    const app = new App();
+    const plugin = new HavemindPlugin(app, manifest);
+    await plugin.onload();
+
+    plugin.setPendingInvitation({
+      envelope: 'v1.ABC',
+      expiresAt: '2026-07-16T10:15:00.000Z',
+    });
+
+    const view = registrationState.views
+      .get(HAVEMIND_ONBOARDING_VIEW)
+      ?.(new WorkspaceLeaf());
+    await view?.onOpen();
+    const container = view?.containerEl as unknown as MockElement;
+    const texts = container.children[1]?.children.map(({ text }) => text) ?? [];
+    expect(texts).toContain('v1.ABC');
+    expect(texts.some((text) => text.includes('15 minutes'))).toBe(true);
   });
 
   it('renders the activity feed with a restore action when data is supplied', async () => {

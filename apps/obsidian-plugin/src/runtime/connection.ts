@@ -1,14 +1,15 @@
 /**
- * Builds the `SyncConnection` resolvers a connected vault needs to drive the
- * sync runtime (`buildSyncController`): the vault identity, an auth-token
- * provider, a fileId→path resolver and a remote-content fetcher.
+ * Builds the resolvers a connected vault needs to drive the sync runtime:
+ * the vault identity, an auth-token provider and a remote-revision resolver.
  *
- * `resolveRemoteContent` reads the opaque payload back from the server's
- * byte-exact blob endpoint (`GET /vaults/:vaultId/blobs/:blobHash`). In the
- * pilot the payload is plaintext, so the raw response text is the file content.
- * A fileId with no known local path resolves to `null`; `VaultApplyAdapter`
- * then skips the write rather than guessing a path (rule 4).
+ * `resolveRevision` reads the opaque payload back from the server's byte-exact
+ * blob endpoint (`GET /vaults/:vaultId/blobs/:blobHash`) and decodes it with
+ * `@havemind/sync-core` into the operation + canonical path + content the vault
+ * adapter materializes. The server stays opaque — it only returns bytes; the
+ * client alone decodes them.
  */
+
+import { decodeRevisionPayload, type DecodedRevisionPayload } from '@havemind/sync-core';
 
 import type { RemoteEvent } from '../sync/sync-runner';
 import type { RequestUrlFn } from './sync-transport';
@@ -26,15 +27,13 @@ export interface ConnectionResolverOptions {
   readonly vaultId: string;
   readonly getAccessToken: () => Promise<string>;
   readonly requestUrl: RequestUrlFn;
-  readonly knownPath: (fileId: string) => string | null;
 }
 
 export interface ConnectionResolvers {
   readonly apiBaseUrl: string;
   readonly vaultId: string;
   readonly getAuthToken: () => Promise<string>;
-  readonly pathForFileId: (fileId: string) => string | null;
-  readonly resolveRemoteContent: (event: RemoteEvent) => Promise<string>;
+  readonly resolveRevision: (event: RemoteEvent) => Promise<DecodedRevisionPayload>;
 }
 
 export class BlobFetchError extends Error {
@@ -48,8 +47,7 @@ export function buildConnectionResolvers(
     apiBaseUrl: options.apiBaseUrl,
     vaultId: options.vaultId,
     getAuthToken: options.getAccessToken,
-    pathForFileId: options.knownPath,
-    resolveRemoteContent: async (event: RemoteEvent) => {
+    resolveRevision: async (event: RemoteEvent) => {
       const token = await options.getAccessToken();
       const response = await options.requestUrl({
         url: `${options.apiBaseUrl}/vaults/${options.vaultId}/blobs/${event.revision.contentHash}`,
@@ -62,7 +60,7 @@ export function buildConnectionResolvers(
           `Blob fetch for ${event.revision.contentHash} returned HTTP ${response.status}.`,
         );
       }
-      return response.text ?? '';
+      return decodeRevisionPayload(response.text ?? '');
     },
   };
 }
