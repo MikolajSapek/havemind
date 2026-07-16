@@ -1,12 +1,17 @@
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 
 import type Database from 'better-sqlite3';
 
 import { SessionRepository } from './session-repository.js';
 import {
   generateInvitationToken,
+  generatePendingDeviceCredential,
   hashInvitationToken,
+  hashPendingDeviceCredential,
+  hashRefreshToken,
   parseInvitationToken,
+  parsePendingDeviceCredential,
+  parseRefreshToken,
   type AccessToken,
 } from './tokens.js';
 import {
@@ -22,6 +27,7 @@ const DEFAULT_REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
 export const INVITATION_TTL_SECONDS = 15 * 60;
 const MAX_DISPLAY_NAME_LENGTH = 80;
 const PUBLIC_KEY_LENGTH = 32;
+const DEFAULT_INTENDED_MEMBER_NAME = 'Invited member';
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const CONTROL_CHARACTER_CEILING = 0x20;
@@ -105,12 +111,58 @@ export interface CreateInvitationInput {
   readonly createdByMembershipId: string;
   readonly inviterDeviceId: string;
   readonly intendedRole?: InvitationRole;
+  readonly intendedMemberDisplayName?: string;
 }
 
 export interface CreateInvitationResult {
   readonly invitationId: string;
   readonly invitationToken: string;
   readonly expiresAt: string;
+  readonly intendedMemberId: string;
+  readonly intendedMemberDisplayName: string;
+}
+
+export interface InvitationReview {
+  readonly expiresAt: string;
+  readonly intendedMemberDisplayName: string;
+  readonly inviterDisplayName: string;
+  readonly memberId: string;
+  readonly vaultId: string;
+  readonly vaultName: string;
+}
+
+export interface RedeemForOnboardingInput {
+  readonly invitationToken: string;
+  readonly deviceLabel: string;
+  readonly initialRefreshToken: string;
+  readonly redemptionId: string;
+}
+
+export interface RedeemForOnboardingResult {
+  readonly pendingCredential: string;
+  readonly pendingDeviceId: string;
+  readonly verificationPhrase: string;
+}
+
+export type ApprovalStatus =
+  | { readonly status: 'pending' }
+  | {
+      readonly status: 'approved';
+      readonly deviceId: string;
+      readonly bootstrapCursor: string | null;
+    };
+
+export interface ApproveRedeemedDeviceInput {
+  readonly invitationId: string;
+  readonly approverMembershipId: string;
+  readonly verificationPhrase: string;
+}
+
+export interface ApproveRedeemedDeviceResult {
+  readonly deviceId: string;
+  readonly familyId: string;
+  readonly membershipId: string;
+  readonly userId: string;
 }
 
 export interface RedeemInvitationInput {
@@ -169,6 +221,10 @@ interface InvitationRow {
   readonly consumedAt: string | null;
   readonly consumedByUserId: string | null;
   readonly pendingDeviceId: string | null;
+  readonly intendedMemberDisplayName: string | null;
+  readonly intendedMemberId: string | null;
+  readonly pendingCredentialHash: string | null;
+  readonly pendingRefreshTokenHash: string | null;
 }
 
 interface OwnerMembershipRow {
@@ -283,12 +339,16 @@ export class InvitationService {
     const membershipId = requireUuid(input.createdByMembershipId);
     const inviterDeviceId = requireUuid(input.inviterDeviceId);
     const intendedRole = requireRole(input.intendedRole);
+    const intendedMemberDisplayName = requireDisplayName(
+      input.intendedMemberDisplayName ?? DEFAULT_INTENDED_MEMBER_NAME,
+    );
     const now = readClock(this.#now);
     const createdAt = now.toISOString();
     const expiresAt = addSeconds(now, INVITATION_TTL_SECONDS);
     const invitationToken = generateInvitationToken();
     const tokenHash = hashInvitationToken(invitationToken);
     const verificationSecret = generateVerificationSecret();
+    const intendedMemberId = this.#newUuid();
 
     const create = this.#database.transaction((): CreateInvitationResult => {
       const membership = this.#requireOwnerMembership(membershipId, vaultId);
@@ -301,8 +361,9 @@ export class InvitationService {
              id, vault_id, created_by_membership_id, inviter_device_id,
              token_hash, verification_secret, intended_role, expires_at,
              created_at, consumed_at, consumed_by_user_id, pending_device_id,
-             revoked_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL)`,
+             revoked_at, intended_member_display_name, intended_member_id,
+             pending_credential_hash, pending_refresh_token_hash
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?, NULL, NULL)`,
         )
         .run(
           invitationId,
@@ -314,9 +375,17 @@ export class InvitationService {
           intendedRole,
           expiresAt,
           createdAt,
+          intendedMemberDisplayName,
+          intendedMemberId,
         );
 
-      return { expiresAt, invitationId, invitationToken };
+      return {
+        expiresAt,
+        intendedMemberDisplayName,
+        intendedMemberId,
+        invitationId,
+        invitationToken,
+      };
     });
 
     return create.immediate();
@@ -529,6 +598,332 @@ export class InvitationService {
     reject.immediate();
   }
 
+  /**
+   * Reads invitation metadata for the joining device without consuming it. The
+   * holder already possesses the token, so a missing/expired/consumed token
+   * surfaces its precise state (404/410/409); no membership is required.
+   */
+  public reviewInvitation(rawInvitationToken: string): InvitationReview {
+    let tokenHash: string;
+    try {
+      tokenHash = hashInvitationToken(parseInvitationToken(rawInvitationToken));
+    } catch {
+      throw new InvitationError('INVALID_INPUT');
+    }
+    const now = readClock(this.#now);
+
+    const invitation = this.#loadInvitationByHash(tokenHash);
+    if (invitation.consumedAt !== null) {
+      throw new InvitationError('INVITATION_ALREADY_REDEEMED');
+    }
+    if (requireStoredDate(invitation.expiresAt) <= now.getTime()) {
+      throw new InvitationError('INVITATION_EXPIRED');
+    }
+    if (
+      invitation.intendedMemberId === null ||
+      invitation.intendedMemberDisplayName === null
+    ) {
+      throw new InvitationError('REPOSITORY_INTEGRITY');
+    }
+
+    const vault = this.#database
+      .prepare('SELECT display_name AS displayName FROM vaults WHERE id = ?')
+      .get(invitation.vaultId) as { displayName: string } | undefined;
+    const inviter = this.#database
+      .prepare(
+        `SELECT users.display_name AS displayName
+         FROM devices
+         INNER JOIN users ON users.id = devices.user_id
+         WHERE devices.id = ?`,
+      )
+      .get(invitation.inviterDeviceId) as { displayName: string } | undefined;
+    if (vault === undefined || inviter === undefined) {
+      throw new InvitationError('REPOSITORY_INTEGRITY');
+    }
+
+    return {
+      expiresAt: invitation.expiresAt,
+      intendedMemberDisplayName: invitation.intendedMemberDisplayName,
+      inviterDisplayName: inviter.displayName,
+      memberId: invitation.intendedMemberId,
+      vaultId: invitation.vaultId,
+      vaultName: vault.displayName,
+    };
+  }
+
+  /**
+   * Single-use redemption driven entirely by the joining device: the server
+   * generates the device identity and a pending-poll credential, binds the
+   * device's own initial refresh token (hash only) to activate on approval, and
+   * returns the verification phrase. It never mints vault credentials here.
+   */
+  public redeemInvitationForOnboarding(
+    input: RedeemForOnboardingInput,
+  ): RedeemForOnboardingResult {
+    let tokenHash: string;
+    let refreshTokenHash: string;
+    try {
+      tokenHash = hashInvitationToken(
+        parseInvitationToken(input.invitationToken),
+      );
+      refreshTokenHash = hashRefreshToken(
+        parseRefreshToken(input.initialRefreshToken),
+      );
+    } catch {
+      throw new InvitationError('INVALID_INPUT');
+    }
+    const deviceDisplayName = requireDisplayName(input.deviceLabel);
+    requireUuid(input.redemptionId);
+    const now = readClock(this.#now);
+    const createdAt = now.toISOString();
+    const pendingCredential = generatePendingDeviceCredential();
+    const pendingCredentialHash = hashPendingDeviceCredential(pendingCredential);
+
+    const redeem = this.#database.transaction((): RedeemOutcome => {
+      const invitation = this.#loadInvitationByHash(tokenHash);
+      if (invitation.consumedAt !== null) {
+        throw new InvitationError('INVITATION_ALREADY_REDEEMED');
+      }
+      if (requireStoredDate(invitation.expiresAt) <= now.getTime()) {
+        this.#burnInvitation(invitation.id, createdAt);
+        return { kind: 'expired' };
+      }
+      if (
+        invitation.intendedMemberId === null ||
+        invitation.intendedMemberDisplayName === null
+      ) {
+        throw new InvitationError('REPOSITORY_INTEGRITY');
+      }
+
+      const userId = invitation.intendedMemberId;
+      const deviceId = this.#newUuid();
+      this.#database
+        .prepare(
+          `INSERT INTO users (
+             id, display_name, is_instance_owner, status, created_at, revoked_at
+           ) VALUES (?, ?, 0, 'active', ?, NULL)`,
+        )
+        .run(userId, invitation.intendedMemberDisplayName, createdAt);
+      this.#database
+        .prepare(
+          `INSERT INTO devices (
+             id, user_id, display_name, public_key, status,
+             created_at, approved_at, revoked_at
+           ) VALUES (?, ?, ?, ?, 'pending', ?, NULL, NULL)`,
+        )
+        .run(deviceId, userId, deviceDisplayName, randomBytes(PUBLIC_KEY_LENGTH), createdAt);
+
+      const consumed = this.#database
+        .prepare(
+          `UPDATE invitations
+           SET consumed_at = ?, consumed_by_user_id = ?, pending_device_id = ?,
+               pending_credential_hash = ?, pending_refresh_token_hash = ?
+           WHERE id = ? AND consumed_at IS NULL`,
+        )
+        .run(
+          createdAt,
+          userId,
+          deviceId,
+          pendingCredentialHash,
+          refreshTokenHash,
+          invitation.id,
+        );
+      if (consumed.changes !== 1) {
+        throw new InvitationError('INVITATION_ALREADY_REDEEMED');
+      }
+
+      const verificationPhrase = deriveVerificationPhrase(
+        parseVerificationSecret(invitation.verificationSecret),
+        {
+          invitationId: invitation.id,
+          inviterDeviceId: invitation.inviterDeviceId,
+          pendingDeviceId: deviceId,
+          vaultId: invitation.vaultId,
+        },
+      );
+
+      return {
+        kind: 'ok',
+        result: {
+          invitationId: invitation.id,
+          pendingDeviceId: deviceId,
+          state: 'pending_approval',
+          userId,
+          verificationPhrase,
+        },
+      };
+    });
+
+    const outcome = redeem.immediate();
+    if (outcome.kind === 'expired') {
+      throw new InvitationError('INVITATION_EXPIRED');
+    }
+    return {
+      pendingCredential,
+      pendingDeviceId: outcome.result.pendingDeviceId,
+      verificationPhrase: outcome.result.verificationPhrase,
+    };
+  }
+
+  /**
+   * Resolves the approval state for a redeemed device using its pending-poll
+   * credential. The credential is matched by hash, so a wrong credential is
+   * indistinguishable from an unknown invitation.
+   */
+  public getApprovalStatus(
+    pendingDeviceId: string,
+    rawPendingCredential: string,
+  ): ApprovalStatus {
+    requireUuid(pendingDeviceId);
+    let credentialHash: string;
+    try {
+      credentialHash = hashPendingDeviceCredential(
+        parsePendingDeviceCredential(rawPendingCredential),
+      );
+    } catch {
+      throw new InvitationError('INVALID_INPUT');
+    }
+
+    const invitation = this.#database
+      .prepare(
+        `${INVITATION_SELECT} WHERE pending_credential_hash = ?`,
+      )
+      .get(credentialHash) as InvitationRow | undefined;
+    if (
+      invitation === undefined ||
+      invitation.pendingDeviceId !== pendingDeviceId
+    ) {
+      throw new InvitationError('INVALID_INVITATION');
+    }
+
+    const device = this.#database
+      .prepare('SELECT status FROM devices WHERE id = ?')
+      .get(pendingDeviceId) as { status: string } | undefined;
+    if (device === undefined) {
+      throw new InvitationError('INVALID_INVITATION');
+    }
+    if (device.status === 'pending') {
+      return { status: 'pending' };
+    }
+    if (device.status === 'approved') {
+      return { bootstrapCursor: null, deviceId: pendingDeviceId, status: 'approved' };
+    }
+    throw new InvitationError('INVALID_INVITATION');
+  }
+
+  /**
+   * Owner approval of a redeemed device: verifies the phrase, activates the
+   * membership and activates the joining device's own refresh family from the
+   * hash stored at redemption. No token is issued to the owner.
+   */
+  public approveRedeemedDevice(
+    input: ApproveRedeemedDeviceInput,
+  ): ApproveRedeemedDeviceResult {
+    const invitationId = requireUuid(input.invitationId);
+    const approverMembershipId = requireUuid(input.approverMembershipId);
+    let suppliedPhrase: string;
+    try {
+      suppliedPhrase = parseVerificationPhrase(input.verificationPhrase);
+    } catch {
+      throw new InvitationError('INVALID_INPUT');
+    }
+    const now = readClock(this.#now);
+    const approvedAt = now.toISOString();
+
+    const approve = this.#database.transaction((): ApproveOutcome => {
+      const invitation = this.#loadInvitationById(invitationId);
+      this.#requireOwnerMembership(approverMembershipId, invitation.vaultId);
+
+      const pendingDeviceId = invitation.pendingDeviceId;
+      const pendingUserId = invitation.consumedByUserId;
+      const refreshTokenHash = invitation.pendingRefreshTokenHash;
+      if (
+        pendingDeviceId === null ||
+        pendingUserId === null ||
+        refreshTokenHash === null
+      ) {
+        throw new InvitationError('NO_PENDING_DEVICE');
+      }
+      const device = this.#database
+        .prepare('SELECT status FROM devices WHERE id = ?')
+        .get(pendingDeviceId) as { status: string } | undefined;
+      if (device === undefined || device.status !== 'pending') {
+        throw new InvitationError('NO_PENDING_DEVICE');
+      }
+
+      const expectedPhrase = deriveVerificationPhrase(
+        parseVerificationSecret(invitation.verificationSecret),
+        {
+          invitationId: invitation.id,
+          inviterDeviceId: invitation.inviterDeviceId,
+          pendingDeviceId,
+          vaultId: invitation.vaultId,
+        },
+      );
+      if (suppliedPhrase !== expectedPhrase) {
+        this.#deletePendingUser(pendingUserId);
+        return { kind: 'mismatch' };
+      }
+
+      const approved = this.#database
+        .prepare(
+          `UPDATE devices SET status = 'approved', approved_at = ?
+           WHERE id = ? AND status = 'pending'`,
+        )
+        .run(approvedAt, pendingDeviceId);
+      if (approved.changes !== 1) {
+        throw new InvitationError('REPOSITORY_INTEGRITY');
+      }
+
+      const membershipId = this.#newUuid();
+      this.#database
+        .prepare(
+          `INSERT INTO memberships (
+             id, vault_id, user_id, role, status, created_at, revoked_at
+           ) VALUES (?, ?, ?, ?, 'active', ?, NULL)`,
+        )
+        .run(
+          membershipId,
+          invitation.vaultId,
+          pendingUserId,
+          this.#normalizeStoredRole(invitation.intendedRole),
+          approvedAt,
+        );
+
+      const family =
+        this.#sessions.createInitialFamilyFromHashInCurrentTransaction({
+          deviceId: pendingDeviceId,
+          refreshTokenHash,
+          refreshTokenTtlSeconds: this.#refreshTokenTtlSeconds,
+          userId: pendingUserId,
+        });
+
+      return {
+        kind: 'ok',
+        result: {
+          accessExpiresAt: '',
+          accessToken: '' as AccessToken,
+          deviceId: pendingDeviceId,
+          familyId: family.familyId,
+          membershipId,
+          refreshExpiresAt: family.refreshExpiresAt,
+          userId: pendingUserId,
+        },
+      };
+    });
+
+    const outcome = approve.immediate();
+    if (outcome.kind === 'mismatch') {
+      throw new InvitationError('PHRASE_MISMATCH');
+    }
+    return {
+      deviceId: outcome.result.deviceId,
+      familyId: outcome.result.familyId,
+      membershipId: outcome.result.membershipId,
+      userId: outcome.result.userId,
+    };
+  }
+
   #loadInvitationByHash(tokenHash: string): InvitationRow {
     const row = this.#database
       .prepare(`${INVITATION_SELECT} WHERE token_hash = ?`)
@@ -621,6 +1016,10 @@ const INVITATION_SELECT = `
          expires_at AS expiresAt,
          consumed_at AS consumedAt,
          consumed_by_user_id AS consumedByUserId,
-         pending_device_id AS pendingDeviceId
+         pending_device_id AS pendingDeviceId,
+         intended_member_display_name AS intendedMemberDisplayName,
+         intended_member_id AS intendedMemberId,
+         pending_credential_hash AS pendingCredentialHash,
+         pending_refresh_token_hash AS pendingRefreshTokenHash
   FROM invitations
 `;

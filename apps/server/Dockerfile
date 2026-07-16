@@ -53,6 +53,11 @@ COPY --from=build --chown=1000:1000 /app/packages/protocol/package.json ./packag
 COPY --from=build --chown=1000:1000 /app/apps/server/dist ./apps/server/dist
 COPY --from=build --chown=1000:1000 /app/apps/server/package.json ./apps/server/package.json
 COPY --from=build --chown=1000:1000 /app/apps/server/healthcheck.js ./apps/server/healthcheck.js
+# Operator-facing setup/diagnostics CLI. `bin/havemind.js` is a thin wrapper
+# around dist/setup/cli.js, so the owner can run, inside the container:
+#   docker compose exec havemind node apps/server/bin/havemind.js setup ...
+#   docker compose exec havemind node apps/server/bin/havemind.js doctor
+COPY --from=build --chown=1000:1000 /app/apps/server/bin ./apps/server/bin
 
 USER 1000:1000
 EXPOSE 8787

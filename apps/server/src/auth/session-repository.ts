@@ -100,6 +100,26 @@ export interface AccessSession {
   readonly userId: string;
 }
 
+export interface CreateInitialFamilyFromHashInput {
+  readonly deviceId: string;
+  readonly refreshTokenHash: string;
+  readonly refreshTokenTtlSeconds: number;
+  readonly userId: string;
+}
+
+export interface InitialFamilyResult {
+  readonly familyId: string;
+  readonly refreshExpiresAt: string;
+}
+
+export interface RefreshContext {
+  readonly deviceId: string;
+  readonly familyId: string;
+  readonly userId: string;
+}
+
+const SHA256_HEX_PATTERN = /^[0-9a-f]{64}$/u;
+
 interface RefreshRow {
   readonly consumedAt: string | null;
   readonly deviceId: string;
@@ -304,6 +324,115 @@ export class SessionRepository {
       refreshExpiresAt,
     );
     return { ...access, familyId, refreshExpiresAt };
+  }
+
+  /**
+   * Creates generation zero from a stored refresh-token hash without minting an
+   * access token. The onboarding flow binds the joining device's own refresh
+   * token at redemption time (hash only) and activates its family here, at owner
+   * approval, so the invitee — never the owner — holds the raw secret.
+   */
+  public createInitialFamilyFromHashInCurrentTransaction(
+    input: CreateInitialFamilyFromHashInput,
+  ): InitialFamilyResult {
+    if (!this.#database.inTransaction) {
+      throw new SessionRepositoryError('INVALID_INPUT');
+    }
+    const userId = requireUuid(input.userId);
+    const deviceId = requireUuid(input.deviceId);
+    if (
+      typeof input.refreshTokenHash !== 'string' ||
+      !SHA256_HEX_PATTERN.test(input.refreshTokenHash)
+    ) {
+      throw new SessionRepositoryError('INVALID_REFRESH');
+    }
+    let refreshTtl: number;
+    try {
+      refreshTtl = validateRefreshTokenTtl(input.refreshTokenTtlSeconds);
+    } catch {
+      throw new SessionRepositoryError('INVALID_INPUT');
+    }
+    if (refreshTtl < this.#accessTokenTtlSeconds) {
+      throw new SessionRepositoryError('INVALID_INPUT');
+    }
+
+    const now = readClock(this.#now);
+    const createdAt = now.toISOString();
+    const refreshExpiresAt = addSeconds(now, refreshTtl);
+    const familyId = this.#newUuid();
+    const refreshId = this.#newUuid();
+    this.#database
+      .prepare(
+        `INSERT INTO refresh_token_families (
+           id, user_id, device_id, status, current_generation,
+           created_at, expires_at, revoked_at
+         ) VALUES (?, ?, ?, 'active', 0, ?, ?, NULL)`,
+      )
+      .run(familyId, userId, deviceId, createdAt, refreshExpiresAt);
+    this.#database
+      .prepare(
+        `INSERT INTO refresh_tokens (
+           id, family_id, generation, token_hash, created_at,
+           consumed_at, rotation_id, successor_token_hash, expires_at
+         ) VALUES (?, ?, 0, ?, ?, NULL, NULL, NULL, ?)`,
+      )
+      .run(refreshId, familyId, input.refreshTokenHash, createdAt, refreshExpiresAt);
+    return { familyId, refreshExpiresAt };
+  }
+
+  /**
+   * Resolves the identity behind a live refresh token without rotating it.
+   * Bootstrap paging uses this so the joining device can stream its initial
+   * download from its own refresh token before it holds an access token, while
+   * a consumed, superseded, expired, or revoked token resolves to null.
+   */
+  public lookupRefreshContext(rawRefreshToken: string): RefreshContext | null {
+    let tokenHash: string;
+    try {
+      tokenHash = hashRefreshToken(parseRefreshToken(rawRefreshToken));
+    } catch {
+      return null;
+    }
+    const now = readClock(this.#now).getTime();
+    const row = this.#database
+      .prepare(
+        `SELECT tokens.generation AS generation,
+                tokens.consumed_at AS consumedAt,
+                tokens.expires_at AS refreshExpiresAt,
+                families.id AS familyId,
+                families.user_id AS userId,
+                families.device_id AS deviceId,
+                families.status AS familyStatus,
+                families.current_generation AS currentGeneration,
+                families.expires_at AS familyExpiresAt,
+                users.status AS userStatus,
+                devices.status AS deviceStatus
+         FROM refresh_tokens AS tokens
+         INNER JOIN refresh_token_families AS families
+           ON families.id = tokens.family_id
+         INNER JOIN users ON users.id = families.user_id
+         INNER JOIN devices ON devices.id = families.device_id
+         WHERE tokens.token_hash = ?`,
+      )
+      .get(tokenHash) as RefreshRow | undefined;
+    if (row === undefined || row.consumedAt !== null) {
+      return null;
+    }
+    if (
+      requireStoredDate(row.refreshExpiresAt) <= now ||
+      requireStoredDate(row.familyExpiresAt) <= now ||
+      row.familyStatus !== 'active' ||
+      row.userStatus !== 'active' ||
+      row.deviceStatus !== 'approved' ||
+      requireGeneration(row.generation) !== requireGeneration(row.currentGeneration)
+    ) {
+      return null;
+    }
+    return {
+      deviceId: requireStoredUuid(row.deviceId),
+      familyId: requireStoredUuid(row.familyId),
+      userId: requireStoredUuid(row.userId),
+    };
   }
 
   public rotateRefresh(input: RotateRefreshInput): RotateRefreshResult {

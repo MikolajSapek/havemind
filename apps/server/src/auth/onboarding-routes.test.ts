@@ -1,0 +1,575 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import type Database from 'better-sqlite3';
+import Fastify from 'fastify';
+import { afterEach, describe, expect, it } from 'vitest';
+
+import { buildApp } from '../app.js';
+import { parseServerConfig } from '../config.js';
+import { openDatabase } from '../db.js';
+import { runMigrations } from '../migrations.js';
+import type { StoredRevisionEvent } from '../revision-repository.js';
+import { InvitationService } from './invitations.js';
+import { registerPreAuthOnboardingRoutes } from './onboarding-routes.js';
+import { SessionRepository } from './session-repository.js';
+import { createRefreshSuccessor, generateRefreshToken } from './tokens.js';
+
+const TEST_ENV = {
+  HAVEMIND_API_BASE_URL: 'https://sync.example.test/api/v1',
+  HAVEMIND_SERVER_NAME: 'Test Havemind',
+} as const;
+
+const ACCESS_TTL_SECONDS = 600;
+const REFRESH_TTL_SECONDS = 24 * 60 * 60;
+const START_TIME = '2026-07-16T03:00:00.000Z';
+const INVITATION_TTL_MS = 15 * 60 * 1_000;
+
+const OWNER_USER = '80000000-0000-4000-8000-0000000000a1';
+const OWNER_DEVICE = '80000000-0000-4000-8000-0000000000a2';
+const VAULT = '80000000-0000-4000-8000-0000000000a3';
+const OWNER_MEMBERSHIP = '80000000-0000-4000-8000-0000000000a4';
+
+interface Fixture {
+  readonly database: Database.Database;
+  readonly sessions: SessionRepository;
+  readonly invitations: InvitationService;
+  readonly ownerAccessToken: string;
+  readonly clock: { ms: number };
+}
+
+const databases: Database.Database[] = [];
+const temporaryDirectories: string[] = [];
+const applications: Array<ReturnType<typeof buildApp>> = [];
+
+function insertUser(database: Database.Database, id: string, name: string) {
+  database
+    .prepare(
+      `INSERT INTO users (id, display_name, is_instance_owner, status, created_at, revoked_at)
+       VALUES (?, ?, 1, 'active', ?, NULL)`,
+    )
+    .run(id, name, START_TIME);
+}
+
+function insertDevice(
+  database: Database.Database,
+  id: string,
+  userId: string,
+  name: string,
+) {
+  database
+    .prepare(
+      `INSERT INTO devices (id, user_id, display_name, public_key, status, created_at, approved_at, revoked_at)
+       VALUES (?, ?, ?, ?, 'approved', ?, ?, NULL)`,
+    )
+    .run(id, userId, name, Buffer.alloc(32, 0x22), START_TIME, START_TIME);
+}
+
+function insertVault(database: Database.Database, id: string, name: string) {
+  database
+    .prepare(
+      `INSERT INTO vaults (id, display_name, write_epoch, next_server_sequence, created_at, deleted_at)
+       VALUES (?, ?, 0, 1, ?, NULL)`,
+    )
+    .run(id, name, START_TIME);
+}
+
+function insertMembership(
+  database: Database.Database,
+  id: string,
+  vaultId: string,
+  userId: string,
+) {
+  database
+    .prepare(
+      `INSERT INTO memberships (id, vault_id, user_id, role, status, created_at, revoked_at)
+       VALUES (?, ?, ?, 'owner', 'active', ?, NULL)`,
+    )
+    .run(id, vaultId, userId, START_TIME);
+}
+
+function mintAccessToken(
+  database: Database.Database,
+  sessions: SessionRepository,
+  userId: string,
+  deviceId: string,
+): string {
+  const issue = database.transaction(() =>
+    sessions.createInitialSessionInCurrentTransaction({
+      deviceId,
+      initialRefreshToken: generateRefreshToken(),
+      refreshTokenTtlSeconds: REFRESH_TTL_SECONDS,
+      userId,
+    }),
+  );
+  return issue.immediate().accessToken;
+}
+
+function makeFixture(): Fixture {
+  const directory = mkdtempSync(join(tmpdir(), 'havemind-onboarding-'));
+  temporaryDirectories.push(directory);
+  const database = openDatabase(join(directory, 'havemind.sqlite'));
+  databases.push(database);
+  runMigrations(database);
+
+  const clock = { ms: Date.parse(START_TIME) };
+  const now = (): Date => new Date(clock.ms);
+  const sessions = new SessionRepository(database, {
+    accessTokenTtlSeconds: ACCESS_TTL_SECONDS,
+    now,
+  });
+  const invitations = new InvitationService(database, {
+    accessTokenTtlSeconds: ACCESS_TTL_SECONDS,
+    now,
+    refreshTokenTtlSeconds: REFRESH_TTL_SECONDS,
+  });
+
+  insertUser(database, OWNER_USER, 'Alice');
+  insertDevice(database, OWNER_DEVICE, OWNER_USER, 'Alice Laptop');
+  insertVault(database, VAULT, 'Shared Vault');
+  insertMembership(database, OWNER_MEMBERSHIP, VAULT, OWNER_USER);
+
+  const ownerAccessToken = mintAccessToken(
+    database,
+    sessions,
+    OWNER_USER,
+    OWNER_DEVICE,
+  );
+
+  return { clock, database, invitations, ownerAccessToken, sessions };
+}
+
+function createApp(
+  fixture: Fixture,
+  options?: { rateLimit?: { maxRequests: number; windowMs: number } },
+) {
+  const config = parseServerConfig(TEST_ENV);
+  const app = buildApp({
+    auth: {
+      clientKey: () => 'fixed-test-client',
+      database: fixture.database,
+      invitations: fixture.invitations,
+      now: () => new Date(fixture.clock.ms),
+      sessions: fixture.sessions,
+      ...(options?.rateLimit === undefined
+        ? {}
+        : { rateLimit: options.rateLimit }),
+    },
+    config,
+  });
+  applications.push(app);
+  return app;
+}
+
+async function createInvitation(
+  app: ReturnType<typeof buildApp>,
+  token: string,
+) {
+  return app.inject({
+    body: { intendedMemberDisplayName: 'Bob' },
+    headers: { authorization: `Bearer ${token}` },
+    method: 'POST',
+    url: `/vaults/${VAULT}/invitations`,
+  });
+}
+
+afterEach(async () => {
+  await Promise.all(applications.splice(0).map(async (app) => app.close()));
+  for (const database of databases.splice(0)) {
+    database.close();
+  }
+  for (const directory of temporaryDirectories.splice(0)) {
+    rmSync(directory, { force: true, recursive: true });
+  }
+});
+
+describe('onboarding HTTP surface', () => {
+  it('runs the full invite → redeem → approve → refresh → bootstrap flow', async () => {
+    const fixture = makeFixture();
+    const app = createApp(fixture);
+
+    const created = await createInvitation(app, fixture.ownerAccessToken);
+    expect(created.statusCode).toBe(200);
+    const invitation = created.json() as {
+      expiresAt: string;
+      intendedMemberId: string;
+      invitationId: string;
+      invitationToken: string;
+    };
+    expect(invitation.invitationToken.startsWith('hm_it_')).toBe(true);
+
+    const review = await app.inject({
+      body: { invitationToken: invitation.invitationToken },
+      method: 'POST',
+      url: '/invitations/review',
+    });
+    expect(review.statusCode).toBe(200);
+    expect(review.json()).toEqual({
+      expiresAt: invitation.expiresAt,
+      intendedMemberDisplayName: 'Bob',
+      inviterDisplayName: 'Alice',
+      memberId: invitation.intendedMemberId,
+      vaultId: VAULT,
+      vaultName: 'Shared Vault',
+      version: 1,
+    });
+
+    const initialRefreshToken = generateRefreshToken();
+    const redeem = await app.inject({
+      body: {
+        deviceLabel: 'Bob Laptop',
+        initialRefreshToken,
+        invitationToken: invitation.invitationToken,
+        redemptionId: randomUUID(),
+      },
+      method: 'POST',
+      url: '/invitations/redeem',
+    });
+    expect(redeem.statusCode).toBe(200);
+    const pending = redeem.json() as {
+      pendingCredential: string;
+      pendingDeviceId: string;
+      status: string;
+      verificationPhrase: string;
+    };
+    expect(pending.status).toBe('pending');
+    expect(pending.pendingCredential.startsWith('hm_pd_')).toBe(true);
+
+    const pollBefore = await app.inject({
+      headers: { 'x-havemind-pending-credential': pending.pendingCredential },
+      method: 'GET',
+      url: `/devices/${pending.pendingDeviceId}/approval`,
+    });
+    expect(pollBefore.json()).toEqual({ status: 'pending' });
+
+    const approve = await app.inject({
+      body: { verificationPhrase: pending.verificationPhrase },
+      headers: { authorization: `Bearer ${fixture.ownerAccessToken}` },
+      method: 'POST',
+      url: `/vaults/${VAULT}/invitations/${invitation.invitationId}/approve`,
+    });
+    expect(approve.statusCode).toBe(200);
+    expect(approve.json()).toMatchObject({
+      deviceId: pending.pendingDeviceId,
+      status: 'approved',
+    });
+
+    const pollAfter = await app.inject({
+      headers: { 'x-havemind-pending-credential': pending.pendingCredential },
+      method: 'GET',
+      url: `/devices/${pending.pendingDeviceId}/approval`,
+    });
+    expect(pollAfter.json()).toEqual({
+      bootstrapCursor: null,
+      deviceId: pending.pendingDeviceId,
+      status: 'approved',
+    });
+
+    const successor = createRefreshSuccessor();
+    const refresh = await app.inject({
+      body: {
+        refreshToken: initialRefreshToken,
+        rotationId: successor.rotationId,
+        successorRefreshToken: successor.refreshToken,
+      },
+      method: 'POST',
+      url: '/auth/refresh',
+    });
+    expect(refresh.statusCode).toBe(200);
+    expect((refresh.json() as { accessToken: string }).accessToken.startsWith('hm_at_')).toBe(
+      true,
+    );
+
+    const bootstrap = await app.inject({
+      headers: { 'x-havemind-refresh-token': successor.refreshToken },
+      method: 'GET',
+      url: '/bootstrap',
+    });
+    expect(bootstrap.statusCode).toBe(200);
+    expect(bootstrap.json()).toEqual({
+      complete: true,
+      items: [],
+      nextCursor: null,
+      version: 1,
+    });
+  });
+
+  it('rejects a redemption of an invitation older than 15 minutes with 410', async () => {
+    const fixture = makeFixture();
+    const app = createApp(fixture);
+    const created = await createInvitation(app, fixture.ownerAccessToken);
+    const invitation = created.json() as { invitationToken: string };
+
+    fixture.clock.ms += INVITATION_TTL_MS + 1_000;
+
+    const redeem = await app.inject({
+      body: {
+        deviceLabel: 'Bob Laptop',
+        initialRefreshToken: generateRefreshToken(),
+        invitationToken: invitation.invitationToken,
+        redemptionId: randomUUID(),
+      },
+      method: 'POST',
+      url: '/invitations/redeem',
+    });
+    expect(redeem.statusCode).toBe(410);
+  });
+
+  it('rejects a second redemption of the same invitation with 409', async () => {
+    const fixture = makeFixture();
+    const app = createApp(fixture);
+    const created = await createInvitation(app, fixture.ownerAccessToken);
+    const invitation = created.json() as { invitationToken: string };
+
+    const first = await app.inject({
+      body: {
+        deviceLabel: 'Bob Laptop',
+        initialRefreshToken: generateRefreshToken(),
+        invitationToken: invitation.invitationToken,
+        redemptionId: randomUUID(),
+      },
+      method: 'POST',
+      url: '/invitations/redeem',
+    });
+    expect(first.statusCode).toBe(200);
+
+    const second = await app.inject({
+      body: {
+        deviceLabel: 'Bob Laptop',
+        initialRefreshToken: generateRefreshToken(),
+        invitationToken: invitation.invitationToken,
+        redemptionId: randomUUID(),
+      },
+      method: 'POST',
+      url: '/invitations/redeem',
+    });
+    expect(second.statusCode).toBe(409);
+  });
+
+  it('discards the pending device and issues no token on a phrase mismatch (403)', async () => {
+    const fixture = makeFixture();
+    const app = createApp(fixture);
+    const created = await createInvitation(app, fixture.ownerAccessToken);
+    const invitation = created.json() as {
+      invitationId: string;
+      invitationToken: string;
+    };
+    const redeem = await app.inject({
+      body: {
+        deviceLabel: 'Bob Laptop',
+        initialRefreshToken: generateRefreshToken(),
+        invitationToken: invitation.invitationToken,
+        redemptionId: randomUUID(),
+      },
+      method: 'POST',
+      url: '/invitations/redeem',
+    });
+    const pending = redeem.json() as {
+      pendingDeviceId: string;
+      verificationPhrase: string;
+    };
+    const tokens = pending.verificationPhrase.split(' ');
+    const wrongFirst = tokens[0] === 'amber-fox' ? 'aqua-bear' : 'amber-fox';
+    const wrongPhrase = [wrongFirst, ...tokens.slice(1)].join(' ');
+
+    const approve = await app.inject({
+      body: { verificationPhrase: wrongPhrase },
+      headers: { authorization: `Bearer ${fixture.ownerAccessToken}` },
+      method: 'POST',
+      url: `/vaults/${VAULT}/invitations/${invitation.invitationId}/approve`,
+    });
+    expect(approve.statusCode).toBe(403);
+
+    const device = fixture.database
+      .prepare('SELECT id FROM devices WHERE id = ?')
+      .get(pending.pendingDeviceId);
+    expect(device).toBeUndefined();
+  });
+
+  it('requires owner authentication to generate an invitation', async () => {
+    const fixture = makeFixture();
+    const app = createApp(fixture);
+
+    const anonymous = await app.inject({
+      body: { intendedMemberDisplayName: 'Bob' },
+      method: 'POST',
+      url: `/vaults/${VAULT}/invitations`,
+    });
+    expect(anonymous.statusCode).toBe(401);
+  });
+
+  it('rejects a non-member trying to generate an invitation with 403', async () => {
+    const fixture = makeFixture();
+    const app = createApp(fixture);
+    const otherVault = randomUUID();
+
+    const forbidden = await app.inject({
+      body: { intendedMemberDisplayName: 'Bob' },
+      headers: { authorization: `Bearer ${fixture.ownerAccessToken}` },
+      method: 'POST',
+      url: `/vaults/${otherVault}/invitations`,
+    });
+    expect(forbidden.statusCode).toBe(403);
+  });
+
+  it('rejects an unknown pending credential with 404 and no disclosure', async () => {
+    const fixture = makeFixture();
+    const app = createApp(fixture);
+
+    const response = await app.inject({
+      headers: {
+        'x-havemind-pending-credential': `hm_pd_${'A'.repeat(43)}`,
+      },
+      method: 'GET',
+      url: `/devices/${randomUUID()}/approval`,
+    });
+    expect(response.statusCode).toBe(404);
+  });
+
+  it('rejects an invalid refresh token at the token endpoint with 401', async () => {
+    const fixture = makeFixture();
+    const app = createApp(fixture);
+    const successor = createRefreshSuccessor();
+
+    const response = await app.inject({
+      body: {
+        refreshToken: generateRefreshToken(),
+        rotationId: successor.rotationId,
+        successorRefreshToken: successor.refreshToken,
+      },
+      method: 'POST',
+      url: '/auth/refresh',
+    });
+    expect(response.statusCode).toBe(401);
+  });
+
+  it('rejects bootstrap with an unknown refresh token with 401', async () => {
+    const fixture = makeFixture();
+    const app = createApp(fixture);
+
+    const response = await app.inject({
+      headers: { 'x-havemind-refresh-token': generateRefreshToken() },
+      method: 'GET',
+      url: '/bootstrap',
+    });
+    expect(response.statusCode).toBe(401);
+  });
+
+  it('rate limits the pre-auth surface before any invitation lookup (429)', async () => {
+    const fixture = makeFixture();
+    const app = createApp(fixture, {
+      rateLimit: { maxRequests: 1, windowMs: 60_000 },
+    });
+
+    const first = await app.inject({
+      body: { invitationToken: `hm_it_${'A'.repeat(43)}` },
+      method: 'POST',
+      url: '/invitations/review',
+    });
+    const second = await app.inject({
+      body: { invitationToken: `hm_it_${'A'.repeat(43)}` },
+      method: 'POST',
+      url: '/invitations/review',
+    });
+
+    expect(second.statusCode).toBe(429);
+    expect(second.json()).toEqual({ error: { code: 'RATE_LIMITED' } });
+    expect(first.statusCode).not.toBe(429);
+  });
+
+  it('lets the owner reject a redeemed device, discarding it without a token', async () => {
+    const fixture = makeFixture();
+    const app = createApp(fixture);
+    const created = await createInvitation(app, fixture.ownerAccessToken);
+    const invitation = created.json() as {
+      invitationId: string;
+      invitationToken: string;
+    };
+    const redeem = await app.inject({
+      body: {
+        deviceLabel: 'Bob Laptop',
+        initialRefreshToken: generateRefreshToken(),
+        invitationToken: invitation.invitationToken,
+        redemptionId: randomUUID(),
+      },
+      method: 'POST',
+      url: '/invitations/redeem',
+    });
+    const pending = redeem.json() as { pendingDeviceId: string };
+
+    const reject = await app.inject({
+      headers: { authorization: `Bearer ${fixture.ownerAccessToken}` },
+      method: 'POST',
+      url: `/vaults/${VAULT}/invitations/${invitation.invitationId}/reject`,
+    });
+    expect(reject.statusCode).toBe(200);
+    expect(reject.json()).toEqual({ status: 'rejected' });
+
+    const device = fixture.database
+      .prepare('SELECT id FROM devices WHERE id = ?')
+      .get(pending.pendingDeviceId);
+    expect(device).toBeUndefined();
+  });
+
+  it('streams a bootstrap page of committed items for a live refresh token', async () => {
+    const fixture = makeFixture();
+    const rawRefresh = generateRefreshToken();
+    fixture.database
+      .transaction(() =>
+        fixture.sessions.createInitialSessionInCurrentTransaction({
+          deviceId: OWNER_DEVICE,
+          initialRefreshToken: rawRefresh,
+          refreshTokenTtlSeconds: REFRESH_TTL_SECONDS,
+          userId: OWNER_USER,
+        }),
+      )
+      .immediate();
+
+    const event = {
+      fileId: '90000000-0000-4000-8000-0000000000f1',
+      receipt: {
+        blobHash: 'a'.repeat(64),
+        byteLength: 3,
+        deviceId: OWNER_DEVICE,
+        memberId: OWNER_MEMBERSHIP,
+        revisionId: '90000000-0000-4000-8000-0000000000f2',
+        serverSequence: 1,
+        serverTime: START_TIME,
+      },
+      revisionId: '90000000-0000-4000-8000-0000000000f2',
+      serverSequence: 1,
+      type: 'revision-accepted',
+    };
+
+    const app = Fastify();
+    applications.push(app as unknown as ReturnType<typeof buildApp>);
+    registerPreAuthOnboardingRoutes(app, {
+      database: fixture.database,
+      invitations: fixture.invitations,
+      revisions: { listEvents: () => [event] as unknown as StoredRevisionEvent[] },
+      sessions: fixture.sessions,
+    });
+
+    const bootstrap = await app.inject({
+      headers: { 'x-havemind-refresh-token': rawRefresh },
+      method: 'GET',
+      url: '/bootstrap',
+    });
+    expect(bootstrap.statusCode).toBe(200);
+    expect(bootstrap.json()).toEqual({
+      complete: true,
+      items: [
+        {
+          contentHash: 'a'.repeat(64),
+          fileId: event.fileId,
+          revisionId: event.revisionId,
+          serverSequence: 1,
+        },
+      ],
+      nextCursor: null,
+      version: 1,
+    });
+  });
+});

@@ -3,6 +3,11 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
 import { registerSyncRoutes, type SyncRoutesDeps } from '../sync/sync-routes.js';
+import type { InvitationService } from './invitations.js';
+import {
+  registerOwnerInvitationRoutes,
+  registerPreAuthOnboardingRoutes,
+} from './onboarding-routes.js';
 import type { AccessSession, SessionRepository } from './session-repository.js';
 
 const UUID_PATTERN =
@@ -45,6 +50,7 @@ export interface AuthRoutesDeps {
   readonly rateLimit?: AuthRateLimitConfig;
   readonly clientKey?: (request: FastifyRequest) => string;
   readonly sync?: SyncRoutesDeps;
+  readonly invitations?: InvitationService;
 }
 
 declare module 'fastify' {
@@ -171,6 +177,31 @@ export function registerAuthRoutes(
     clientKey,
   );
 
+  const invitations = deps.invitations;
+  const onboardingDeps =
+    invitations === undefined
+      ? undefined
+      : {
+          database: deps.database,
+          invitations,
+          sessions: deps.sessions,
+          ...(deps.sync === undefined
+            ? {}
+            : { revisions: deps.sync.revisions }),
+        };
+
+  if (onboardingDeps !== undefined) {
+    // Pre-authentication scope: rate limited so a flood is rejected before any
+    // invitation lookup, but no bearer session is required — the joining device
+    // has no session yet.
+    void app.register(async (instance) => {
+      instance.addHook('onRequest', async (request, reply) => {
+        rateLimit(request, reply);
+      });
+      registerPreAuthOnboardingRoutes(instance, onboardingDeps);
+    });
+  }
+
   void app.register(async (instance) => {
     instance.addHook('onRequest', async (request, reply) => {
       rateLimit(request, reply);
@@ -220,6 +251,10 @@ export function registerAuthRoutes(
         vaultId: params.data.vaultId,
       };
     });
+
+    if (onboardingDeps !== undefined) {
+      registerOwnerInvitationRoutes(instance, onboardingDeps);
+    }
 
     if (deps.sync !== undefined) {
       registerSyncRoutes(instance, deps.sync);

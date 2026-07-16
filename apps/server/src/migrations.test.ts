@@ -99,7 +99,7 @@ describe('controlled migrations', () => {
     const database = trackDatabase(openDatabase(temporaryDatabasePath()));
 
     expect(runMigrations(database)).toEqual({
-      appliedVersions: [1],
+      appliedVersions: [1, 2],
       currentVersion: CURRENT_SCHEMA_VERSION,
     });
 
@@ -129,14 +129,21 @@ describe('controlled migrations', () => {
       version: number;
     }>;
 
-    expect(migrationRows).toHaveLength(1);
+    expect(migrationRows).toHaveLength(2);
     expect(migrationRows[0]).toMatchObject({
       checksum: expect.stringMatching(/^[a-f0-9]{64}$/u),
       name: 'initial',
       version: 1,
     });
+    expect(migrationRows[1]).toMatchObject({
+      checksum: expect.stringMatching(/^[a-f0-9]{64}$/u),
+      name: 'onboarding',
+      version: 2,
+    });
     expect(Date.parse(migrationRows[0]?.appliedAt ?? '')).not.toBeNaN();
-    expect(database.pragma('user_version', { simple: true })).toBe(1);
+    expect(database.pragma('user_version', { simple: true })).toBe(
+      CURRENT_SCHEMA_VERSION,
+    );
     expect(database.pragma('foreign_key_check')).toEqual([]);
     expect(database.pragma('integrity_check', { simple: true })).toBe('ok');
 
@@ -153,7 +160,7 @@ describe('controlled migrations', () => {
     });
     expect(
       database.prepare('SELECT COUNT(*) AS count FROM schema_migrations').get(),
-    ).toEqual({ count: 1 });
+    ).toEqual({ count: 2 });
   });
 
   it('uses BEGIN IMMEDIATE so only one migrator can run at a time', () => {
@@ -184,13 +191,13 @@ describe('controlled migrations', () => {
         `INSERT INTO schema_migrations (version, name, checksum, applied_at)
          VALUES (?, ?, ?, ?)`,
       )
-      .run(2, 'future', 'f'.repeat(64), new Date().toISOString());
-    database.pragma('user_version = 2');
+      .run(3, 'future', 'f'.repeat(64), new Date().toISOString());
+    database.pragma('user_version = 3');
 
     expect(() => runMigrations(database)).toThrow(NewerSchemaVersionError);
     expect(
       database.prepare('SELECT COUNT(*) AS count FROM schema_migrations').get(),
-    ).toEqual({ count: 2 });
+    ).toEqual({ count: 3 });
   });
 
   it('refuses an applied migration whose SQL changed after deployment', () => {
@@ -198,8 +205,9 @@ describe('controlled migrations', () => {
     runMigrations(database);
 
     const initialMigration = DEFAULT_MIGRATIONS[0];
-    if (initialMigration === undefined) {
-      throw new Error('The test requires the initial migration.');
+    const onboardingMigration = DEFAULT_MIGRATIONS[1];
+    if (initialMigration === undefined || onboardingMigration === undefined) {
+      throw new Error('The test requires the full migration catalog.');
     }
 
     const changedMigrations = [
@@ -207,6 +215,7 @@ describe('controlled migrations', () => {
         ...initialMigration,
         sql: `${initialMigration.sql}\n-- changed after it was applied`,
       },
+      onboardingMigration,
     ];
 
     expect(() => runMigrations(database, changedMigrations)).toThrow(
@@ -246,20 +255,10 @@ describe('controlled migrations', () => {
 
   it('refuses a gap in applied migration metadata', () => {
     const database = trackDatabase(openDatabase(temporaryDatabasePath()));
-    const twoMigrations = [
-      ...DEFAULT_MIGRATIONS,
-      {
-        name: 'second',
-        sql: 'CREATE TABLE second_migration_marker (id TEXT PRIMARY KEY) STRICT;',
-        version: 2,
-      },
-    ];
-    runMigrations(database, twoMigrations);
+    runMigrations(database);
     database.prepare('DELETE FROM schema_migrations WHERE version = 1').run();
 
-    expect(() => runMigrations(database, twoMigrations)).toThrow(
-      MigrationMetadataError,
-    );
+    expect(() => runMigrations(database)).toThrow(MigrationMetadataError);
   });
 
   it('refuses a changed migration name even when the version is unchanged', () => {
@@ -292,7 +291,7 @@ describe('controlled migrations', () => {
           CREATE TABLE should_be_rolled_back (id TEXT PRIMARY KEY) STRICT;
           THIS IS NOT VALID SQL;
         `,
-        version: 2,
+        version: 3,
       },
     ];
 
@@ -306,9 +305,11 @@ describe('controlled migrations', () => {
         )
         .get(),
     ).toBeUndefined();
-    expect(database.pragma('user_version', { simple: true })).toBe(1);
+    expect(database.pragma('user_version', { simple: true })).toBe(
+      CURRENT_SCHEMA_VERSION,
+    );
     expect(
       database.prepare('SELECT COUNT(*) AS count FROM schema_migrations').get(),
-    ).toEqual({ count: 1 });
+    ).toEqual({ count: CURRENT_SCHEMA_VERSION });
   });
 });

@@ -116,8 +116,18 @@ const initialMigration: MigrationDefinition = Object.freeze({
   version: 1,
 });
 
+const onboardingMigration: MigrationDefinition = Object.freeze({
+  name: 'onboarding',
+  sql: readFileSync(
+    new URL('./migrations/002-onboarding.sql', import.meta.url),
+    'utf8',
+  ),
+  version: 2,
+});
+
 export const DEFAULT_MIGRATIONS: readonly MigrationDefinition[] = Object.freeze([
   initialMigration,
+  onboardingMigration,
 ]);
 
 export const CURRENT_SCHEMA_VERSION =

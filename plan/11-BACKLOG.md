@@ -208,11 +208,16 @@ raporcie fazy (co działa, co odłożone, dowód).
     status bar Synced/Offline/Conflict (8); dist/{main.js,manifest.json} + docs/pilot/install.md;
     workspace 491 pass, branch 83.33%. Follow-up przy deployu: wpiąć resolvery onboarding→connected
     (token/vaultId/fileId↔path/blob fetch) i controller.start().
-- [ ] **F8-02c** `serwer,bezpieczeństwo` Auth/onboarding HTTP surface (domknięcie T019/T020 po
+- [x] **F8-02c** `serwer,bezpieczeństwo` Auth/onboarding HTTP surface (domknięcie T019/T020 po
   HTTP, luka ujawniona przez F8-02b): trasy review/redeem zaproszenia, approval polling,
   bootstrap, refresh→access issuance, owner generate-invitation — wszystko w deny-by-default
   scope F2-02, konsumując gotowe serwisy F1-01/F2-01; Dockerfile: dołączyć CLI (bin/ lub
   dist/setup/cli.js wywoływalne w kontenerze).
+  - Dowód (2026-07-16): onboarding-routes.test.ts 11 testów — POST /vaults/:id/invitations
+    (owner-only 200/401/403), review/redeem pre-auth z limiterem F2-02 (429 przed lookupem),
+    GET /devices/:id/approval (pending→approved), GET /bootstrap, POST /auth/refresh (rotacja
+    F1-01); kody 410/409/403/429 bez wycieku; deferred refresh-token binding (owner nigdy nie
+    zna sekretu invitee); Dockerfile kopiuje bin/. Workspace 503 pass, branch 82.36%.
 - [ ] **F8-02b-A** `plugin` Wpięcie Connect/live-loop (wznowienie po F8-02c): onboarding →
   connected → controller.start(), resolvery token/vaultId/fileId↔path/blob fetch.
 - [ ] **F8-02** `decyzja-usera` Siedmiodniowy pilotaż na sapserverze (T032)

@@ -14,6 +14,7 @@ declare const accessTokenBrand: unique symbol;
 declare const refreshTokenBrand: unique symbol;
 declare const pairingTokenBrand: unique symbol;
 declare const invitationTokenBrand: unique symbol;
+declare const pendingDeviceCredentialBrand: unique symbol;
 declare const refreshRotationIdBrand: unique symbol;
 declare const tokenHashBrand: unique symbol;
 declare const accessTokenTtlBrand: unique symbol;
@@ -30,6 +31,9 @@ export type PairingToken = string & {
 };
 export type InvitationToken = string & {
   readonly [invitationTokenBrand]: 'InvitationToken';
+};
+export type PendingDeviceCredential = string & {
+  readonly [pendingDeviceCredentialBrand]: 'PendingDeviceCredential';
 };
 export type RefreshRotationId = string & {
   readonly [refreshRotationIdBrand]: 'RefreshRotationId';
@@ -98,6 +102,10 @@ const PAIRING_TOKEN_DOMAIN: TokenDomain<PairingToken> = {
 const INVITATION_TOKEN_DOMAIN: TokenDomain<InvitationToken> = {
   prefix: 'hm_it_',
   brand: (value) => value as InvitationToken,
+};
+const PENDING_DEVICE_CREDENTIAL_DOMAIN: TokenDomain<PendingDeviceCredential> = {
+  prefix: 'hm_pd_',
+  brand: (value) => value as PendingDeviceCredential,
 };
 const REFRESH_ROTATION_ID_DOMAIN: TokenDomain<RefreshRotationId> = {
   prefix: 'hm_ri_',
@@ -183,6 +191,10 @@ export function generateInvitationToken(): InvitationToken {
   return generateToken(INVITATION_TOKEN_DOMAIN);
 }
 
+export function generatePendingDeviceCredential(): PendingDeviceCredential {
+  return generateToken(PENDING_DEVICE_CREDENTIAL_DOMAIN);
+}
+
 function generateRefreshRotationId(): RefreshRotationId {
   return generateToken(REFRESH_ROTATION_ID_DOMAIN);
 }
@@ -203,6 +215,12 @@ export function parseInvitationToken(value: string): InvitationToken {
   return parseToken(value, INVITATION_TOKEN_DOMAIN);
 }
 
+export function parsePendingDeviceCredential(
+  value: string,
+): PendingDeviceCredential {
+  return parseToken(value, PENDING_DEVICE_CREDENTIAL_DOMAIN);
+}
+
 export function parseRefreshRotationId(value: string): RefreshRotationId {
   return parseToken(value, REFRESH_ROTATION_ID_DOMAIN);
 }
@@ -221,6 +239,12 @@ export function hashPairingToken(token: PairingToken): TokenHash {
 
 export function hashInvitationToken(token: InvitationToken): TokenHash {
   return hashToken(parseInvitationToken(token));
+}
+
+export function hashPendingDeviceCredential(
+  token: PendingDeviceCredential,
+): TokenHash {
+  return hashToken(parsePendingDeviceCredential(token));
 }
 
 export function tokenHashesEqual(left: string, right: string): boolean {
