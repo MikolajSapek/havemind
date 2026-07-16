@@ -151,7 +151,11 @@ raporcie fazy (co działa, co odłożone, dowód).
 
 ## F7 — Polish
 
-- [ ] **F7-01** `serwer,bezpieczeństwo` Backup, restore, server epoch (T022)
+- [x] **F7-01** `serwer,bezpieczeństwo` Backup, restore, server epoch (T022)
+  - Dowód (2026-07-16): backup-restore.test.ts 10/10 — restore: PRAGMA integrity_check +
+    weryfikacja manifestu bajt-w-bajt PRZED startem, epoch bez zmiany przy failu; nowy
+    server_epoch po restore, stary cursor → 409 CURSOR_INVALID end-to-end po HTTP;
+    non-empty target odrzucony. Workspace 396 pass, branch 83.35%. Odblokowuje SRV-03.
   - AC: restore do pustego katalogu weryfikuje manifest + `PRAGMA integrity_check` przed startem
     (funkcjonalne, `npm test --workspace @havemind/server -- backup-restore`).
   - AC: restored instancja zmienia epokę, stary cursor wymusza pojednanie (funkcjonalne).

@@ -7,6 +7,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
 import type { BlobStore } from '../blob-store.js';
+import { readInstanceEpoch } from '../backup-restore.js';
 import {
   RevisionRepositoryError,
   type RevisionRepository,
@@ -30,6 +31,7 @@ const MAX_PULL_LIMIT = 1_000;
  */
 export type SyncErrorCode =
   | 'CONFLICT'
+  | 'CURSOR_INVALID'
   | 'FORBIDDEN'
   | 'HEAD_SET_CHANGED'
   | 'INTERNAL'
@@ -84,6 +86,7 @@ const blobParamsSchema = z.object({
 const pullQuerySchema = z
   .object({
     after: z.coerce.number().int().nonnegative().safe().optional(),
+    epoch: z.string().min(1).max(200).optional(),
     limit: z.coerce.number().int().positive().max(MAX_PULL_LIMIT).optional(),
   })
   .strict();
@@ -378,6 +381,18 @@ export function registerSyncRoutes(
     const after = query.data.after ?? 0;
     const limit = query.data.limit ?? DEFAULT_PULL_LIMIT;
 
+    // Cursors are qualified by the server epoch. After a restore the epoch is
+    // rotated, so a client presenting a cursor stamped with the previous epoch
+    // is forced to reconcile heads before it can mutate again.
+    const epoch = readInstanceEpoch(deps.database);
+    if (
+      epoch !== null &&
+      query.data.epoch !== undefined &&
+      query.data.epoch !== epoch.serverEpoch
+    ) {
+      return sendSyncError(reply, 409, 'CURSOR_INVALID');
+    }
+
     try {
       const events = deps.revisions.listEvents(
         params.data.vaultId,
@@ -386,7 +401,11 @@ export function registerSyncRoutes(
       );
       const cursor = deps.revisions.getCursor(params.data.vaultId);
       reply.header('cache-control', 'no-store');
-      return { cursor, events };
+      return {
+        cursor,
+        ...(epoch === null ? {} : { epoch: epoch.serverEpoch }),
+        events,
+      };
     } catch (error) {
       return sendCommitError(reply, error);
     }
