@@ -1,0 +1,45 @@
+# Keep the build context small and free of local/build artefacts and secrets.
+node_modules
+**/node_modules
+dist
+**/dist
+coverage
+**/coverage
+.cache
+.tmp
+tmp
+
+.git
+.gitignore
+.DS_Store
+Thumbs.db
+
+# Never copy secrets or environment files into the image.
+.env
+.env.*
+!deploy/.env.example
+*.pem
+*.key
+*.token
+
+# Local databases / backups.
+*.db
+*.db-shm
+*.db-wal
+data
+backups
+
+# Built plugin bundle and plugin app (server image does not need the plugin).
+apps/obsidian-plugin/main.js
+
+# Docs, plans and screenshots are not needed at build time.
+docs
+plan
+plans
+specs
+screenshots
+*.md
+!README.md
+
+npm-debug.log*
+*.tsbuildinfo

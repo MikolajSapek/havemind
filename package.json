@@ -17,6 +17,7 @@
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "check:workspace": "node scripts/check-workspace.mjs",
+    "compose:smoke": "node scripts/compose-smoke.mjs",
     "dev:plugin": "npm run dev --workspace @havemind/obsidian-plugin",
     "dev:server": "npm run dev --workspace @havemind/server",
     "lint": "eslint .",

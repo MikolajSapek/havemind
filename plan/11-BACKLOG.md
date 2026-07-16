@@ -160,7 +160,12 @@ raporcie fazy (co działa, co odłożone, dowód).
     (funkcjonalne, `npm test --workspace @havemind/server -- backup-restore`).
   - AC: restored instancja zmienia epokę, stary cursor wymusza pojednanie (funkcjonalne).
 
-- [ ] **F7-02** `sapserver,bezpieczeństwo` Hardened Compose (T030)
+- [x] **F7-02** `sapserver,bezpieczeństwo` Hardened Compose (T030)
+  - Dowód (2026-07-16): `docker compose config` na sapserverze (Compose v5.3.1, bez sudo) exit 0,
+    grep 0.0.0.0 → 0, publikacja host_ip 127.0.0.1:8787; `npm run compose:smoke` exit 0;
+    FROM node:22.23.1-bookworm-slim@sha256:6c74791e… (pinned digest, wymuszony testem);
+    npm audit 0 podatności. Workspace 401 pass. Realny `docker build/up` na sapserverze
+    czeka na sudo usera (mikolaj poza grupą docker) — poza AC tego issue.
   - AC: `docker compose config` nie pokazuje żadnego portu poza `127.0.0.1:*` (funkcjonalne,
     metoda: `docker compose config | grep -c '0.0.0.0'` → 0).
   - AC: `npm run compose:smoke` zielone (funkcjonalne).

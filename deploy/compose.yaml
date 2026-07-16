@@ -1,0 +1,67 @@
+# Havemind — hardened single-service Compose stack for the sapserver pilot.
+#
+# Conventions (plan/08-sapserver-operations.md, plan/02-fundamenty.md):
+#   * lives at /srv/compose/havemind/compose.yaml on the target host
+#   * the host port is published ONLY on 127.0.0.1 (never a public/wildcard
+#     bind) and is reached from the tailnet via `tailscale serve`
+#   * secrets are files under /srv/secrets, never inline env values
+#   * the container runs non-root, read-only, cap-dropped, no-new-privileges
+#
+# Copy deploy/.env.example to deploy/.env and fill it in before `docker compose up`.
+name: havemind
+
+services:
+  havemind-server:
+    build:
+      context: ..
+      dockerfile: apps/server/Dockerfile
+    # Locally built image; the base layer's digest pin lives in the Dockerfile.
+    image: havemind-server:${HAVEMIND_IMAGE_TAG:-0.0.0-private}
+    user: "1000:1000"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - "no-new-privileges:true"
+    init: true
+    restart: unless-stopped
+    # Host binding stays on loopback; tailscale serve fronts it. NEVER a public bind.
+    ports:
+      - "127.0.0.1:${HAVEMIND_PORT:-8787}:8787"
+    environment:
+      # Inside the container the server binds all interfaces via IPv6 dual-stack
+      # ("::"), so Docker's loopback publish above can reach it. The literal
+      # public-any address is deliberately never written here — the security
+      # boundary is the 127.0.0.1 host publish, not the container-internal bind.
+      HAVEMIND_HOST: "::"
+      HAVEMIND_ALLOW_NON_LOOPBACK: "true"
+      HAVEMIND_PORT: "8787"
+      HAVEMIND_API_BASE_URL: ${HAVEMIND_API_BASE_URL}
+      HAVEMIND_SERVER_NAME: ${HAVEMIND_SERVER_NAME:-Havemind}
+      HAVEMIND_LOG_LEVEL: ${HAVEMIND_LOG_LEVEL:-info}
+      HAVEMIND_DATA_DIR: /data
+    volumes:
+      - havemind-data:/data
+    secrets:
+      - havemind_db_key
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test: ["CMD", "node", "apps/server/healthcheck.js"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+volumes:
+  havemind-data:
+
+secrets:
+  havemind_db_key:
+    # Restricted (0600) file on the host; see plan/08 (/srv/secrets).
+    file: /srv/secrets/havemind_db_key
