@@ -217,7 +217,14 @@ raporcie fazy (co działa, co odłożone, dowód).
   - Dowód (2026-07-16): user wybrał NAS w sieci lokalnej (AskUserQuestion w sesji orkiestratora).
   - Follow-up dla SRV-03: przed wdrożeniem Restic zapytać usera o host/udział/protokół NAS
     (NFS/SMB/SFTP) — dane nie zostały jeszcze podane.
-- [ ] **SRV-03** `sapserver,bezpieczeństwo` Wdrożenie Restic
+- [ ] **SRV-03** `sapserver,bezpieczeństwo` Wdrożenie Restic — CZĘŚCIOWE (2026-07-16)
+  - Zrobione bez sudo: skrypty w ops/sapserver/restic + ~/havemind-ops na serwerze (backup/
+    prune 7/4/6 z restic check przed forget/restore/verify), hasło repo 384-bit w pliku 0600,
+    szablon smb-credentials, systemd mount+automount dla //192.168.254.10/backup.
+  - BLOKERY USERA: (1) NAS nie serwuje SMB — port 445/139 refused, włączyć udział `backup`;
+    (2) wypełnić ~/havemind-ops/secrets/smb-credentials; (3) 6 kroków sudo z
+    ops/sapserver/restic/README.md (apt install restic cifs-utils, /srv/secrets, mount,
+    init-repo, backup, verify).
   - AC: repo szyfrowane poza dyskiem systemowym serwera, retencja 7/4/6 skonfigurowana
     (funkcjonalne, metoda: `restic snapshots` + `restic check`).
   - Zależy od: F7-01 (backup/restore aplikacyjny musi mieć endpoint/CLI zanim Restic opakuje
