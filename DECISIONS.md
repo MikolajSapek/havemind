@@ -317,3 +317,35 @@ workspace gate clean). No commit; production server untouched (code only).
 
 Server production instance (https://sapserver.tail48b326.ts.net) was not touched;
 these changes ship on next deploy of the built server + plugin dist.
+
+## 2026-07-16 — F8-02e production bootstrap wiring + rotate-pairing CLI
+
+Production returned 404 on /owner/pair: `index.ts` called `buildApp({ config })`
+with no `auth` deps, so `registerAuthRoutes` never ran. Fixed the bootstrap and
+added an owner pairing-token rotation command. Full gate green (569 tests,
+workspace branch 81.16%). No commit; live server untouched (code only).
+
+1. **`index.ts` now wires real deps** exactly as the e2e harness does: open the
+   DB under `HAVEMIND_DATA_DIR/havemind.db` + `runMigrations`, then
+   `SessionRepository`, `InvitationService`, `BlobStore(dataDir/blobs)`,
+   `RevisionRepository` → `buildApp({ config, auth: { database, sessions,
+   invitations, sync: { blobStore, database, revisions } } })`. Passing
+   `invitations` is required — onboarding routes (incl. `/owner/pair`) only
+   register when it is present. Graceful shutdown closes the DB after `app.close()`.
+
+   - **DB key:** `db.ts`/`config.ts` do not read `/run/secrets/havemind_db_key`;
+     the DB is plain WAL better-sqlite3 (no in-process cipher). `index.ts` opens
+     the file exactly as the setup CLI created it — no phantom key application.
+   - **Filename divergence (pre-existing, flagged not fixed):** the setup CLI and
+     now `index.ts` use `havemind.db`, while `backup-restore.ts` and the e2e
+     harness use `havemind.sqlite`. Production consistency (server reads what
+     setup wrote) requires `havemind.db`; reconciling backup-restore is a
+     separate F7-01 concern and out of this issue's scope.
+
+2. **`rotate-pairing` CLI + `OwnerSetupService.rotateOwnerPairing`:** invalidates
+   the owner's unconsumed pairing token and issues a fresh single-use one (15 min),
+   leaving vault/membership data and already-consumed pairings untouched. Unconsumed
+   rows are DELETEd rather than marked consumed, because the `owner_pairings` CHECK
+   forbids `consumed_at` without `consumed_by_device_id`. Local-CLI capability
+   required; `NOT_INITIALIZED` when no owner exists. Reachable in the container —
+   the Dockerfile already copies `bin/`.

@@ -51,6 +51,8 @@ const USAGE = [
   'Commands:',
   '  setup --owner <name> --vault <name>   Initialise the instance owner and',
   '                                        print a single-use pairing token.',
+  '  rotate-pairing                        Invalidate the old owner pairing token',
+  '                                        and print a fresh single-use one.',
   '  generate-db-key                       Print a fresh 256-bit database key.',
   '  doctor [--json]                       Run secret-free diagnostics.',
 ].join('\n');
@@ -175,6 +177,45 @@ function runSetup(
   }
 }
 
+function runRotatePairing(dependencies: CliDependencies): CliResult {
+  const databaseFile = resolveDatabaseFile(dependencies.env);
+  if (databaseFile === null) {
+    return {
+      exitCode: 1,
+      stderr:
+        'rotate-pairing requires HAVEMIND_DATA_DIR to point at the server data directory.\n',
+      stdout: '',
+    };
+  }
+  const openSession = dependencies.openSetupSession ?? defaultOpenSetupSession;
+  const session = openSession(databaseFile);
+  try {
+    const result = session.service.rotateOwnerPairing(
+      createLocalOwnerSetupContext(),
+    );
+    const stdout = [
+      'Previous owner pairing token invalidated.',
+      `Fresh pairing token (single-use, expires ${result.pairingExpiresAt}):`,
+      `  ${result.pairingToken}`,
+      '',
+      'Hand this token to the owner device now; only its hash is stored server-side.',
+      '',
+    ].join('\n');
+    return { exitCode: 0, stderr: '', stdout };
+  } catch (error) {
+    if (error instanceof OwnerSetupError) {
+      return {
+        exitCode: 1,
+        stderr: `rotate-pairing failed: ${error.message}\n`,
+        stdout: '',
+      };
+    }
+    throw error;
+  } finally {
+    session.close();
+  }
+}
+
 export function runCli(
   argv: readonly string[],
   dependencies: CliDependencies,
@@ -184,6 +225,8 @@ export function runCli(
   switch (command) {
     case 'setup':
       return runSetup(dependencies, parsed);
+    case 'rotate-pairing':
+      return runRotatePairing(dependencies);
     case 'generate-db-key':
       return runGenerateDbKey(dependencies);
     case 'doctor':

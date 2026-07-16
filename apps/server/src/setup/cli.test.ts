@@ -142,3 +142,39 @@ describe('setup', () => {
     expect(result.stderr).toContain('setup failed');
   });
 });
+
+describe('rotate-pairing', () => {
+  const PAIRING_PATTERN = /hm_pt_[A-Za-z0-9_-]{43}/u;
+
+  it('requires HAVEMIND_DATA_DIR', () => {
+    const result = runCli(['rotate-pairing'], { env: baseEnv() });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain('HAVEMIND_DATA_DIR');
+  });
+
+  it('invalidates the old token and prints a fresh single-use one', () => {
+    const dataDir = makeDataDir();
+    const env = baseEnv({ HAVEMIND_DATA_DIR: dataDir });
+    const setup = runCli(['setup', '--owner', 'Alice', '--vault', 'Notes'], {
+      env,
+    });
+    const setupToken = setup.stdout.match(PAIRING_PATTERN)?.[0];
+
+    const result = runCli(['rotate-pairing'], { env });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Fresh pairing token');
+    const rotatedToken = result.stdout.match(PAIRING_PATTERN)?.[0];
+    expect(rotatedToken).not.toBeUndefined();
+    expect(rotatedToken).not.toBe(setupToken);
+    expect(() => parsePairingToken(rotatedToken ?? '')).not.toThrow();
+  });
+
+  it('fails cleanly when the owner is not initialised', () => {
+    const dataDir = makeDataDir();
+    const result = runCli(['rotate-pairing'], {
+      env: baseEnv({ HAVEMIND_DATA_DIR: dataDir }),
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain('rotate-pairing failed');
+  });
+});

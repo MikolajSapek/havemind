@@ -36,7 +36,8 @@ export type OwnerSetupErrorCode =
   | 'INVALID_CLOCK'
   | 'INVALID_INPUT'
   | 'INVALID_PAIRING'
-  | 'LOCAL_CONTEXT_REQUIRED';
+  | 'LOCAL_CONTEXT_REQUIRED'
+  | 'NOT_INITIALIZED';
 
 const ERROR_MESSAGES: Readonly<Record<OwnerSetupErrorCode, string>> = {
   ALREADY_INITIALIZED: 'The instance owner is already initialized.',
@@ -44,6 +45,7 @@ const ERROR_MESSAGES: Readonly<Record<OwnerSetupErrorCode, string>> = {
   INVALID_INPUT: 'Invalid owner setup input.',
   INVALID_PAIRING: 'Invalid owner pairing.',
   LOCAL_CONTEXT_REQUIRED: 'A local CLI capability is required.',
+  NOT_INITIALIZED: 'The instance owner has not been initialized yet.',
 };
 
 /** A deliberately secret-free setup error safe to log or serialize. */
@@ -121,11 +123,23 @@ export interface PairOwnerDeviceResult {
   readonly refreshExpiresAt: string;
 }
 
+export interface RotateOwnerPairingResult {
+  readonly ownerUserId: string;
+  readonly pairingExpiresAt: string;
+  readonly pairingToken: string;
+}
+
 interface PairingRow {
   readonly consumedAt: string | null;
   readonly expiresAt: string;
   readonly id: string;
   readonly userId: string;
+}
+
+interface OwnerRow {
+  readonly membershipId: string;
+  readonly userId: string;
+  readonly vaultId: string;
 }
 
 function isLocalContext(value: unknown): value is LocalOwnerSetupContext {
@@ -364,6 +378,75 @@ export class OwnerSetupService {
     });
 
     return pair.immediate();
+  }
+
+  /**
+   * Invalidates any unconsumed owner pairing token and issues a fresh single-use
+   * one (15 minutes). Vault data, memberships and already-consumed (used) pairings
+   * are left untouched. Requires the local CLI capability.
+   */
+  public rotateOwnerPairing(
+    context: LocalOwnerSetupContext,
+  ): RotateOwnerPairingResult {
+    if (!isLocalContext(context)) {
+      throw new OwnerSetupError('LOCAL_CONTEXT_REQUIRED');
+    }
+    const now = readClock(this.#now);
+    const createdAt = now.toISOString();
+    const pairingExpiresAt = addSeconds(now, OWNER_PAIRING_TTL_SECONDS);
+    const pairingToken = generatePairingToken();
+    const pairingTokenHash = hashPairingToken(pairingToken);
+
+    const rotate = this.#database.transaction((): RotateOwnerPairingResult => {
+      const owner = this.#database
+        .prepare(
+          `SELECT u.id AS userId, m.vault_id AS vaultId, m.id AS membershipId
+           FROM users u
+           JOIN memberships m ON m.user_id = u.id
+           WHERE u.is_instance_owner = 1 AND u.status = 'active'
+             AND m.status = 'active' AND m.role = 'owner'
+           ORDER BY m.created_at, m.id
+           LIMIT 1`,
+        )
+        .get() as OwnerRow | undefined;
+      if (owner === undefined) {
+        throw new OwnerSetupError('NOT_INITIALIZED');
+      }
+
+      // Unconsumed pairings are deleted (the CHECK constraint forbids marking
+      // consumed_at without a device); consumed pairings stay for the audit log.
+      this.#database
+        .prepare(
+          `DELETE FROM owner_pairings
+           WHERE user_id = ? AND consumed_at IS NULL`,
+        )
+        .run(owner.userId);
+
+      this.#database
+        .prepare(
+          `INSERT INTO owner_pairings (
+             id, user_id, vault_id, membership_id, token_hash,
+             created_at, expires_at, consumed_at, consumed_by_device_id
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
+        )
+        .run(
+          this.#newUuid(),
+          owner.userId,
+          owner.vaultId,
+          owner.membershipId,
+          pairingTokenHash,
+          createdAt,
+          pairingExpiresAt,
+        );
+
+      return {
+        ownerUserId: owner.userId,
+        pairingExpiresAt,
+        pairingToken,
+      };
+    });
+
+    return rotate.immediate();
   }
 
   #newUuid(): string {

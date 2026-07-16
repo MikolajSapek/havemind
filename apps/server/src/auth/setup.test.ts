@@ -426,3 +426,61 @@ describe('OwnerSetupService', () => {
     );
   });
 });
+
+describe('OwnerSetupService.rotateOwnerPairing', () => {
+  const SECOND_DEVICE = '70000000-0000-4000-8000-000000000002';
+
+  it('invalidates the old pairing token and issues a working fresh one', () => {
+    const { database, service } = makeFixture();
+    const initial = initialize(service);
+
+    const rotated = service.rotateOwnerPairing(createLocalOwnerSetupContext());
+    expect(rotated.pairingToken).not.toBe(initial.pairingToken);
+    expect(rotated.ownerUserId).toBe(initial.ownerUserId);
+
+    // The old token no longer pairs.
+    expectSetupCode(
+      () =>
+        service.pairOwnerDevice({
+          deviceDisplayName: 'Old device',
+          deviceId: DEVICE_ID,
+          initialRefreshToken: generateRefreshToken(),
+          pairingToken: initial.pairingToken,
+          publicKey: PUBLIC_KEY,
+        }),
+      'INVALID_PAIRING',
+    );
+
+    // The fresh token pairs the owner's device.
+    const paired = service.pairOwnerDevice({
+      deviceDisplayName: 'New device',
+      deviceId: SECOND_DEVICE,
+      initialRefreshToken: generateRefreshToken(),
+      pairingToken: rotated.pairingToken,
+      publicKey: PUBLIC_KEY,
+    });
+    expect(paired.ownerUserId).toBe(initial.ownerUserId);
+
+    // Vault and membership data are untouched; exactly one pairing remains
+    // unconsumed → consumed by the successful pair above.
+    expect(count(database, 'vaults')).toBe(1);
+    expect(count(database, 'memberships')).toBe(1);
+  });
+
+  it('rejects rotation before the owner is initialized', () => {
+    const { service } = makeFixture();
+    expectSetupCode(
+      () => service.rotateOwnerPairing(createLocalOwnerSetupContext()),
+      'NOT_INITIALIZED',
+    );
+  });
+
+  it('requires the non-serializable local CLI capability', () => {
+    const { service } = makeFixture();
+    initialize(service);
+    expectSetupCode(
+      () => service.rotateOwnerPairing({ kind: 'local-cli' } as never),
+      'LOCAL_CONTEXT_REQUIRED',
+    );
+  });
+});
