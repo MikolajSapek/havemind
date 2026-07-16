@@ -9,7 +9,11 @@ import {
 import { isSafePassiveJoinProtocolData } from './onboarding/invite';
 import type { RevisionRecord } from './activity/activity';
 import { buildActivityViewModel } from './runtime/activity-render';
-import { formatStatusBar } from './runtime/status';
+import { formatStatusBar, type StatusBarView } from './runtime/status';
+import {
+  startHavemindConnection,
+  type ConnectionHandle,
+} from './runtime/obsidian-adapters';
 
 export const HAVEMIND_ACTIVITY_VIEW = 'havemind-activity';
 export const HAVEMIND_ONBOARDING_VIEW = 'havemind-onboarding';
@@ -104,6 +108,8 @@ class HavemindSettingTab extends PluginSettingTab {
 
 export default class HavemindPlugin extends Plugin {
   private activityOptions: ActivityViewOptions = {};
+  private statusItem: HTMLElement | null = null;
+  private connection: ConnectionHandle | null = null;
 
   override onload(): void {
     this.registerView(
@@ -121,13 +127,18 @@ export default class HavemindPlugin extends Plugin {
       name: 'Open activity',
       callback: () => this.openActivityView(),
     });
+    this.addCommand({
+      id: 'connect',
+      name: 'Connect to Havemind',
+      callback: () => this.openConnectView(),
+    });
 
     this.addRibbonIcon('users-round', 'Open Havemind activity', () => {
       void this.openActivityView();
     });
 
-    const status = this.addStatusBarItem();
-    status.setText(formatStatusBar({ status: 'disconnected' }).text);
+    this.statusItem = this.addStatusBarItem();
+    this.setStatus(formatStatusBar({ status: 'disconnected' }));
 
     this.addSettingTab(new HavemindSettingTab(this.app, this));
 
@@ -140,11 +151,34 @@ export default class HavemindPlugin extends Plugin {
       if (!isSafePassiveJoinProtocolData(data)) return;
       void this.openView(HAVEMIND_ONBOARDING_VIEW);
     });
+
+    // On layout-ready, resume any stored onboarding to `connected` and start
+    // the live sync loop. When there is no connection this reports disconnected
+    // and starts nothing, so the loaded-but-disconnected shell stays passive.
+    this.app.workspace.onLayoutReady(() => {
+      void this.startConnection();
+    });
   }
 
   override onunload(): void {
+    this.connection?.stop();
+    this.connection = null;
     this.app.workspace.detachLeavesOfType(HAVEMIND_ACTIVITY_VIEW);
     this.app.workspace.detachLeavesOfType(HAVEMIND_ONBOARDING_VIEW);
+  }
+
+  private openConnectView(): Promise<void> {
+    return this.openView(HAVEMIND_ONBOARDING_VIEW);
+  }
+
+  private async startConnection(): Promise<void> {
+    this.connection = await startHavemindConnection(this, (view) =>
+      this.setStatus(view),
+    );
+  }
+
+  private setStatus(view: StatusBarView): void {
+    this.statusItem?.setText(view.text);
   }
 
   /** Supplies the Activity view with a live feed and a restore action. */

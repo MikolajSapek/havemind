@@ -33,12 +33,29 @@ import {
   type RequestUrlFn,
 } from './sync-transport';
 import { VaultApplyAdapter, type VaultFilePort } from './vault-apply';
+import { RefreshTokenAccessProvider } from './access-token';
+import { driveToConnected } from './connect-driver';
+import {
+  buildConnectionResolvers,
+  isConnectedOnboardingState,
+} from './connection';
+import { RequestUrlOnboardingApi } from './onboarding-api';
+import { ObsidianOnboardingSecrets } from './onboarding-secrets';
+import {
+  PluginDataOnboardingStore,
+  type OnboardingPersistPort,
+} from './onboarding-store';
 import {
   SyncRunner,
   type OpenBuffer,
   type RemoteEvent,
   type SchedulerFn,
 } from '../sync/sync-runner';
+import { OnboardingController } from '../onboarding/controller';
+import {
+  ensureClientInstanceId,
+  type ClientInstanceIdRepository,
+} from '../storage/client-store';
 
 const PERSIST_KEY = 'syncState';
 const DEFAULT_INTERVAL_MS = 5 * 60 * 1000;
@@ -209,5 +226,148 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export const HAVEMIND_STATUS_DISCONNECTED = formatStatusBar({
   status: 'disconnected',
 });
+
+// ---------------------------------------------------------------------------
+// Connect / live-loop assembly (F8-02b-A)
+// ---------------------------------------------------------------------------
+
+const CLIENT_INSTANCE_KEY = 'clientInstanceId';
+const APPROVAL_POLL_INTERVAL_MS = 5000;
+const MAX_CONNECT_STEPS = 720; // ~1h of 5s polls before giving up
+
+/** Raw plugin-data load/save, shared by every durable non-secret store. */
+function createRawPersistPort(plugin: Plugin): OnboardingPersistPort {
+  return {
+    load: () => plugin.loadData(),
+    async save(data) {
+      await plugin.saveData(data);
+    },
+  };
+}
+
+function createClientInstanceRepo(plugin: Plugin): ClientInstanceIdRepository {
+  return {
+    async readClientInstanceId() {
+      const data = await plugin.loadData();
+      const value = isRecord(data) ? data[CLIENT_INSTANCE_KEY] : null;
+      return typeof value === 'string' ? value : null;
+    },
+    async writeClientInstanceId(value) {
+      const data = await plugin.loadData();
+      const base = isRecord(data) ? data : {};
+      await plugin.saveData({ ...base, [CLIENT_INSTANCE_KEY]: value });
+    },
+  };
+}
+
+/** Assembles the onboarding controller from the real Obsidian-backed ports. */
+export async function buildOnboardingController(
+  plugin: Plugin,
+): Promise<{ controller: OnboardingController; store: PluginDataOnboardingStore }> {
+  const clientInstanceId = await ensureClientInstanceId(
+    createClientInstanceRepo(plugin),
+  );
+  const secrets = new ObsidianOnboardingSecrets({
+    clientInstanceId,
+    secretStorage: plugin.app.secretStorage,
+  });
+  const store = new PluginDataOnboardingStore({
+    persist: createRawPersistPort(plugin),
+  });
+  const controller = new OnboardingController({
+    clock: { now: () => Date.now() },
+    remoteApi: new RequestUrlOnboardingApi({ requestUrl: createRequestUrlFn() }),
+    secrets,
+    store,
+  });
+  return { controller, store };
+}
+
+export interface ConnectionHandle {
+  stop(): void;
+}
+
+const NOOP_HANDLE: ConnectionHandle = { stop: () => undefined };
+
+/**
+ * Resumes any stored onboarding to `connected` and, once connected, builds and
+ * starts the sync controller. Called on layout-ready; if there is no in-flight
+ * connection it reports `disconnected` and starts nothing (passive shell).
+ */
+export async function startHavemindConnection(
+  plugin: Plugin,
+  onStatus: (view: StatusBarView) => void,
+): Promise<ConnectionHandle> {
+  const { controller: onboarding } = await buildOnboardingController(plugin);
+
+  const connectedState = await driveToConnected({
+    controller: onboarding,
+    sleep: (ms) => new Promise((resolve) => window.setTimeout(resolve, ms)),
+    pollIntervalMs: APPROVAL_POLL_INTERVAL_MS,
+    maxSteps: MAX_CONNECT_STEPS,
+  });
+
+  if (!isConnectedOnboardingState(connectedState)) {
+    onStatus(HAVEMIND_STATUS_DISCONNECTED);
+    return NOOP_HANDLE;
+  }
+
+  const connected = connectedState as unknown as {
+    apiBaseUrl: string;
+    vaultId: string;
+  };
+  const clientInstanceId = await ensureClientInstanceId(
+    createClientInstanceRepo(plugin),
+  );
+  const secrets = new ObsidianOnboardingSecrets({
+    clientInstanceId,
+    secretStorage: plugin.app.secretStorage,
+  });
+
+  const accessProvider = new RefreshTokenAccessProvider({
+    requestUrl: createRequestUrlFn(),
+    apiBaseUrl: connected.apiBaseUrl,
+    getRefreshToken: () => secrets.getRefreshToken(),
+    saveRefreshToken: (value) => secrets.saveRefreshToken(value),
+    generateRotationId: () => globalThis.crypto.randomUUID(),
+    generateSuccessorToken: generateRefreshTokenValue,
+  });
+
+  const resolvers = buildConnectionResolvers({
+    apiBaseUrl: connected.apiBaseUrl,
+    vaultId: connected.vaultId,
+    getAccessToken: () => accessProvider.getAccessToken(),
+    requestUrl: createRequestUrlFn(),
+    // Remote-only files carry their path inside the opaque payload header, whose
+    // decode pipeline is the documented follow-up; until it lands no remote-only
+    // fileId resolves to a path and its write is skipped (rule 4, never guess).
+    knownPath: () => null,
+  });
+
+  const { controller } = buildSyncController(
+    plugin,
+    {
+      apiBaseUrl: resolvers.apiBaseUrl,
+      vaultId: resolvers.vaultId,
+      getAuthToken: resolvers.getAuthToken,
+      pathForFileId: resolvers.pathForFileId,
+      resolveRemoteContent: resolvers.resolveRemoteContent,
+    },
+    onStatus,
+  );
+  controller.start();
+  return { stop: () => controller.stop() };
+}
+
+function generateRefreshTokenValue(): string {
+  const bytes = globalThis.crypto.getRandomValues(new Uint8Array(32));
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  const base64url = btoa(binary)
+    .replaceAll('+', '-')
+    .replaceAll('/', '_')
+    .replace(/=+$/u, '');
+  return `hm_rt_${base64url}`;
+}
 
 export { SyncScheduler };

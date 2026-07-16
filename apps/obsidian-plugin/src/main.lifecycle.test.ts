@@ -44,6 +44,7 @@ describe('plugin lifecycle', () => {
     expect(registrationState.protocolHandlers.has('havemind-join')).toBe(true);
     expect(registrationState.commands.map(({ id }) => id)).toEqual([
       'open-activity',
+      'connect',
     ]);
     expect(app.vault.getMarkdownFilesCalls).toBe(0);
     expect(app.network.requestCalls).toBe(0);
@@ -176,6 +177,21 @@ describe('plugin lifecycle', () => {
       expect(app.network.requestCalls).toBe(0);
     },
   );
+
+  it('opens the onboarding view from the Connect command', async () => {
+    const app = new App();
+    const plugin = new HavemindPlugin(app, manifest);
+    await plugin.onload();
+
+    const connect = registrationState.commands.find(({ id }) => id === 'connect');
+    expect(connect).toBeDefined();
+    await connect?.callback();
+
+    expect(app.workspace.rightLeaf?.states).toEqual([
+      { active: true, type: HAVEMIND_ONBOARDING_VIEW },
+    ]);
+    expect(app.workspace.revealedLeaves).toEqual([app.workspace.rightLeaf]);
+  });
 
   it('renders the activity feed with a restore action when data is supplied', async () => {
     const app = new App();

@@ -216,34 +216,64 @@ end.
 
 ---
 
-## 5. First invitation for the second participant — BLOCKED
+## 5. First invitation for the second participant
 
-> **This step cannot be completed with the current codebase.**
->
-> Generating an invitation for the *second* pilot participant (an `editor`
-> membership) — and the client redeeming it — depends on the auth HTTP surface
-> that task **T019** ("Implement invitations and device approval") has not yet
-> delivered. Concretely:
->
-> - The `havemind` CLI exposes only `setup`, `generate-db-key` and `doctor`
->   (`apps/server/src/setup/cli.ts`). There is **no** invitation-generation
->   command.
-> - The server registers only `/.well-known/havemind`, `/healthz`, `/readyz`,
->   `GET /vaults/:vaultId/members` and the sync routes (`POST …/revisions`,
->   `GET …/events`, `GET …/blobs/:blobHash`). There is **no** HTTP route for
->   invitation review/redeem, device-approval polling, bootstrap, or
->   refresh→access token issuance — the endpoints the plugin's onboarding
->   controller targets. `InvitationService`/`SessionRepository` implement the
->   logic but nothing exposes it over HTTP.
->
-> Until T019 lands (and an owner-side generate-invitation route is added,
-> deny-by-default, behind the authenticated guard), the pilot cannot onboard a
-> second device and the client sync loop cannot authenticate. See the F8-02b
-> entry in `DECISIONS.md`.
+The onboarding HTTP surface now exists (F8-02c): invitation review/redeem,
+device-approval polling, bootstrap and refresh→access rotation. Generating an
+invitation for the *second* participant (an `editor` membership) is an
+**owner-only, authenticated** action against:
 
-Once T019 ships, this section should document the real generate-invitation
-command (CLI or authenticated `curl` from the owner) and the client paste →
-verification-phrase → connected flow.
+```
+POST /vaults/:vaultId/invitations      (Authorization: Bearer <owner access token>)
+```
+
+### 5a. Get the owner connected first
+
+The owner's own first device connects with the single-use pairing token printed
+by `setup` (step 2e). Once that device is connected in Obsidian (status bar
+reads `Havemind: Synced`), its session holds a rotating refresh token in
+SecretStorage and can mint short-lived access tokens via `POST /auth/refresh`.
+An owner-side "create invitation" affordance in the plugin UI is the natural
+place for step 5b; until that button ships it can be issued by hand.
+
+### 5b. Create the invitation (owner, authenticated)
+
+From the owner's connected machine, with a current access token `$ACCESS`:
+
+```bash
+VAULT_ID=<the vault UUID from setup>
+curl -fsS -X POST \
+  "https://sapserver.<tailnet>.ts.net/vaults/$VAULT_ID/invitations" \
+  -H "Authorization: Bearer $ACCESS" \
+  -H 'Content-Type: application/json' \
+  -d '{"intendedRole":"editor","intendedMemberDisplayName":"Friend"}'
+# → { "invitationId", "invitationToken":"hm_it_…", "intendedMemberId",
+#     "intendedMemberDisplayName", "expiresAt" }  (valid 15 minutes, single use)
+```
+
+The `invitationToken` is a secret. Wrap it in the canonical envelope the plugin
+expects (never put the token in a query string — `plan/05` anti-spec):
+
+```
+envelope = "v1." + base64url(JSON.stringify({
+  version: 1,
+  serverOrigin: "https://sapserver.<tailnet>.ts.net",
+  invitationToken: "hm_it_…"
+}))
+```
+
+Hand that `v1.…` envelope string to the second participant over a trusted
+channel. It expires in 15 minutes and is single-use.
+
+### 5c. Second participant connects
+
+On the second MacBook (Obsidian + the Havemind plugin installed, same tailnet —
+see `install.md`): command palette → **Havemind: Connect to Havemind**, paste
+the `v1.…` envelope, confirm the reviewed server/vault/inviter, and approve. The
+owner approves the matching **verification phrase** on their side; the second
+device then downloads the initial bootstrap and the status bar settles on
+`Havemind: Synced`. From there the live loop (startup / focus / online /
+interval) keeps both vaults in sync.
 
 ---
 

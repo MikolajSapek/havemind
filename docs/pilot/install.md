@@ -61,13 +61,32 @@ reach `sapserver`. Once both devices are connected to the same server vault,
 edits made on one appear on the other after the next sync cycle
 (startup / window focus / regained network / periodic interval).
 
-## Connecting a vault (onboarding)
+## Connecting a vault (Connect flow)
 
-Connecting to the server (paste the invitation envelope, verification-phrase
-approval, initial download) is driven by the onboarding wizard. Its runtime
-wiring is tracked as the remaining follow-up of F8-02a (see the repo report and
-`DECISIONS.md`); until it lands, the plugin installs and runs as the passive
-shell described above.
+Once the server is deployed and the owner has generated an invitation envelope
+(see `deploy.md` step 5), connect the vault:
+
+1. Command palette (`Cmd+P`) → **Havemind: Connect to Havemind** (or open the
+   `obsidian://havemind-join` link — it opens the same paste screen, never
+   carrying the secret in the URL).
+2. Paste the `v1.…` invitation envelope handed to you by the owner.
+3. Review the server, vault and inviter shown, then confirm. The plugin redeems
+   the invitation with a refresh token it generates locally and stores in
+   Obsidian SecretStorage — the token never touches `data.json`.
+4. A **verification phrase** appears. The owner approves the matching phrase on
+   their side; the plugin polls approval, then downloads the initial bootstrap.
+5. The status bar settles on `Havemind: Synced`. From then on the live loop
+   syncs on startup, window focus, regained network and a periodic interval.
+
+On plugin load the plugin also resumes any in-progress or already-connected
+onboarding automatically (on Obsidian's layout-ready), so a restart mid-connect
+picks up where it left off. If there is no connection it stays the passive
+shell — zero networking, `Havemind: disconnected`.
+
+Note: the owner-side "create invitation" button and the full remote-file
+materialisation (writing files that only ever existed on the *other* device)
+are the remaining follow-up — see `DECISIONS.md` (F8-02b-A). Edits to files that
+exist locally sync both ways today.
 
 ## Uninstall / reset
 

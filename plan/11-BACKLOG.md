@@ -218,8 +218,17 @@ raporcie fazy (co działa, co odłożone, dowód).
     GET /devices/:id/approval (pending→approved), GET /bootstrap, POST /auth/refresh (rotacja
     F1-01); kody 410/409/403/429 bez wycieku; deferred refresh-token binding (owner nigdy nie
     zna sekretu invitee); Dockerfile kopiuje bin/. Workspace 503 pass, branch 82.36%.
-- [ ] **F8-02b-A** `plugin` Wpięcie Connect/live-loop (wznowienie po F8-02c): onboarding →
+- [x] **F8-02b-A** `plugin` Wpięcie Connect/live-loop (wznowienie po F8-02c): onboarding →
   connected → controller.start(), resolvery token/vaultId/fileId↔path/blob fetch.
+  - Dowód (2026-07-16): komenda Connect + havemind-join → ekran paste; RequestUrlOnboardingApi
+    przeciw trasom F8-02c (review→redeem→approval polling→bootstrap→connected, 6+4 testów);
+    sekrety wyłącznie SecretStorage; refresh→access z cache i persystencją następnika;
+    controller.start() na onLayoutReady gdy connected, pasywny gdy nie; dist przebudowany;
+    workspace 529 pass, branch 82.23%. LUKA odroczona → F8-02b-B: materializacja plików
+    remote-only (dekode nagłówka payloadu) + przycisk „create invitation" w UI ownera.
+- [ ] **F8-02b-B** `plugin` Materializacja plików remote-only (payload-header decode w
+  sync-core wystawiony do pathForFileId) + owner „create invitation" w UI — wymagane dla
+  dwukierunkowego pilotażu (nowe pliki znajomego muszą powstać u ownera).
 - [ ] **F8-02** `decyzja-usera` Siedmiodniowy pilotaż na sapserverze (T032)
   - AC: pełny checklist z `09-pilotaz-i-decyzje.md`, zapisany w `docs/pilot/checklist.md`.
   - AC: codzienny zapis `df -h /` do `docs/pilot/checklist.md` przez 7 dni; alarm i wpis w

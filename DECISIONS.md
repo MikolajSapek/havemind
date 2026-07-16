@@ -201,3 +201,33 @@ coverage 83.33%). Three scope decisions, none hit the 3-attempt limit:
    load). `dist/{main.js,manifest.json}` exist on disk but are gitignored (repo
    convention for build output); `docs/pilot/install.md` documents `npm run
    build` to regenerate.
+
+## 2026-07-16 — F8-02b-A Connect / live-loop wiring (decisions/traps)
+
+Wired the tested onboarding controller + `buildSyncController` into the F8-02c
+HTTP surface. All new logic TDD'd; workspace gate green (529 tests, plugin
+branch coverage 86.85%). Two documented boundaries, none hit the 3-attempt limit:
+
+1. **`finalUrl` / redirect protection relaxation.** The onboarding controller
+   compares `response.finalUrl` to enforce `redirect: 'error'`. Obsidian's
+   `requestUrl` follows redirects transparently and does not expose the resolved
+   URL, so `RequestUrlOnboardingApi` echoes the requested URL as `finalUrl` and
+   trusts the tailnet-internal HTTPS server not to redirect these endpoints.
+   Acceptable for the pilot (single trusted server); revisit before any public
+   exposure.
+
+2. **Remote-only file materialisation is the remaining follow-up.** Resolvers
+   for token (refresh→access rotation via `/auth/refresh`), vaultId and blob
+   fetch (`GET /vaults/:id/blobs/:hash`) are wired and tested. The fileId→path
+   resolver returns `null` for files that only ever existed on the other device,
+   because the path lives inside the opaque payload header whose sync-core decode
+   pipeline is not yet exposed; `VaultApplyAdapter` then skips the write rather
+   than guessing (rule 4). Locally-mapped files sync both ways. The owner-side
+   "create invitation" button is likewise UI follow-up — the route is documented
+   in `docs/pilot/deploy.md` step 5 for manual issue meanwhile.
+
+New tested modules: `runtime/{onboarding-api,onboarding-secrets,onboarding-store,
+access-token,connection,connect-driver}.ts` (+ tests). Glue assembly
+(`startHavemindConnection`, `buildOnboardingController`) lives in the
+coverage-excluded `runtime/obsidian-adapters.ts`; `main.ts` gained a Connect
+command and an `onLayoutReady` resume-and-start, staying passive until connected.
