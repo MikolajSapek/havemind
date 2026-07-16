@@ -1,15 +1,25 @@
 type Callback = () => unknown;
 
+type CreateElOptions = {
+  text?: string;
+  value?: string;
+  type?: string;
+  placeholder?: string;
+  cls?: string;
+};
+
 export type MockElement = {
   children: MockElement[];
   createDiv: (options?: { text?: string }) => MockElement;
-  createEl: (tag: string, options?: { text?: string }) => MockElement;
+  createEl: (tag: string, options?: CreateElOptions) => MockElement;
   empty: () => void;
   onClickEvent: (callback: Callback) => void;
   remove: () => void;
   removed: boolean;
   setText: (value: string) => void;
+  tag: string;
   text: string;
+  value: string;
   triggerClick: () => unknown;
 };
 
@@ -44,11 +54,13 @@ function createMockElement(): MockElement {
       return child;
     },
     createEl(
-      _tag: string,
-      options?: { text?: string },
+      tag: string,
+      options?: CreateElOptions,
     ): MockElement {
       const child = createMockElement();
+      child.tag = tag;
       child.text = options?.text ?? '';
+      child.value = options?.value ?? '';
       children.push(child);
       return child;
     },
@@ -62,7 +74,9 @@ function createMockElement(): MockElement {
     setText(value: string): void {
       element.text = value;
     },
+    tag: '',
     text: '',
+    value: '',
     triggerClick(): unknown {
       return clickCallback();
     },

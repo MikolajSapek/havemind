@@ -1,3 +1,5 @@
+import { randomBytes, randomUUID } from 'node:crypto';
+
 import type Database from 'better-sqlite3';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
@@ -8,8 +10,11 @@ import {
   type InvitationRole,
   type InvitationService,
 } from './invitations.js';
+import { OwnerSetupService } from './setup.js';
 import { type SessionRepository } from './session-repository.js';
 import type { AccessSession } from './session-repository.js';
+
+const OWNER_DEVICE_PUBLIC_KEY_LENGTH = 32;
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
@@ -54,6 +59,14 @@ const refreshBodySchema = z
     refreshToken: z.string().min(1).max(200),
     rotationId: z.string().min(1).max(200),
     successorRefreshToken: z.string().min(1).max(200),
+  })
+  .strict();
+
+const ownerPairBodySchema = z
+  .object({
+    deviceLabel: z.string().min(1).max(80),
+    initialRefreshToken: z.string().min(1).max(200),
+    pairingToken: z.string().min(1).max(200),
   })
   .strict();
 
@@ -255,6 +268,41 @@ export function registerPreAuthOnboardingRoutes(
     } catch {
       // Any rotation failure — invalid, reused, revoked — is a flat 401 so a
       // caller cannot distinguish an unknown token from a burned family.
+      return sendError(reply, 401, 'UNAUTHENTICATED');
+    }
+  });
+
+  instance.post('/owner/pair', async (request, reply) => {
+    const body = ownerPairBodySchema.safeParse(request.body);
+    if (!body.success) {
+      return sendError(reply, 400, 'INVALID_REQUEST');
+    }
+    const service = new OwnerSetupService(deps.database);
+    try {
+      // The joining device has no keypair in the pilot, so a placeholder public
+      // key is generated server-side (mirrors the invitee redeem flow). The
+      // pairing is single-use: `pairOwnerDevice` consumes it in one transaction.
+      const result = service.pairOwnerDevice({
+        deviceDisplayName: body.data.deviceLabel,
+        deviceId: randomUUID(),
+        initialRefreshToken: body.data.initialRefreshToken,
+        pairingToken: body.data.pairingToken,
+        publicKey: randomBytes(OWNER_DEVICE_PUBLIC_KEY_LENGTH),
+      });
+      const vaultId = loadFirstActiveVault(deps.database, result.ownerUserId);
+      if (vaultId === null) {
+        return sendError(reply, 403, 'FORBIDDEN');
+      }
+      reply.header('cache-control', 'no-store');
+      return {
+        accessExpiresAt: result.accessExpiresAt,
+        accessToken: result.accessToken,
+        deviceId: result.deviceId,
+        vaultId,
+      };
+    } catch {
+      // Any pairing failure — unknown, expired, already consumed, malformed —
+      // is a flat 401 so a caller cannot distinguish the cases.
       return sendError(reply, 401, 'UNAUTHENTICATED');
     }
   });

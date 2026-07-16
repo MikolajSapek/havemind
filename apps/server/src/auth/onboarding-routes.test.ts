@@ -15,7 +15,13 @@ import type { StoredRevisionEvent } from '../revision-repository.js';
 import { InvitationService } from './invitations.js';
 import { registerPreAuthOnboardingRoutes } from './onboarding-routes.js';
 import { SessionRepository } from './session-repository.js';
-import { createRefreshSuccessor, generateRefreshToken } from './tokens.js';
+import {
+  createRefreshSuccessor,
+  generateRefreshToken,
+  generatePairingToken,
+  hashPairingToken,
+  parsePairingToken,
+} from './tokens.js';
 
 const TEST_ENV = {
   HAVEMIND_API_BASE_URL: 'https://sync.example.test/api/v1',
@@ -88,6 +94,28 @@ function insertMembership(
        VALUES (?, ?, ?, 'owner', 'active', ?, NULL)`,
     )
     .run(id, vaultId, userId, START_TIME);
+}
+
+function insertPairing(
+  database: Database.Database,
+  token: string,
+) {
+  database
+    .prepare(
+      `INSERT INTO owner_pairings (
+         id, user_id, vault_id, membership_id, token_hash,
+         created_at, expires_at, consumed_at, consumed_by_device_id
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
+    )
+    .run(
+      randomUUID(),
+      OWNER_USER,
+      VAULT,
+      OWNER_MEMBERSHIP,
+      hashPairingToken(parsePairingToken(token)),
+      START_TIME,
+      '2099-01-01T00:00:00.000Z',
+    );
 }
 
 function mintAccessToken(
@@ -571,5 +599,86 @@ describe('onboarding HTTP surface', () => {
       nextCursor: null,
       version: 1,
     });
+  });
+});
+
+describe('owner device pairing HTTP surface', () => {
+  it('pairs the owner device from a pairing token and returns the vault id', async () => {
+    const fixture = makeFixture();
+    const pairingToken = generatePairingToken();
+    insertPairing(fixture.database, pairingToken);
+    const app = createApp(fixture);
+
+    const response = await app.inject({
+      body: {
+        deviceLabel: 'Owner Mac',
+        initialRefreshToken: generateRefreshToken(),
+        pairingToken,
+      },
+      method: 'POST',
+      url: '/owner/pair',
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json() as { vaultId: string; deviceId: string };
+    expect(body.vaultId).toBe(VAULT);
+    expect(body.deviceId).toMatch(/^[0-9a-f-]{36}$/u);
+  });
+
+  it('rejects a reused pairing token with 401 (single-use)', async () => {
+    const fixture = makeFixture();
+    const pairingToken = generatePairingToken();
+    insertPairing(fixture.database, pairingToken);
+    const app = createApp(fixture);
+
+    const first = await app.inject({
+      body: {
+        deviceLabel: 'Owner Mac',
+        initialRefreshToken: generateRefreshToken(),
+        pairingToken,
+      },
+      method: 'POST',
+      url: '/owner/pair',
+    });
+    expect(first.statusCode).toBe(200);
+
+    const second = await app.inject({
+      body: {
+        deviceLabel: 'Owner Mac 2',
+        initialRefreshToken: generateRefreshToken(),
+        pairingToken,
+      },
+      method: 'POST',
+      url: '/owner/pair',
+    });
+    expect(second.statusCode).toBe(401);
+  });
+
+  it('rejects an unknown pairing token with a flat 401', async () => {
+    const fixture = makeFixture();
+    const app = createApp(fixture);
+
+    const response = await app.inject({
+      body: {
+        deviceLabel: 'Owner Mac',
+        initialRefreshToken: generateRefreshToken(),
+        pairingToken: generatePairingToken(),
+      },
+      method: 'POST',
+      url: '/owner/pair',
+    });
+    expect(response.statusCode).toBe(401);
+  });
+
+  it('rejects a malformed body with 400', async () => {
+    const fixture = makeFixture();
+    const app = createApp(fixture);
+
+    const response = await app.inject({
+      body: { deviceLabel: 'Owner Mac' },
+      method: 'POST',
+      url: '/owner/pair',
+    });
+    expect(response.statusCode).toBe(400);
   });
 });

@@ -230,11 +230,14 @@ POST /vaults/:vaultId/invitations      (Authorization: Bearer <owner access toke
 ### 5a. Get the owner connected first
 
 The owner's own first device connects with the single-use pairing token printed
-by `setup` (step 2e). Once that device is connected in Obsidian (status bar
-reads `Havemind: Synced`), its session holds a rotating refresh token in
-SecretStorage and can mint short-lived access tokens via `POST /auth/refresh`.
-An owner-side "create invitation" affordance in the plugin UI is the natural
-place for step 5b; until that button ships it can be issued by hand.
+by `setup` (step 2e): in Obsidian, command palette → **Havemind: Connect to
+Havemind**, paste the `hm_pt_…` pairing token, fill in the server URL
+(`https://sapserver.<tailnet>.ts.net`) and click **Connect**. The plugin
+redeems it at `POST /owner/pair` (deny-by-default, rate-limited, single-use),
+stores a rotating refresh token in SecretStorage, and starts syncing (status bar
+`Havemind: Synced`). From then it can mint short-lived access tokens via
+`POST /auth/refresh` and create invitations from the plugin (command
+**Havemind: Create invitation (owner)**, which performs step 5b for you).
 
 ### 5b. Create the invitation (owner, authenticated)
 

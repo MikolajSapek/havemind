@@ -166,9 +166,16 @@ interface HTMLElement {
   createDiv(options?: { text?: string }): HTMLDivElement;
   createEl(
     tag: string,
-    options?: { text?: string },
+    options?: {
+      text?: string;
+      value?: string;
+      type?: string;
+      placeholder?: string;
+      cls?: string;
+    },
   ): HTMLElement;
   empty(): void;
   onClickEvent(callback: () => unknown): void;
   setText(value: string): void;
+  value: string;
 }

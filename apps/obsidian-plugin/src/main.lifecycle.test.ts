@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import HavemindPlugin, {
+  HavemindOnboardingView,
   HAVEMIND_ACTIVITY_VIEW,
   HAVEMIND_ONBOARDING_VIEW,
 } from './main';
@@ -154,10 +155,10 @@ describe('plugin lifecycle', () => {
     const view = creator?.(new WorkspaceLeaf());
     await view?.onOpen();
     const container = view?.containerEl as unknown as MockElement;
-    expect(container.children[1]?.children.map(({ text }) => text)).toEqual([
-      'Connect to Havemind',
-      'Paste the secure invitation copied from the HTTPS join page.',
-    ]);
+    const kids = container.children[1]?.children ?? [];
+    expect(kids[0]?.text).toBe('Connect to Havemind');
+    expect(kids.some(({ tag }) => tag === 'textarea')).toBe(true);
+    expect(kids.some(({ text }) => text === 'Connect')).toBe(true);
   });
 
   it.each(['token', 'envelope', 'secret', 'harmless']) (
@@ -253,6 +254,47 @@ describe('plugin lifecycle', () => {
     const restoreButton = rows[1]?.children[0];
     restoreButton?.triggerClick();
     expect(restored).toEqual(['rev-1']);
+  });
+
+  it('reads the Connect form input and reports progress', async () => {
+    const captured: Array<{ input: string; serverUrl: string }> = [];
+    const view = new HavemindOnboardingView(new WorkspaceLeaf(), {
+      onConnect: (input, serverUrl, report) => {
+        captured.push({ input, serverUrl });
+        report(`Connecting to ${input}`);
+      },
+    });
+    await view.onOpen();
+
+    const kids =
+      (view.containerEl as unknown as MockElement).children[1]?.children ?? [];
+    const textarea = kids.find(({ tag }) => tag === 'textarea');
+    const server = kids.find(({ tag }) => tag === 'input');
+    const button = kids.find(({ text }) => text === 'Connect');
+    if (textarea) textarea.value = 'v1.ABC';
+    if (server) server.value = 'https://host';
+
+    button?.triggerClick();
+
+    expect(captured).toEqual([{ input: 'v1.ABC', serverUrl: 'https://host' }]);
+    expect(kids.some(({ text }) => text === 'Connecting to v1.ABC')).toBe(true);
+  });
+
+  it('guards the Connect form against empty input', async () => {
+    const captured: string[] = [];
+    const view = new HavemindOnboardingView(new WorkspaceLeaf(), {
+      onConnect: (input) => captured.push(input),
+    });
+    await view.onOpen();
+
+    const kids =
+      (view.containerEl as unknown as MockElement).children[1]?.children ?? [];
+    kids.find(({ text }) => text === 'Connect')?.triggerClick();
+
+    expect(captured).toEqual([]);
+    expect(
+      kids.some(({ text }) => text === 'Paste an invitation or pairing token first.'),
+    ).toBe(true);
   });
 
   it('removes registered resources and detached views during unload', async () => {

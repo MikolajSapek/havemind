@@ -11,6 +11,7 @@ import type { RevisionRecord } from './activity/activity';
 import { buildActivityViewModel } from './runtime/activity-render';
 import { formatStatusBar, type StatusBarView } from './runtime/status';
 import {
+  connectFromInput,
   createInvitationForOwner,
   startHavemindConnection,
   type ConnectionHandle,
@@ -72,12 +73,25 @@ class HavemindActivityView extends ItemView {
   }
 }
 
-/** Injected data for the onboarding surface (owner-created invitation display). */
+/** Report a human-readable connect-flow state back to the onboarding view. */
+export type ConnectReporter = (message: string) => void;
+
+/** Injected data + actions for the onboarding surface. */
 export interface OnboardingViewOptions {
   readonly invitationProvider?: () => CreatedInvitation | null;
+  /**
+   * Runs the connect flow for the pasted input (invitation envelope `v1.…` or
+   * owner pairing token `hm_pt_…`) against the given server URL, reporting
+   * progress messages back to the view.
+   */
+  readonly onConnect?: (
+    input: string,
+    serverUrl: string,
+    report: ConnectReporter,
+  ) => void;
 }
 
-class HavemindOnboardingView extends ItemView {
+export class HavemindOnboardingView extends ItemView {
   private readonly options: OnboardingViewOptions;
 
   constructor(leaf: WorkspaceLeaf, options: OnboardingViewOptions = {}) {
@@ -115,7 +129,28 @@ class HavemindOnboardingView extends ItemView {
     }
 
     content.createDiv({
-      text: 'Paste the secure invitation copied from the HTTPS join page.',
+      text: 'Paste an invitation (v1.…) or your owner pairing token (hm_pt_…).',
+    });
+    const tokenInput = content.createEl('textarea', {
+      placeholder: 'v1.… or hm_pt_…',
+    });
+    const serverInput = content.createEl('input', {
+      type: 'text',
+      placeholder: 'Server URL (e.g. https://sapserver.tailnet.ts.net)',
+    });
+    const status = content.createDiv({ text: '' });
+    const connect = content.createEl('button', { text: 'Connect' });
+    connect.onClickEvent(() => {
+      const input = (tokenInput as unknown as { value: string }).value.trim();
+      const serverUrl = (serverInput as unknown as { value: string }).value.trim();
+      if (input.length === 0) {
+        status.setText('Paste an invitation or pairing token first.');
+        return;
+      }
+      status.setText('Connecting…');
+      this.options.onConnect?.(input, serverUrl, (message) =>
+        status.setText(message),
+      );
     });
   }
 }
@@ -148,6 +183,9 @@ export default class HavemindPlugin extends Plugin {
       (leaf: WorkspaceLeaf) =>
         new HavemindOnboardingView(leaf, {
           invitationProvider: () => this.pendingInvitation,
+          onConnect: (input, serverUrl, report) => {
+            void this.connectFromInput(input, serverUrl, report);
+          },
         }),
     );
 
@@ -209,6 +247,27 @@ export default class HavemindPlugin extends Plugin {
     this.connection = await startHavemindConnection(this, (view) =>
       this.setStatus(view),
     );
+  }
+
+  /**
+   * Drives the Connect form: classifies the pasted input (invitation envelope or
+   * owner pairing token), runs the matching flow, and once connected starts the
+   * live sync loop. Progress is reported back to the view; secrets are never
+   * logged.
+   */
+  private async connectFromInput(
+    input: string,
+    serverUrl: string,
+    report: ConnectReporter,
+  ): Promise<void> {
+    const handle = await connectFromInput(this, input, serverUrl, {
+      report,
+      onStatus: (view) => this.setStatus(view),
+    });
+    if (handle !== null) {
+      this.connection?.stop();
+      this.connection = handle;
+    }
   }
 
   /**

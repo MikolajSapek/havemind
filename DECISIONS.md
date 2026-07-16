@@ -287,3 +287,33 @@ green (551 tests, workspace branch 81.84%).
   revision updates in place`, `does not record ownership when a collision is
   diverted to conflicts`, `forgets ownership when a file is deleted`, plus the
   existing collision/delete-foreign cases.
+
+## 2026-07-16 — F8-02b-D interactive Connect form + owner pairing route (fix)
+
+First real Obsidian run showed the onboarding view was a dead placeholder (no
+input/button) and the owner had no HTTP path to redeem the `hm_pt_` pairing
+token. Fixed both. TDD; full gate green (563 tests, plugin branch 86.3%,
+workspace gate clean). No commit; production server untouched (code only).
+
+1. **Server: added `POST /owner/pair`** (pre-auth, rate-limited, single-use).
+   F8-02c never exposed pairing redemption — `OwnerSetupService.pairOwnerDevice`
+   was CLI-only. The route generates the deviceId + a placeholder public key
+   server-side (mirrors the invitee redeem flow, no client keypair in the pilot)
+   and calls the existing `pairOwnerDevice`, returning `{ vaultId, deviceId,
+   accessToken }`. Any pairing failure is a flat 401; `setup.ts` unchanged. Tests:
+   pair→200+vaultId, reuse→401 (single-use), unknown→401, malformed→400.
+
+2. **Client: interactive Connect form.** The onboarding view now renders a paste
+   box + server-URL field + Connect button + a live status line. `classifyConnectInput`
+   detects `hm_pt_` (owner pairing) vs `v1.` (invitee envelope) and routes the
+   matching flow; the glue `connectFromInput` reports progress (redeeming,
+   verification phrase to compare, connected, error) and starts the sync loop on
+   success. Owner pairing persists an `ownerConnection` record so a restart
+   resumes without re-pairing; `startHavemindConnection` reads it before falling
+   back to invitee resume. New tested modules: `runtime/connect-input.ts`
+   (classifier + `pairOwnerDevice`); the async connect glue lives in the
+   coverage-excluded `obsidian-adapters.ts`. The view is exported and unit-tested
+   for input reading + progress reporting + empty-input guard.
+
+Server production instance (https://sapserver.tail48b326.ts.net) was not touched;
+these changes ship on next deploy of the built server + plugin dist.

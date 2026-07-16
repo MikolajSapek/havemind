@@ -67,9 +67,14 @@ Once the server is deployed and the owner has generated an invitation envelope
 (see `deploy.md` step 5), connect the vault:
 
 1. Command palette (`Cmd+P`) → **Havemind: Connect to Havemind** (or open the
-   `obsidian://havemind-join` link — it opens the same paste screen, never
-   carrying the secret in the URL).
-2. Paste the `v1.…` invitation envelope handed to you by the owner.
+   `obsidian://havemind-join` link — it opens the same screen, never carrying
+   the secret in the URL). The screen has a paste box, a server-URL field and a
+   **Connect** button.
+2. Paste either the `v1.…` invitation envelope (invitee) **or** the owner's
+   `hm_pt_…` pairing token from `havemind setup` (owner's first device). For a
+   pairing token, also fill in the server URL
+   (e.g. `https://sapserver.tail48b326.ts.net`); the plugin auto-detects which
+   kind of token you pasted and runs the right flow.
 3. Review the server, vault and inviter shown, then confirm. The plugin redeems
    the invitation with a refresh token it generates locally and stores in
    Obsidian SecretStorage — the token never touches `data.json`.
