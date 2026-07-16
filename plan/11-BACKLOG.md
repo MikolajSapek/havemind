@@ -227,10 +227,13 @@ raporcie fazy (co działa, co odłożone, dowód).
   - Zrobione bez sudo: skrypty w ops/sapserver/restic + ~/havemind-ops na serwerze (backup/
     prune 7/4/6 z restic check przed forget/restore/verify), hasło repo 384-bit w pliku 0600,
     szablon smb-credentials, systemd mount+automount dla //192.168.254.10/backup.
-  - BLOKERY USERA: (1) NAS nie serwuje SMB — port 445/139 refused, włączyć udział `backup`;
-    (2) wypełnić ~/havemind-ops/secrets/smb-credentials; (3) 6 kroków sudo z
-    ops/sapserver/restic/README.md (apt install restic cifs-utils, /srv/secrets, mount,
-    init-repo, backup, verify).
+  - AKTUALIZACJA (2026-07-16, architektura bezsudo): restic 0.19.1 + rclone 1.74.4 statyczne
+    w ~/bin (SHA256 zweryfikowane), remote smb `nas-backup` w rclone.conf 0600, repo string
+    `rclone:nas-backup:backup/havemind-restic`, retencja 7/4/6 w prune.sh (check przed forget),
+    bootstrap.sh domyka init+backup+verify jednym poleceniem. ZERO kroków sudo.
+  - BLOKERY USERA (jedyne): (1) włączyć SMB na NAS 192.168.254.10 + zapisywalny share `backup`
+    (445/139 teraz refused); (2) `rclone config` na sapserverze — wpisać kredencjały SMB
+    interaktywnie; potem `bash ~/havemind-ops/bootstrap.sh`.
   - AC: repo szyfrowane poza dyskiem systemowym serwera, retencja 7/4/6 skonfigurowana
     (funkcjonalne, metoda: `restic snapshots` + `restic check`).
   - Zależy od: F7-01 (backup/restore aplikacyjny musi mieć endpoint/CLI zanim Restic opakuje

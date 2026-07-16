@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Havemind — create one Restic snapshot of the application data (SRV-03).
-# Run as root (reads root-owned /srv/appdata/havemind). Retention is NOT applied
-# here — see prune.sh, which always runs `restic check` before forgetting.
+# Sudo-free: runs as the ordinary user over the rclone SMB backend. Retention is
+# NOT applied here — see prune.sh, which always runs `restic check` first.
 #
 # Consistency note: Havemind stores state in SQLite + a blob store. For a
 # crash-consistent snapshot, have the application backup CLI (F7-01) dump to a
-# staging dir first and point HAVEMIND_APPDATA at it. Backing up the live dir is
+# staging dir first and point HAVEMIND_APPDATA at it. Backing up a live dir is
 # acceptable for the pilot but a hot SQLite file may need WAL checkpointing.
 set -euo pipefail
 
@@ -13,8 +13,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=restic.env
 source "${HERE}/restic.env"
 
-if ! mountpoint -q "${NAS_MOUNT}"; then
-  echo "ERROR: ${NAS_MOUNT} is not mounted." >&2
+if ! nas_reachable; then
+  echo "ERROR: NAS SMB ${NAS_HOST}:${SMB_PORT} not reachable." >&2
   exit 1
 fi
 if [ ! -d "${HAVEMIND_APPDATA}" ]; then

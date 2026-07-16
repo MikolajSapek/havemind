@@ -10,8 +10,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=restic.env
 source "${HERE}/restic.env"
 
-if ! mountpoint -q "${NAS_MOUNT}"; then
-  echo "ERROR: ${NAS_MOUNT} is not mounted." >&2
+if ! nas_reachable; then
+  echo "ERROR: NAS SMB ${NAS_HOST}:${SMB_PORT} not reachable." >&2
   exit 1
 fi
 

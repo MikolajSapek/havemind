@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# Havemind — initialise the Restic repository on the NAS mount (SRV-03).
-# Idempotent: if the repo already exists, restic init exits non-zero and we
-# report "already initialised" instead of failing. Run as root (repo lives on
-# a root-owned CIFS mount and password file lives in /srv/secrets).
+# Havemind — initialise the Restic repository on the NAS via rclone SMB (SRV-03).
+# Idempotent: if the repo already exists we report "already initialised" instead
+# of failing. Sudo-free: runs as the ordinary user, uses ~/bin/{restic,rclone}
+# and the 0600 password file under ~/havemind-ops/secrets.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=restic.env
 source "${HERE}/restic.env"
 
-if ! mountpoint -q "${NAS_MOUNT}"; then
-  echo "ERROR: ${NAS_MOUNT} is not mounted. Mount the NAS share first." >&2
+if ! nas_reachable; then
+  echo "ERROR: NAS SMB ${NAS_HOST}:${SMB_PORT} not reachable. Enable SMB on the NAS." >&2
   exit 1
 fi
 if [ ! -r "${RESTIC_PASSWORD_FILE}" ]; then
