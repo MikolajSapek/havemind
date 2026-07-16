@@ -12,8 +12,19 @@ export default defineConfig({
   },
   test: {
     coverage: {
-      exclude: ['src/**/*.test.ts', 'src/test/**'],
-      include: ['src/main.ts', 'src/storage/**/*.ts'],
+      exclude: [
+        'src/**/*.test.ts',
+        'src/test/**',
+        // Platform glue that binds real Obsidian runtime APIs (requestUrl,
+        // Vault, workspace events, saveData). Exercised in the live pilot,
+        // not in headless unit tests; the logic it wires is tested per module.
+        'src/runtime/obsidian-adapters.ts',
+      ],
+      include: [
+        'src/main.ts',
+        'src/runtime/**/*.ts',
+        'src/storage/**/*.ts',
+      ],
       provider: 'v8',
       reporter: ['text'],
       thresholds: {

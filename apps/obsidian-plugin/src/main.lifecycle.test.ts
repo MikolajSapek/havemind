@@ -177,6 +177,47 @@ describe('plugin lifecycle', () => {
     },
   );
 
+  it('renders the activity feed with a restore action when data is supplied', async () => {
+    const app = new App();
+    const plugin = new HavemindPlugin(app, manifest);
+    await plugin.onload();
+
+    const restored: string[] = [];
+    plugin.setActivityOptions({
+      feedProvider: () => [
+        {
+          revisionId: 'rev-1',
+          vaultId: 'vault-1',
+          fileId: 'file-1',
+          path: 'Notes/a.md',
+          previousPath: null,
+          kind: 'edit',
+          actor: { kind: 'author', actorId: 'u1', displayName: 'Alice' },
+          timestamp: 100,
+          content: 'A\n',
+          blobHash: 'h1',
+          parentRevisionIds: [],
+          provenance: [],
+          restoredFromRevisionId: null,
+        },
+      ],
+      onRestore: (revisionId) => restored.push(revisionId),
+    });
+
+    const view = registrationState.views
+      .get(HAVEMIND_ACTIVITY_VIEW)
+      ?.(new WorkspaceLeaf());
+    await view?.onOpen();
+    const container = view?.containerEl as unknown as MockElement;
+    const rows = container.children[1]?.children ?? [];
+    expect(rows[0]?.text).toBe('Havemind activity');
+    expect(rows[1]?.text).toBe('edit · Notes/a.md · Alice');
+
+    const restoreButton = rows[1]?.children[0];
+    restoreButton?.triggerClick();
+    expect(restored).toEqual(['rev-1']);
+  });
+
   it('removes registered resources and detached views during unload', async () => {
     const app = new App();
     const plugin = new HavemindPlugin(app, manifest);

@@ -6,6 +6,44 @@ declare module 'obsidian' {
     [key: string]: string;
   }
 
+  export interface RequestUrlParam {
+    url: string;
+    method?: string;
+    headers?: Record<string, string>;
+    body?: string;
+    throw?: boolean;
+  }
+
+  export interface RequestUrlResponse {
+    status: number;
+    headers: Record<string, string>;
+    arrayBuffer: ArrayBuffer;
+    json: unknown;
+    text: string;
+  }
+
+  export function requestUrl(
+    request: RequestUrlParam,
+  ): Promise<RequestUrlResponse>;
+
+  export abstract class TAbstractFile {
+    path: string;
+    name: string;
+  }
+
+  export class TFile extends TAbstractFile {
+    extension: string;
+  }
+
+  export interface Vault {
+    getAbstractFileByPath(path: string): TAbstractFile | null;
+    getMarkdownFiles(): TFile[];
+    read(file: TFile): Promise<string>;
+    create(path: string, data: string): Promise<TFile>;
+    modify(file: TFile, data: string): Promise<void>;
+    createFolder(path: string): Promise<void>;
+  }
+
   export interface ViewState {
     active?: boolean;
     type: string;
@@ -20,6 +58,8 @@ declare module 'obsidian' {
     getLeavesOfType(type: string): WorkspaceLeaf[];
     getRightLeaf(split: boolean): WorkspaceLeaf | null;
     revealLeaf(leaf: WorkspaceLeaf): Promise<void>;
+    onLayoutReady(callback: () => void): void;
+    on(name: string, callback: (...args: unknown[]) => unknown): unknown;
   }
 
   export interface App {
@@ -63,6 +103,14 @@ declare module 'obsidian' {
     ): HTMLElement;
     addSettingTab(settingTab: PluginSettingTab): void;
     addStatusBarItem(): HTMLElement;
+    loadData(): Promise<unknown>;
+    saveData(data: unknown): Promise<void>;
+    registerInterval(id: number): number;
+    registerDomEvent(
+      target: Window,
+      type: string,
+      callback: () => unknown,
+    ): void;
     onload(): Promise<void> | void;
     onunload(): void;
     registerEditorExtension(extension: EditorExtension): void;
@@ -120,5 +168,6 @@ interface HTMLElement {
     options?: { text?: string },
   ): HTMLElement;
   empty(): void;
+  onClickEvent(callback: () => unknown): void;
   setText(value: string): void;
 }

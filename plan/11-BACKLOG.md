@@ -197,6 +197,17 @@ raporcie fazy (co działa, co odłożone, dowód).
   - AC: dwuklientowa symulacja przechodzi cały fault matrix z `07-pakiet-wdrozeniowy-i-e2e.md`
     (funkcjonalne, `npm run test:e2e`).
 
+- [x] **F8-02a** `plugin` Integracja runtime pluginu (prerekwizyt pilotażu, ujawniony przy
+  starcie T032): transport HTTP przez requestUrl(), trwały store (outbox/cursor/deferred),
+  scheduler sync-runnera w main.ts (startup/focus/online/interval), widok Activity podpięty
+  do danych F5-01, pakiet instalacyjny pluginu (main.js+manifest.json) + instrukcja dołączenia
+  drugiego urządzenia.
+  - Dowód (2026-07-16): src/runtime/* — RequestUrlTransport (6 testów), DurableSyncState na
+    saveData bez sekretów (12), VaultApplyPort z konfliktami do Havemind Conflicts/ (3),
+    scheduler startup/focus/online/interval (3+4), Activity feed+Restore w widoku (5+lifecycle),
+    status bar Synced/Offline/Conflict (8); dist/{main.js,manifest.json} + docs/pilot/install.md;
+    workspace 491 pass, branch 83.33%. Follow-up przy deployu: wpiąć resolvery onboarding→connected
+    (token/vaultId/fileId↔path/blob fetch) i controller.start().
 - [ ] **F8-02** `decyzja-usera` Siedmiodniowy pilotaż na sapserverze (T032)
   - AC: pełny checklist z `09-pilotaz-i-decyzje.md`, zapisany w `docs/pilot/checklist.md`.
   - AC: codzienny zapis `df -h /` do `docs/pilot/checklist.md` przez 7 dni; alarm i wpis w

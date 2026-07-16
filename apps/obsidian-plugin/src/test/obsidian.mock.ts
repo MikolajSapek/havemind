@@ -115,6 +115,17 @@ export class Workspace {
   async revealLeaf(leaf: WorkspaceLeaf): Promise<void> {
     this.revealedLeaves.push(leaf);
   }
+
+  onLayoutReady(_callback: () => void): void {
+    // The layout is never "ready" in the headless mock, so the passive shell
+    // never starts the connected sync runtime during lifecycle tests.
+    void _callback;
+  }
+
+  on(_name: string, _callback: (...args: unknown[]) => unknown): unknown {
+    void _callback;
+    return undefined;
+  }
 }
 
 export class App {

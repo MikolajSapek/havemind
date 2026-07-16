@@ -111,3 +111,34 @@ pending this approval). Applied:
    of F0-01 so the whole-workspace commands go green now; OR
 3. Revisit sequencing / the scaffold so forward stubs are not committed ahead of
    their issues.
+
+## 2026-07-16 — F8-02a plugin runtime integration (decisions/traps)
+
+Runtime integration of the tested port-based modules with the Obsidian runtime.
+All AC met; workspace gate green (build+typecheck+lint, 491 tests pass, branch
+coverage 83.33%). Three scope decisions, none hit the 3-attempt limit:
+
+1. **Durable SyncStatePort on `Plugin.saveData` (data.json), not IndexedDB.**
+   `plan/05` permits "IndexedDB lub plugin saveData". Chose saveData: a single
+   non-secret JSON blob (cursor/outbox/deferred/locally-authored) is simpler and
+   fully unit-testable, and avoids extending the tested `IndexedDbClientStore`.
+   Secrets never touch data.json — refresh tokens stay in SecretStorage
+   (`storage/secret-store.ts`), honouring rule 6 and plan/05.
+
+2. **`src/runtime/obsidian-adapters.ts` excluded from the coverage gate.** It is
+   the only module that binds live Obsidian APIs (`requestUrl`, Vault, workspace
+   events, `saveData`); it is exercised in the pilot, not headless CI. Every
+   piece of logic it wires (transport, durable state, vault apply, scheduler,
+   status, controller) is unit-tested per module under `src/runtime/**` (now in
+   the coverage include). Matches the F5-01/F6-01 "pure DI module + thin glue"
+   convention.
+
+3. **Remaining pilot-wiring follow-up (UI-only).** The transport/vault adapters
+   take injected resolvers (`resolveEnvelope`, `pathForFileId`,
+   `resolveRemoteContent`, `getAuthToken`); wiring the onboarding→connected
+   trigger, the fileId↔path mapping (reconciliation repo) and the blob→plaintext
+   fetch into `buildSyncController` is the natural next slice. `main.ts` stays a
+   passive shell until connected (lifecycle test unchanged: zero scan/network on
+   load). `dist/{main.js,manifest.json}` exist on disk but are gitignored (repo
+   convention for build output); `docs/pilot/install.md` documents `npm run
+   build` to regenerate.

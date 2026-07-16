@@ -7,11 +7,30 @@ import {
 } from 'obsidian';
 
 import { isSafePassiveJoinProtocolData } from './onboarding/invite';
+import type { RevisionRecord } from './activity/activity';
+import { buildActivityViewModel } from './runtime/activity-render';
+import { formatStatusBar } from './runtime/status';
 
 export const HAVEMIND_ACTIVITY_VIEW = 'havemind-activity';
 export const HAVEMIND_ONBOARDING_VIEW = 'havemind-onboarding';
 
+const EMPTY_ACTIVITY_TEXT =
+  'Connect a disposable vault to begin the private pilot.';
+
+/** Injected data + actions for the Activity surface (F5-01 feed + restore). */
+export interface ActivityViewOptions {
+  readonly feedProvider?: () => readonly RevisionRecord[];
+  readonly onRestore?: (revisionId: string) => void;
+}
+
 class HavemindActivityView extends ItemView {
+  private readonly options: ActivityViewOptions;
+
+  constructor(leaf: WorkspaceLeaf, options: ActivityViewOptions = {}) {
+    super(leaf);
+    this.options = options;
+  }
+
   override getDisplayText(): string {
     return 'Havemind activity';
   }
@@ -30,9 +49,20 @@ class HavemindActivityView extends ItemView {
 
     content.empty();
     content.createEl('h3', { text: 'Havemind activity' });
-    content.createDiv({
-      text: 'Connect a disposable vault to begin the private pilot.',
-    });
+
+    const model = buildActivityViewModel(this.options.feedProvider?.() ?? []);
+    if (model.empty) {
+      content.createDiv({ text: EMPTY_ACTIVITY_TEXT });
+      return;
+    }
+
+    for (const row of model.rows) {
+      const entry = content.createDiv({ text: row.label });
+      if (row.canRestore && this.options.onRestore) {
+        const restore = entry.createEl('button', { text: 'Restore' });
+        restore.onClickEvent(() => this.options.onRestore?.(row.revisionId));
+      }
+    }
   }
 }
 
@@ -73,10 +103,13 @@ class HavemindSettingTab extends PluginSettingTab {
 }
 
 export default class HavemindPlugin extends Plugin {
+  private activityOptions: ActivityViewOptions = {};
+
   override onload(): void {
     this.registerView(
       HAVEMIND_ACTIVITY_VIEW,
-      (leaf: WorkspaceLeaf) => new HavemindActivityView(leaf),
+      (leaf: WorkspaceLeaf) =>
+        new HavemindActivityView(leaf, this.activityOptions),
     );
     this.registerView(
       HAVEMIND_ONBOARDING_VIEW,
@@ -94,7 +127,7 @@ export default class HavemindPlugin extends Plugin {
     });
 
     const status = this.addStatusBarItem();
-    status.setText('Havemind: disconnected');
+    status.setText(formatStatusBar({ status: 'disconnected' }).text);
 
     this.addSettingTab(new HavemindSettingTab(this.app, this));
 
@@ -112,6 +145,11 @@ export default class HavemindPlugin extends Plugin {
   override onunload(): void {
     this.app.workspace.detachLeavesOfType(HAVEMIND_ACTIVITY_VIEW);
     this.app.workspace.detachLeavesOfType(HAVEMIND_ONBOARDING_VIEW);
+  }
+
+  /** Supplies the Activity view with a live feed and a restore action. */
+  setActivityOptions(options: ActivityViewOptions): void {
+    this.activityOptions = options;
   }
 
   private openActivityView(): Promise<void> {
