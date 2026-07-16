@@ -187,7 +187,13 @@ raporcie fazy (co działa, co odłożone, dowód).
 
 ## F8 — Bramka decyzyjna (⏳ ZATRZYMAJ i zapytaj usera przed startem — patrz `09-pilotaz-i-decyzje.md`)
 
-- [ ] **F8-01** `bezpieczeństwo` E2E fault harness (T031)
+- [x] **F8-01** `bezpieczeństwo` E2E fault harness (T031)
+  - Dowód (2026-07-16): tests/e2e/fault-matrix.test.ts — 6/6 wierszy fault matrix z plan/07
+    przeciw realnej instancji Fastify (server restart mid-push → replay; client restart mid-apply
+    → brak połowicznego stanu; partycja 2× offline → konwergencja bez utraty; duplicate delivery
+    → ten sam serverSequence; restore → 409 CURSOR_INVALID i pojednanie; konflikt tej samej linii
+    → 2 heady + artefakt Havemind Conflicts/, zero cichych nadpisań). `npm run test:e2e` exit 0;
+    workspace 450 pass, branch 83.82%.
   - AC: dwuklientowa symulacja przechodzi cały fault matrix z `07-pakiet-wdrozeniowy-i-e2e.md`
     (funkcjonalne, `npm run test:e2e`).
 

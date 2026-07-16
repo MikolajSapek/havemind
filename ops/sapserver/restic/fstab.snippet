@@ -1,6 +1,0 @@
-# Havemind — /etc/fstab alternative to the systemd .mount/.automount units (SRV-03).
-# Use EITHER this fstab line OR the systemd units, not both. Add as ONE line to
-# /etc/fstab (root). x-systemd.automount makes it mount lazily on first access;
-# nofail keeps boot from hanging if the NAS is offline.
-#
-# //192.168.254.10/backup /mnt/havemind_backup cifs credentials=/srv/secrets/smb-credentials,uid=0,gid=0,file_mode=0600,dir_mode=0700,vers=3.0,nofail,_netdev,x-systemd.automount 0 0

@@ -23,6 +23,7 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
+    "test:e2e": "vitest run tests/e2e",
     "test:integration": "vitest run --passWithNoTests tests/integration",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "verify": "npm run check:workspace && npm run lint && npm run typecheck && npm test && npm run build"
