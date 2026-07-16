@@ -82,7 +82,101 @@ describe('reconstructFromRecipe', () => {
   });
 });
 
+describe('reconstructFromRecipe input guards', () => {
+  it('rejects an unsupported recipe version', () => {
+    const recipe = { version: 2, parts: [] } as unknown as ReconstructionRecipe;
+
+    expect(() =>
+      reconstructFromRecipe(recipe, [parentA], 'revision-current'),
+    ).toThrow(/version/i);
+  });
+
+  it('rejects an empty current revision ID', () => {
+    expect(() =>
+      reconstructFromRecipe({ version: 1, parts: [] }, [parentA], '   '),
+    ).toThrow(/current revision id/i);
+  });
+
+  it('rejects empty, duplicate and non-canonical parents', () => {
+    const emptyId: ParentSnapshot = { ...parentA, revisionId: '  ' };
+    expect(() =>
+      reconstructFromRecipe({ version: 1, parts: [] }, [emptyId], 'rev'),
+    ).toThrow(/parent revision id/i);
+
+    expect(() =>
+      reconstructFromRecipe(
+        { version: 1, parts: [] },
+        [parentA, parentA],
+        'rev',
+      ),
+    ).toThrow(/duplicate parent/i);
+
+    const carriageReturn: ParentSnapshot = {
+      revisionId: 'revision-cr',
+      content: 'has\r',
+      provenance: [],
+    };
+    expect(() =>
+      reconstructFromRecipe({ version: 1, parts: [] }, [carriageReturn], 'rev'),
+    ).toThrow(/LF/i);
+  });
+
+  it('rejects empty literal parts', () => {
+    expect(() =>
+      reconstructFromRecipe(
+        { version: 1, parts: [{ type: 'literal', text: '' }] },
+        [parentA],
+        'revision-current',
+      ),
+    ).toThrow(/must not be empty/i);
+  });
+
+  it('rejects out-of-range and reversed source ranges', () => {
+    expect(() =>
+      reconstructFromRecipe(
+        {
+          version: 1,
+          parts: [
+            { type: 'source', parentRevisionId: 'revision-a', start: 5, end: 2 },
+          ],
+        },
+        [parentA],
+        'revision-current',
+      ),
+    ).toThrow(/source range/i);
+
+    expect(() =>
+      reconstructFromRecipe(
+        {
+          version: 1,
+          parts: [
+            {
+              type: 'source',
+              parentRevisionId: 'revision-a',
+              start: 0,
+              end: 999,
+            },
+          ],
+        },
+        [parentA],
+        'revision-current',
+      ),
+    ).toThrow(/source range/i);
+  });
+});
+
 describe('validateReconstruction', () => {
+  it('rejects an expected snapshot with carriage returns', () => {
+    expect(() =>
+      validateReconstruction(
+        { version: 1, parts: [] },
+        [parentA],
+        'bad\r',
+        'revision-current',
+      ),
+    ).toThrow(/LF/i);
+  });
+
   it('accepts only an exact full-snapshot match', () => {
     const recipe: ReconstructionRecipe = {
       version: 1,

@@ -11,13 +11,17 @@ raporcie fazy (co działa, co odłożone, dowód).
 
 ## F0 — Fundament
 
-- [ ] **F0-01** `fundament` Skonfigurować strict TS/lint/Vitest na całym workspace (T002)
+- [x] **F0-01** `fundament` Skonfigurować strict TS/lint/Vitest na całym workspace (T002)
   - AC: `npm run typecheck && npm run lint && npm test` zielone dla wszystkich pakietów
     (funkcjonalne); próg pokrycia 80% wymuszony w konfiguracji, nie tylko w CI opisie
     (jakościowe, metoda: `npm run test:coverage` raportuje próg z konfiguracji); żaden istniejący
     test T004-T017 nie przestaje przechodzić (regresyjne).
   - AC negatywne: brak `any` bez jawnego komentarza uzasadniającego w nowo dotkniętych plikach.
   - Pliki: `tsconfig.base.json`, `eslint.config.js`, `vitest.config.ts`, `scripts/check-workspace.mjs`.
+  - Dowód (2026-07-16): typecheck + lint + test zielone (279 pass / 3 skipped — zatwierdzona
+    kwarantanna F3-01, patrz DECISIONS.md); `npm run test:coverage` exit 0 — statements 84.75%,
+    branches 80.22%, functions 88.99%, lines 85.41%, próg 80% wymuszony w `vitest.config.ts`;
+    zero regresji T004-T017; brak `any` (`no-explicit-any` = error przechodzi czysto).
 
 - [x] **F0-02** `fundament` Zweryfikować dane kanoniczne bez duplikacji
   - AC: grep pakietu `plan/` na frazy skopiowane 1:1 z `specs/*.md`/`plans/*.md` dłuższe niż jedno

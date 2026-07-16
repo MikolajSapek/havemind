@@ -9,6 +9,8 @@ export default tseslint.config(
       '**/dist/**',
       '**/node_modules/**',
       '**/*.d.ts',
+      // Built plugin bundle (gitignored, esbuild output) — not source.
+      'apps/obsidian-plugin/main.js',
     ],
   },
   eslint.configs.recommended,

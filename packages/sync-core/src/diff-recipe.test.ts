@@ -80,4 +80,13 @@ describe('generateEditRecipe', () => {
       generateEditRecipe(parent('base'), '12345', { maxTextLength: 4 }),
     ).toThrow(/limit/i);
   });
+
+  it('rejects a negative or fractional diff limit', () => {
+    expect(() =>
+      generateEditRecipe(parent('base'), 'next', { maxTextLength: -1 }),
+    ).toThrow(/non-negative safe integer/i);
+    expect(() =>
+      generateEditRecipe(parent('base'), 'next', { maxTextLength: 3.5 }),
+    ).toThrow(/non-negative safe integer/i);
+  });
 });
