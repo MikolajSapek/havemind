@@ -14,9 +14,24 @@ into new migration files.
 
 ## 2026-07-16 — SRV-02: backup target = local NAS
 
-User chose the local-network NAS as the Restic backup target (over USB and
-Backblaze B2). NAS host/share/protocol not yet provided — SRV-03 must ask for
-them before deploying Restic. Trade-off acknowledged: same physical location as
+User initially chose a local-network NAS (SMB share `backup` on
+`192.168.254.10`). REVISED 2026-07-16: that host turned out to be a UniFi
+Cloud Key (network controller, no file storage — SMB impossible). B2 was
+briefly considered, then REJECTED by the user on principle: **files live only
+on the user's own hardware — no cloud storage of any kind.**
+
+**FINAL (2026-07-16): backup deferred entirely for the pilot, by explicit user
+decision.** Consequences, stated and accepted:
+- SRV-03/04/05 are waived as F8-02 blockers (plan/09 hard-blocker table is
+  overridden by the user, who owns that gate). Pilot data is disposable test
+  vaults only, so the risk is confined to losing pilot telemetry, not notes.
+- Restore/epoch machinery remains verified by F7-01 unit tests and the F8-01
+  fault harness (restore row) — what is NOT verified is a real off-host backup
+  round-trip. This must be revisited before any real vault touches the system
+  (Stage gates in specs/003; candidates honouring the only-my-hardware rule:
+  USB disk in sapserver, or restic-over-SFTP to the user's Mac — both local).
+- Sudo-free groundwork (static restic/rclone in ~/bin, scripts in
+  ~/havemind-ops and ops/sapserver/restic) stays in place, dormant. Trade-off acknowledged: same physical location as
 the server (no offsite copy in the pilot).
 
 ## 2026-07-16 — F0-01 (T002): AC #1 "all green" blocked by forward TDD stubs

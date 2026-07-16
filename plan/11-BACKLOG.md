@@ -223,7 +223,11 @@ raporcie fazy (co działa, co odłożone, dowód).
   - Dowód (2026-07-16): user wybrał NAS w sieci lokalnej (AskUserQuestion w sesji orkiestratora).
   - Follow-up dla SRV-03: przed wdrożeniem Restic zapytać usera o host/udział/protokół NAS
     (NFS/SMB/SFTP) — dane nie zostały jeszcze podane.
-- [ ] **SRV-03** `sapserver,bezpieczeństwo` Wdrożenie Restic — CZĘŚCIOWE (2026-07-16)
+- [ ] **SRV-03** `sapserver,bezpieczeństwo` Wdrożenie Restic — ODROCZONE decyzją usera
+  (2026-07-16): zero backupu w pilotażu, pliki tylko na sprzęcie usera (NAS = Cloud Key,
+  chmura odrzucona). SRV-03/04/05 przestają blokować F8-02 (jawne uchylenie bramki przez
+  usera — patrz DECISIONS.md). Fundament bezsudo (restic/rclone w ~/bin, skrypty) zostaje
+  uśpiony; wrócić przed podłączeniem prawdziwego vaultu (USB lub SFTP na Maca).
   - Zrobione bez sudo: skrypty w ops/sapserver/restic + ~/havemind-ops na serwerze (backup/
     prune 7/4/6 z restic check przed forget/restore/verify), hasło repo 384-bit w pliku 0600,
     szablon smb-credentials, systemd mount+automount dla //192.168.254.10/backup.
