@@ -127,7 +127,11 @@ raporcie fazy (co działa, co odłożone, dowód).
 
 ## F5 — Historia
 
-- [ ] **F5-01** `plugin` Activity, diff, restore (T028)
+- [x] **F5-01** `plugin` Activity, diff, restore (T028)
+  - Dowód (2026-07-16): activity.test.ts 10/10 — restore tworzy NOWĄ rewizję z atrybucją
+    przywracającego (restoredFromRevisionId, DAG rośnie o dokładnie 1, wejście bajt-w-bajt
+    nietknięte); provenance: przywrócone bajty → restorer, ocalałe zachowują autora; feed
+    newest-first, diff added/removed/context; workspace 374 pass, branch 84.44%.
   - AC: restore tworzy NOWĄ rewizję z atrybucją przywracającego (funkcjonalne, `npm test
     --workspace @havemind/obsidian-plugin -- activity`).
 
