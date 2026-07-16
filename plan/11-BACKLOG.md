@@ -37,6 +37,8 @@ raporcie fazy (co działa, co odłożone, dowód).
   - AC: 100% pokrycia branchy w ścieżce rewokacji (jakościowe, metoda: raport coverage).
   - AC negatywne: żaden raw token nie trafia do logów (grep testowych fixture'ów na `console.log`
     z tokenem w jawnej postaci).
+  - AC (kwarantanna F0-01): przywrócić `apps/server/src/auth/{setup,session-repository}.test.ts.todo-F1-01`
+    (rename z powrotem na `.test.ts`) i doprowadzić do zieleni — patrz DECISIONS.md 2026-07-16.
 
 ## F2 — Szkielet (serwer + plugin vertical slice)
 
@@ -69,6 +71,8 @@ raporcie fazy (co działa, co odłożone, dowód).
   - AC: create/modify/rename/delete zdeduplikowane po haszu (funkcjonalne).
   - AC negatywne: `.obsidian/**` nigdy nie trafia do outboxu (`npm test --workspace
     @havemind/obsidian-plugin -- vault-adapter`).
+  - AC (kwarantanna F0-01): przywrócić `src/obsidian/vault-adapter.test.ts.todo-F2-04` i
+    `src/sync/reconciliation.test.ts.todo-F2-04` (rename na `.test.ts`) i doprowadzić do zieleni.
 
 ## F3 — Onboarding (pierwsza wartość dla usera: da się połączyć)
 
@@ -78,6 +82,8 @@ raporcie fazy (co działa, co odłożone, dowód).
   - AC: resumable bootstrap po przerwaniu (funkcjonalne, `npm test --workspace
     @havemind/obsidian-plugin -- onboarding`).
   - AC negatywne: brak automatycznego scalenia dwóch istniejących vaultów.
+  - AC (kwarantanna F0-01): w `src/main.lifecycle.test.ts` usunąć 3× `it.skip` (marker `F3-01:`)
+    i `@ts-expect-error` przy imporcie `HAVEMIND_ONBOARDING_VIEW`; wszystkie 11 testów zielone.
 
 ## F4 — Sync end-to-end
 
@@ -152,8 +158,10 @@ raporcie fazy (co działa, co odłożone, dowód).
 
 - [ ] **SRV-01** `sapserver` Aktualizacja Tailscale na serwerze
   - AC: `tailscale version` po aktualizacji ≥ wersja bieżąca na dzień wykonania (funkcjonalne).
-- [ ] **SRV-02** `sapserver,decyzja-usera` Wybór miejsca backupu
-  - ⏳ ZABLOKOWANE: czeka na decyzję usera (USB / NAS / Backblaze B2).
+- [x] **SRV-02** `sapserver,decyzja-usera` Wybór miejsca backupu
+  - Dowód (2026-07-16): user wybrał NAS w sieci lokalnej (AskUserQuestion w sesji orkiestratora).
+  - Follow-up dla SRV-03: przed wdrożeniem Restic zapytać usera o host/udział/protokół NAS
+    (NFS/SMB/SFTP) — dane nie zostały jeszcze podane.
 - [ ] **SRV-03** `sapserver,bezpieczeństwo` Wdrożenie Restic
   - AC: repo szyfrowane poza dyskiem systemowym serwera, retencja 7/4/6 skonfigurowana
     (funkcjonalne, metoda: `restic snapshots` + `restic check`).
