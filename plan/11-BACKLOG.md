@@ -142,7 +142,7 @@ raporcie fazy (co działa, co odłożone, dowód).
     zero markerów; Reading view: section:null → cisza, bez zgadywania; każdy segment ma
     underline+tooltip+ariaLabel+colorToken+legendę; reducedMotion → animate:false. Część
     wizualna: deterministyczny render light/dark w screenshots/F6/author-overlay.html z realnego
-    outputu modułu — MANUALNA WERYFIKACJA USERA otwarta (realny Obsidian niewykonalny headless).
+    outputu modułu — POTWIERDZONE przez usera 2026-07-16 („overlay ok", oba motywy).
     Workspace 386 pass, branch 83.99%.
   - AC: hash mismatch → overlay ukryty, Reading view nigdy nie zgaduje bez `getSectionInfo()`
     (funkcjonalne + regresyjne, `npm test --workspace @havemind/obsidian-plugin -- attribution`).
