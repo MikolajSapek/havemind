@@ -78,7 +78,11 @@ raporcie fazy (co działa, co odłożone, dowód).
     istnieniu konta (funkcjonalne).
   - AC: `npm test --workspace @havemind/server -- auth-routes` zielone.
 
-- [ ] **F2-03** `serwer` Sync push/pull API (T021)
+- [x] **F2-03** `serwer` Sync push/pull API (T021)
+  - Dowód (2026-07-16): sync-routes.test.ts 15/15 — cykl w parent_revision_ids → 422 przed
+    jakimkolwiek zapisem (pre-flight Kahn); replay identycznych bajtów → 200 replayed z tą samą
+    receipt; różne bajty → 409 REVISION_ID_REUSE; pull kursorowy + byte-exact blob; serwer
+    opaque (payload jako bajty). Workspace 338 pass, branch 84.33%.
   - AC: batch z cyklem w `parent_revision_ids` → `422`, cały batch odrzucony (funkcjonalne).
   - AC: identyczny `revision_id` + identyczne bajty → oryginalny wynik; różne bajty → `409`
     (funkcjonalne, `npm test --workspace @havemind/server -- sync-routes`).

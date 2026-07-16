@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
+import { registerSyncRoutes, type SyncRoutesDeps } from '../sync/sync-routes.js';
 import type { AccessSession, SessionRepository } from './session-repository.js';
 
 const UUID_PATTERN =
@@ -43,6 +44,7 @@ export interface AuthRoutesDeps {
   readonly now?: () => Date;
   readonly rateLimit?: AuthRateLimitConfig;
   readonly clientKey?: (request: FastifyRequest) => string;
+  readonly sync?: SyncRoutesDeps;
 }
 
 declare module 'fastify' {
@@ -218,5 +220,9 @@ export function registerAuthRoutes(
         vaultId: params.data.vaultId,
       };
     });
+
+    if (deps.sync !== undefined) {
+      registerSyncRoutes(instance, deps.sync);
+    }
   });
 }
