@@ -217,8 +217,10 @@ raporcie fazy (co działa, co odłożone, dowód).
 
 ## SRV — Sapserver operations (równolegle od F0, blokuje F8)
 
-- [ ] **SRV-01** `sapserver` Aktualizacja Tailscale na serwerze
+- [x] **SRV-01** `sapserver` Aktualizacja Tailscale na serwerze
   - AC: `tailscale version` po aktualizacji ≥ wersja bieżąca na dzień wykonania (funkcjonalne).
+  - Dowód (2026-07-16): user wykonał `sudo apt install tailscale` — `tailscale version` → 1.98.9
+    (z 1.98.8), output wklejony w sesji orkiestratora.
 - [x] **SRV-02** `sapserver,decyzja-usera` Wybór miejsca backupu
   - Dowód (2026-07-16): user wybrał NAS w sieci lokalnej (AskUserQuestion w sesji orkiestratora).
   - Follow-up dla SRV-03: przed wdrożeniem Restic zapytać usera o host/udział/protokół NAS
