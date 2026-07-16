@@ -26,6 +26,15 @@ Pre-pilot confirmations and the daily 7-day pilot log live here
   - Prerequisite for Vault B: friend's device joins the user's tailnet (Tailscale
     device invite / node share) — server is tailnet-only, never public.
 
+- [x] **Server deployed** (2026-07-16): image built on sapserver, container
+  `Up (healthy)` (non-root, read-only, cap-dropped), owner initialised,
+  `tailscale serve` fronting `127.0.0.1:8787` at
+  `https://sapserver.tail48b326.ts.net` — `/healthz` and discovery verified
+  from a second tailnet machine. Ops notes: fresh named volume needed a
+  one-time host-side `chown 1000:1000` on `_data` (cap_drop blocks in-container
+  chown); CLI must be invoked via `apps/server/bin/havemind.js` (dist/cli.js is
+  a library). Dockerfile fix queued so future deploys skip the chown.
+
 ## Daily log (fill during the 7-day pilot)
 
 | Day | Date | `df -h /` | Sync status | Incidents |
