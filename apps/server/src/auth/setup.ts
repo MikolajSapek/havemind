@@ -1,0 +1,372 @@
+import { randomUUID } from 'node:crypto';
+
+import type Database from 'better-sqlite3';
+
+import { SessionRepository } from './session-repository.js';
+import {
+  generatePairingToken,
+  hashPairingToken,
+  parsePairingToken,
+  type AccessToken,
+  type PairingToken,
+} from './tokens.js';
+
+const DEFAULT_ACCESS_TOKEN_TTL_SECONDS = 10 * 60;
+const DEFAULT_REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
+/** Owner pairing tokens live for exactly 15 minutes (plan 03, single-use). */
+export const OWNER_PAIRING_TTL_SECONDS = 15 * 60;
+const MAX_DISPLAY_NAME_LENGTH = 80;
+const PUBLIC_KEY_LENGTH = 32;
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+const CONTROL_CHARACTER_CEILING = 0x20;
+
+function hasControlCharacter(value: string): boolean {
+  for (const character of value) {
+    const codePoint = character.codePointAt(0) ?? 0;
+    if (codePoint < CONTROL_CHARACTER_CEILING) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export type OwnerSetupErrorCode =
+  | 'ALREADY_INITIALIZED'
+  | 'INVALID_CLOCK'
+  | 'INVALID_INPUT'
+  | 'INVALID_PAIRING'
+  | 'LOCAL_CONTEXT_REQUIRED';
+
+const ERROR_MESSAGES: Readonly<Record<OwnerSetupErrorCode, string>> = {
+  ALREADY_INITIALIZED: 'The instance owner is already initialized.',
+  INVALID_CLOCK: 'The server clock is invalid.',
+  INVALID_INPUT: 'Invalid owner setup input.',
+  INVALID_PAIRING: 'Invalid owner pairing.',
+  LOCAL_CONTEXT_REQUIRED: 'A local CLI capability is required.',
+};
+
+/** A deliberately secret-free setup error safe to log or serialize. */
+export class OwnerSetupError extends Error {
+  public readonly code: OwnerSetupErrorCode;
+
+  public constructor(code: OwnerSetupErrorCode) {
+    super(ERROR_MESSAGES[code]);
+    this.name = 'OwnerSetupError';
+    this.code = code;
+  }
+
+  public toJSON(): Readonly<{
+    name: string;
+    code: OwnerSetupErrorCode;
+    message: string;
+  }> {
+    return { code: this.code, message: this.message, name: this.name };
+  }
+}
+
+/**
+ * A non-serializable proof that owner setup is being driven from the local
+ * server CLI. The marker lives only in this module's {@link localContexts}
+ * registry, so a plain `{ kind: 'local-cli' }` object (or anything crossing a
+ * network/JSON boundary) can never impersonate it.
+ */
+export interface LocalOwnerSetupContext {
+  readonly kind: 'local-cli';
+}
+
+const localContexts = new WeakSet<object>();
+
+export function createLocalOwnerSetupContext(): LocalOwnerSetupContext {
+  const context: LocalOwnerSetupContext = { kind: 'local-cli' };
+  localContexts.add(context);
+  return context;
+}
+
+export interface OwnerSetupServiceOptions {
+  readonly accessTokenTtlSeconds?: number;
+  readonly refreshTokenTtlSeconds?: number;
+  readonly now?: () => Date;
+  readonly randomUuid?: () => string;
+}
+
+export interface InitializeOwnerInput {
+  readonly ownerDisplayName: string;
+  readonly vaultDisplayName: string;
+}
+
+export interface InitializeOwnerResult {
+  readonly instanceId: string;
+  readonly membershipId: string;
+  readonly ownerUserId: string;
+  readonly pairingExpiresAt: string;
+  readonly pairingToken: string;
+  readonly serverEpoch: string;
+}
+
+export interface PairOwnerDeviceInput {
+  readonly deviceDisplayName: string;
+  readonly deviceId: string;
+  readonly initialRefreshToken: string;
+  readonly pairingToken: string;
+  readonly publicKey: Buffer;
+}
+
+export interface PairOwnerDeviceResult {
+  readonly accessExpiresAt: string;
+  readonly accessToken: AccessToken;
+  readonly deviceId: string;
+  readonly familyId: string;
+  readonly ownerUserId: string;
+  readonly refreshExpiresAt: string;
+}
+
+interface PairingRow {
+  readonly consumedAt: string | null;
+  readonly expiresAt: string;
+  readonly id: string;
+  readonly userId: string;
+}
+
+function isLocalContext(value: unknown): value is LocalOwnerSetupContext {
+  return (
+    typeof value === 'object' && value !== null && localContexts.has(value)
+  );
+}
+
+function requireDisplayName(value: string): string {
+  if (
+    typeof value !== 'string' ||
+    value.length === 0 ||
+    value.length > MAX_DISPLAY_NAME_LENGTH ||
+    value !== value.trim() ||
+    hasControlCharacter(value)
+  ) {
+    throw new OwnerSetupError('INVALID_INPUT');
+  }
+  return value;
+}
+
+function requireUuid(value: string): string {
+  if (typeof value !== 'string' || !UUID_PATTERN.test(value)) {
+    throw new OwnerSetupError('INVALID_INPUT');
+  }
+  return value;
+}
+
+function requirePublicKey(value: Buffer): Buffer {
+  if (
+    !Buffer.isBuffer(value) ||
+    value.length !== PUBLIC_KEY_LENGTH ||
+    value.every((byte) => byte === 0)
+  ) {
+    throw new OwnerSetupError('INVALID_INPUT');
+  }
+  return value;
+}
+
+function requirePairingToken(value: string): PairingToken {
+  try {
+    return parsePairingToken(value);
+  } catch {
+    throw new OwnerSetupError('INVALID_PAIRING');
+  }
+}
+
+function readClock(now: () => Date): Date {
+  const value = now();
+  if (!(value instanceof Date) || !Number.isFinite(value.getTime())) {
+    throw new OwnerSetupError('INVALID_CLOCK');
+  }
+  return value;
+}
+
+function addSeconds(date: Date, seconds: number): string {
+  const milliseconds = date.getTime() + seconds * 1_000;
+  if (!Number.isSafeInteger(milliseconds)) {
+    throw new OwnerSetupError('INVALID_CLOCK');
+  }
+  return new Date(milliseconds).toISOString();
+}
+
+/** Initializes the single instance owner and pairs their first device. */
+export class OwnerSetupService {
+  readonly #database: Database.Database;
+  readonly #accessTokenTtlSeconds: number;
+  readonly #refreshTokenTtlSeconds: number;
+  readonly #now: () => Date;
+  readonly #randomUuid: () => string;
+  readonly #sessions: SessionRepository;
+
+  public constructor(
+    database: Database.Database,
+    options: OwnerSetupServiceOptions = {},
+  ) {
+    this.#database = database;
+    this.#accessTokenTtlSeconds =
+      options.accessTokenTtlSeconds ?? DEFAULT_ACCESS_TOKEN_TTL_SECONDS;
+    this.#refreshTokenTtlSeconds =
+      options.refreshTokenTtlSeconds ?? DEFAULT_REFRESH_TOKEN_TTL_SECONDS;
+    this.#now = options.now ?? (() => new Date());
+    this.#randomUuid = options.randomUuid ?? randomUUID;
+    this.#sessions = new SessionRepository(database, {
+      accessTokenTtlSeconds: this.#accessTokenTtlSeconds,
+      now: this.#now,
+      randomUuid: this.#randomUuid,
+    });
+  }
+
+  public initializeOwner(
+    context: LocalOwnerSetupContext,
+    input: InitializeOwnerInput,
+  ): InitializeOwnerResult {
+    if (!isLocalContext(context)) {
+      throw new OwnerSetupError('LOCAL_CONTEXT_REQUIRED');
+    }
+    const ownerDisplayName = requireDisplayName(input.ownerDisplayName);
+    const vaultDisplayName = requireDisplayName(input.vaultDisplayName);
+    const now = readClock(this.#now);
+    const createdAt = now.toISOString();
+    const pairingExpiresAt = addSeconds(now, OWNER_PAIRING_TTL_SECONDS);
+    const pairingToken = generatePairingToken();
+    const pairingTokenHash = hashPairingToken(pairingToken);
+
+    const initialize = this.#database.transaction((): InitializeOwnerResult => {
+      const existing = this.#database
+        .prepare('SELECT COUNT(*) AS count FROM instance_state')
+        .get() as { count: number };
+      if (existing.count > 0) {
+        throw new OwnerSetupError('ALREADY_INITIALIZED');
+      }
+      const instanceId = this.#newUuid();
+      const serverEpoch = this.#newUuid();
+      const ownerUserId = this.#newUuid();
+      const vaultId = this.#newUuid();
+      const membershipId = this.#newUuid();
+      const pairingId = this.#newUuid();
+
+      this.#database
+        .prepare(
+          `INSERT INTO instance_state (
+             singleton, instance_id, server_epoch, restore_epoch, initialized_at
+           ) VALUES (1, ?, ?, 0, ?)`,
+        )
+        .run(instanceId, serverEpoch, createdAt);
+      this.#database
+        .prepare(
+          `INSERT INTO users (
+             id, display_name, is_instance_owner, status, created_at, revoked_at
+           ) VALUES (?, ?, 1, 'active', ?, NULL)`,
+        )
+        .run(ownerUserId, ownerDisplayName, createdAt);
+      this.#database
+        .prepare(
+          `INSERT INTO vaults (
+             id, display_name, write_epoch, next_server_sequence,
+             created_at, deleted_at
+           ) VALUES (?, ?, 0, 1, ?, NULL)`,
+        )
+        .run(vaultId, vaultDisplayName, createdAt);
+      this.#database
+        .prepare(
+          `INSERT INTO memberships (
+             id, vault_id, user_id, role, status, created_at, revoked_at
+           ) VALUES (?, ?, ?, 'owner', 'active', ?, NULL)`,
+        )
+        .run(membershipId, vaultId, ownerUserId, createdAt);
+      this.#database
+        .prepare(
+          `INSERT INTO owner_pairings (
+             id, user_id, vault_id, membership_id, token_hash,
+             created_at, expires_at, consumed_at, consumed_by_device_id
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
+        )
+        .run(
+          pairingId,
+          ownerUserId,
+          vaultId,
+          membershipId,
+          pairingTokenHash,
+          createdAt,
+          pairingExpiresAt,
+        );
+
+      return {
+        instanceId,
+        membershipId,
+        ownerUserId,
+        pairingExpiresAt,
+        pairingToken,
+        serverEpoch,
+      };
+    });
+
+    return initialize.immediate();
+  }
+
+  public pairOwnerDevice(input: PairOwnerDeviceInput): PairOwnerDeviceResult {
+    const deviceId = requireUuid(input.deviceId);
+    const deviceDisplayName = requireDisplayName(input.deviceDisplayName);
+    const publicKey = requirePublicKey(input.publicKey);
+    const pairingToken = requirePairingToken(input.pairingToken);
+    const pairingTokenHash = hashPairingToken(pairingToken);
+    const now = readClock(this.#now);
+    const createdAt = now.toISOString();
+
+    const pair = this.#database.transaction((): PairOwnerDeviceResult => {
+      const pairing = this.#database
+        .prepare(
+          `SELECT id, user_id AS userId,
+                  expires_at AS expiresAt, consumed_at AS consumedAt
+           FROM owner_pairings WHERE token_hash = ?`,
+        )
+        .get(pairingTokenHash) as PairingRow | undefined;
+      if (
+        pairing === undefined ||
+        pairing.consumedAt !== null ||
+        Date.parse(pairing.expiresAt) <= now.getTime()
+      ) {
+        throw new OwnerSetupError('INVALID_PAIRING');
+      }
+
+      this.#database
+        .prepare(
+          `INSERT INTO devices (
+             id, user_id, display_name, public_key, status,
+             created_at, approved_at, revoked_at
+           ) VALUES (?, ?, ?, ?, 'approved', ?, ?, NULL)`,
+        )
+        .run(deviceId, pairing.userId, deviceDisplayName, publicKey, createdAt, createdAt);
+
+      const session = this.#sessions.createInitialSessionInCurrentTransaction({
+        deviceId,
+        initialRefreshToken: input.initialRefreshToken,
+        refreshTokenTtlSeconds: this.#refreshTokenTtlSeconds,
+        userId: pairing.userId,
+      });
+
+      this.#database
+        .prepare(
+          `UPDATE owner_pairings
+           SET consumed_at = ?, consumed_by_device_id = ?
+           WHERE id = ?`,
+        )
+        .run(createdAt, deviceId, pairing.id);
+
+      return {
+        accessExpiresAt: session.accessExpiresAt,
+        accessToken: session.accessToken,
+        deviceId,
+        familyId: session.familyId,
+        ownerUserId: pairing.userId,
+        refreshExpiresAt: session.refreshExpiresAt,
+      };
+    });
+
+    return pair.immediate();
+  }
+
+  #newUuid(): string {
+    return requireUuid(this.#randomUuid());
+  }
+}

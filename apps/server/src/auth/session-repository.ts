@@ -13,6 +13,8 @@ import {
   validateAccessTokenTtl,
   validateRefreshTokenTtl,
   type AccessToken,
+  type RefreshRotationId,
+  type RefreshToken,
 } from './tokens.js';
 
 const DEFAULT_ACCESS_TOKEN_TTL_SECONDS = 10 * 60;
@@ -194,30 +196,28 @@ function addSeconds(date: Date, seconds: number): string {
 }
 
 function prepareRotation(input: RotateRefreshInput): PreparedRotation {
+  let current: RefreshToken;
   try {
-    const current = parseRefreshToken(input.currentRefreshToken);
-    const successor = parseRefreshToken(input.successorRefreshToken);
-    const rotationId = parseRefreshRotationId(input.rotationId);
-    if (current === successor) {
-      throw new SessionRepositoryError('INVALID_INPUT');
-    }
-    return {
-      currentTokenHash: hashRefreshToken(current),
-      rotationId,
-      successorTokenHash: hashRefreshToken(successor),
-    };
-  } catch (error) {
-    if (error instanceof SessionRepositoryError) {
-      throw error;
-    }
-    if (
-      typeof input.currentRefreshToken !== 'string' ||
-      !input.currentRefreshToken.startsWith('hm_rt_')
-    ) {
-      throw new SessionRepositoryError('INVALID_REFRESH');
-    }
+    current = parseRefreshToken(input.currentRefreshToken);
+  } catch {
+    throw new SessionRepositoryError('INVALID_REFRESH');
+  }
+  let successor: RefreshToken;
+  let rotationId: RefreshRotationId;
+  try {
+    successor = parseRefreshToken(input.successorRefreshToken);
+    rotationId = parseRefreshRotationId(input.rotationId);
+  } catch {
     throw new SessionRepositoryError('INVALID_INPUT');
   }
+  if (current === successor) {
+    throw new SessionRepositoryError('INVALID_INPUT');
+  }
+  return {
+    currentTokenHash: hashRefreshToken(current),
+    rotationId,
+    successorTokenHash: hashRefreshToken(successor),
+  };
 }
 
 function parseRefreshForInitial(value: string): string {

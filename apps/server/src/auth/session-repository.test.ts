@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type Database from 'better-sqlite3';
+import fc from 'fast-check';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { openDatabase } from '../db.js';
@@ -259,6 +260,62 @@ describe('SessionRepository', () => {
     ).toEqual({ status: 'reuse-detected' });
   });
 
+  it('revokes the family when a fresh successor collides with an existing token hash', () => {
+    const fixture = makeFixture();
+    const first = createRefreshSuccessor();
+    fixture.repository.rotateRefresh({
+      currentRefreshToken: fixture.initialRefreshToken,
+      rotationId: first.rotationId,
+      successorRefreshToken: first.refreshToken,
+    });
+
+    // Rotate the live successor forward while re-proposing the original token
+    // (generation zero) as the new successor: its hash already exists.
+    expectSessionCode(
+      () =>
+        fixture.repository.rotateRefresh({
+          currentRefreshToken: first.refreshToken,
+          rotationId: createRefreshSuccessor().rotationId,
+          successorRefreshToken: fixture.initialRefreshToken,
+        }),
+      'REFRESH_REUSE_DETECTED',
+    );
+    expect(
+      fixture.database
+        .prepare('SELECT status FROM refresh_token_families')
+        .get(),
+    ).toEqual({ status: 'reuse-detected' });
+    expect(fixture.repository.lookupAccess(fixture.accessToken)).toBeNull();
+  });
+
+  it('revokes the family when a live token is presented at a stale generation', () => {
+    const fixture = makeFixture();
+    // Force the family ahead of its only live token without consuming it, the
+    // durability-corruption guard that must still fail closed into a revocation.
+    fixture.database
+      .prepare(
+        `UPDATE refresh_token_families SET current_generation = 1
+         WHERE id = ?`,
+      )
+      .run(fixture.familyId);
+    const successor = createRefreshSuccessor();
+
+    expectSessionCode(
+      () =>
+        fixture.repository.rotateRefresh({
+          currentRefreshToken: fixture.initialRefreshToken,
+          rotationId: successor.rotationId,
+          successorRefreshToken: successor.refreshToken,
+        }),
+      'REFRESH_REUSE_DETECTED',
+    );
+    expect(
+      fixture.database
+        .prepare('SELECT status FROM refresh_token_families')
+        .get(),
+    ).toEqual({ status: 'reuse-detected' });
+  });
+
   it('rolls an interrupted rotation back and can safely retry after restart', () => {
     const fixture = makeFixture();
     const successor = createRefreshSuccessor();
@@ -401,4 +458,61 @@ describe('SessionRepository', () => {
       'INVALID_CLOCK',
     );
   });
+
+  it('property: identical replay is idempotent, any divergence revokes the family', () => {
+    fc.assert(
+      fc.property(
+        fc.boolean(),
+        fc.boolean(),
+        (divergeRotation, divergeSuccessor) => {
+          const fixture = makeFixture();
+          try {
+            const first = createRefreshSuccessor();
+            const rotated = fixture.repository.rotateRefresh({
+              currentRefreshToken: fixture.initialRefreshToken,
+              rotationId: first.rotationId,
+              successorRefreshToken: first.refreshToken,
+            });
+            const other = createRefreshSuccessor();
+            const replay = {
+              currentRefreshToken: fixture.initialRefreshToken,
+              rotationId: divergeRotation ? other.rotationId : first.rotationId,
+              successorRefreshToken: divergeSuccessor
+                ? other.refreshToken
+                : first.refreshToken,
+            };
+            const readFamilyStatus = (): unknown =>
+              fixture.database
+                .prepare('SELECT status FROM refresh_token_families')
+                .get();
+
+            if (!divergeRotation && !divergeSuccessor) {
+              const retried = fixture.repository.rotateRefresh(replay);
+              expect(retried.wasRetry).toBe(true);
+              expect(retried.generation).toBe(1);
+              expect(
+                fixture.repository.lookupAccess(retried.accessToken),
+              ).not.toBeNull();
+              expect(readFamilyStatus()).toEqual({ status: 'active' });
+            } else {
+              expectSessionCode(
+                () => fixture.repository.rotateRefresh(replay),
+                'REFRESH_REUSE_DETECTED',
+              );
+              expect(readFamilyStatus()).toEqual({ status: 'reuse-detected' });
+              expect(
+                fixture.repository.lookupAccess(fixture.accessToken),
+              ).toBeNull();
+              expect(
+                fixture.repository.lookupAccess(rotated.accessToken),
+              ).toBeNull();
+            }
+          } finally {
+            fixture.database.close();
+          }
+        },
+      ),
+      { numRuns: 1_000 },
+    );
+  }, 120_000);
 });

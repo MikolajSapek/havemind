@@ -34,7 +34,12 @@ raporcie fazy (co działa, co odłożone, dowód).
 
 ## F1 — Systemy przekrojowe
 
-- [ ] **F1-01** `serwer,bezpieczeństwo` Prymitywy tokenów i rotacji (T018)
+- [x] **F1-01** `serwer,bezpieczeństwo` Prymitywy tokenów i rotacji (T018)
+  - Dowód (2026-07-16): auth suite 4 pliki / 38 testów zielone; fast-check property numRuns=1000
+    (replay → wasRetry, dywergencja → REFRESH_REUSE_DETECTED + rewokacja rodziny); coverage-final.json
+    potwierdza oba kierunki branchy rewokacji (L528 stale-generation [1,1009], L535 hash collision
+    [1,1008]); grep console.* w src/auth → 0; pliki .todo-F1-01 przywrócone i zielone; workspace
+    stmts 90.67 / branch 85.17 / funcs 93.43 / lines 91.52.
   - AC: `npm test --workspace @havemind/server -- auth` zielone (funkcjonalne).
   - AC: retry z tym samym `rotation_id` sukces, reuse z innym → rewokacja rodziny (funkcjonalne,
     metoda: test property z ≥1000 losowych kombinacji z `03-systemy-przekrojowe.md`).
