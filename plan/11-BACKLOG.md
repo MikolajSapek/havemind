@@ -254,7 +254,10 @@ raporcie fazy (co działa, co odłożone, dowód).
   - AC: strona dostępna wyłącznie przez tailnet, `ss -lntu` (bez `sudo` — nie wymagane do
     sprawdzenia adresu bindowania) nie pokazuje portu na interfejsie publicznym (funkcjonalne
     + regresyjne).
-- [ ] **SRV-07** `sapserver,decyzja-usera` Autostart po awarii zasilania w BIOS
+- [x] **SRV-07** `sapserver,decyzja-usera` Autostart po awarii zasilania w BIOS
+  - Dowód (2026-07-16): user ustawił Restore on AC/Power Loss → Power On (Advanced →
+    Chipset Configuration, dół listy — potwierdzone manualem ASRock str. 63-64) i zrestartował;
+    serwer wstał (uptime 0 min, Tailscale 1.98.9). Zapis w docs/pilot/checklist.md.
   - AC: agent NIE MOŻE tego wykonać ani zweryfikować zdalnie (brak IPMI/BMC na ASRock
     Z370 Gaming-ITX/ac) — pierwszy raport tej fazy zwraca to jako jawną prośbę do usera
     o fizyczne wejście w BIOS przy najbliższym restarcie, nie próbuje 3 podejść ani nie
