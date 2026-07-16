@@ -3,6 +3,65 @@
 Log of blockers, open questions and simpler-variant choices raised during
 `/loop` execution. One entry per decision; newest first.
 
+## 2026-07-16 — F8-02b STOP: onboarding/auth HTTP surface (T019) is unimplemented
+
+**Follow-up F8-02b** asked to (A) close the plugin live loop by wiring the
+onboarding→connected trigger, token, fileId↔path mapping and blob fetch into
+`buildSyncController`, plus a "Connect" flow (paste → redeem → pending approval
+→ connected) against the server API; and (B) write a sapserver deploy runbook.
+
+**Part A — STOPPED (blocked, not attempted).** The Connect flow and the sync
+loop's `getAuthToken` target server HTTP endpoints that do not exist. Verified
+by inspection (no implementation attempts spent):
+
+- The plugin's `OnboardingController`
+  (`apps/obsidian-plugin/src/onboarding/controller.ts`) calls
+  `/invitations/review`, `/invitations/redeem`, `/devices/:id/approval` and
+  `/bootstrap`, and the transport needs a Bearer **access** token.
+- The server registers only `/.well-known/havemind`, `/healthz`, `/readyz`,
+  `GET /vaults/:vaultId/members` and the sync routes (`POST …/revisions`,
+  `GET …/events`, `GET …/blobs/:blobHash`) — see `apps/server/src/app.ts` and
+  `apps/server/src/auth/auth-routes.ts`. There is **no** HTTP route for
+  invitation review/redeem, device approval, bootstrap, or refresh→access
+  token issuance. `InvitationService` and `SessionRepository` implement the
+  logic but nothing exposes it over HTTP.
+- `plans/002-pilot-tasks.md` **T019** ("Implement invitations and device
+  approval", target files `apps/server/src/auth/context.ts`,
+  `apps/server/src/auth/routes.ts`) is `[ ]` — those files do not exist.
+
+Consequence: F8-02b as written presumes F2 auth endpoints exist ("check the
+real routes"); they do not. Wiring the plugin Connect UI + live loop against a
+non-existent server contract cannot be verified and cannot satisfy the AC, so
+no code was changed on the plugin side (lifecycle test left untouched/green).
+The one safe wiring the task named — `controller.start()` on
+`workspace.onLayoutReady` gated on a connected state — was also deferred,
+because with no token-issuance route the loop has no credential to present, so
+the wiring would connect to nothing exercisable.
+
+**Correct next step:** land **T019** first — the owner/device auth HTTP surface
+(review, redeem, approval polling, bootstrap, refresh→access token issuance)
+behind the deny-by-default authenticated guard, plus an owner-side
+generate-invitation route. Only then is the F8-02b plugin wiring (Connect flow
++ live-loop start) implementable and testable end to end.
+
+**Part B — DONE.** `docs/pilot/deploy.md` added: a paste-ready sapserver runbook
+matched to the real `deploy/compose.yaml`, `deploy/.env.example`,
+`apps/server/Dockerfile` and the `havemind` CLI. Steps 1–4 (rsync/clone,
+secrets + env + `docker compose build/up`, `tailscale serve --https=443` on
+443, `curl …/healthz`) are concrete; sudo steps are marked `[sudo]`. Two real
+deploy traps recorded in the runbook: (1) the runtime image does **not** copy
+`bin/`, so the `havemind` CLI must run via `node …/dist/setup/cli.js` (build
+stage / `exec`) or on a host with Node, not `docker compose run havemind`;
+(2) this stack stores note data in the Docker-managed `havemind-data` volume,
+not a `/srv/appdata/havemind` bind. Step 5 (first invitation) is flagged
+**blocked on T019** rather than fabricated. Compose was statically verified
+(valid YAML; referenced `Dockerfile`/`healthcheck.js` present); `docker` is not
+installed locally so `docker compose config` could not be run. Tailscale 1.98
+`serve` syntax is given with an explicit "verify with `tailscale serve --help`"
+caveat, and `funnel` is explicitly ruled out (tailnet-only).
+
+Nothing committed; no tasks checked off (per F8-02b instructions).
+
 ## 2026-07-16 — security incident closed: sapserver password rotated
 
 The sapserver user password was accidentally disclosed in a chat transcript.

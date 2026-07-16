@@ -208,6 +208,13 @@ raporcie fazy (co działa, co odłożone, dowód).
     status bar Synced/Offline/Conflict (8); dist/{main.js,manifest.json} + docs/pilot/install.md;
     workspace 491 pass, branch 83.33%. Follow-up przy deployu: wpiąć resolvery onboarding→connected
     (token/vaultId/fileId↔path/blob fetch) i controller.start().
+- [ ] **F8-02c** `serwer,bezpieczeństwo` Auth/onboarding HTTP surface (domknięcie T019/T020 po
+  HTTP, luka ujawniona przez F8-02b): trasy review/redeem zaproszenia, approval polling,
+  bootstrap, refresh→access issuance, owner generate-invitation — wszystko w deny-by-default
+  scope F2-02, konsumując gotowe serwisy F1-01/F2-01; Dockerfile: dołączyć CLI (bin/ lub
+  dist/setup/cli.js wywoływalne w kontenerze).
+- [ ] **F8-02b-A** `plugin` Wpięcie Connect/live-loop (wznowienie po F8-02c): onboarding →
+  connected → controller.start(), resolvery token/vaultId/fileId↔path/blob fetch.
 - [ ] **F8-02** `decyzja-usera` Siedmiodniowy pilotaż na sapserverze (T032)
   - AC: pełny checklist z `09-pilotaz-i-decyzje.md`, zapisany w `docs/pilot/checklist.md`.
   - AC: codzienny zapis `df -h /` do `docs/pilot/checklist.md` przez 7 dni; alarm i wpis w
