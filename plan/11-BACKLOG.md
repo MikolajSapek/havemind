@@ -235,16 +235,19 @@ raporcie fazy (co działa, co odłożone, dowód).
   - Dowód (2026-07-16): pathOwners w PersistedSyncState (3 testy), ownership zapisywany po
     każdym write/rename, forget przy delete; kolizja nigdy nie nadpisuje ani nie przejmuje
     ścieżki; 551 pass, plugin branch ≥80%. dist przebudowany (631 959 B).
-- [ ] **F8-02d** `plugin,serwer` Luki UI onboardingu ujawnione w realnym pilotażu (2026-07-17),
-  obejście: mint/approve przez skrypt terminalowy na serwerze. Do domknięcia w pluginie:
-  1. **Copy invitation** — panel „Create invitation" musi mieć przycisk kopiowania koperty
-     `v1.…` (navigator.clipboard + fallback readonly select); dziś koperty nie da się zaznaczyć.
-  2. **Owner approve UI** — brak komendy/ekranu zatwierdzania: owner nie ma gdzie porównać frazy
-     weryfikacyjnej i wywołać POST /vaults/:id/invitations/:invId/approve (approvePendingDevice).
-     Dodać komendę „Approve pending device": lista pending + fraza + Approve.
-  3. **create-invitation / approve CLI** — serwerowe subkomendy (jak rotate-pairing) mintujące
-     kopertę i zatwierdzające pending device z terminala, na wypadek problemów z UI.
-  Wszystko: TDD, bramka, dist; sekrety nigdy w logach.
+- [x] **F8-02d** `plugin,serwer` Luki UI onboardingu ujawnione w realnym pilotażu (2026-07-17).
+  Zrobione (TDD, bramka zielona: build+typecheck+lint+test 605 pass):
+  1. **Copy invitation** — panel „Create invitation" ma przycisk kopiowania koperty `v1.…`
+     (`clipboard.ts`: navigator.clipboard + fallback readonly textarea/execCommand).
+  2. **Owner approve UI** — komenda „Approve pending device" (`approve-device.ts` +
+     `approvePendingDeviceForOwner` w obsidian-adapters): lista pending + fraza + Approve →
+     POST /vaults/:vaultId/invitations/:invitationId/approve (approveRedeemedDevice, zgodnie
+     z realną ścieżką onboarding-routes; fraza tylko w body, nigdy w logu/URL).
+  3. **create-invitation / approve CLI** — serwerowe subkomendy (jak rotate-pairing):
+     `create-invitation [--role --name]` mintuje kopertę v1.…; `approve [--invitation --phrase]`
+     listuje/zatwierdza pending device. Raw token nigdy nie logowany osobno.
+  - Dowód (2026-07-17): serwer 230 testów (27 w cli.test.ts), plugin 235 testów; pełna bramka
+    workspace EXIT=0, 605 testów. `dist/main.js` przebudowany (nowe symbole obecne).
 - [ ] **F8-02** `decyzja-usera` Siedmiodniowy pilotaż na sapserverze (T032)
   - AC: pełny checklist z `09-pilotaz-i-decyzje.md`, zapisany w `docs/pilot/checklist.md`.
   - AC: codzienny zapis `df -h /` do `docs/pilot/checklist.md` przez 7 dni; alarm i wpis w

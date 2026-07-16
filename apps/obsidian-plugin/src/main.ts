@@ -18,12 +18,17 @@ import {
   type StatusBarView,
 } from './runtime/status';
 import {
+  approvePendingDeviceForOwner,
   connectFromInput,
   createInvitationForOwner,
   startHavemindConnection,
   type ConnectionHandle,
 } from './runtime/obsidian-adapters';
 import type { CreatedInvitation } from './runtime/create-invitation';
+import {
+  browserClipboardCopyDeps,
+  copyTextToClipboard,
+} from './runtime/clipboard';
 
 export const HAVEMIND_ACTIVITY_VIEW = 'havemind-activity';
 export const HAVEMIND_ONBOARDING_VIEW = 'havemind-onboarding';
@@ -91,6 +96,19 @@ class HavemindActivityView extends ItemView {
 /** Report a human-readable connect-flow state back to the onboarding view. */
 export type ConnectReporter = (message: string) => void;
 
+/** A device the owner minted an invitation for and can now approve. */
+export interface PendingApprovalEntry {
+  /** Server-issued invitation id (a UUID, not a secret). */
+  readonly invitationId: string;
+  /** ISO-8601 expiry of the invitation. */
+  readonly expiresAt: string;
+}
+
+/** Model for the owner "Approve pending device" surface (F8-02d gap 2). */
+export interface ApprovalViewModel {
+  readonly pending: readonly PendingApprovalEntry[];
+}
+
 /** Injected data + actions for the onboarding surface. */
 export interface OnboardingViewOptions {
   readonly invitationProvider?: () => CreatedInvitation | null;
@@ -108,6 +126,19 @@ export interface OnboardingViewOptions {
   ) => void;
   /** Stop the live sync loop so the paste form returns. */
   readonly onDisconnect?: () => void;
+  /** Copy the rendered invitation envelope to the clipboard (never logged). */
+  readonly onCopyInvitation?: (envelope: string) => void;
+  /**
+   * Owner-approval model; when it returns non-null the approval form is shown
+   * instead of the connect/invitation surfaces.
+   */
+  readonly approvalProvider?: () => ApprovalViewModel | null;
+  /** Approve the joining device that read out the given verification phrase. */
+  readonly onApprove?: (
+    invitationId: string,
+    verificationPhrase: string,
+    report: ConnectReporter,
+  ) => void;
 }
 
 export class HavemindOnboardingView extends ItemView {
@@ -144,15 +175,18 @@ export class HavemindOnboardingView extends ItemView {
     if (!content) return;
 
     content.empty();
+
+    const approval = this.options.approvalProvider?.() ?? null;
+    if (approval) {
+      this.renderApproval(content, approval);
+      return;
+    }
+
     content.createEl('h3', { text: 'Connect to Havemind' });
 
     const invitation = this.options.invitationProvider?.() ?? null;
     if (invitation) {
-      content.createDiv({
-        text: 'Invitation created. Copy it now — it is single-use and expires in 15 minutes.',
-      });
-      content.createEl('code', { text: invitation.envelope });
-      content.createDiv({ text: `Expires: ${invitation.expiresAt}` });
+      this.renderInvitation(content, invitation);
       return;
     }
 
@@ -212,6 +246,87 @@ export class HavemindOnboardingView extends ItemView {
       );
     });
   }
+
+  private renderInvitation(
+    content: HTMLElement,
+    invitation: CreatedInvitation,
+  ): void {
+    content.createDiv({
+      text: 'Invitation created. Copy it now — it is single-use and expires in 15 minutes.',
+    });
+    content.createEl('code', { text: invitation.envelope });
+    // Readonly field so the owner can select the envelope by hand if the
+    // clipboard copy is unavailable or denied.
+    content.createEl('textarea', {
+      value: invitation.envelope,
+      cls: 'havemind-invite-copy-fallback',
+    });
+    const status = content.createDiv({ text: '' });
+    const copy = content.createEl('button', { text: 'Copy' });
+    copy.addClass('mod-cta');
+    copy.onClickEvent(() => {
+      this.options.onCopyInvitation?.(invitation.envelope);
+      status.setText('Copied to clipboard.');
+    });
+    content.createDiv({ text: `Expires: ${invitation.expiresAt}` });
+  }
+
+  private renderApproval(
+    content: HTMLElement,
+    model: ApprovalViewModel,
+  ): void {
+    content.createEl('h3', { text: 'Approve pending device' });
+    content.createDiv({
+      text: 'A device that redeemed an invitation waits for your approval. Confirm the verification phrase it shows out loud, then approve it.',
+    });
+
+    if (model.pending.length === 0) {
+      content.createDiv({
+        text: 'No invitations were created on this device this session. Paste the invitation ID from the server below.',
+      });
+    } else {
+      for (const entry of model.pending) {
+        // Icon + label + colour (never colour alone), matching the Connect
+        // panel indicator convention.
+        const row = content.createDiv({
+          text: `Invitation ${entry.invitationId} · expires ${entry.expiresAt}`,
+        });
+        row.style.setProperty('color', 'var(--text-accent)');
+        setIcon(row.createEl('span'), 'user-round-check');
+      }
+    }
+
+    content.createEl('label', { text: 'Invitation ID' });
+    const idInput = content.createEl('input', {
+      type: 'text',
+      value: model.pending[0]?.invitationId ?? '',
+      placeholder: '00000000-0000-0000-0000-000000000000',
+    });
+    content.createEl('label', {
+      text: 'Verification phrase (read aloud by the joining device)',
+    });
+    const phraseInput = content.createEl('input', {
+      type: 'text',
+      placeholder: 'three short words',
+    });
+    const status = content.createDiv({ text: '' });
+    const approve = content.createEl('button', { text: 'Approve' });
+    approve.addClass('mod-cta');
+    approve.onClickEvent(() => {
+      const invitationId = (
+        idInput as unknown as { value: string }
+      ).value.trim();
+      const phrase = (phraseInput as unknown as { value: string }).value.trim();
+      if (invitationId.length === 0 || phrase.length === 0) {
+        status.setText('Enter the invitation ID and the phrase you heard.');
+        return;
+      }
+      status.setText('Approving…');
+      this.options.onApprove?.(invitationId, phrase, (message) =>
+        status.setText(message),
+      );
+    });
+  }
 }
 
 class HavemindSettingTab extends PluginSettingTab {
@@ -230,6 +345,8 @@ export default class HavemindPlugin extends Plugin {
   private statusItem: HTMLElement | null = null;
   private connection: ConnectionHandle | null = null;
   private pendingInvitation: CreatedInvitation | null = null;
+  private pendingApprovals: PendingApprovalEntry[] = [];
+  private approvalActive = false;
   private connectionStatus: ConnectionStatus = 'disconnected';
   private lastSyncedAt: number | undefined;
   private connectionError: string | undefined;
@@ -249,6 +366,15 @@ export default class HavemindPlugin extends Plugin {
           void this.connectFromInput(input, serverUrl, report);
         },
         onDisconnect: () => this.disconnect(),
+        onCopyInvitation: (envelope) => {
+          // Move the secret into the clipboard; never log the envelope.
+          void copyTextToClipboard(envelope, browserClipboardCopyDeps());
+        },
+        approvalProvider: () =>
+          this.approvalActive ? { pending: this.pendingApprovals } : null,
+        onApprove: (invitationId, verificationPhrase, report) => {
+          void this.approvePendingDevice(invitationId, verificationPhrase, report);
+        },
       });
       this.onboardingView = view;
       return view;
@@ -268,6 +394,11 @@ export default class HavemindPlugin extends Plugin {
       id: 'create-invitation',
       name: 'Create invitation (owner)',
       callback: () => this.createInvitation(),
+    });
+    this.addCommand({
+      id: 'approve-pending-device',
+      name: 'Approve pending device',
+      callback: () => this.openApprovalView(),
     });
 
     this.addRibbonIcon('users-round', 'Open Havemind activity', () => {
@@ -305,7 +436,47 @@ export default class HavemindPlugin extends Plugin {
   }
 
   private openConnectView(): Promise<void> {
+    this.approvalActive = false;
     return this.openView(HAVEMIND_ONBOARDING_VIEW);
+  }
+
+  /** Owner action: open the approval surface for pending devices. */
+  private openApprovalView(): Promise<void> {
+    this.approvalActive = true;
+    this.onboardingView?.refresh();
+    return this.openView(HAVEMIND_ONBOARDING_VIEW);
+  }
+
+  /**
+   * Owner action: approve the joining device that read out `verificationPhrase`
+   * against `POST …/invitations/:invitationId/approve`. The phrase is a
+   * second-channel secret and is never logged; failures are reported to the view.
+   */
+  private async approvePendingDevice(
+    invitationId: string,
+    verificationPhrase: string,
+    report: ConnectReporter,
+  ): Promise<void> {
+    try {
+      const approved = await approvePendingDeviceForOwner(this, {
+        invitationId,
+        verificationPhrase,
+      });
+      if (approved === null) {
+        report('Connect as the vault owner before approving a device.');
+        return;
+      }
+      this.pendingApprovals = this.pendingApprovals.filter(
+        (entry) => entry.invitationId !== invitationId,
+      );
+      report('Device approved. It can now sync.');
+    } catch (error) {
+      report(
+        `Could not approve: ${
+          error instanceof Error ? error.message : 'unexpected error'
+        }`,
+      );
+    }
   }
 
   private async startConnection(): Promise<void> {

@@ -48,6 +48,7 @@ describe('plugin lifecycle', () => {
       'open-activity',
       'connect',
       'create-invitation',
+      'approve-pending-device',
     ]);
     expect(app.vault.getMarkdownFilesCalls).toBe(0);
     expect(app.network.requestCalls).toBe(0);
@@ -204,6 +205,7 @@ describe('plugin lifecycle', () => {
     plugin.setPendingInvitation({
       envelope: 'v1.ABC',
       expiresAt: '2026-07-16T10:15:00.000Z',
+      invitationId: '22222222-2222-4222-8222-222222222222',
     });
 
     const view = registrationState.views
@@ -214,6 +216,115 @@ describe('plugin lifecycle', () => {
     const texts = container.children[1]?.children.map(({ text }) => text) ?? [];
     expect(texts).toContain('v1.ABC');
     expect(texts.some((text) => text.includes('15 minutes'))).toBe(true);
+  });
+
+  it('copies the invitation envelope and exposes a readonly fallback field', async () => {
+    const copied: string[] = [];
+    const view = new HavemindOnboardingView(new WorkspaceLeaf(), {
+      invitationProvider: () => ({
+        envelope: 'v1.COPYME',
+        expiresAt: '2026-07-16T10:15:00.000Z',
+        invitationId: '22222222-2222-4222-8222-222222222222',
+      }),
+      onCopyInvitation: (envelope) => copied.push(envelope),
+    });
+    await view.onOpen();
+
+    const kids =
+      (view.containerEl as unknown as MockElement).children[1]?.children ?? [];
+    const copyButton = kids.find(({ text }) => text === 'Copy');
+    expect(copyButton).toBeDefined();
+    const readonlyField = kids.find(
+      ({ tag, value }) =>
+        (tag === 'textarea' || tag === 'input') && value === 'v1.COPYME',
+    );
+    expect(readonlyField).toBeDefined();
+
+    copyButton?.triggerClick();
+    expect(copied).toEqual(['v1.COPYME']);
+  });
+
+  it('renders the approval form and approves a pending device', async () => {
+    const approvals: Array<{ invitationId: string; phrase: string }> = [];
+    const view = new HavemindOnboardingView(new WorkspaceLeaf(), {
+      approvalProvider: () => ({
+        pending: [
+          {
+            invitationId: '22222222-2222-4222-8222-222222222222',
+            expiresAt: '2026-07-16T10:15:00.000Z',
+          },
+        ],
+      }),
+      onApprove: (invitationId, phrase, report) => {
+        approvals.push({ invitationId, phrase });
+        report('Approving…');
+      },
+    });
+    await view.onOpen();
+
+    const kids =
+      (view.containerEl as unknown as MockElement).children[1]?.children ?? [];
+    expect(kids[0]?.text).toBe('Approve pending device');
+    expect(
+      kids.some(({ text }) =>
+        text.includes('22222222-2222-4222-8222-222222222222'),
+      ),
+    ).toBe(true);
+
+    const inputs = kids.filter(({ tag }) => tag === 'input');
+    const idInput = inputs[0];
+    const phraseInput = inputs[1];
+    expect(idInput?.value).toBe('22222222-2222-4222-8222-222222222222');
+    if (phraseInput) phraseInput.value = 'brave amber otter';
+
+    kids.find(({ text }) => text === 'Approve')?.triggerClick();
+
+    expect(approvals).toEqual([
+      {
+        invitationId: '22222222-2222-4222-8222-222222222222',
+        phrase: 'brave amber otter',
+      },
+    ]);
+    expect(kids.some(({ text }) => text === 'Approving…')).toBe(true);
+  });
+
+  it('guards the approval form against a missing phrase', async () => {
+    const approvals: string[] = [];
+    const view = new HavemindOnboardingView(new WorkspaceLeaf(), {
+      approvalProvider: () => ({ pending: [] }),
+      onApprove: (invitationId) => approvals.push(invitationId),
+    });
+    await view.onOpen();
+
+    const kids =
+      (view.containerEl as unknown as MockElement).children[1]?.children ?? [];
+    const idInput = kids.filter(({ tag }) => tag === 'input')[0];
+    if (idInput) idInput.value = '22222222-2222-4222-8222-222222222222';
+    kids.find(({ text }) => text === 'Approve')?.triggerClick();
+
+    expect(approvals).toEqual([]);
+    expect(
+      kids.some(({ text }) =>
+        text === 'Enter the invitation ID and the phrase you heard.',
+      ),
+    ).toBe(true);
+  });
+
+  it('opens the onboarding view from the Approve pending device command', async () => {
+    const app = new App();
+    const plugin = new HavemindPlugin(app, manifest);
+    await plugin.onload();
+
+    const approve = registrationState.commands.find(
+      ({ id }) => id === 'approve-pending-device',
+    );
+    expect(approve).toBeDefined();
+    await approve?.callback();
+
+    expect(app.workspace.rightLeaf?.states).toEqual([
+      { active: true, type: HAVEMIND_ONBOARDING_VIEW },
+    ]);
+    expect(app.workspace.revealedLeaves).toEqual([app.workspace.rightLeaf]);
   });
 
   it('renders the activity feed with a restore action when data is supplied', async () => {

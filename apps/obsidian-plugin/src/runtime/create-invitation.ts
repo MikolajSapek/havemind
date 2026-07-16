@@ -26,6 +26,11 @@ export interface CreatedInvitation {
   readonly envelope: string;
   /** ISO-8601 expiry; the invitation is single-use and valid ~15 minutes. */
   readonly expiresAt: string;
+  /**
+   * Server-issued invitation id (a UUID, not a secret). The owner needs it to
+   * approve the joining device via `POST …/invitations/:invitationId/approve`.
+   */
+  readonly invitationId: string;
 }
 
 export class CreateInvitationError extends Error {
@@ -63,7 +68,8 @@ export async function createVaultInvitation(
   if (
     !isRecord(json) ||
     typeof json.invitationToken !== 'string' ||
-    typeof json.expiresAt !== 'string'
+    typeof json.expiresAt !== 'string' ||
+    typeof json.invitationId !== 'string'
   ) {
     throw new CreateInvitationError('Invitation response was malformed.');
   }
@@ -81,7 +87,11 @@ export async function createVaultInvitation(
     );
   }
 
-  return { envelope, expiresAt: json.expiresAt };
+  return {
+    envelope,
+    expiresAt: json.expiresAt,
+    invitationId: json.invitationId,
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

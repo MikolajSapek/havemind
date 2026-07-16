@@ -50,6 +50,7 @@ describe('createVaultInvitation', () => {
     const result = await run();
 
     expect(result.expiresAt).toBe('2026-07-16T10:15:00.000Z');
+    expect(result.invitationId).toBe('22222222-2222-4222-8222-222222222222');
     expect(result.envelope.startsWith('v1.')).toBe(true);
     const parsed = parseInviteEnvelope(result.envelope);
     expect(parsed.serverOrigin).toBe(ORIGIN);

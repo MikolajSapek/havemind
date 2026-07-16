@@ -3,6 +3,9 @@
 //
 // Thin process wrapper around the pure `runCli` in dist/setup/cli.js:
 //   havemind setup --owner <name> --vault <name>
+//   havemind rotate-pairing
+//   havemind create-invitation [--role <role>] [--name <name>]
+//   havemind approve [--invitation <id>] [--phrase <phrase>]
 //   havemind generate-db-key
 //   havemind doctor [--json]
 //
