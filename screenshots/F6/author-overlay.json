@@ -1,0 +1,106 @@
+{
+  "generatedAt": "deterministic (no wall-clock in output)",
+  "tokens": {
+    "authors": [
+      "--havemind-author-1",
+      "--havemind-author-2",
+      "--havemind-author-3",
+      "--havemind-author-4",
+      "--havemind-author-5",
+      "--havemind-author-6"
+    ],
+    "initialImport": "--havemind-author-initial"
+  },
+  "live": [
+    {
+      "from": 0,
+      "to": 15,
+      "colorToken": "--havemind-author-initial",
+      "underline": true,
+      "tooltip": "Initial import",
+      "animate": true
+    },
+    {
+      "from": 15,
+      "to": 35,
+      "colorToken": "--havemind-author-1",
+      "underline": true,
+      "tooltip": "Ana · 2023-11-14 22:13",
+      "animate": true
+    },
+    {
+      "from": 35,
+      "to": 56,
+      "colorToken": "--havemind-author-2",
+      "underline": true,
+      "tooltip": "Bob · 2023-11-15 12:06",
+      "animate": true
+    },
+    {
+      "from": 56,
+      "to": 72,
+      "colorToken": "--havemind-author-initial",
+      "underline": true,
+      "tooltip": "Initial import",
+      "animate": true
+    }
+  ],
+  "liveReducedAnimate": [
+    false,
+    false,
+    false,
+    false
+  ],
+  "reading": [
+    {
+      "blockId": "b0",
+      "colorToken": "--havemind-author-initial",
+      "tooltip": "Initial import",
+      "authors": [
+        "Initial import"
+      ]
+    },
+    {
+      "blockId": "b1",
+      "colorToken": "--havemind-author-1",
+      "tooltip": "Ana · 2023-11-14 22:13",
+      "authors": [
+        "Ana"
+      ]
+    },
+    {
+      "blockId": "b2",
+      "colorToken": "--havemind-author-2",
+      "tooltip": "Bob · 2023-11-15 12:06",
+      "authors": [
+        "Bob"
+      ]
+    },
+    {
+      "blockId": "b3",
+      "colorToken": "--havemind-author-initial",
+      "tooltip": "Initial import",
+      "authors": [
+        "Initial import"
+      ]
+    }
+  ],
+  "legend": [
+    {
+      "colorToken": "--havemind-author-initial",
+      "label": "Initial import"
+    },
+    {
+      "colorToken": "--havemind-author-1",
+      "label": "Ana"
+    },
+    {
+      "colorToken": "--havemind-author-2",
+      "label": "Bob"
+    }
+  ],
+  "hidden": {
+    "hashMismatch": "hash-mismatch",
+    "disabled": "overlay-disabled"
+  }
+}
