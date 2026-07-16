@@ -115,7 +115,11 @@ raporcie fazy (co działa, co odłożone, dowód).
 
 ## F4 — Sync end-to-end
 
-- [ ] **F4-01** `plugin` Sync runner i bezpieczny remote apply (T027)
+- [x] **F4-01** `plugin` Sync runner i bezpieczny remote apply (T027)
+  - Dowód (2026-07-16): sync-runner.test.ts 11/11 — single-flight coalescing, jittered backoff
+    2.5→5 s z resetem, echo suppression (0 zapisów, kursor+1), brak re-push po restarcie;
+    rozbieżny bufor → recordConflict bez applyRemote, nieznana baza → deferred z zatrzymanym
+    kursorem (regresja §14 „Never"); sync-runner.ts branch 96.42%; workspace 363 pass.
   - AC: single-flight + backoff, echo suppression, brak duplikatu po restarcie (funkcjonalne,
     `npm test --workspace @havemind/obsidian-plugin -- sync-runner`).
   - AC: aktywny rozbieżny bufor → odroczenie/konflikt, nigdy cichy nadpis (regresyjne wobec
