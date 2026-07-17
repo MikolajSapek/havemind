@@ -62,6 +62,21 @@ export class Notice {
   }
 }
 
+/** Minimal stand-ins for the vault file classes used in `instanceof` checks. */
+export class TAbstractFile {
+  path = '';
+}
+export class TFile extends TAbstractFile {}
+
+/**
+ * `requestUrl` is not exercised by the shared mock; suites that need it mock it
+ * explicitly (see `obsidian-adapters.test.ts`). This stub only keeps a bare
+ * named export present so modules importing it can load in a headless test.
+ */
+export function requestUrl(): never {
+  throw new Error('requestUrl is not available in the headless obsidian mock');
+}
+
 function createMockElement(): MockElement {
   const children: MockElement[] = [];
   const classes: string[] = [];

@@ -446,4 +446,132 @@ describe('VaultApplyAdapter', () => {
       expect(files.baseHashes.has('file-a')).toBe(false);
     });
   });
+
+  describe('rename divergence guard (rule 3, FIX 3)', () => {
+    function rename(
+      previousPath: string,
+      path: string,
+      text: string,
+    ): DecodedRevisionPayload {
+      return { operation: 'rename', path, previousPath, content: text };
+    }
+
+    it('renames in place when the old path matches the recorded base', async () => {
+      const { adapter, files } = build(() =>
+        rename('Notes/a.md', 'Notes/b.md', 'RENAMED\n'),
+      );
+      files.owners.set('Notes/a.md', 'file-1');
+      files.onDisk.set('Notes/a.md', 'BASE\n');
+      files.baseHashes.set('file-1', await fakeHash('BASE\n'));
+
+      const outcome = await adapter.applyRemote(event('rev-r', 'file-1'));
+
+      expect(outcome).toBe('applied');
+      expect(files.deletes).toEqual(['Notes/a.md']);
+      expect(files.writes).toEqual([{ path: 'Notes/b.md', content: 'RENAMED\n' }]);
+      expect(files.conflicts).toEqual([]);
+    });
+
+    it('routes to a conflict and never deletes when the old path diverged from base', async () => {
+      // The peer renamed the file; this device edited the OLD path while closed.
+      // Deleting it would silently lose that local edit → conflict artifact.
+      const { adapter, files } = build(() =>
+        rename('Notes/a.md', 'Notes/b.md', 'RENAMED\n'),
+      );
+      files.owners.set('Notes/a.md', 'file-1');
+      files.onDisk.set('Notes/a.md', 'LOCAL-EDIT\n');
+      files.baseHashes.set('file-1', await fakeHash('BASE\n'));
+
+      const outcome = await adapter.applyRemote(event('rev-r', 'file-1'));
+
+      expect(outcome).toBe('conflict');
+      expect(files.deletes).toEqual([]);
+      expect(files.writes).toEqual([]);
+      expect(files.conflicts).toEqual([
+        { path: 'Havemind Conflicts/file-1-rev-r.md', content: 'RENAMED\n' },
+      ]);
+      // The local edit at the old path is untouched.
+      expect(files.onDisk.get('Notes/a.md')).toBe('LOCAL-EDIT\n');
+    });
+
+    it('routes to a conflict when the old path has content but no recorded base', async () => {
+      const { adapter, files } = build(() =>
+        rename('Notes/a.md', 'Notes/b.md', 'RENAMED\n'),
+      );
+      files.owners.set('Notes/a.md', 'file-1');
+      files.onDisk.set('Notes/a.md', 'UNPROVEN\n');
+      // No base recorded → cannot prove the old path is clean → conflict.
+
+      const outcome = await adapter.applyRemote(event('rev-r', 'file-1'));
+
+      expect(outcome).toBe('conflict');
+      expect(files.deletes).toEqual([]);
+      expect(files.onDisk.get('Notes/a.md')).toBe('UNPROVEN\n');
+    });
+  });
+
+  describe('producer-sync lockstep (re-entrancy guard, FIX 2)', () => {
+    function withSync(
+      decoded: (event: RemoteEvent) => DecodedRevisionPayload,
+    ): {
+      adapter: VaultApplyAdapter;
+      files: FakeFiles;
+      writes: Array<{ fileId: string; path: string; content: string; revisionId: string }>;
+      deletes: Array<{ fileId: string; path: string }>;
+    } {
+      const files = new FakeFiles();
+      const writes: Array<{
+        fileId: string;
+        path: string;
+        content: string;
+        revisionId: string;
+      }> = [];
+      const deletes: Array<{ fileId: string; path: string }> = [];
+      const adapter = new VaultApplyAdapter({
+        files,
+        conflictFolder: 'Havemind Conflicts',
+        resolveRevision: async (remote) => decoded(remote),
+        hashContent: fakeHash,
+        producerSync: {
+          async onRemoteWrite(input) {
+            writes.push({
+              fileId: input.fileId,
+              path: input.path,
+              content: input.content,
+              revisionId: input.revisionId,
+            });
+          },
+          async onRemoteDelete(input) {
+            deletes.push({ fileId: input.fileId, path: input.path });
+          },
+        },
+      });
+      return { adapter, files, writes, deletes };
+    }
+
+    it('adopts the incoming fileId into the producer on an applied create', async () => {
+      const { adapter, writes } = withSync(() => content('Notes/new.md', 'A\n'));
+      await adapter.applyRemote(event('rev-1', 'remote-file'));
+      expect(writes).toEqual([
+        {
+          fileId: 'remote-file',
+          path: 'Notes/new.md',
+          content: 'A\n',
+          revisionId: 'rev-1',
+        },
+      ]);
+    });
+
+    it('forgets the producer mapping before an applied delete', async () => {
+      const { adapter, files, deletes } = withSync(() => ({
+        operation: 'delete',
+        path: 'Notes/a.md',
+        previousPath: null,
+        content: null,
+      }));
+      files.owners.set('Notes/a.md', 'remote-file');
+      await adapter.applyRemote(event('rev-3', 'remote-file'));
+      expect(deletes).toEqual([{ fileId: 'remote-file', path: 'Notes/a.md' }]);
+    });
+  });
 });

@@ -276,6 +276,46 @@ describe('VaultChangeObserver', () => {
       previousContent: 'one',
     });
   });
+
+  it('dedupes a create event for an already-mapped path (reflected remote write, no re-push)', async () => {
+    // A remote apply adopts the incoming fileId into the mapping and writes the
+    // file; Obsidian then fires a 'create' event. That reflected create must NOT
+    // mint a new fileId — it dedupes to a no-op because the content matches.
+    const vault = new MemoryVault();
+    vault.contents.set('Notes/Shared.md', 'SHARED\n');
+    const repository = new MemoryRepository();
+    const observer = createObserver(vault, repository);
+
+    // First create establishes the mapping (as remote apply's adoption would).
+    await observer.observeCreate('Notes/Shared.md');
+    expect(repository.commits).toHaveLength(1);
+
+    // A second create for the same unchanged path is a no-op — never a fork.
+    const reflected = await observer.observeCreate('Notes/Shared.md');
+    expect(reflected).toBeNull();
+    expect(repository.commits).toHaveLength(1);
+  });
+
+  it('keeps the existing (adopted) fileId when a create event carries changed content', async () => {
+    const vault = new MemoryVault();
+    vault.contents.set('Notes/Shared.md', 'NEW\n');
+    const repository = new MemoryRepository([
+      {
+        collisionKey: 'notes/shared.md',
+        content: 'OLD\n',
+        contentHash: 'stale-hash',
+        fileId: 'adopted-remote-file',
+        path: 'Notes/Shared.md',
+      },
+    ]);
+    const observer = createObserver(vault, repository);
+
+    const result = await observer.observeCreate('Notes/Shared.md');
+
+    expect(result?.fileId).toBe('adopted-remote-file');
+    expect(result?.fileId).not.toBe(FILE_ID); // never a freshly minted id
+    expect(result?.kind).toBe('update');
+  });
 });
 
 function createObserver(

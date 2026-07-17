@@ -55,6 +55,32 @@ export interface RemoteAppliedEvent {
   readonly operation: DecodedRevisionPayload['operation'];
 }
 
+/**
+ * Keeps the push producer's fileId↔path↔content map in lockstep with what the
+ * apply side writes to the vault. Without it, the vault event a remote-apply
+ * write triggers is re-observed by the producer and (a) re-pushed as a fresh
+ * local revision, (b) recorded as LOCAL activity, and (c) — for a remote-only
+ * create — given a brand-new random fileId (a duplicate fileId across devices).
+ * Adopting the incoming fileId + content into the producer mapping BEFORE the
+ * write dedupes that reflected event to a no-op.
+ */
+export interface RemoteApplyProducerSync {
+  /** Adopt `fileId`/`content` for `path`, parenting future local edits on
+   * `revisionId`. `contentHash` is the SHA-256 hex of the note text. */
+  onRemoteWrite(input: {
+    readonly fileId: string;
+    readonly path: string;
+    readonly content: string;
+    readonly contentHash: string;
+    readonly revisionId: string;
+  }): Promise<void>;
+  /** Forget the producer mapping+head for a remotely deleted `path`/`fileId`. */
+  onRemoteDelete(input: {
+    readonly fileId: string;
+    readonly path: string;
+  }): Promise<void>;
+}
+
 export interface VaultApplyAdapterOptions {
   readonly files: VaultFilePort;
   readonly conflictFolder: string;
@@ -74,6 +100,13 @@ export interface VaultApplyAdapterOptions {
    * Activity; note contents are never passed.
    */
   readonly onRemoteApplied?: (event: RemoteAppliedEvent) => void;
+  /**
+   * Bridges every remote-apply vault write into the push producer's durable
+   * mapping so the reflected vault event is never re-pushed, re-attributed, or
+   * given a fresh fileId (the re-entrancy guard). Optional; unit tests that only
+   * exercise the vault side omit it.
+   */
+  readonly producerSync?: RemoteApplyProducerSync;
 }
 
 export class VaultApplyAdapter implements VaultApplyPort {
@@ -84,6 +117,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
   ) => Promise<DecodedRevisionPayload>;
   private readonly hashContent: (content: string) => Promise<string>;
   private readonly onRemoteApplied?: (event: RemoteAppliedEvent) => void;
+  private readonly producerSync?: RemoteApplyProducerSync;
 
   constructor(options: VaultApplyAdapterOptions) {
     this.files = options.files;
@@ -92,6 +126,9 @@ export class VaultApplyAdapter implements VaultApplyPort {
     this.hashContent = options.hashContent;
     if (options.onRemoteApplied !== undefined) {
       this.onRemoteApplied = options.onRemoteApplied;
+    }
+    if (options.producerSync !== undefined) {
+      this.producerSync = options.producerSync;
     }
   }
 
@@ -106,6 +143,10 @@ export class VaultApplyAdapter implements VaultApplyPort {
     if (decoded.operation === 'delete') {
       // Only remove a file this revision actually owns.
       if (this.files.fileIdAtPath(decoded.path) === fileId) {
+        // Forget the producer mapping BEFORE the delete so the reflected vault
+        // 'delete' event finds no mapping and is not re-pushed as a local
+        // tombstone (re-entrancy guard).
+        await this.producerSync?.onRemoteDelete({ fileId, path: decoded.path });
         await this.files.deleteByPath(decoded.path);
         await this.files.forgetPath(decoded.path);
         await this.files.forgetBaseHash(fileId);
@@ -122,12 +163,25 @@ export class VaultApplyAdapter implements VaultApplyPort {
     const text = decoded.content ?? '';
 
     // A rename moves the owned previous path before writing the new one. The
-    // base hash is keyed by fileId, so it survives the move unchanged.
+    // base hash is keyed by fileId, so it survives the move unchanged. But the
+    // delete of the OLD path must never silently discard a local edit made
+    // there while closed (rule 3): if the old path's on-disk content has
+    // diverged from the recorded base, route the incoming revision to a conflict
+    // artifact instead of deleting.
     if (
       decoded.operation === 'rename' &&
       decoded.previousPath !== null &&
       this.files.fileIdAtPath(decoded.previousPath) === fileId
     ) {
+      const previousOnDisk = await this.files.readByPath(decoded.previousPath);
+      if (previousOnDisk !== null) {
+        const base = this.files.baseHashFor(fileId);
+        const previousHash = await this.hashContent(previousOnDisk);
+        if (base === null || previousHash !== base) {
+          await this.files.writeConflictArtifact(this.conflictPath(event), text);
+          return 'conflict';
+        }
+      }
       await this.files.deleteByPath(decoded.previousPath);
       await this.files.forgetPath(decoded.previousPath);
     }
@@ -148,8 +202,19 @@ export class VaultApplyAdapter implements VaultApplyPort {
       // already hold the content, so this converges in place with no write and no
       // conflict artifact.
       if (onDisk !== null && onDisk === text) {
+        const contentHash = await this.hashContent(text);
         await this.files.recordPathOwner(fileId, decoded.path);
-        await this.files.recordBaseHash(fileId, await this.hashContent(text));
+        await this.files.recordBaseHash(fileId, contentHash);
+        // Adopt the remote fileId into the producer mapping too (no disk write
+        // fires here, but a later LOCAL edit must push under the shared fileId,
+        // never the old random one this device minted for the same note).
+        await this.producerSync?.onRemoteWrite({
+          fileId,
+          path: decoded.path,
+          content: text,
+          contentHash,
+          revisionId: event.revision.revisionId,
+        });
         return 'noop';
       }
       // The path holds genuinely different content — a real divergence. Never
@@ -178,8 +243,16 @@ export class VaultApplyAdapter implements VaultApplyPort {
       if (onDisk === text) {
         // Both sides already hold the incoming content: advance the base and
         // skip the write entirely (test: on-disk == incoming → no write).
-        await this.files.recordBaseHash(fileId, await this.hashContent(text));
+        const contentHash = await this.hashContent(text);
+        await this.files.recordBaseHash(fileId, contentHash);
         await this.files.recordPathOwner(fileId, decoded.path);
+        await this.producerSync?.onRemoteWrite({
+          fileId,
+          path: decoded.path,
+          content: text,
+          contentHash,
+          revisionId: event.revision.revisionId,
+        });
         return 'noop';
       }
       const base = this.files.baseHashFor(fileId);
@@ -197,9 +270,21 @@ export class VaultApplyAdapter implements VaultApplyPort {
       // incoming revision applies cleanly (this keeps F1's clean-apply path).
     }
 
+    const contentHash = await this.hashContent(text);
+    // Adopt the incoming fileId+content into the producer mapping BEFORE the
+    // vault write, so the 'modify'/'create' event that write triggers is deduped
+    // by the producer (content already matches) instead of being re-pushed,
+    // re-attributed to the local member, or given a fresh random fileId.
+    await this.producerSync?.onRemoteWrite({
+      fileId,
+      path: decoded.path,
+      content: text,
+      contentHash,
+      revisionId: event.revision.revisionId,
+    });
     await this.files.writeByPath(decoded.path, text);
     await this.files.recordPathOwner(fileId, decoded.path);
-    await this.files.recordBaseHash(fileId, await this.hashContent(text));
+    await this.files.recordBaseHash(fileId, contentHash);
     this.onRemoteApplied?.({
       revisionId: event.revision.revisionId,
       fileId,

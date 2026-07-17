@@ -51,9 +51,18 @@ class MemoryStore {
   }
 }
 
+interface Materialized {
+  fileId: string;
+  path: string;
+  contentHash: string;
+  previousPath: string | null;
+}
+
 function makeRepo(maxPayloadBytes?: number) {
   const store = new MemoryStore();
   const enqueued: OutboxEnvelope[] = [];
+  const materialized: Materialized[] = [];
+  const forgotten: Array<{ fileId: string; path: string }> = [];
   let counter = 0;
   const repo = new OutboxLocalChangeRepository({
     identity: IDENTITY,
@@ -65,9 +74,15 @@ function makeRepo(maxPayloadBytes?: number) {
       counter += 1;
       return `00000000-0000-4000-8000-00000000000${counter}`;
     },
+    onLocalMaterialized: async (m) => {
+      materialized.push(m);
+    },
+    onLocalForgotten: async (m) => {
+      forgotten.push(m);
+    },
     ...(maxPayloadBytes === undefined ? {} : { maxPayloadBytes }),
   });
-  return { repo, store, enqueued };
+  return { repo, store, enqueued, materialized, forgotten };
 }
 
 describe('OutboxLocalChangeRepository', () => {
@@ -228,5 +243,174 @@ describe('OutboxLocalChangeRepository', () => {
     expect(enqueued).toHaveLength(2);
     expect(decodeRevisionPayload(decode(enqueued[1] as OutboxEnvelope)).operation).toBe('delete');
     expect(await repo.listMappings()).toHaveLength(0);
+  });
+
+  describe('shared apply-store seeding (FIX 1)', () => {
+    it('seeds ownership+base for a locally authored create', async () => {
+      const { repo, materialized, forgotten } = makeRepo();
+      await repo.commitLocalChange({
+        operation: makeOperation(),
+        removeFileId: null,
+        upsertMapping: {
+          collisionKey: 'notes/a.md',
+          content: 'Hello\n',
+          contentHash: 'hash-1',
+          fileId: FILE_ID,
+          path: 'Notes/a.md',
+        },
+      });
+      expect(materialized).toEqual([
+        { fileId: FILE_ID, path: 'Notes/a.md', contentHash: 'hash-1', previousPath: null },
+      ]);
+      expect(forgotten).toEqual([]);
+    });
+
+    it('carries the previous path on a rename so the stale owner can be forgotten', async () => {
+      const { repo, materialized } = makeRepo();
+      // Seed a head so the rename is not demoted to a create.
+      await repo.commitLocalChange({
+        operation: makeOperation(),
+        removeFileId: null,
+        upsertMapping: {
+          collisionKey: 'notes/a.md',
+          content: 'Hello\n',
+          contentHash: 'hash-1',
+          fileId: FILE_ID,
+          path: 'Notes/a.md',
+        },
+      });
+      await repo.commitLocalChange({
+        operation: makeOperation({
+          kind: 'rename',
+          path: 'Notes/b.md',
+          previousPath: 'Notes/a.md',
+          contentHash: 'hash-1',
+          operationId: 'op-r',
+        }),
+        removeFileId: null,
+        upsertMapping: {
+          collisionKey: 'notes/b.md',
+          content: 'Hello\n',
+          contentHash: 'hash-1',
+          fileId: FILE_ID,
+          path: 'Notes/b.md',
+        },
+      });
+      expect(materialized[1]).toEqual({
+        fileId: FILE_ID,
+        path: 'Notes/b.md',
+        contentHash: 'hash-1',
+        previousPath: 'Notes/a.md',
+      });
+    });
+
+    it('forgets ownership+base on a delete of a pushed file', async () => {
+      const { repo, forgotten } = makeRepo();
+      await repo.commitLocalChange({
+        operation: makeOperation(),
+        removeFileId: null,
+        upsertMapping: {
+          collisionKey: 'notes/a.md',
+          content: 'Hello\n',
+          contentHash: 'hash-1',
+          fileId: FILE_ID,
+          path: 'Notes/a.md',
+        },
+      });
+      await repo.commitLocalChange({
+        operation: makeOperation({
+          content: null,
+          contentHash: null,
+          kind: 'delete',
+          operationId: 'op-d',
+        }),
+        removeFileId: FILE_ID,
+        upsertMapping: null,
+      });
+      expect(forgotten).toEqual([{ fileId: FILE_ID, path: 'Notes/a.md' }]);
+    });
+  });
+
+  describe('remote-apply adoption (FIX 2)', () => {
+    const REMOTE_FILE = '66666666-6666-4666-8666-666666666666';
+    const REMOTE_REV = '77777777-7777-4777-8777-777777777777';
+
+    it('adopts a remote mapping+head without enqueuing a revision', async () => {
+      const { repo, enqueued, store } = makeRepo();
+      await repo.adoptRemoteMapping(
+        {
+          collisionKey: 'notes/shared.md',
+          content: 'SHARED\n',
+          contentHash: 'hash-s',
+          fileId: REMOTE_FILE,
+          path: 'Notes/Shared.md',
+        },
+        REMOTE_REV,
+      );
+      expect(enqueued).toHaveLength(0);
+      expect(store.state.mappings).toHaveLength(1);
+      expect(store.state.heads[REMOTE_FILE]).toBe(REMOTE_REV);
+      // A later local modify now parents on the adopted remote revision.
+      await repo.commitLocalChange({
+        operation: makeOperation({
+          fileId: REMOTE_FILE,
+          kind: 'update',
+          content: 'SHARED edit\n',
+          contentHash: 'hash-s2',
+          path: 'Notes/Shared.md',
+          operationId: 'op-e',
+        }),
+        removeFileId: null,
+        upsertMapping: {
+          collisionKey: 'notes/shared.md',
+          content: 'SHARED edit\n',
+          contentHash: 'hash-s2',
+          fileId: REMOTE_FILE,
+          path: 'Notes/Shared.md',
+        },
+      });
+      const header = protectedRevisionHeaderSchema.parse(
+        (enqueued[0] as OutboxEnvelope).header,
+      );
+      expect(header.parentRevisionIds).toEqual([REMOTE_REV]);
+    });
+
+    it('does not mint a duplicate mapping when adopting an existing fileId', async () => {
+      const { repo, store } = makeRepo();
+      const mapping = {
+        collisionKey: 'notes/shared.md',
+        content: 'SHARED\n',
+        contentHash: 'hash-s',
+        fileId: REMOTE_FILE,
+        path: 'Notes/Shared.md',
+      };
+      await repo.adoptRemoteMapping(mapping, REMOTE_REV);
+      await repo.adoptRemoteMapping(
+        { ...mapping, content: 'SHARED2\n' },
+        '88888888-8888-4888-8888-888888888888',
+      );
+      expect(store.state.mappings).toHaveLength(1);
+      expect(store.state.mappings[0]?.content).toBe('SHARED2\n');
+      expect(store.state.heads[REMOTE_FILE]).toBe(
+        '88888888-8888-4888-8888-888888888888',
+      );
+    });
+
+    it('forgets a remote mapping+head on remote delete', async () => {
+      const { repo, store } = makeRepo();
+      await repo.adoptRemoteMapping(
+        {
+          collisionKey: 'notes/shared.md',
+          content: 'SHARED\n',
+          contentHash: 'hash-s',
+          fileId: REMOTE_FILE,
+          path: 'Notes/Shared.md',
+        },
+        REMOTE_REV,
+      );
+      await repo.forgetRemoteMapping('notes/shared.md', REMOTE_FILE);
+      expect(store.state.mappings).toHaveLength(0);
+      expect(store.state.heads[REMOTE_FILE]).toBeUndefined();
+    });
   });
 });

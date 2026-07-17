@@ -47,6 +47,22 @@ export interface ProducerStorePort {
   save(state: ProducerState): Promise<void>;
 }
 
+/** A file this device authored/pushed, seeded into the shared apply store. */
+export interface LocalMaterialization {
+  readonly fileId: string;
+  readonly path: string;
+  /** SHA-256 hex of the normalized note text (the apply-side base hash). */
+  readonly contentHash: string;
+  /** The prior path on a rename, so its stale ownership can be forgotten. */
+  readonly previousPath: string | null;
+}
+
+/** A file this device deleted, so its shared ownership+base can be forgotten. */
+export interface LocalForget {
+  readonly fileId: string;
+  readonly path: string;
+}
+
 export interface OutboxLocalChangeRepositoryOptions {
   readonly identity: PushIdentity;
   readonly store: ProducerStorePort;
@@ -60,6 +76,19 @@ export interface OutboxLocalChangeRepositoryOptions {
    * limit).
    */
   readonly maxPayloadBytes?: number;
+  /**
+   * Seeds the SHARED apply-side ownership+base for a file this device authored
+   * or pushed. Without this the apply store (`pathOwners`/`baseHashes`) only ever
+   * learns about files RECEIVED from the peer, so a remote edit to a
+   * locally-authored file finds no owner, is treated as a foreign collision, and
+   * is diverted to a conflict artifact forever. Seeding it here unifies the
+   * producer and apply stores onto one fileId↔path↔base truth, so a peer edit to
+   * a locally-authored file updates IN PLACE (base match) and only genuine
+   * divergence becomes a conflict. Called on create/update/rename commits.
+   */
+  readonly onLocalMaterialized?: (m: LocalMaterialization) => Promise<void>;
+  /** Forgets the shared ownership+base when this device deletes a file. */
+  readonly onLocalForgotten?: (m: LocalForget) => Promise<void>;
 }
 
 const OPERATION_BY_KIND: Readonly<
@@ -134,6 +163,7 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
           isDelete: kind === 'delete',
         }),
       );
+      await this.seedSharedState(operation);
       // The real, server-facing revision id — never `operation.operationId`
       // (a client-only idempotency key). Callers (the Activity feed) must
       // record this id so a local push and its later remote echo collapse by
@@ -149,8 +179,77 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
         isDelete: true,
       }),
     );
+    await this.seedSharedState(operation);
     return null;
   }
+
+  /**
+   * Mirrors a committed local change into the SHARED apply-side ownership+base
+   * so a later remote edit to a locally-authored file updates in place instead
+   * of forever diverting to a conflict artifact. A create/update/rename seeds the
+   * owner+base (and forgets the prior path on a rename); a delete forgets both.
+   */
+  private async seedSharedState(operation: LocalChangeCommit['operation']): Promise<void> {
+    if (operation.kind === 'delete') {
+      await this.options.onLocalForgotten?.({
+        fileId: operation.fileId,
+        path: operation.path,
+      });
+      return;
+    }
+    if (operation.contentHash === null) return;
+    await this.options.onLocalMaterialized?.({
+      fileId: operation.fileId,
+      path: operation.path,
+      contentHash: operation.contentHash,
+      previousPath: operation.previousPath,
+    });
+  }
+
+  /**
+   * Adopts, without enqueuing, the producer mapping+head for a file the apply
+   * side just materialised from a remote revision. This keeps the producer's
+   * fileId↔path↔content map in lockstep with the vault write, so the vault event
+   * that write triggers dedupes to a no-op instead of (a) re-pushing the peer's
+   * edit, (b) recording it as LOCAL activity, or (c) minting a fresh random
+   * fileId for the same path (a duplicate fileId across devices).
+   */
+  async adoptRemoteMapping(
+    mapping: LocalFileMapping,
+    headRevisionId: string,
+  ): Promise<void> {
+    const state = await this.options.store.load();
+    const mappings = upsertMapping(state.mappings, mapping);
+    await this.options.store.save({
+      mappings,
+      heads: { ...state.heads, [mapping.fileId]: headRevisionId },
+    });
+  }
+
+  /** Forgets the producer mapping+head for a file the apply side just deleted. */
+  async forgetRemoteMapping(collisionKey: string, fileId: string): Promise<void> {
+    const state = await this.options.store.load();
+    const mappings = state.mappings.filter(
+      (mapping) =>
+        mapping.collisionKey !== collisionKey && mapping.fileId !== fileId,
+    );
+    const heads = { ...state.heads };
+    delete heads[fileId];
+    await this.options.store.save({ mappings, heads });
+  }
+}
+
+function upsertMapping(
+  mappings: readonly LocalFileMapping[],
+  upsert: LocalFileMapping,
+): LocalFileMapping[] {
+  const next = mappings.filter(
+    (mapping) =>
+      mapping.fileId !== upsert.fileId &&
+      mapping.collisionKey !== upsert.collisionKey,
+  );
+  next.push(upsert);
+  return next;
 }
 
 function resolveOperation(
@@ -190,13 +289,7 @@ function nextMappings(
     next = next.filter((mapping) => mapping.fileId !== commit.removeFileId);
   }
   if (commit.upsertMapping !== null) {
-    const upsert = commit.upsertMapping;
-    next = next.filter(
-      (mapping) =>
-        mapping.fileId !== upsert.fileId &&
-        mapping.collisionKey !== upsert.collisionKey,
-    );
-    next.push(upsert);
+    next = upsertMapping(next, commit.upsertMapping);
   }
   return next;
 }

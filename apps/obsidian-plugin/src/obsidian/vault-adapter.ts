@@ -157,6 +157,16 @@ export class VaultChangeObserver {
   ): Promise<LocalChangeOperation | null> {
     const classified = classifyVaultPath(path);
     if (!classified.eligible) return null;
+    // A create event for a path Havemind ALREADY maps must never mint a fresh
+    // fileId — that forks the file across devices. This is the reflected event a
+    // remote-apply write fires: the apply side has adopted the incoming fileId
+    // into the producer mapping in lockstep, so this create resolves to that
+    // mapping and dedupes to a no-op (content already matches) instead of a
+    // re-push. A genuine new local file has no mapping and still creates.
+    const existing = await this.findMapping(classified.collisionKey);
+    if (existing !== undefined) {
+      return this.commitModify(path, classified, existing);
+    }
     return this.commitCreate(path, classified.canonicalPath, classified.collisionKey);
   }
 
@@ -198,7 +208,15 @@ export class VaultChangeObserver {
       return this.commitCreate(path, classified.canonicalPath, classified.collisionKey);
     }
 
-    const content = normalizeContent(await this.options.vault.readText(path));
+    return this.commitModify(path, classified, mapping);
+  }
+
+  private async commitModify(
+    readPath: string,
+    classified: Extract<VaultPathClassification, { eligible: true }>,
+    mapping: LocalFileMapping,
+  ): Promise<LocalChangeOperation | null> {
+    const content = normalizeContent(await this.options.vault.readText(readPath));
     const contentHash = await sha256Hex(content);
     if (contentHash === mapping.contentHash) return null;
 

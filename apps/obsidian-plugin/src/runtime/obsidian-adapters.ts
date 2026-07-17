@@ -53,7 +53,12 @@ import {
   RequestUrlTransport,
   type RequestUrlFn,
 } from './sync-transport';
-import { VaultApplyAdapter, type VaultFilePort } from './vault-apply';
+import {
+  VaultApplyAdapter,
+  type RemoteApplyProducerSync,
+  type VaultFilePort,
+} from './vault-apply';
+import { createRemoteApplyProducerSync } from './remote-apply-coordinator';
 import { RefreshTokenAccessProvider } from './access-token';
 import { driveToConnected } from './connect-driver';
 import {
@@ -194,13 +199,15 @@ export interface VaultFilePortOptions {
 }
 
 /**
- * Binds the runner's `VaultFilePort` to the live Vault. Ownership is deliberately
- * conservative: any path that already holds a physical file is reported as owned
- * by a foreign fileId, so the tested `VaultApplyAdapter` routes it to
- * `Havemind Conflicts/` and never overwrites pre-existing local content. A path
- * with no file resolves to `null`, so genuinely remote-only files materialize
- * cleanly (rule 4). A precise fileId↔path map (reconciliation store) can replace
- * the sentinel to allow in-place updates of already-synced files.
+ * Binds the runner's `VaultFilePort` to the live Vault, resolving ownership from
+ * the SHARED apply store (`DurableSyncState.pathOwners`). That store is now
+ * seeded for both files RECEIVED from the peer (on remote apply) AND files this
+ * device authored/pushed (via the producer's `onLocalMaterialized` seam), so a
+ * peer edit to a locally-authored file resolves to its real fileId and updates
+ * in place. A path with no owner resolves to `null`: a genuinely remote-only
+ * file then materializes cleanly, and any pre-existing physical content there is
+ * still protected by the adapter's on-disk overwrite guard (a null base with
+ * divergent content becomes a conflict, never a silent overwrite).
  */
 export function createVaultFilePort(options: VaultFilePortOptions): VaultFilePort {
   const { vault, state } = options;
@@ -212,14 +219,10 @@ export function createVaultFilePort(options: VaultFilePortOptions): VaultFilePor
       return [];
     },
     fileIdAtPath(path) {
-      // A path Havemind already owns updates in place; an untracked physical
-      // file is foreign (→ conflict, never overwrite); an empty path is a clean
-      // create.
-      const owned = state.fileIdAtPath(path);
-      if (owned !== null) return owned;
-      return vault.getAbstractFileByPath(path) === null
-        ? null
-        : FOREIGN_OWNER_SENTINEL;
+      // The single shared ownership truth: a path Havemind owns (authored here or
+      // received from the peer) resolves to its fileId for an in-place update; an
+      // unowned path resolves to null and is guarded on disk before any write.
+      return state.fileIdAtPath(path);
     },
     async readByPath(path) {
       const existing = vault.getAbstractFileByPath(path);
@@ -250,14 +253,23 @@ export function createVaultFilePort(options: VaultFilePortOptions): VaultFilePor
       if (vault.getAbstractFileByPath(CONFLICT_FOLDER) === null) {
         await vault.createFolder(CONFLICT_FOLDER);
       }
-      await vault.create(path, content);
+      // Idempotent (create-or-overwrite). `vault.create` throws if the path
+      // already exists, and the runner saves the pull cursor only AFTER apply,
+      // so a crash mid-cycle or a second delivery re-writes the same
+      // `fileId-revisionId.md` artifact. A throw here would be caught by the
+      // cycle as 'offline' and wedge the whole pull loop in infinite backoff.
+      const existing = vault.getAbstractFileByPath(path);
+      if (existing === null) {
+        await vault.create(path, content);
+        return;
+      }
+      await vault.modify(existing as TFile, content);
     },
     recordPathOwner: (fileId, path) => state.recordPathOwner(fileId, path),
     forgetPath: (path) => state.forgetPath(path),
   };
 }
 
-const FOREIGN_OWNER_SENTINEL = ' havemind-foreign-owner';
 
 export interface SyncConnection {
   readonly apiBaseUrl: string;
@@ -290,6 +302,7 @@ export function buildSyncController(
   connection: SyncConnection,
   onStatus: StatusListener,
   hooks?: RuntimeHooks,
+  producerSync?: RemoteApplyProducerSync,
 ): BuiltSyncController {
   const state = new DurableSyncState({ persist: createPersistPort(plugin) });
 
@@ -334,6 +347,10 @@ export function buildSyncController(
             );
           },
         }),
+    // FIX 2 (re-entrancy): keep the push producer's mapping in lockstep with
+    // apply writes so the reflected vault event is deduped, never re-pushed,
+    // re-attributed, or given a fresh fileId.
+    ...(producerSync === undefined ? {} : { producerSync }),
   });
 
   // Late-bound so the runner can report every cycle — including the retries it
@@ -566,6 +583,14 @@ async function startSyncLoop(
   });
   const hasPushIdentity =
     connection.memberId !== undefined && connection.deviceId !== undefined;
+  // One shared fileId↔path↔base truth: the apply adapter drives the producer's
+  // mapping through this late-bound coordinator (the producer is created after
+  // the controller). Until the producer exists (or when there is no push
+  // identity) the coordinator is inert.
+  const producerRef: { current: OutboxLocalChangeRepository | null } = {
+    current: null,
+  };
+  const producerSync = createRemoteApplyProducerSync(() => producerRef.current);
   const { controller, state } = buildSyncController(
     plugin,
     {
@@ -586,6 +611,7 @@ async function startSyncLoop(
     },
     onStatus,
     extras.hooks,
+    producerSync,
   );
   controller.start();
 
@@ -608,6 +634,7 @@ async function startSyncLoop(
       () => {
         void controller.syncNow();
       },
+      producerRef,
       extras.hooks,
     );
   }
@@ -654,6 +681,7 @@ function startPushProducer(
   state: DurableSyncState,
   identity: PushIdentity,
   triggerSync: () => void,
+  producerRef: { current: OutboxLocalChangeRepository | null },
   hooks?: RuntimeHooks,
 ): () => void {
   const vault = (plugin.app as unknown as AppWithVault).vault;
@@ -675,7 +703,25 @@ function startPushProducer(
     store,
     enqueue: (envelope) => state.enqueue(envelope),
     generateRevisionId: () => globalThis.crypto.randomUUID(),
+    // FIX 1: seed the SHARED apply store for every file this device authors or
+    // pushes, so a later peer edit to a locally-authored file resolves to its
+    // real fileId and updates in place instead of forever forking to a conflict
+    // artifact. A rename also forgets the stale owner of the previous path.
+    onLocalMaterialized: async ({ fileId, path, contentHash, previousPath }) => {
+      if (previousPath !== null && previousPath !== path) {
+        await state.forgetPath(previousPath);
+      }
+      await state.recordPathOwner(fileId, path);
+      await state.recordBaseHash(fileId, contentHash);
+    },
+    onLocalForgotten: async ({ fileId, path }) => {
+      await state.forgetPath(path);
+      await state.forgetBaseHash(fileId);
+    },
   });
+  // Bind the late-bound coordinator so the apply adapter can adopt remote
+  // fileIds into this producer's mapping (FIX 2).
+  producerRef.current = repository;
 
   const snapshot: VaultSnapshotPort = {
     async listMarkdownPaths() {
