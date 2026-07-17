@@ -40,6 +40,7 @@ const pushRevision: PushRevision = {
 function build(
   responder: (options: RequestUrlOptions) => RequestUrlResponseLike,
   resolve: (id: string) => TransportEnvelope | undefined = () => envelope,
+  identity?: { vaultId: string; memberId: string; deviceId: string },
 ): { transport: RequestUrlTransport; calls: RequestUrlOptions[] } {
   const { fn, calls } = fakeRequestUrl(responder);
   const transport = new RequestUrlTransport({
@@ -48,6 +49,7 @@ function build(
     vaultId: VAULT,
     getAuthToken: async () => 'tok-abc',
     resolveEnvelope: resolve,
+    ...(identity === undefined ? {} : { identity }),
   });
   return { transport, calls };
 }
@@ -85,6 +87,70 @@ describe('RequestUrlTransport', () => {
       revisions: [
         { header: { revisionId: 'rev-1' }, idempotencyKey: 'idem-1', payload: 'AAAA' },
       ],
+    });
+  });
+
+  it('restamps every outbound header with the current connection identity, overriding a stale enqueue-time identity', async () => {
+    // Regression: a revision enqueued by a prior-session observer (or replayed
+    // from a frozen outbox header) carries the OLD memberId/deviceId. The server
+    // 403s the whole request on an identity mismatch, so the transport must
+    // re-stamp the current connection identity onto every outbound header (rule
+    // 3: every outbound revision carries the current actor identity).
+    const staleEnvelope: TransportEnvelope = {
+      header: {
+        revisionId: 'rev-1',
+        vaultId: 'stale-vault',
+        expectedMemberId: 'stale-member',
+        expectedDeviceId: 'stale-device',
+        fileId: 'file-1',
+      },
+      idempotencyKey: 'idem-1',
+      payloadBase64: 'AAAA',
+    };
+    const identity = {
+      vaultId: VAULT,
+      memberId: 'current-member',
+      deviceId: 'current-device',
+    };
+    const { transport, calls } = build(
+      () => ({
+        status: 200,
+        json: {
+          results: [
+            {
+              revisionId: 'rev-1',
+              status: 'accepted',
+              receipt: { revisionId: 'rev-1', serverSequence: 1 },
+            },
+          ],
+        },
+      }),
+      () => staleEnvelope,
+      identity,
+    );
+
+    await transport.push([pushRevision]);
+
+    const body = JSON.parse(calls[0]?.body ?? '{}') as {
+      revisions: Array<{ header: Record<string, unknown> }>;
+    };
+    const header = body.revisions[0]?.header;
+    expect(header?.vaultId).toBe(VAULT);
+    expect(header?.expectedMemberId).toBe('current-member');
+    expect(header?.expectedDeviceId).toBe('current-device');
+    // Non-identity fields are preserved untouched.
+    expect(header?.revisionId).toBe('rev-1');
+    expect(header?.fileId).toBe('file-1');
+  });
+
+  it('flags a whole-request 403 as permanent so the runner quarantines the offender instead of looping forever', async () => {
+    const { transport } = build(() => ({
+      status: 403,
+      json: { error: { code: 'FORBIDDEN' } },
+    }));
+    await expect(transport.push([pushRevision])).rejects.toMatchObject({
+      permanent: true,
+      authDenied: false,
     });
   });
 

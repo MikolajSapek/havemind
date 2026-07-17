@@ -44,6 +44,13 @@ export type RequestUrlFn = (
   options: RequestUrlOptions,
 ) => Promise<RequestUrlResponseLike>;
 
+/** The live connection identity every outbound revision header must carry. */
+export interface PushHeaderIdentity {
+  readonly vaultId: string;
+  readonly memberId: string;
+  readonly deviceId: string;
+}
+
 export interface RequestUrlTransportOptions {
   readonly requestUrl: RequestUrlFn;
   /** Canonical HTTPS API base, no trailing slash (e.g. `https://host`). */
@@ -53,6 +60,17 @@ export interface RequestUrlTransportOptions {
   readonly resolveEnvelope: (revisionId: string) => TransportEnvelope | undefined;
   /** Optional server epoch appended to pulls so a restore forces reconciliation. */
   readonly serverEpoch?: () => string | null;
+  /**
+   * The current connection identity. When present, the transport re-stamps
+   * `vaultId`/`expectedMemberId`/`expectedDeviceId` onto every outbound header
+   * just before it ships — so a revision that was built (or enqueued) under a
+   * prior-session identity can never carry a stale actor into the request. This
+   * is the single choke point every revision passes through, so it guarantees
+   * rule 3 (every outbound revision carries the current actor identity)
+   * regardless of which producer built it or when. Omitted only when no push
+   * identity is known yet (in which case the outbox is empty).
+   */
+  readonly identity?: PushHeaderIdentity;
 }
 
 export class RequestUrlTransportError extends Error {
@@ -102,7 +120,37 @@ function isPermanentSyncCode(code: unknown): boolean {
 
 /** Whole-request HTTP statuses that will never succeed on a blind retry. */
 function isPermanentStatus(status: number): boolean {
-  return status === 400 || status === 413 || status === 422;
+  // 403 is a whole-request identity mismatch (`FORBIDDEN`) the same bytes can
+  // never satisfy: retrying the identical request loops forever and starves
+  // every other revision in the outbox. Treating it as permanent lets the runner
+  // isolate and quarantine the single offending revision (append-only liveness)
+  // instead of backing off indefinitely. 401 stays separate (authDenied → stop).
+  return status === 400 || status === 403 || status === 413 || status === 422;
+}
+
+/**
+ * Re-stamps the current connection identity onto an outbound revision header.
+ * The stored header froze whatever identity was live when the revision was built
+ * or enqueued; a prior-session producer (or a replayed outbox entry) can carry a
+ * stale `expectedMemberId`/`expectedDeviceId`, which the server 403s on the whole
+ * request. Overwriting the three identity fields here — the one point every
+ * revision passes through on its way to the wire — guarantees no revision ever
+ * ships a stale actor. Non-identity header fields are preserved untouched. When
+ * no identity is configured the header is passed through unchanged.
+ */
+function stampCurrentIdentity(
+  header: unknown,
+  identity: PushHeaderIdentity | undefined,
+): unknown {
+  if (identity === undefined || !isRecord(header)) {
+    return header;
+  }
+  return {
+    ...header,
+    vaultId: identity.vaultId,
+    expectedMemberId: identity.memberId,
+    expectedDeviceId: identity.deviceId,
+  };
 }
 
 export class RequestUrlTransport implements SyncTransport {
@@ -124,7 +172,7 @@ export class RequestUrlTransport implements SyncTransport {
         );
       }
       return {
-        header: envelope.header,
+        header: stampCurrentIdentity(envelope.header, this.options.identity),
         idempotencyKey: envelope.idempotencyKey,
         payload: envelope.payloadBase64,
       };

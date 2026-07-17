@@ -51,6 +51,7 @@ declare module 'obsidian' {
     delete(file: TAbstractFile): Promise<void>;
     createFolder(path: string): Promise<void>;
     on(name: string, callback: (...args: unknown[]) => unknown): EventRef;
+    offref(ref: EventRef): void;
   }
 
   export type EventRef = unknown;

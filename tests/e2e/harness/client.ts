@@ -73,6 +73,12 @@ class InMemoryVault implements VaultSnapshotPort {
     }
     return content;
   }
+
+  async listAllPaths(): Promise<readonly string[]> {
+    // The e2e harness only ever models markdown notes, so every tracked path
+    // is markdown; this mirrors listMarkdownPaths for this fixture.
+    return [...this.files.keys()];
+  }
 }
 
 /** In-memory local-change repository; drains committed operations. */
