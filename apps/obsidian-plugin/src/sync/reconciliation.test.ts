@@ -15,13 +15,21 @@ class ReconciliationVault implements VaultSnapshotPort {
   readonly contents = new Map<string, string>();
 
   async listMarkdownPaths(): Promise<readonly string[]> {
-    return [...this.contents.keys()];
+    // Mirrors the real Obsidian `Vault.getMarkdownFiles()`, which only ever
+    // returns `.md` files — non-markdown attachments never reach this list.
+    return [...this.contents.keys()].filter((path) =>
+      path.toLowerCase().endsWith('.md'),
+    );
   }
 
   async readText(path: string): Promise<string> {
     const value = this.contents.get(path);
     if (value === undefined) throw new Error(`Missing: ${path}`);
     return value;
+  }
+
+  async listAllPaths(): Promise<readonly string[]> {
+    return [...this.contents.keys()];
   }
 }
 
@@ -78,10 +86,11 @@ describe('startup reconciliation', () => {
     const result = await reconcileVaultState({ observer, repository, vault });
 
     expect(result).toMatchObject({
+      attachmentsExcluded: 1,
       completed: true,
       created: 1,
       deleted: 1,
-      ignored: 2,
+      ignored: 1,
       renamed: 0,
       unchanged: 1,
       updated: 1,
@@ -156,6 +165,36 @@ describe('startup reconciliation', () => {
       .map((entry) => entry.operation.path)
       .sort();
     expect(createdPaths).toEqual(['Notes/Good1.md', 'Notes/Good2.md']);
+  });
+
+  it('counts non-markdown attachments as excluded without reading or enqueuing them', async () => {
+    // MVP scope is markdown-only. A vault with a markdown note plus a PNG and a
+    // PDF must still sync the note normally, while the two attachments are
+    // counted as excluded so the omission is visible instead of silent — they
+    // must never be read (readText would throw for them) or enqueued.
+    const vault = new ReconciliationVault();
+    vault.contents.set('a.md', 'hello');
+    vault.contents.set('img.png', 'binary-png');
+    vault.contents.set('doc.pdf', 'binary-pdf');
+    const repository = new ReconciliationRepository();
+    const observer = createObserver(vault, repository);
+
+    const result = await reconcileVaultState({ observer, repository, vault });
+
+    expect(result).toMatchObject({
+      attachmentsExcluded: 2,
+      completed: true,
+      created: 1,
+      ignored: 0,
+    });
+    expect(repository.commits).toHaveLength(1);
+    expect(repository.commits[0]?.operation.path).toBe('a.md');
+    expect(repository.commits.some((entry) => entry.operation.path.endsWith('.png'))).toBe(
+      false,
+    );
+    expect(repository.commits.some((entry) => entry.operation.path.endsWith('.pdf'))).toBe(
+      false,
+    );
   });
 
   it('rejects case-insensitive live path collisions without reporting Synced', async () => {

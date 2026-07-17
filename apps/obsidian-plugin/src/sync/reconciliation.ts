@@ -14,6 +14,13 @@ export interface ReconcileVaultStateOptions {
 }
 
 export interface ReconcileResult {
+  /**
+   * Count of non-markdown vault files (images, PDFs, ...) that the markdown-only
+   * MVP scope never syncs. Enumerated for visibility only — never read or
+   * enqueued. Distinct from `ignored`, which counts markdown files excluded for
+   * other reasons (dotfiles, reserved folders).
+   */
+  attachmentsExcluded: number;
   completed: boolean;
   created: number;
   deleted: number;
@@ -40,6 +47,11 @@ export async function reconcileVaultState(
   options: ReconcileVaultStateOptions,
 ): Promise<ReconcileResult> {
   const { observer, repository, vault } = options;
+
+  const allPaths = await vault.listAllPaths();
+  const attachmentsExcluded = allPaths.filter(
+    (path) => !path.toLowerCase().endsWith('.md'),
+  ).length;
 
   const paths = await vault.listMarkdownPaths();
   const eligible = new Map<string, string>();
@@ -97,6 +109,7 @@ export async function reconcileVaultState(
   } = await applyRenamesCreatesDeletes(observer, unmatchedVault, unmatchedMappings);
 
   return {
+    attachmentsExcluded,
     completed: true,
     created,
     deleted,

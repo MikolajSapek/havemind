@@ -58,6 +58,10 @@ class MemoryVault implements VaultSnapshotPort {
     if (content === undefined) throw new Error(`Missing test file: ${path}`);
     return content;
   }
+
+  async listAllPaths(): Promise<readonly string[]> {
+    return [...this.contents.keys()];
+  }
 }
 
 describe('vault path eligibility', () => {

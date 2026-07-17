@@ -45,6 +45,13 @@ export interface LocalChangeCommit {
 export interface VaultSnapshotPort {
   listMarkdownPaths(): Promise<readonly string[]>;
   readText(path: string): Promise<string>;
+  /**
+   * Every file in the vault, markdown or not. Used only to count non-markdown
+   * attachments that `listMarkdownPaths` never surfaces, so the pilot's
+   * markdown-only scope stays observable instead of a silent gap (see
+   * `isEligiblePath` below). Never read via `readText` and never enqueued.
+   */
+  listAllPaths(): Promise<readonly string[]>;
 }
 
 export interface LocalChangeRepository {
@@ -78,6 +85,11 @@ export function classifyVaultPath(path: string): VaultPathClassification {
 }
 
 function isEligiblePath(canonicalPath: string): boolean {
+  // Deliberate MVP scope, not an oversight: the pilot syncs markdown notes only.
+  // Non-markdown attachments (images, PDFs, ...) are intentionally excluded here
+  // and are never read or enqueued. Full binary/attachment sync is a follow-up
+  // (F9) — until then, reconciliation counts and surfaces the exclusion so it
+  // stays visible to the user instead of silently dropping attachments.
   if (!canonicalPath.toLowerCase().endsWith('.md')) {
     return false;
   }

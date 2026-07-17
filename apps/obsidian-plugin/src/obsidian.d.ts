@@ -44,6 +44,7 @@ declare module 'obsidian' {
   export interface Vault {
     getAbstractFileByPath(path: string): TAbstractFile | null;
     getMarkdownFiles(): TFile[];
+    getFiles(): TFile[];
     read(file: TFile): Promise<string>;
     create(path: string, data: string): Promise<TFile>;
     modify(file: TFile, data: string): Promise<void>;
