@@ -105,10 +105,29 @@ export class VaultApplyAdapter implements VaultApplyPort {
       await this.files.forgetPath(decoded.previousPath);
     }
 
+    // Read the on-disk content once; both the F3 adoption check below and the
+    // rule-3 overwrite guard consume it.
+    const onDisk = await this.files.readByPath(decoded.path);
+
     const owner = this.files.fileIdAtPath(decoded.path);
     if (owner !== null && owner !== fileId) {
-      // A different local file already occupies this path — never overwrite it,
-      // and never claim ownership of it.
+      // Content-addressed reconciliation on connect (F3). Two devices that
+      // already held the SAME note each minted an independent random fileId for
+      // it, so the incoming revision's canonical path is "owned" by a fileId that
+      // is not this revision's. If the on-disk content is byte-identical to the
+      // incoming revision it is genuinely the same logical file: adopt the remote
+      // fileId for this path and seed the shared base (a REMOTE convergence, the
+      // only safe moment to seed a base — never on a local push). Both peers
+      // already hold the content, so this converges in place with no write and no
+      // conflict artifact.
+      if (onDisk !== null && onDisk === text) {
+        await this.files.recordPathOwner(fileId, decoded.path);
+        await this.files.recordBaseHash(fileId, await this.hashContent(text));
+        return 'noop';
+      }
+      // The path holds genuinely different content — a real divergence. Never
+      // overwrite it and never claim ownership: preserve both via a conflict
+      // artifact (the F2 conflict path).
       await this.files.writeConflictArtifact(this.conflictPath(event), text);
       return 'conflict';
     }
@@ -128,7 +147,6 @@ export class VaultApplyAdapter implements VaultApplyPort {
     // This is the on-disk analogue of the open-buffer check; a full three-way
     // text merge (@havemind/sync-core mergeSnapshots) would refine the conflict
     // branch — see the seam noted below.
-    const onDisk = await this.files.readByPath(decoded.path);
     if (onDisk !== null) {
       if (onDisk === text) {
         // Both sides already hold the incoming content: advance the base and

@@ -302,4 +302,45 @@ describe('VaultApplyAdapter', () => {
       expect(files.baseHashes.has('file-1')).toBe(false);
     });
   });
+
+  describe('content-addressed reconciliation on connect (F3)', () => {
+    it('adopts the remote fileId when a foreign-owned path holds byte-identical content', async () => {
+      // Both devices already held this note and each minted an independent random
+      // fileId for it. When the peer's revision arrives, the path is "owned" by a
+      // fileId that is not the incoming one, but the on-disk content is identical —
+      // it is genuinely the same file, so adopt the remote fileId in place.
+      const { adapter, files } = build(() => content('Notes/Shared.md', 'SHARED\n'));
+      files.owners.set('Notes/Shared.md', 'device-b-random');
+      files.onDisk.set('Notes/Shared.md', 'SHARED\n');
+
+      const outcome = await adapter.applyRemote(event('rev-a', 'file-a'));
+
+      expect(outcome).toBe('noop');
+      expect(files.conflicts).toEqual([]);
+      expect(files.writes).toEqual([]);
+      // The remote fileId is adopted for the path and the shared base is seeded.
+      expect(files.owners.get('Notes/Shared.md')).toBe('file-a');
+      expect(files.baseHashes.get('file-a')).toBe(await fakeHash('SHARED\n'));
+    });
+
+    it('writes a conflict artifact when a foreign-owned path holds diverged content', async () => {
+      // Same canonical path, but the local content genuinely differs from the
+      // incoming revision — this is the F2 conflict path, never a silent overwrite.
+      const { adapter, files } = build(() => content('Notes/Shared.md', 'A-EDIT\n'));
+      files.owners.set('Notes/Shared.md', 'device-b-random');
+      files.onDisk.set('Notes/Shared.md', 'B-EDIT\n');
+
+      const outcome = await adapter.applyRemote(event('rev-a', 'file-a'));
+
+      expect(outcome).toBe('conflict');
+      expect(files.writes).toEqual([]);
+      expect(files.conflicts).toEqual([
+        { path: 'Havemind Conflicts/file-a-rev-a.md', content: 'A-EDIT\n' },
+      ]);
+      // Neither the local content nor the foreign ownership is touched.
+      expect(files.onDisk.get('Notes/Shared.md')).toBe('B-EDIT\n');
+      expect(files.owners.get('Notes/Shared.md')).toBe('device-b-random');
+      expect(files.baseHashes.has('file-a')).toBe(false);
+    });
+  });
 });

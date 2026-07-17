@@ -19,6 +19,13 @@ export interface ReconcileResult {
   deleted: number;
   ignored: number;
   renamed: number;
+  /**
+   * Count of files whose observation failed for a per-file reason (an oversized
+   * payload or an envelope build error). The bad file is skipped and surfaced
+   * here; enumeration of the rest of the vault continues uninterrupted so a
+   * single note can never abort the whole scan.
+   */
+  skipped: number;
   unchanged: number;
   updated: number;
 }
@@ -60,6 +67,7 @@ export async function reconcileVaultState(
 
   let unchanged = 0;
   let updated = 0;
+  let skipped = 0;
   const unmatchedVault: EligibleVaultFile[] = [];
 
   for (const [collisionKey, readPath] of eligible) {
@@ -73,18 +81,20 @@ export async function reconcileVaultState(
     mappingsByCollision.delete(collisionKey);
     if (mapping.content === content) {
       unchanged += 1;
-    } else {
-      await observer.observeModify(readPath);
+    } else if (await observeResilient(() => observer.observeModify(readPath))) {
       updated += 1;
+    } else {
+      skipped += 1;
     }
   }
 
   const unmatchedMappings = [...mappingsByCollision.values()];
-  const { created, deleted, renamed } = await applyRenamesCreatesDeletes(
-    observer,
-    unmatchedVault,
-    unmatchedMappings,
-  );
+  const {
+    created,
+    deleted,
+    renamed,
+    skipped: tailSkipped,
+  } = await applyRenamesCreatesDeletes(observer, unmatchedVault, unmatchedMappings);
 
   return {
     completed: true,
@@ -92,50 +102,80 @@ export async function reconcileVaultState(
     deleted,
     ignored,
     renamed,
+    skipped: skipped + tailSkipped,
     unchanged,
     updated,
   };
+}
+
+/**
+ * Runs a single per-file observation, isolating its failure so one bad file can
+ * never abort the whole scan. Returns true if the observation committed, false
+ * if it was skipped for a per-file reason (an oversized payload or an envelope
+ * build error). A structural vault collision stays fatal — it is a data-integrity
+ * problem the user must resolve, matching the enumeration-phase collision guard.
+ */
+async function observeResilient(task: () => Promise<unknown>): Promise<boolean> {
+  try {
+    await task();
+    return true;
+  } catch (error) {
+    if (error instanceof LocalVaultError) throw error;
+    return false;
+  }
 }
 
 async function applyRenamesCreatesDeletes(
   observer: VaultChangeObserver,
   unmatchedVault: readonly EligibleVaultFile[],
   unmatchedMappings: readonly LocalFileMapping[],
-): Promise<{ created: number; deleted: number; renamed: number }> {
+): Promise<{ created: number; deleted: number; renamed: number; skipped: number }> {
   const vaultByContent = groupBy(unmatchedVault, (file) => file.content);
   const mappingsByContent = groupBy(unmatchedMappings, (m) => m.content);
 
   const consumedVault = new Set<EligibleVaultFile>();
   const consumedMappings = new Set<LocalFileMapping>();
   let renamed = 0;
+  let skipped = 0;
 
   for (const [content, files] of vaultByContent) {
     const candidates = mappingsByContent.get(content) ?? [];
     const [file] = files;
     const [mapping] = candidates;
     if (files.length === 1 && candidates.length === 1 && file && mapping) {
-      await observer.observeRename(mapping.path, file.readPath);
-      renamed += 1;
+      // Consume the pair either way: on failure the file is skipped, not retried
+      // as a create+delete (which would fail identically for an oversized note).
       consumedVault.add(file);
       consumedMappings.add(mapping);
+      if (await observeResilient(() => observer.observeRename(mapping.path, file.readPath))) {
+        renamed += 1;
+      } else {
+        skipped += 1;
+      }
     }
   }
 
   let created = 0;
   for (const file of unmatchedVault) {
     if (consumedVault.has(file)) continue;
-    await observer.observeCreate(file.readPath);
-    created += 1;
+    if (await observeResilient(() => observer.observeCreate(file.readPath))) {
+      created += 1;
+    } else {
+      skipped += 1;
+    }
   }
 
   let deleted = 0;
   for (const mapping of unmatchedMappings) {
     if (consumedMappings.has(mapping)) continue;
-    await observer.observeDelete(mapping.path);
-    deleted += 1;
+    if (await observeResilient(() => observer.observeDelete(mapping.path))) {
+      deleted += 1;
+    } else {
+      skipped += 1;
+    }
   }
 
-  return { created, deleted, renamed };
+  return { created, deleted, renamed, skipped };
 }
 
 function groupBy<T>(

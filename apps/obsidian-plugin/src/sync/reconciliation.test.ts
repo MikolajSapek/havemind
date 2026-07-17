@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
+import { RevisionPayloadTooLargeError } from '@havemind/sync-core';
+
 import {
   type LocalChangeCommit,
   type LocalChangeRepository,
@@ -41,6 +43,20 @@ class ReconciliationRepository implements LocalChangeRepository {
     if (commit.upsertMapping !== null) {
       this.mappings.set(commit.upsertMapping.fileId, commit.upsertMapping);
     }
+  }
+}
+
+/** Fails `commitLocalChange` for one content marker, succeeds for the rest. */
+class ThrowingRepository extends ReconciliationRepository {
+  constructor(private readonly failContent: string) {
+    super();
+  }
+
+  override async commitLocalChange(commit: LocalChangeCommit): Promise<void> {
+    if (commit.operation.content === this.failContent) {
+      throw new RevisionPayloadTooLargeError(commit.operation.path, 999, 100);
+    }
+    await super.commitLocalChange(commit);
   }
 }
 
@@ -117,6 +133,29 @@ describe('startup reconciliation', () => {
       deleted: 2,
       renamed: 0,
     });
+  });
+
+  it('skips a per-file failure and still enumerates the rest of the scan', async () => {
+    // One pre-existing note is too large to build a revision for. A single bad
+    // file must not abort enumeration: the healthy files are still enqueued and
+    // the oversized one is surfaced via the skipped count.
+    const vault = new ReconciliationVault();
+    vault.contents.set('Notes/Good1.md', 'good one');
+    vault.contents.set('Notes/Oversized.md', 'OVERSIZED');
+    vault.contents.set('Notes/Good2.md', 'good two');
+    const repository = new ThrowingRepository('OVERSIZED');
+    const observer = createObserver(vault, repository);
+
+    const result = await reconcileVaultState({ observer, repository, vault });
+
+    expect(result.completed).toBe(true);
+    expect(result.skipped).toBe(1);
+    expect(result.created).toBe(2);
+    const createdPaths = repository.commits
+      .filter((entry) => entry.operation.kind === 'create')
+      .map((entry) => entry.operation.path)
+      .sort();
+    expect(createdPaths).toEqual(['Notes/Good1.md', 'Notes/Good2.md']);
   });
 
   it('rejects case-insensitive live path collisions without reporting Synced', async () => {
