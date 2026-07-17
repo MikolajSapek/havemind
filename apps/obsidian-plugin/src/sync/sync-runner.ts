@@ -242,6 +242,7 @@ export class SyncRunner {
   private rerunRequested = false;
   private failureCount = 0;
   private cycleCounter = 0;
+  private stopped = false;
 
   public constructor(options: SyncRunnerOptions) {
     this.options = {
@@ -257,13 +258,33 @@ export class SyncRunner {
   /**
    * Single-flight entry point. Overlapping triggers coalesce into exactly one
    * additional rerun rather than launching parallel cycles.
+   *
+   * A stopped runner is inert: it issues no push/pull. This is what guarantees
+   * that after a reconnect (or teardown) the previous connection's runner can
+   * never ship a stale-identity revision — its own backoff timer may still fire,
+   * but the trigger it drives is a no-op. Only the freshly-built runner, whose
+   * transport already carries the current identity, ever pushes after reconnect.
    */
   public trigger(): Promise<SyncCycleResult> {
+    if (this.stopped) {
+      return Promise.resolve(idleCycleResult());
+    }
     if (this.inFlight !== null) {
       this.rerunRequested = true;
       return this.inFlight;
     }
     return this.loop();
+  }
+
+  /**
+   * Quiesces the runner permanently: it stops accepting triggers and cancels any
+   * pending backoff (the scheduled callback re-checks `stopped` before running).
+   * Called from the controller's `stop()` on teardown/reconnect so a prior-session
+   * runner cannot race a push onto the wire under an identity the server no longer
+   * accepts. Idempotent.
+   */
+  public stop(): void {
+    this.stopped = true;
   }
 
   private async loop(): Promise<SyncCycleResult> {
@@ -277,7 +298,9 @@ export class SyncRunner {
       } finally {
         this.inFlight = null;
       }
-    } while (this.rerunRequested);
+      // A stop mid-cycle wins over a coalesced rerun request: never start a
+      // fresh cycle once quiesced.
+    } while (this.rerunRequested && !this.stopped);
     return result;
   }
 
@@ -498,6 +521,11 @@ export class SyncRunner {
   }
 
   private scheduleBackoff(): void {
+    // A stopped runner never schedules another retry; and even a retry armed
+    // just before stop() is neutralised because its callback re-checks `stopped`.
+    if (this.stopped) {
+      return;
+    }
     this.failureCount += 1;
     const ceiling = Math.min(
       this.options.maxBackoffMs,
@@ -538,6 +566,23 @@ function isPermanentError(error: unknown): boolean {
     error !== null &&
     (error as { permanent?: unknown }).permanent === true
   );
+}
+
+/**
+ * The neutral result a stopped runner returns from `trigger()`: no work done, no
+ * `cycleId` so a status consumer treats it as a stale/duplicate and never latches
+ * a state off a quiesced runner.
+ */
+function idleCycleResult(): SyncCycleResult {
+  return {
+    applied: 0,
+    conflicts: 0,
+    deferred: 0,
+    pushed: 0,
+    quarantined: 0,
+    status: 'synced',
+    suppressed: 0,
+  };
 }
 
 function permanentReason(error: unknown): string {

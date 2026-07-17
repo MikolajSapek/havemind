@@ -1017,6 +1017,15 @@ export default class HavemindPlugin extends Plugin {
   ): Promise<void> {
     // A fresh paste clears any prior "invitation invalid" screen.
     this.guestInvitationInvalid = false;
+    // Quiesce any previous connection BEFORE the new loop is built and fires its
+    // first cycle. `startSyncLoop` triggers an initial sync synchronously on
+    // `controller.start()`, so unless the prior connection is stopped first its
+    // runner (and pending backoff) can race a push onto the wire under the old
+    // identity during the reconnect window — the stale-identity 403 burst. This
+    // is an explicit user-initiated (re)connect, so replacing the connection is
+    // the intended outcome; the new identity is the only one that pushes after.
+    this.connection?.stop();
+    this.connection = null;
     const handle = await connectFromInput(this, input, serverUrl, {
       report,
       onStatus: (status, view) => this.handleStatus(status, view),
@@ -1037,10 +1046,11 @@ export default class HavemindPlugin extends Plugin {
       },
     });
     if (handle !== null) {
-      // Connected: the wait is over.
+      // Connected: the wait is over. The prior connection was already stopped
+      // above, before this new loop started, so nothing stale is left to tear
+      // down here.
       this.awaitingApproval = null;
       this.guestInvitationInvalid = false;
-      this.connection?.stop();
       this.connection = handle;
       // Record this device's own membership as a persistent roster member so the
       // invitee's UI clearly shows it is connected.

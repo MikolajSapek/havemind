@@ -17,11 +17,16 @@ const CLEAN: SyncCycleResult = {
 
 class FakeRunner implements SyncRunnerLike {
   triggerCount = 0;
+  stopCount = 0;
   result: SyncCycleResult = CLEAN;
 
   async trigger(): Promise<SyncCycleResult> {
     this.triggerCount += 1;
     return this.result;
+  }
+
+  stop(): void {
+    this.stopCount += 1;
   }
 }
 
@@ -104,6 +109,17 @@ describe('HavemindSyncController', () => {
     hooks.focus?.();
     await Promise.resolve();
     expect(runner.triggerCount).toBe(1);
+  });
+
+  it('stops the underlying runner so a stale-identity cycle cannot fire after teardown', () => {
+    // On reconnect the previous handle is stopped before the new identity takes
+    // over. Stopping the runner (not only the scheduler) cancels its own pending
+    // backoff, so a prior-session cycle can never ship a stale (old-identity)
+    // push and 403 the server.
+    const { controller, runner } = build();
+    controller.start();
+    controller.stop();
+    expect(runner.stopCount).toBe(1);
   });
 
   const OFFLINE: SyncCycleResult = { ...CLEAN, status: 'offline' };

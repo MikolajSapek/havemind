@@ -20,6 +20,13 @@ import type { SyncCycleResult } from '../sync/sync-runner';
 /** Minimal runner surface the controller needs (satisfied by `SyncRunner`). */
 export interface SyncRunnerLike {
   trigger(): Promise<SyncCycleResult>;
+  /**
+   * Quiesces the runner on teardown so it issues no further push/pull — including
+   * from its own pending backoff timer. Optional so lightweight fakes need not
+   * implement it, but the real `SyncRunner` always does; without it a stopped
+   * connection's runner could still fire a stale-identity cycle after reconnect.
+   */
+  stop?(): void;
 }
 
 export type StatusListener = (
@@ -69,6 +76,12 @@ export class HavemindSyncController {
 
   stop(): void {
     this.scheduler.stop();
+    // Quiesce the runner too, not only the schedule: `scheduler.stop()` disarms
+    // the focus/online/interval triggers, but the runner owns a separate backoff
+    // timer that would otherwise fire a cycle after teardown. On reconnect that
+    // late cycle would push through the now-stale transport (prior identity) and
+    // 403 the server — so a stopped connection's runner must be fully inert.
+    this.options.runner.stop?.();
   }
 
   async syncNow(): Promise<void> {

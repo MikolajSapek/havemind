@@ -391,6 +391,65 @@ describe('SyncRunner single-flight and backoff', () => {
   });
 });
 
+describe('SyncRunner stop (reconnect quiescence)', () => {
+  it('emits no further push once stopped, even when a pending backoff retry fires', async () => {
+    // A prior-session connection that went offline is backing off. On reconnect
+    // its handle is stopped; the pending backoff must never fire a push through
+    // the now-stale transport (old identity) and 403 the server.
+    const push = vi.fn(async (): Promise<readonly PushItemResult[]> => {
+      throw new Error('offline');
+    });
+    const pull = vi.fn(async () => ({ cursor: 0, events: [] as RemoteEvent[] }));
+    const state = new FakeState({
+      outbox: [{ contentHash: 'h', fileId: 'file-old', revisionId: 'rev-old' }],
+    });
+    const { runner, retries } = makeRunner({ state, transport: { push, pull } });
+
+    const first = await runner.trigger();
+    expect(first.status).toBe('offline');
+    expect(push).toHaveBeenCalledTimes(1);
+    expect(retries).toHaveLength(1);
+
+    runner.stop();
+    retries[0]?.callback();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // The stopped runner shipped no further push — the stale revision can no
+    // longer escape after teardown/reconnect.
+    expect(push).toHaveBeenCalledTimes(1);
+  });
+
+  it('makes trigger() inert after stop() so neither push nor pull runs', async () => {
+    const push = vi.fn(async (): Promise<readonly PushItemResult[]> => []);
+    const pull = vi.fn(async () => ({ cursor: 0, events: [] as RemoteEvent[] }));
+    const state = new FakeState({
+      outbox: [{ contentHash: 'h', fileId: 'file-old', revisionId: 'rev-old' }],
+    });
+    const { runner } = makeRunner({ state, transport: { push, pull } });
+
+    runner.stop();
+    const result = await runner.trigger();
+
+    expect(push).not.toHaveBeenCalled();
+    expect(pull).not.toHaveBeenCalled();
+    expect(result.pushed).toBe(0);
+  });
+
+  it('does not schedule a new backoff after stop() when a cycle fails', async () => {
+    const pull = vi.fn(async () => {
+      throw new Error('offline');
+    });
+    const { runner, retries } = makeRunner({
+      transport: { push: vi.fn(async () => []), pull },
+    });
+
+    runner.stop();
+    await runner.trigger();
+
+    expect(retries).toHaveLength(0);
+  });
+});
+
 describe('SyncRunner remote apply', () => {
   it('applies a remote revision when no editor buffer is open', async () => {
     const { runner, vault, state } = makeRunner({
