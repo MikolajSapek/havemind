@@ -12,9 +12,8 @@ import { join } from 'node:path';
 import { hashBlob } from '@havemind/protocol';
 import type Database from 'better-sqlite3';
 
-import { openDatabase } from './db.js';
+import { DB_FILENAME, openDatabase } from './db.js';
 
-const DB_FILENAME = 'havemind.sqlite';
 const BLOBS_DIRNAME = 'blobs';
 const MANIFEST_FILENAME = 'manifest.json';
 const MANIFEST_SCHEMA_VERSION = 1 as const;

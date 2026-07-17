@@ -31,7 +31,7 @@ import {
 } from '../../../apps/server/src/backup-restore.js';
 import { BlobStore } from '../../../apps/server/src/blob-store.js';
 import { parseServerConfig } from '../../../apps/server/src/config.js';
-import { openDatabase } from '../../../apps/server/src/db.js';
+import { DB_FILENAME, openDatabase } from '../../../apps/server/src/db.js';
 import { runMigrations } from '../../../apps/server/src/migrations.js';
 import { RevisionRepository } from '../../../apps/server/src/revision-repository.js';
 
@@ -42,7 +42,6 @@ const TEST_ENV = {
 
 const START_TIME = '2026-07-16T03:00:00.000Z';
 const REFRESH_TTL_SECONDS = 24 * 60 * 60;
-const DB_FILENAME = 'havemind.sqlite';
 const BLOBS_DIRNAME = 'blobs';
 
 export interface ClientIdentity {

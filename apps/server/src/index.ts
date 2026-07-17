@@ -11,7 +11,7 @@ import { join } from 'node:path';
 
 import { buildApp } from './app.js';
 import { parseServerConfig, type ServerEnvironment } from './config.js';
-import { openDatabase } from './db.js';
+import { DB_FILENAME, openDatabase } from './db.js';
 import { runMigrations } from './migrations.js';
 import { BlobStore } from './blob-store.js';
 import { RevisionRepository } from './revision-repository.js';
@@ -20,7 +20,6 @@ import { SessionRepository } from './auth/session-repository.js';
 
 // The setup CLI (`havemind setup`) writes the database under this name, so the
 // server must open the same file it initialised. Blobs live beside it.
-const DB_FILENAME = 'havemind.db';
 const BLOBS_DIRNAME = 'blobs';
 
 function resolveDataDir(environment: ServerEnvironment): string {

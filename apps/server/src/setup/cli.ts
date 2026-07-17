@@ -13,7 +13,7 @@ import {
   createLocalOwnerSetupContext,
 } from '../auth/setup.js';
 import type { ServerEnvironment } from '../config.js';
-import { openDatabase } from '../db.js';
+import { DB_FILENAME, openDatabase } from '../db.js';
 import { runMigrations } from '../migrations.js';
 import {
   formatDoctorReport,
@@ -56,8 +56,6 @@ export interface CliDependencies {
     path: string,
   ) => { size: number; mode: number; isDirectory: boolean } | null;
 }
-
-const DEFAULT_DATABASE_FILENAME = 'havemind.db';
 
 const USAGE = [
   'Usage: havemind <command>',
@@ -468,7 +466,7 @@ function resolveDatabaseFile(env: ServerEnvironment): string | null {
   if (dataDir === undefined || dataDir.trim() === '') {
     return null;
   }
-  return join(dataDir, DEFAULT_DATABASE_FILENAME);
+  return join(dataDir, DB_FILENAME);
 }
 
 function runSetup(

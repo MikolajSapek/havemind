@@ -20,7 +20,7 @@ import {
 } from './backup-restore.js';
 import { BlobStore } from './blob-store.js';
 import { parseServerConfig } from './config.js';
-import { openDatabase } from './db.js';
+import { DB_FILENAME, openDatabase } from './db.js';
 import { runMigrations } from './migrations.js';
 import { RevisionRepository } from './revision-repository.js';
 import { SessionRepository } from './auth/session-repository.js';
@@ -281,6 +281,37 @@ describe('restoreInstance', () => {
     return backupDir;
   }
 
+  it('writes the restored database under the same filename the live server opens', async () => {
+    // Regression test: backup-restore previously hardcoded its own
+    // 'havemind.sqlite' constant while index.ts/setup/cli.ts open
+    // 'havemind.db'. Pointing the server at a restored data directory found
+    // no 'havemind.db', silently created a fresh empty file, migrated an
+    // empty schema, and served an empty instance -- apparent total data
+    // loss. Asserting against the exported DB_FILENAME (rather than a
+    // string literal) fails if any of the three call sites ever diverges
+    // from the shared constant again.
+    const seed = await seedInstance();
+    const backupDir = await backupOf(seed);
+    const targetDir = join(makeDataDir(), 'restored');
+
+    await restoreInstance({
+      backupDir,
+      randomUuid: () => NEW_EPOCH,
+      targetDir,
+    });
+
+    // The exact filename the server's open path (index.ts) and the setup
+    // CLI (setup/cli.ts) use -- opening it directly (no fallback name,
+    // no glob) proves restoreInstance wrote to the filename the server will
+    // actually look for.
+    const restoredDb = openTracked(join(targetDir, DB_FILENAME));
+    expect(readInstanceEpoch(restoredDb)).toEqual({
+      instanceId: seed.instanceId,
+      restoreEpoch: 1,
+      serverEpoch: NEW_EPOCH,
+    });
+  });
+
   it('verifies integrity and manifest, then bumps the epoch', async () => {
     const seed = await seedInstance();
     const backupDir = await backupOf(seed);
@@ -296,7 +327,7 @@ describe('restoreInstance', () => {
     expect(result.serverEpoch).toBe(NEW_EPOCH);
     expect(result.restoreEpoch).toBe(1);
 
-    const restoredDb = openTracked(join(targetDir, 'havemind.sqlite'));
+    const restoredDb = openTracked(join(targetDir, DB_FILENAME));
     expect(readInstanceEpoch(restoredDb)).toEqual({
       instanceId: seed.instanceId,
       restoreEpoch: 1,
@@ -314,7 +345,7 @@ describe('restoreInstance', () => {
       targetDir,
     });
 
-    const restoredDb = openTracked(join(targetDir, 'havemind.sqlite'));
+    const restoredDb = openTracked(join(targetDir, DB_FILENAME));
     const blobStore = new BlobStore(join(targetDir, 'blobs'));
     const now = (): Date => new Date(START_TIME);
     const sessions = new SessionRepository(restoredDb, { now });
@@ -367,7 +398,7 @@ describe('restoreInstance', () => {
       }),
     ).rejects.toMatchObject({ code: 'INTEGRITY_CHECK_FAILED' });
 
-    const restoredDb = openTracked(join(targetDir, 'havemind.sqlite'));
+    const restoredDb = openTracked(join(targetDir, DB_FILENAME));
     expect(readInstanceEpoch(restoredDb)).toEqual({
       instanceId: seed.instanceId,
       restoreEpoch: 0,
@@ -396,7 +427,7 @@ describe('restoreInstance', () => {
       }),
     ).rejects.toMatchObject({ code: 'MANIFEST_MISMATCH' });
 
-    const restoredDb = openTracked(join(targetDir, 'havemind.sqlite'));
+    const restoredDb = openTracked(join(targetDir, DB_FILENAME));
     expect(readInstanceEpoch(restoredDb)?.restoreEpoch).toBe(0);
   });
 
