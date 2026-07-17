@@ -61,3 +61,22 @@ Pre-pilot confirmations and the daily 7-day pilot log live here
   Fixed in commit 8796d2c; server rebuilt on sapserver, DB re-onboarded clean,
   owner re-paired. After a save in Vault A the server shows FILES 8 / REVISIONS
   18 / EVENTS 18 — owner push and pre-existing-file enumeration both confirmed.
+- [x] **Sync-correctness hardening round (2026-07-17)** — read-only audit found a
+  cluster of same-class defects; all fixed (TDD, 648 tests):
+  - F1 (5af3506): remote revisions never materialised on the receiver — the prod
+    `createRequestUrlFn` dropped `response.text`, so the blob decoder got `''`.
+  - F2 (681443c): on-disk overwrite guard (durable per-file base hash) — a remote
+    apply to a locally-diverged, closed file now routes to a conflict artifact,
+    never a silent overwrite (plan/01 rule 3). Base advances on remote apply /
+    convergence, never on push.
+  - B (4bf2b46): one oversized/poison revision no longer wedges the whole outbox
+    — transport permanent/transient classification, per-item drain, quarantine,
+    server per-revision results, client pre-enqueue size guard.
+  - F3 (4fd4f8a): content-addressed reconciliation — shared identical files adopt
+    the remote fileId and update in place instead of flooding Havemind Conflicts/;
+    reconcile scan resilient to one bad file.
+  - CLI PIN hardening + owner "device connected" notice (5af3506); A-MVP (9a4cb57):
+    non-markdown attachments surfaced as "N not synced (markdown only)" — full
+    binary support deferred to F9.
+  - ⏭ Requires: server rebuild on sapserver (B changed sync-routes) + plugin swap
+    on both devices + clean two-way live test.
