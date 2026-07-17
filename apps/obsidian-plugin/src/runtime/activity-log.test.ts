@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   ActivityLog,
   activityEntriesToRecords,
+  remoteAppliedToActivityEntry,
   type ActivityLogEntry,
 } from './activity-log';
 import { buildActivityViewModel } from './activity-render';
@@ -51,6 +52,34 @@ describe('ActivityLog', () => {
     log.record(entry({ revisionId: 'r1', kind: 'edit', timestamp: 200 }));
     expect(log.snapshot()).toHaveLength(1);
     expect(log.snapshot()[0]?.kind).toBe('edit');
+  });
+
+  it('collapses a local push and its remote echo when both carry the same real revisionId', () => {
+    // Regression: local entries used to be recorded under `operationId`, which
+    // never matches the revisionId a remote echo of the SAME push carries — so
+    // the two never collapsed into one row. With both keyed by the real
+    // revisionId, the later remote echo replaces the local placeholder.
+    const log = new ActivityLog();
+    log.record(
+      entry({
+        revisionId: 'rev-shared',
+        author: { kind: 'member', membershipId: 'm-owner' },
+        timestamp: 100,
+      }),
+    );
+    log.record(
+      remoteAppliedToActivityEntry(
+        { revisionId: 'rev-shared', fileId: 'file-1', path: 'Notes/a.md', operation: 'update' },
+        200,
+      ),
+    );
+
+    expect(log.snapshot()).toHaveLength(1);
+    // The later record wins — here that happens to be the remote echo, which
+    // is fine: the runner suppresses truly-local echoes before they ever
+    // reach applyRemote, so in the live path only the local entry ever
+    // records for a self-authored push.
+    expect(log.snapshot()[0]).toMatchObject({ revisionId: 'rev-shared', timestamp: 200 });
   });
 
   it('caps the log at maxEntries, dropping the oldest', () => {
@@ -134,5 +163,44 @@ describe('activityEntriesToRecords', () => {
       kind: 'author',
       displayName: 'Unknown member',
     });
+  });
+});
+
+describe('remoteAppliedToActivityEntry', () => {
+  it('maps a genuinely applied remote revision to a remote-attributed entry', () => {
+    const result = remoteAppliedToActivityEntry(
+      { revisionId: 'rev-9', fileId: 'file-1', path: 'Notes/a.md', operation: 'update' },
+      1000,
+    );
+    expect(result).toEqual({
+      revisionId: 'rev-9',
+      fileId: 'file-1',
+      path: 'Notes/a.md',
+      kind: 'edit',
+      author: { kind: 'remote' },
+      timestamp: 1000,
+      hasContent: true,
+    });
+  });
+
+  it('maps create/rename/delete operations to their matching kind', () => {
+    expect(
+      remoteAppliedToActivityEntry(
+        { revisionId: 'r1', fileId: 'f1', path: 'a.md', operation: 'create' },
+        1,
+      ).kind,
+    ).toBe('create');
+    expect(
+      remoteAppliedToActivityEntry(
+        { revisionId: 'r2', fileId: 'f1', path: 'b.md', operation: 'rename' },
+        1,
+      ).kind,
+    ).toBe('rename');
+    expect(
+      remoteAppliedToActivityEntry(
+        { revisionId: 'r3', fileId: 'f1', path: 'b.md', operation: 'delete' },
+        1,
+      ),
+    ).toMatchObject({ kind: 'delete', hasContent: false });
   });
 });

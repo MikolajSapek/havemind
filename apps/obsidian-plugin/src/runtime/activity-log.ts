@@ -48,6 +48,14 @@ const DEFAULT_MAX_ENTRIES = 200;
 const REMOTE_COLOR_ID = 'havemind-remote';
 
 /**
+ * Placeholder vaultId for records built from the Activity feed. The feed has
+ * never tracked a real per-entry vaultId (single-vault MVP), but sync-core's
+ * RevisionDag rejects an empty one outright, and it is required for the
+ * append-only restore path (`activity-restore.ts`) to build its DAG.
+ */
+const FEED_VAULT_ID = 'havemind-feed';
+
+/**
  * An append-only, bounded activity log with change notification. Entries are
  * de-duplicated by `revisionId` (a local push and its later remote echo are the
  * same revision), keeping the most recent record.
@@ -94,12 +102,74 @@ export class ActivityLog {
 /**
  * Resolves the sole non-self roster member, or null when that is ambiguous
  * (nobody else, or more than one other member — the N-member case).
+ *
+ * Correct only for the two-person pilot: with exactly one other roster member
+ * "the sole other member" and "the true author of this remote revision" are
+ * the same person by construction. This stops being sound the moment a third
+ * member joins — see the module docstring above for the N-member follow-up.
  */
 function soleOtherMember(
   roster: readonly RosterMember[],
 ): RosterMember | null {
   const others = roster.filter((member) => !member.self);
   return others.length === 1 ? (others[0] as RosterMember) : null;
+}
+
+/** The decoded operation kinds a remote revision payload can carry. */
+export type RemoteRevisionOperation =
+  | 'initial-import'
+  | 'create'
+  | 'update'
+  | 'rename'
+  | 'restore'
+  | 'reconcile'
+  | 'delete';
+
+/** The raw fields the vault-apply adapter reports for a genuinely applied remote revision. */
+export interface RemoteAppliedInfo {
+  readonly revisionId: string;
+  readonly fileId: string;
+  readonly path: string;
+  readonly operation: RemoteRevisionOperation;
+}
+
+/**
+ * Maps a genuinely applied remote revision (never a 'noop' or 'conflict'
+ * outcome) to an Activity log entry attributed to `remote`. Kept as a pure
+ * function so the mapping is unit-testable without the Obsidian runtime; the
+ * runtime glue (`obsidian-adapters.ts`) only wires the call site and supplies
+ * the wall-clock timestamp.
+ */
+export function remoteAppliedToActivityEntry(
+  info: RemoteAppliedInfo,
+  timestamp: number,
+): ActivityLogEntry {
+  return {
+    revisionId: info.revisionId,
+    fileId: info.fileId,
+    path: info.path,
+    kind: toRemoteActivityKind(info.operation),
+    author: { kind: 'remote' },
+    timestamp,
+    hasContent: info.operation !== 'delete',
+  };
+}
+
+function toRemoteActivityKind(operation: RemoteRevisionOperation): ActivityKind {
+  switch (operation) {
+    case 'create':
+      return 'create';
+    case 'update':
+      return 'edit';
+    case 'rename':
+      return 'rename';
+    case 'delete':
+      return 'delete';
+    default:
+      // 'initial-import' / 'restore' / 'reconcile' have no closer ActivityKind
+      // match; 'edit' is the safe, non-destructive default label.
+      return 'edit';
+  }
 }
 
 /**
@@ -120,7 +190,10 @@ export function activityEntriesToRecords(
     const author = resolveAuthor(entry.author, byMembership, roster);
     return {
       revisionId: entry.revisionId,
-      vaultId: '',
+      // A non-empty placeholder: the feed never tracks a real vaultId today,
+      // but sync-core's RevisionDag (used by the append-only restore path)
+      // rejects an empty vaultId outright.
+      vaultId: FEED_VAULT_ID,
       fileId: entry.fileId,
       path: entry.path,
       previousPath: null,
@@ -128,7 +201,10 @@ export function activityEntriesToRecords(
       actor: author,
       timestamp: entry.timestamp,
       content: entry.hasContent ? '' : null,
-      blobHash: '',
+      // Non-empty placeholder for the same reason as vaultId above — the feed
+      // never tracks a real content hash, but RevisionDag rejects an empty
+      // blobHash. Keyed by revisionId so distinct entries stay distinct.
+      blobHash: `feed:${entry.revisionId}`,
       parentRevisionIds: [],
       provenance: [],
       restoredFromRevisionId: null,

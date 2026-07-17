@@ -286,6 +286,109 @@ describe('VaultApplyAdapter', () => {
       expect(files.baseHashes.get('file-1')).toBe(await fakeHash('A\n'));
     });
 
+    it('reports onRemoteApplied for a genuinely applied write, never for noop/conflict', async () => {
+      const applied: unknown[] = [];
+      const files = new FakeFiles();
+      const adapter = new VaultApplyAdapter({
+        files,
+        conflictFolder: 'Havemind Conflicts',
+        resolveRevision: async () => content('Notes/a.md', 'REMOTE\n'),
+        hashContent: fakeHash,
+        onRemoteApplied: (event) => applied.push(event),
+      });
+
+      // 1) A clean remote-only create: 'applied' → hook fires.
+      await adapter.applyRemote(event('rev-1', 'file-1'));
+      expect(applied).toEqual([
+        {
+          revisionId: 'rev-1',
+          fileId: 'file-1',
+          path: 'Notes/a.md',
+          operation: 'create',
+        },
+      ]);
+
+      // 2) Converged on-disk content: 'noop' → hook does NOT fire again.
+      files.owners.set('Notes/b.md', 'file-2');
+      files.onDisk.set('Notes/b.md', 'REMOTE\n');
+      const noopAdapter = new VaultApplyAdapter({
+        files,
+        conflictFolder: 'Havemind Conflicts',
+        resolveRevision: async () => content('Notes/b.md', 'REMOTE\n'),
+        hashContent: fakeHash,
+        onRemoteApplied: (event) => applied.push(event),
+      });
+      const noopOutcome = await noopAdapter.applyRemote(event('rev-2', 'file-2'));
+      expect(noopOutcome).toBe('noop');
+      expect(applied).toHaveLength(1);
+
+      // 3) A genuine divergence: 'conflict' → hook does NOT fire.
+      files.owners.set('Notes/c.md', 'file-3');
+      files.onDisk.set('Notes/c.md', 'LOCAL-DIVERGED\n');
+      const conflictAdapter = new VaultApplyAdapter({
+        files,
+        conflictFolder: 'Havemind Conflicts',
+        resolveRevision: async () => content('Notes/c.md', 'REMOTE\n'),
+        hashContent: fakeHash,
+        onRemoteApplied: (event) => applied.push(event),
+      });
+      const conflictOutcome = await conflictAdapter.applyRemote(
+        event('rev-3', 'file-3'),
+      );
+      expect(conflictOutcome).toBe('conflict');
+      expect(applied).toHaveLength(1);
+    });
+
+    it('reports onRemoteApplied for a delete that actually removed an owned file', async () => {
+      const applied: unknown[] = [];
+      const files = new FakeFiles();
+      const withHook = new VaultApplyAdapter({
+        files,
+        conflictFolder: 'Havemind Conflicts',
+        resolveRevision: async () => ({
+          operation: 'delete',
+          path: 'Notes/a.md',
+          previousPath: null,
+          content: null,
+        }),
+        hashContent: fakeHash,
+        onRemoteApplied: (event) => applied.push(event),
+      });
+
+      files.owners.set('Notes/a.md', 'file-1');
+      await withHook.applyRemote(event('rev-3', 'file-1'));
+      expect(applied).toEqual([
+        {
+          revisionId: 'rev-3',
+          fileId: 'file-1',
+          path: 'Notes/a.md',
+          operation: 'delete',
+        },
+      ]);
+    });
+
+    it('never reports onRemoteApplied for a skipped tombstone (path owned by another file)', async () => {
+      const applied: unknown[] = [];
+      const files = new FakeFiles();
+      const withHook = new VaultApplyAdapter({
+        files,
+        conflictFolder: 'Havemind Conflicts',
+        resolveRevision: async () => ({
+          operation: 'delete',
+          path: 'Notes/a.md',
+          previousPath: null,
+          content: null,
+        }),
+        hashContent: fakeHash,
+        onRemoteApplied: (event) => applied.push(event),
+      });
+      files.owners.set('Notes/a.md', 'other-file');
+
+      await withHook.applyRemote(event('rev-3', 'file-1'));
+
+      expect(applied).toEqual([]);
+    });
+
     it('forgets the base hash when a tombstone deletes an owned file', async () => {
       const { adapter, files } = build(() => ({
         operation: 'delete',

@@ -1,5 +1,6 @@
 import {
   ItemView,
+  Notice,
   Plugin,
   PluginSettingTab,
   Setting,
@@ -10,9 +11,11 @@ import {
 import { isSafePassiveJoinProtocolData } from './onboarding/invite';
 import type { RevisionRecord } from './activity/activity';
 import { buildActivityViewModel } from './runtime/activity-render';
+import { restoreActivityEntry } from './runtime/activity-restore';
 import {
   ActivityLog,
   activityEntriesToRecords,
+  type ActivityLogEntry,
 } from './runtime/activity-log';
 import {
   buildRosterView,
@@ -685,6 +688,8 @@ export default class HavemindPlugin extends Plugin {
   private activityView: HavemindActivityView | null = null;
   /** Live feed behind the Activity view (previously orphaned — now wired). */
   private readonly activityLog = new ActivityLog();
+  /** Disposer for the activityLog subscription set up in onload(); torn down in onunload(). */
+  private activityLogUnsubscribe: (() => void) | null = null;
   /**
    * Persistent presence roster: the members connected to this vault. Sourced
    * from approve-time records + the local self membership and persisted in
@@ -699,8 +704,11 @@ export default class HavemindPlugin extends Plugin {
     this.activityOptions = {
       feedProvider: () =>
         activityEntriesToRecords(this.activityLog.snapshot(), this.rosterMembers),
+      onRestore: (revisionId) => this.handleRestore(revisionId),
     };
-    this.activityLog.subscribe(() => this.activityView?.refresh());
+    this.activityLogUnsubscribe = this.activityLog.subscribe(() =>
+      this.activityView?.refresh(),
+    );
 
     this.registerView(HAVEMIND_ACTIVITY_VIEW, (leaf: WorkspaceLeaf) => {
       const view = new HavemindActivityView(leaf, this.activityOptions);
@@ -786,6 +794,8 @@ export default class HavemindPlugin extends Plugin {
   override onunload(): void {
     this.connection?.stop();
     this.connection = null;
+    this.activityLogUnsubscribe?.();
+    this.activityLogUnsubscribe = null;
     this.app.workspace.detachLeavesOfType(HAVEMIND_ACTIVITY_VIEW);
     this.app.workspace.detachLeavesOfType(HAVEMIND_ONBOARDING_VIEW);
   }
@@ -917,8 +927,47 @@ export default class HavemindPlugin extends Plugin {
   }
 
   /** Runtime hooks handed to the sync loop so live surfaces stay fed. */
-  private activityHooks(): { onLocalActivity: (entry: Parameters<ActivityLog['record']>[0]) => void } {
-    return { onLocalActivity: (entry) => this.activityLog.record(entry) };
+  private activityHooks(): {
+    onLocalActivity: (entry: ActivityLogEntry) => void;
+    onRemoteActivity: (entry: ActivityLogEntry) => void;
+  } {
+    return {
+      onLocalActivity: (entry) => this.activityLog.record(entry),
+      // FIX 1: a remote-applied revision reaches the Activity feed too, so
+      // the other device's edits are no longer invisible.
+      onRemoteActivity: (entry) => this.activityLog.record(entry),
+    };
+  }
+
+  /**
+   * Handles the Activity feed's "Restore" click: runs the append-only restore
+   * over the current feed history and records the result as a new,
+   * locally-attributed entry. A restore that cannot be performed (unknown or
+   * deleted target, unreconciled history) is surfaced via a Notice rather
+   * than silently doing nothing.
+   */
+  private handleRestore(revisionId: string): void {
+    const self = this.rosterMembers.find((member) => member.self);
+    if (self === undefined) {
+      new Notice('Havemind: connect before restoring a revision.');
+      return;
+    }
+    const history = activityEntriesToRecords(
+      this.activityLog.snapshot(),
+      this.rosterMembers,
+    );
+    const entry = restoreActivityEntry({
+      history,
+      targetRevisionId: revisionId,
+      restorer: { actorId: self.membershipId, displayName: self.displayName },
+      now: Date.now(),
+      newRevisionId: globalThis.crypto.randomUUID(),
+    });
+    if (entry === null) {
+      new Notice('Havemind: could not restore that revision.');
+      return;
+    }
+    this.activityLog.record(entry);
   }
 
   /** Records the local member into the roster once the connection knows it. */

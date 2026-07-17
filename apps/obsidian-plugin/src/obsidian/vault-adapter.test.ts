@@ -28,12 +28,18 @@ class MemoryRepository implements LocalChangeRepository {
     return [...this.mappings.values()];
   }
 
-  async commitLocalChange(commit: LocalChangeCommit): Promise<void> {
+  /** Deterministic revisionId per commit, distinct from the operationId. */
+  nextRevisionId(): string {
+    return `rev-${this.commits.length + 1}`;
+  }
+
+  async commitLocalChange(commit: LocalChangeCommit): Promise<string | null> {
     if (this.failNextCommit) {
       this.failNextCommit = false;
       throw new DOMException('Quota exhausted.', 'QuotaExceededError');
     }
 
+    const revisionId = this.nextRevisionId();
     this.commits.push(structuredClone(commit));
     if (commit.removeFileId !== null) {
       this.mappings.delete(commit.removeFileId);
@@ -41,6 +47,7 @@ class MemoryRepository implements LocalChangeRepository {
     if (commit.upsertMapping !== null) {
       this.mappings.set(commit.upsertMapping.fileId, commit.upsertMapping);
     }
+    return revisionId;
   }
 }
 
@@ -110,6 +117,23 @@ describe('VaultChangeObserver', () => {
       fileId: FILE_ID,
       path: 'Notes/Plan.md',
     });
+  });
+
+  it('returns the repository-generated revisionId on the operation, never the operationId', async () => {
+    // Regression: the Activity feed used to record `operationId` (a
+    // client-only idempotency key) as if it were the revisionId, breaking
+    // restore and local/remote-echo dedup. The observer must surface the real
+    // id the repository (outbox) actually generated and enqueued.
+    const vault = new MemoryVault();
+    vault.contents.set('Notes/Plan.md', 'First');
+    const repository = new MemoryRepository();
+    const observer = createObserver(vault, repository);
+
+    const created = await observer.observeCreate('Notes/Plan.md');
+
+    expect(created?.operationId).toBe(OPERATION_ID);
+    expect(created?.revisionId).toBe('rev-1');
+    expect(created?.revisionId).not.toBe(created?.operationId);
   });
 
   it('records the durable previous snapshot before an update can be uploaded', async () => {
@@ -234,7 +258,7 @@ describe('VaultChangeObserver', () => {
     repository.commitLocalChange = vi.fn(async (commit) => {
       commitCount += 1;
       if (commitCount === 1) await firstCommitGate;
-      await originalCommit(commit);
+      return originalCommit(commit);
     });
     const observer = createObserver(vault, repository);
 

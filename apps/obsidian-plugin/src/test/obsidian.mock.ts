@@ -54,6 +54,14 @@ export function setIcon(element: unknown, iconId: string): void {
   (element as MockElement).iconName = iconId;
 }
 
+/** Minimal stand-in for Obsidian's `Notice` — records the message, no UI. */
+export class Notice {
+  readonly message: string;
+  constructor(message: string) {
+    this.message = message;
+  }
+}
+
 function createMockElement(): MockElement {
   const children: MockElement[] = [];
   const classes: string[] = [];

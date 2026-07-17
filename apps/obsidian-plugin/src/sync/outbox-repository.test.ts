@@ -32,6 +32,7 @@ function makeOperation(
     previousContent: null,
     previousContentHash: null,
     previousPath: null,
+    revisionId: null,
     ...overrides,
   };
 }
@@ -98,6 +99,41 @@ describe('OutboxLocalChangeRepository', () => {
     });
     // The mapping is now durable so a later modify resolves it.
     expect(await repo.listMappings()).toHaveLength(1);
+  });
+
+  it('returns the enqueued revisionId, matching the envelope', async () => {
+    // Regression: the Activity feed used to record `operationId` because
+    // callers had no way to learn the revisionId this repository actually
+    // generated. commitLocalChange must surface it directly.
+    const { repo, enqueued } = makeRepo();
+
+    const revisionId = await repo.commitLocalChange({
+      operation: makeOperation(),
+      removeFileId: null,
+      upsertMapping: {
+        collisionKey: 'notes/a.md',
+        content: 'Hello\n',
+        contentHash: 'hash-1',
+        fileId: FILE_ID,
+        path: 'Notes/a.md',
+      },
+    });
+
+    expect(revisionId).toBe((enqueued[0] as OutboxEnvelope).revisionId);
+    expect(revisionId).not.toBe('op-1'); // never the operationId
+  });
+
+  it('returns null for a delete of a file that was never pushed', async () => {
+    const { repo, enqueued } = makeRepo();
+
+    const revisionId = await repo.commitLocalChange({
+      operation: makeOperation({ content: null, contentHash: null, kind: 'delete' }),
+      removeFileId: FILE_ID,
+      upsertMapping: null,
+    });
+
+    expect(revisionId).toBeNull();
+    expect(enqueued).toHaveLength(0);
   });
 
   it('parents a later update on the created revision', async () => {

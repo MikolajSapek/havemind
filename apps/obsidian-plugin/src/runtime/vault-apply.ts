@@ -47,6 +47,14 @@ export interface VaultFilePort {
   forgetBaseHash(fileId: string): Promise<void>;
 }
 
+/** The raw fields reported for a genuinely applied remote revision (FIX 1). */
+export interface RemoteAppliedEvent {
+  readonly revisionId: string;
+  readonly fileId: string;
+  readonly path: string;
+  readonly operation: DecodedRevisionPayload['operation'];
+}
+
 export interface VaultApplyAdapterOptions {
   readonly files: VaultFilePort;
   readonly conflictFolder: string;
@@ -57,6 +65,15 @@ export interface VaultApplyAdapterOptions {
    * comparable to a later on-disk read of the same content.
    */
   readonly hashContent: (content: string) => Promise<string>;
+  /**
+   * Called once per remote revision this adapter actually wrote or deleted on
+   * disk — the 'applied' outcome only. Never called for 'noop' (already
+   * converged, nothing written) or 'conflict' (diverted to a conflict
+   * artifact, the live file untouched). Lets the Activity feed record a
+   * remote-attributed entry without this adapter knowing anything about
+   * Activity; note contents are never passed.
+   */
+  readonly onRemoteApplied?: (event: RemoteAppliedEvent) => void;
 }
 
 export class VaultApplyAdapter implements VaultApplyPort {
@@ -66,12 +83,16 @@ export class VaultApplyAdapter implements VaultApplyPort {
     event: RemoteEvent,
   ) => Promise<DecodedRevisionPayload>;
   private readonly hashContent: (content: string) => Promise<string>;
+  private readonly onRemoteApplied?: (event: RemoteAppliedEvent) => void;
 
   constructor(options: VaultApplyAdapterOptions) {
     this.files = options.files;
     this.conflictFolder = options.conflictFolder;
     this.resolveRevision = options.resolveRevision;
     this.hashContent = options.hashContent;
+    if (options.onRemoteApplied !== undefined) {
+      this.onRemoteApplied = options.onRemoteApplied;
+    }
   }
 
   async openBuffers(fileId: string): Promise<readonly OpenBuffer[]> {
@@ -88,6 +109,12 @@ export class VaultApplyAdapter implements VaultApplyPort {
         await this.files.deleteByPath(decoded.path);
         await this.files.forgetPath(decoded.path);
         await this.files.forgetBaseHash(fileId);
+        this.onRemoteApplied?.({
+          revisionId: event.revision.revisionId,
+          fileId,
+          path: decoded.path,
+          operation: decoded.operation,
+        });
       }
       return 'applied';
     }
@@ -173,6 +200,12 @@ export class VaultApplyAdapter implements VaultApplyPort {
     await this.files.writeByPath(decoded.path, text);
     await this.files.recordPathOwner(fileId, decoded.path);
     await this.files.recordBaseHash(fileId, await this.hashContent(text));
+    this.onRemoteApplied?.({
+      revisionId: event.revision.revisionId,
+      fileId,
+      path: decoded.path,
+      operation: decoded.operation,
+    });
     return 'applied';
   }
 

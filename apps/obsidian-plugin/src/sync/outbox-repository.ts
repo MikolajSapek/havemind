@@ -82,7 +82,7 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
     return (await this.options.store.load()).mappings;
   }
 
-  async commitLocalChange(commit: LocalChangeCommit): Promise<void> {
+  async commitLocalChange(commit: LocalChangeCommit): Promise<string | null> {
     const state = await this.options.store.load();
     const { operation } = commit;
     const head = state.heads[operation.fileId];
@@ -134,7 +134,11 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
           isDelete: kind === 'delete',
         }),
       );
-      return;
+      // The real, server-facing revision id — never `operation.operationId`
+      // (a client-only idempotency key). Callers (the Activity feed) must
+      // record this id so a local push and its later remote echo collapse by
+      // revisionId instead of appearing as two separate entries.
+      return built.revisionId;
     }
 
     // Delete of a never-pushed file: drop the local mapping without a revision.
@@ -145,6 +149,7 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
         isDelete: true,
       }),
     );
+    return null;
   }
 }
 

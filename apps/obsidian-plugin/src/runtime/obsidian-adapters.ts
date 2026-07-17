@@ -86,7 +86,11 @@ import {
   ensureClientInstanceId,
   type ClientInstanceIdRepository,
 } from '../storage/client-store';
-import type { ActivityLogEntry } from './activity-log';
+import {
+  remoteAppliedToActivityEntry,
+  type ActivityLogEntry,
+  type RemoteAppliedInfo,
+} from './activity-log';
 import type { MemberRole } from './roster';
 import type { ActivityKind } from '../activity/activity';
 import type { LocalChangeKind, LocalChangeOperation } from '../obsidian/vault-adapter';
@@ -104,6 +108,15 @@ export interface RuntimeHooks {
    * the local member; note contents are never included.
    */
   readonly onLocalActivity?: (entry: ActivityLogEntry) => void;
+  /**
+   * Called for each remote revision the sync runner genuinely applied to the
+   * vault (`VaultApplyAdapter.applyRemote` returning 'applied' — never 'noop'
+   * or 'conflict'), so the Activity view reflects the other device's edits
+   * too. The entry is attributed to `{ kind: 'remote' }` (resolved to the
+   * sole other roster member in the two-person pilot by `activity-log.ts`);
+   * note contents are never included.
+   */
+  readonly onRemoteActivity?: (entry: ActivityLogEntry) => void;
 }
 
 /** Maps a local-change kind onto the Activity feed's kind vocabulary. */
@@ -276,6 +289,7 @@ export function buildSyncController(
   plugin: Plugin,
   connection: SyncConnection,
   onStatus: StatusListener,
+  hooks?: RuntimeHooks,
 ): BuiltSyncController {
   const state = new DurableSyncState({ persist: createPersistPort(plugin) });
 
@@ -307,6 +321,19 @@ export function buildSyncController(
     conflictFolder: CONFLICT_FOLDER,
     resolveRevision: connection.resolveRevision,
     hashContent: sha256Hex,
+    // FIX 1: a genuinely applied remote revision (never 'noop'/'conflict')
+    // reaches the Activity feed too, attributed to `remote` — previously only
+    // the local-change wrapper ever recorded an entry, so the other device's
+    // edits never showed up.
+    ...(hooks?.onRemoteActivity === undefined
+      ? {}
+      : {
+          onRemoteApplied: (info: RemoteAppliedInfo) => {
+            hooks.onRemoteActivity?.(
+              remoteAppliedToActivityEntry(info, Date.now()),
+            );
+          },
+        }),
   });
 
   // Late-bound so the runner can report every cycle — including the retries it
@@ -558,14 +585,16 @@ async function startSyncLoop(
         : {}),
     },
     onStatus,
+    extras.hooks,
   );
   controller.start();
 
   // The push producer detects local edits, enumerates pre-existing files and
   // enqueues revisions the runner POSTs. Without a server-issued memberId +
   // deviceId a revision header cannot be built (rule 3), so the producer only
-  // starts once both are known — the invitee flow supplies them; the owner
-  // pairing flow currently supplies only deviceId.
+  // starts once both are known — both the invitee flow and the owner /owner/pair
+  // flow supply memberId + deviceId (connectAsOwner reads `pairing.memberId`
+  // off the pairing response), so `hasPushIdentity` is true for either path.
   let disposeProducer: (() => void) | null = null;
   if (hasPushIdentity) {
     disposeProducer = startPushProducer(
@@ -693,7 +722,14 @@ function startPushProducer(
   const recordActivity = (op: LocalChangeOperation | null): void => {
     if (op === null || hooks?.onLocalActivity === undefined) return;
     hooks.onLocalActivity({
-      revisionId: op.operationId,
+      // The real revision id the outbox repository generated and enqueued
+      // (`OutboxLocalChangeRepository.commitLocalChange`'s `built.revisionId`,
+      // surfaced here as `op.revisionId`) — never `op.operationId`, which is
+      // only a client-side idempotency key and would break restore + the
+      // local-push/remote-echo dedup in `ActivityLog`. Falls back to the
+      // operationId only when no revision was created (a delete of a file
+      // that was never pushed), so the entry still has a stable, unique id.
+      revisionId: op.revisionId ?? op.operationId,
       fileId: op.fileId,
       path: op.path,
       kind: toActivityKind(op.kind),

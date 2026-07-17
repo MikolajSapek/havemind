@@ -648,6 +648,129 @@ describe('plugin lifecycle', () => {
     expect(restored).toEqual(['rev-1']);
   });
 
+  it('wires a default Restore action during onload that appends a new activity entry', async () => {
+    // Regression: onload's activityOptions never set onRestore, so the Restore
+    // button never rendered at all (F9 bug #2). This exercises the DEFAULT
+    // wiring — not a caller-supplied override via setActivityOptions — so it
+    // actually proves the onload path, not just the ActivityView's rendering.
+    const app = new App();
+    const plugin = new HavemindPlugin(app, manifest);
+    await plugin.onload();
+
+    // Seed the roster (self) and an existing activity entry directly — there
+    // is no live layout-ready hook in the headless mock (see Workspace mock),
+    // so this mirrors what loadRoster()/recordActivity would have populated.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (plugin as any).rosterMembers = [
+      { membershipId: 'm-owner', displayName: 'You', role: 'owner', self: true },
+    ];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (plugin as any).activityLog.record({
+      revisionId: 'rev-1',
+      fileId: 'file-1',
+      path: 'Notes/a.md',
+      kind: 'create',
+      author: { kind: 'member', membershipId: 'm-owner' },
+      timestamp: 100,
+      hasContent: true,
+    });
+
+    const view = registrationState.views
+      .get(HAVEMIND_ACTIVITY_VIEW)
+      ?.(new WorkspaceLeaf());
+    await view?.onOpen();
+    const container = view?.containerEl as unknown as MockElement;
+    const restoreButton = container.children[1]?.children[1]?.children[0];
+    expect(restoreButton?.text).toBe('Restore');
+
+    restoreButton?.triggerClick();
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const snapshot = (plugin as any).activityLog.snapshot() as Array<{
+      revisionId: string;
+    }>;
+    expect(snapshot).toHaveLength(2);
+    expect(snapshot[0]?.revisionId).toBe('rev-1');
+    expect(snapshot[1]?.revisionId).not.toBe('rev-1');
+  });
+
+  it('shows a Notice and does not crash when restoring with no roster self member', async () => {
+    const app = new App();
+    const plugin = new HavemindPlugin(app, manifest);
+    await plugin.onload();
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (plugin as any).activityLog.record({
+      revisionId: 'rev-1',
+      fileId: 'file-1',
+      path: 'Notes/a.md',
+      kind: 'create',
+      author: { kind: 'member', membershipId: 'm-owner' },
+      timestamp: 100,
+      hasContent: true,
+    });
+
+    const view = registrationState.views
+      .get(HAVEMIND_ACTIVITY_VIEW)
+      ?.(new WorkspaceLeaf());
+    await view?.onOpen();
+    const container = view?.containerEl as unknown as MockElement;
+    const restoreButton = container.children[1]?.children[1]?.children[0];
+
+    expect(() => restoreButton?.triggerClick()).not.toThrow();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((plugin as any).activityLog.snapshot()).toHaveLength(1);
+  });
+
+  it('stops notifying the activity view after unload (subscription disposed)', async () => {
+    // Regression: onload discarded the disposer from activityLog.subscribe(),
+    // so the subscription outlived unload with nothing to tear it down (F9
+    // bug #4).
+    const app = new App();
+    const plugin = new HavemindPlugin(app, manifest);
+    await plugin.onload();
+
+    const view = registrationState.views
+      .get(HAVEMIND_ACTIVITY_VIEW)
+      ?.(new WorkspaceLeaf());
+    let refreshes = 0;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const refreshableView = view as any;
+    if (refreshableView) {
+      const originalRefresh = refreshableView.refresh.bind(refreshableView);
+      refreshableView.refresh = () => {
+        refreshes += 1;
+        originalRefresh();
+      };
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (plugin as any).activityLog.record({
+      revisionId: 'rev-1',
+      fileId: 'file-1',
+      path: 'Notes/a.md',
+      kind: 'create',
+      author: { kind: 'member', membershipId: 'm-owner' },
+      timestamp: 100,
+      hasContent: true,
+    });
+    expect(refreshes).toBe(1);
+
+    plugin.unload();
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (plugin as any).activityLog.record({
+      revisionId: 'rev-2',
+      fileId: 'file-1',
+      path: 'Notes/a.md',
+      kind: 'edit',
+      author: { kind: 'member', membershipId: 'm-owner' },
+      timestamp: 200,
+      hasContent: true,
+    });
+    expect(refreshes).toBe(1);
+  });
+
   it('reads the Connect form input and reports progress', async () => {
     const captured: Array<{ input: string; serverUrl: string }> = [];
     const view = new HavemindOnboardingView(new WorkspaceLeaf(), {

@@ -45,12 +45,13 @@ class ReconciliationRepository implements LocalChangeRepository {
     return [...this.mappings.values()];
   }
 
-  async commitLocalChange(commit: LocalChangeCommit): Promise<void> {
+  async commitLocalChange(commit: LocalChangeCommit): Promise<string | null> {
     this.commits.push(structuredClone(commit));
     if (commit.removeFileId !== null) this.mappings.delete(commit.removeFileId);
     if (commit.upsertMapping !== null) {
       this.mappings.set(commit.upsertMapping.fileId, commit.upsertMapping);
     }
+    return `rev-${this.commits.length}`;
   }
 }
 
@@ -60,11 +61,13 @@ class ThrowingRepository extends ReconciliationRepository {
     super();
   }
 
-  override async commitLocalChange(commit: LocalChangeCommit): Promise<void> {
+  override async commitLocalChange(
+    commit: LocalChangeCommit,
+  ): Promise<string | null> {
     if (commit.operation.content === this.failContent) {
       throw new RevisionPayloadTooLargeError(commit.operation.path, 999, 100);
     }
-    await super.commitLocalChange(commit);
+    return super.commitLocalChange(commit);
   }
 }
 

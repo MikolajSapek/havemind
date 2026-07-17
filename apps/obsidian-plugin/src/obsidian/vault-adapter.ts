@@ -34,6 +34,15 @@ export interface LocalChangeOperation {
   previousContent: string | null;
   previousContentHash: string | null;
   previousPath: string | null;
+  /**
+   * The real revision id the repository generated and enqueued for this
+   * change (`OutboxLocalChangeRepository`'s `built.revisionId`), or `null`
+   * when the commit never produced a revision (a delete of a file that was
+   * never pushed). This is the id that must be recorded in the Activity feed
+   * and used for local/remote-echo dedup — `operationId` is a client-only
+   * idempotency key, never a revision id.
+   */
+  revisionId: string | null;
 }
 
 export interface LocalChangeCommit {
@@ -55,7 +64,14 @@ export interface VaultSnapshotPort {
 }
 
 export interface LocalChangeRepository {
-  commitLocalChange(commit: LocalChangeCommit): Promise<void>;
+  /**
+   * Commits the change and returns the real revision id it enqueued (or
+   * `null` when no revision was created — a delete with no prior push). The
+   * caller (the observer below) attaches this to the returned
+   * `LocalChangeOperation.revisionId` so callers never fall back to the
+   * client-only `operationId` for revision identity.
+   */
+  commitLocalChange(commit: LocalChangeCommit): Promise<string | null>;
   listMappings(): Promise<readonly LocalFileMapping[]>;
 }
 
@@ -163,12 +179,12 @@ export class VaultChangeObserver {
       previousPath: null,
     });
 
-    await this.options.repository.commitLocalChange({
+    const revisionId = await this.options.repository.commitLocalChange({
       operation,
       removeFileId: null,
       upsertMapping: { collisionKey, content, contentHash, fileId, path: canonicalPath },
     });
-    return operation;
+    return { ...operation, revisionId };
   }
 
   private async handleModify(
@@ -197,7 +213,7 @@ export class VaultChangeObserver {
       previousPath: null,
     });
 
-    await this.options.repository.commitLocalChange({
+    const revisionId = await this.options.repository.commitLocalChange({
       operation,
       removeFileId: null,
       upsertMapping: {
@@ -208,7 +224,7 @@ export class VaultChangeObserver {
         path: classified.canonicalPath,
       },
     });
-    return operation;
+    return { ...operation, revisionId };
   }
 
   private async handleRename(
@@ -253,7 +269,7 @@ export class VaultChangeObserver {
       previousPath: from.canonicalPath,
     });
 
-    await this.options.repository.commitLocalChange({
+    const revisionId = await this.options.repository.commitLocalChange({
       operation,
       removeFileId: null,
       upsertMapping: {
@@ -264,7 +280,7 @@ export class VaultChangeObserver {
         path: to.canonicalPath,
       },
     });
-    return operation;
+    return { ...operation, revisionId };
   }
 
   private async handleDelete(
@@ -292,12 +308,12 @@ export class VaultChangeObserver {
       previousPath: null,
     });
 
-    await this.options.repository.commitLocalChange({
+    const revisionId = await this.options.repository.commitLocalChange({
       operation,
       removeFileId: mapping.fileId,
       upsertMapping: null,
     });
-    return operation;
+    return { ...operation, revisionId };
   }
 
   private async findMapping(
@@ -308,12 +324,15 @@ export class VaultChangeObserver {
   }
 
   private buildOperation(
-    fields: Omit<LocalChangeOperation, 'observedAt' | 'operationId'>,
+    fields: Omit<LocalChangeOperation, 'observedAt' | 'operationId' | 'revisionId'>,
   ): LocalChangeOperation {
     return {
       ...fields,
       observedAt: this.options.clock(),
       operationId: this.options.generateOperationId(),
+      // Unknown until the repository commits the change and reports back the
+      // real id it enqueued; the caller fills this in on the returned object.
+      revisionId: null,
     };
   }
 }

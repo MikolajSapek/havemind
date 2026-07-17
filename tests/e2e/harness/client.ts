@@ -86,7 +86,7 @@ class InMemoryChangeRepository implements LocalChangeRepository {
   readonly #mappings = new Map<string, LocalFileMapping>();
   readonly drained: LocalChangeOperation[] = [];
 
-  async commitLocalChange(commit: LocalChangeCommit): Promise<void> {
+  async commitLocalChange(commit: LocalChangeCommit): Promise<string | null> {
     if (commit.removeFileId !== null) {
       for (const [key, mapping] of this.#mappings) {
         if (mapping.fileId === commit.removeFileId) {
@@ -106,6 +106,11 @@ class InMemoryChangeRepository implements LocalChangeRepository {
       });
     }
     this.drained.push(commit.operation);
+    // The harness's #stage() mints its own revisionId independently (it
+    // models the full outbox, not just this repository seam), so this
+    // return value is unused here — kept null rather than duplicating that
+    // id-generation logic.
+    return null;
   }
 
   async listMappings(): Promise<readonly LocalFileMapping[]> {
