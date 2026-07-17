@@ -26,6 +26,13 @@ export interface AdoptableProducer {
   ): Promise<void>;
   /** Forget the mapping+head for a file removed by remote apply. */
   forgetRemoteMapping(collisionKey: string, fileId: string): Promise<void>;
+  /**
+   * This device's current head revisionId for `fileId`, or null if none is
+   * known. Bridged straight through to `RemoteApplyProducerSync.localHeadFor`
+   * so the apply side's causal apply-vs-conflict decision (rule 3) can tell a
+   * fast-forward from a concurrent divergence.
+   */
+  headFor(fileId: string): Promise<string | null>;
 }
 
 /**
@@ -57,6 +64,11 @@ export function createRemoteApplyProducerSync(
       const classified = classifyVaultPath(path);
       if (!classified.eligible) return;
       await producer.forgetRemoteMapping(classified.collisionKey, fileId);
+    },
+    async localHeadFor(fileId) {
+      const producer = getProducer();
+      if (producer === null) return null;
+      return producer.headFor(fileId);
     },
   };
 }

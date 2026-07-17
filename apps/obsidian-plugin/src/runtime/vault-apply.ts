@@ -79,6 +79,15 @@ export interface RemoteApplyProducerSync {
     readonly fileId: string;
     readonly path: string;
   }): Promise<void>;
+  /**
+   * This device's current head revisionId for `fileId` (the last revision it
+   * authored or adopted), or null if none is known. Read by the apply-vs-conflict
+   * decision to tell a causal fast-forward (the incoming revision descends from
+   * our head → the peer had our version) from a concurrent divergence (never a
+   * silent overwrite — rule 3). Optional so unit tests that don't exercise the
+   * causal path can omit it.
+   */
+  localHeadFor?(fileId: string): Promise<string | null>;
 }
 
 export interface VaultApplyAdapterOptions {
@@ -266,8 +275,21 @@ export class VaultApplyAdapter implements VaultApplyPort {
         await this.files.writeConflictArtifact(this.conflictPath(event), text);
         return 'conflict';
       }
-      // on-disk == base: the local file is unchanged since the last sync, so the
-      // incoming revision applies cleanly (this keeps F1's clean-apply path).
+      // on-disk == base: the local file is unchanged since the last sync — but
+      // that alone does not prove the incoming revision is safe to apply. The
+      // 7b22b61 regression: a local push seeds the base to the just-authored
+      // content, so a CONCURRENT peer revision (built on an older head, never
+      // having seen ours) can have on-disk == base too, and would slip through
+      // here and silently overwrite. Causality (parentRevisionIds vs. this
+      // device's head) is the only thing that distinguishes a fast-forward
+      // (the peer built on our head → safe to apply) from a concurrent
+      // divergence (never a silent overwrite — rule 3). When causality cannot
+      // be established (no producer-sync head lookup, no known local head, or
+      // no parent list on the incoming revision) we fail SAFE to a conflict.
+      if (!(await this.isCausalFastForward(fileId, event))) {
+        await this.files.writeConflictArtifact(this.conflictPath(event), text);
+        return 'conflict';
+      }
     }
 
     const contentHash = await this.hashContent(text);
@@ -292,6 +314,44 @@ export class VaultApplyAdapter implements VaultApplyPort {
       operation: decoded.operation,
     });
     return 'applied';
+  }
+
+  /**
+   * Causal apply-vs-conflict decision (rule 3): true when the incoming
+   * revision is either provably a fast-forward from this device's current
+   * head for `fileId`, or when causality simply cannot be evaluated because
+   * the incoming revision carries no `parentRevisionIds` at all (a transport
+   * that does not yet surface causal parentage — see `RemoteRevision`).
+   *
+   * When `parentRevisionIds` IS present, this only returns true if a
+   * `producerSync` is wired with `localHeadFor`, that lookup resolves to a
+   * known (non-null) local head, AND the incoming revision's parents include
+   * it — i.e. the peer built its revision directly on top of (or through)
+   * what we last knew. Any missing piece there means causality cannot be
+   * established, so this fails SAFE (false) rather than risk a silent
+   * overwrite of a concurrent peer edit.
+   */
+  private async isCausalFastForward(
+    fileId: string,
+    event: RemoteEvent,
+  ): Promise<boolean> {
+    const parents = event.revision.parentRevisionIds;
+    if (parents === undefined) {
+      // Best-effort: no causal parentage was surfaced for this revision at
+      // all, so there is nothing to contradict the on-disk == base evidence
+      // already gathered by the caller. This preserves the pre-existing
+      // clean-apply path for transports that do not (yet) carry parentage.
+      return true;
+    }
+    const localHeadFor = this.producerSync?.localHeadFor;
+    if (localHeadFor === undefined) {
+      return false;
+    }
+    const localHead = await localHeadFor(fileId);
+    if (localHead === null) {
+      return false;
+    }
+    return parents.includes(localHead);
   }
 
   async recordConflict(event: RemoteEvent): Promise<void> {

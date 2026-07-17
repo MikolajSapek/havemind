@@ -4,10 +4,19 @@ import { VaultApplyAdapter, type VaultFilePort } from './vault-apply';
 import type { DecodedRevisionPayload } from '@havemind/sync-core';
 import type { OpenBuffer, RemoteEvent } from '../sync/sync-runner';
 
-function event(revisionId = 'rev-1', fileId = 'file-1'): RemoteEvent {
+function event(
+  revisionId = 'rev-1',
+  fileId = 'file-1',
+  parents?: readonly string[],
+): RemoteEvent {
   return {
     serverSequence: 3,
-    revision: { revisionId, fileId, contentHash: 'hash-1' },
+    revision: {
+      revisionId,
+      fileId,
+      contentHash: 'hash-1',
+      ...(parents === undefined ? {} : { parentRevisionIds: parents }),
+    },
   };
 }
 
@@ -80,6 +89,7 @@ async function fakeHash(content: string): Promise<string> {
 
 function build(
   decoded: (event: RemoteEvent) => DecodedRevisionPayload,
+  localHead?: string | null,
 ): { adapter: VaultApplyAdapter; files: FakeFiles } {
   const files = new FakeFiles();
   const adapter = new VaultApplyAdapter({
@@ -87,6 +97,17 @@ function build(
     conflictFolder: 'Havemind Conflicts',
     resolveRevision: async (remote) => decoded(remote),
     hashContent: fakeHash,
+    // When a caller supplies a local head, expose it through the producer-sync
+    // bridge so the adapter's causal apply-vs-conflict decision can run.
+    ...(localHead === undefined
+      ? {}
+      : {
+          producerSync: {
+            onRemoteWrite: async () => undefined,
+            onRemoteDelete: async () => undefined,
+            localHeadFor: async () => localHead,
+          },
+        }),
   });
   return { adapter, files };
 }
@@ -170,13 +191,20 @@ describe('VaultApplyAdapter', () => {
       conflictFolder: 'Havemind Conflicts',
       resolveRevision: async () => content('Notes/a.md', text),
       hashContent: fakeHash,
+      // The second revision is a fast-forward built on the first (rev-1), so the
+      // in-place update stays a clean apply under the causal decision.
+      producerSync: {
+        onRemoteWrite: async () => undefined,
+        onRemoteDelete: async () => undefined,
+        localHeadFor: async () => 'rev-1',
+      },
     });
 
     await adapter.applyRemote(event('rev-1', 'file-1'));
     expect(files.owners.get('Notes/a.md')).toBe('file-1');
 
     text = 'A2\n';
-    await adapter.applyRemote(event('rev-2', 'file-1'));
+    await adapter.applyRemote(event('rev-2', 'file-1', ['rev-1']));
     expect(files.writes).toEqual([
       { path: 'Notes/a.md', content: 'A\n' },
       { path: 'Notes/a.md', content: 'A2\n' },
@@ -214,13 +242,16 @@ describe('VaultApplyAdapter', () => {
   });
 
   describe('on-disk overwrite guard (rule 3)', () => {
-    it('applies and advances the base when on-disk content equals the base', async () => {
-      const { adapter, files } = build(() => content('Notes/a.md', 'REMOTE\n'));
+    it('applies and advances the base when on-disk content equals the base (causal fast-forward)', async () => {
+      // On-disk equals the last synced base (no local divergence) AND the
+      // incoming revision descends from this device's head → a clean
+      // fast-forward the peer built on our version, so apply in place.
+      const { adapter, files } = build(() => content('Notes/a.md', 'REMOTE\n'), 'head-1');
       files.owners.set('Notes/a.md', 'file-1');
       files.onDisk.set('Notes/a.md', 'OLD\n');
       files.baseHashes.set('file-1', await fakeHash('OLD\n'));
 
-      const outcome = await adapter.applyRemote(event('rev-2', 'file-1'));
+      const outcome = await adapter.applyRemote(event('rev-2', 'file-1', ['head-1']));
 
       expect(outcome).toBe('applied');
       expect(files.writes).toEqual([{ path: 'Notes/a.md', content: 'REMOTE\n' }]);
@@ -403,6 +434,67 @@ describe('VaultApplyAdapter', () => {
       await adapter.applyRemote(event('rev-3', 'file-1'));
 
       expect(files.baseHashes.has('file-1')).toBe(false);
+    });
+  });
+
+  describe('causal apply-vs-conflict for a shared file (rule 3)', () => {
+    // The 7b22b61 regression: on-disk equals the base (because the local push
+    // seeded the base to the just-authored content), so a concurrent peer edit
+    // whose revision does NOT descend from this device's head slipped through
+    // the base-equality guard and silently overwrote the local edit. Causality
+    // must gate this branch: a fast-forward applies, a concurrent divergence
+    // conflicts — never a silent overwrite.
+
+    it('CONCURRENT: a shared-file revision that does not descend from the local head becomes a conflict, never overwriting on-disk', async () => {
+      // Both devices converged at H0 (head R0). This device edited P→HA and
+      // pushed RA (base seeded to HA, local head → RA). The peer concurrently
+      // edited P→HB and pushed RB whose parent is R0 (it never saw RA). On pull,
+      // on-disk (HA) equals the base (HA) — but RB does NOT descend from RA, so
+      // it is a concurrent divergence and MUST conflict, preserving HA on disk.
+      const { adapter, files } = build(() => content('Notes/a.md', 'HB\n'), 'RA');
+      files.owners.set('Notes/a.md', 'file-1');
+      files.onDisk.set('Notes/a.md', 'HA\n');
+      files.baseHashes.set('file-1', await fakeHash('HA\n'));
+
+      const outcome = await adapter.applyRemote(event('RB', 'file-1', ['R0']));
+
+      expect(outcome).toBe('conflict');
+      expect(files.writes).toEqual([]);
+      expect(files.conflicts).toEqual([
+        { path: 'Havemind Conflicts/file-1-RB.md', content: 'HB\n' },
+      ]);
+      // The local edit is never silently overwritten (rule 3).
+      expect(files.onDisk.get('Notes/a.md')).toBe('HA\n');
+    });
+
+    it('SEQUENTIAL fast-forward: a shared-file revision whose parent is the local head applies in place with no conflict', async () => {
+      // This device is at H0 (head R0). The peer built RB directly on R0 (it had
+      // our version), so RB is a fast-forward: apply in place, no false conflict.
+      const { adapter, files } = build(() => content('Notes/a.md', 'HB\n'), 'R0');
+      files.owners.set('Notes/a.md', 'file-1');
+      files.onDisk.set('Notes/a.md', 'H0\n');
+      files.baseHashes.set('file-1', await fakeHash('H0\n'));
+
+      const outcome = await adapter.applyRemote(event('RB', 'file-1', ['R0']));
+
+      expect(outcome).toBe('applied');
+      expect(files.writes).toEqual([{ path: 'Notes/a.md', content: 'HB\n' }]);
+      expect(files.conflicts).toEqual([]);
+    });
+
+    it('CONCURRENT with no known local head: fails safe to a conflict, never an overwrite', async () => {
+      // Without a resolvable local head the causal decision cannot prove a
+      // fast-forward, so a shared file whose on-disk equals the base but differs
+      // from the incoming content must fail safe (conflict), never overwrite.
+      const { adapter, files } = build(() => content('Notes/a.md', 'HB\n'));
+      files.owners.set('Notes/a.md', 'file-1');
+      files.onDisk.set('Notes/a.md', 'HA\n');
+      files.baseHashes.set('file-1', await fakeHash('HA\n'));
+
+      const outcome = await adapter.applyRemote(event('RB', 'file-1', ['R0']));
+
+      expect(outcome).toBe('conflict');
+      expect(files.onDisk.get('Notes/a.md')).toBe('HA\n');
     });
   });
 

@@ -9,6 +9,7 @@ import {
 class FakeProducer implements AdoptableProducer {
   adopted: Array<{ mapping: LocalFileMapping; head: string }> = [];
   forgotten: Array<{ collisionKey: string; fileId: string }> = [];
+  heads = new Map<string, string>();
 
   async adoptRemoteMapping(
     mapping: LocalFileMapping,
@@ -19,6 +20,10 @@ class FakeProducer implements AdoptableProducer {
 
   async forgetRemoteMapping(collisionKey: string, fileId: string): Promise<void> {
     this.forgotten.push({ collisionKey, fileId });
+  }
+
+  async headFor(fileId: string): Promise<string | null> {
+    return this.heads.get(fileId) ?? null;
   }
 }
 

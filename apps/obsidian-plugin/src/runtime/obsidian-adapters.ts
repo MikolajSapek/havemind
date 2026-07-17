@@ -59,6 +59,10 @@ import {
   type VaultFilePort,
 } from './vault-apply';
 import { createRemoteApplyProducerSync } from './remote-apply-coordinator';
+import {
+  applyLocalMaterialization,
+  forgetLocalMaterialization,
+} from './local-base-lifecycle';
 import { RefreshTokenAccessProvider } from './access-token';
 import { driveToConnected } from './connect-driver';
 import {
@@ -707,17 +711,16 @@ function startPushProducer(
     // pushes, so a later peer edit to a locally-authored file resolves to its
     // real fileId and updates in place instead of forever forking to a conflict
     // artifact. A rename also forgets the stale owner of the previous path.
-    onLocalMaterialized: async ({ fileId, path, contentHash, previousPath }) => {
-      if (previousPath !== null && previousPath !== path) {
-        await state.forgetPath(previousPath);
-      }
-      await state.recordPathOwner(fileId, path);
-      await state.recordBaseHash(fileId, contentHash);
-    },
-    onLocalForgotten: async ({ fileId, path }) => {
-      await state.forgetPath(path);
-      await state.forgetBaseHash(fileId);
-    },
+    //
+    // DATA-SAFETY (rule 3): the base is SEEDED only on first authorship and is
+    // NEVER advanced by a local push — advancing it here reopened the silent-
+    // overwrite window (a concurrent peer revision matching the just-authored
+    // base slips past the on-disk guard). The single source of truth for that
+    // rule lives in `local-base-lifecycle.ts`, shared with the integration
+    // harness so a regression can't hide behind a differently-modelled test.
+    onLocalMaterialized: (materialization) =>
+      applyLocalMaterialization(state, materialization),
+    onLocalForgotten: (forget) => forgetLocalMaterialization(state, forget),
   });
   // Bind the late-bound coordinator so the apply adapter can adopt remote
   // fileIds into this producer's mapping (FIX 2).

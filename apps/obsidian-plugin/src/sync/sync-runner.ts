@@ -15,6 +15,16 @@ export interface RemoteRevision {
   readonly fileId: string;
   /** Content-addressed hash of the remote payload bytes. */
   readonly contentHash: string;
+  /**
+   * The revision ids this revision was authored on top of (its DAG parents),
+   * carried from the producer's header. Lets the apply side decide, by
+   * causality, whether an incoming revision is a fast-forward from this device's
+   * head (the peer had our version → apply in place) or a concurrent divergence
+   * (never a silent overwrite — rule 3). Optional/best-effort: absent (or empty)
+   * when the transport cannot surface it, in which case apply fails SAFE
+   * (a divergent shared file becomes a conflict, never an overwrite).
+   */
+  readonly parentRevisionIds?: readonly string[];
 }
 
 export interface RemoteEvent {

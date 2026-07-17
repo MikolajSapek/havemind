@@ -19,6 +19,10 @@ import {
 } from '../obsidian/vault-adapter';
 import { OutboxLocalChangeRepository } from '../sync/outbox-repository';
 import { createVaultFilePort } from './obsidian-adapters';
+import {
+  applyLocalMaterialization,
+  forgetLocalMaterialization,
+} from './local-base-lifecycle';
 import { createRemoteApplyProducerSync } from './remote-apply-coordinator';
 import { DurableSyncState, type PersistedSyncState } from './sync-state';
 import { VaultApplyAdapter } from './vault-apply';
@@ -138,17 +142,12 @@ function makeHarness() {
       const n = (revisionCounter += 1);
       return `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
     },
-    onLocalMaterialized: async ({ fileId, path, contentHash, previousPath }) => {
-      if (previousPath !== null && previousPath !== path) {
-        await state.forgetPath(previousPath);
-      }
-      await state.recordPathOwner(fileId, path);
-      await state.recordBaseHash(fileId, contentHash);
-    },
-    onLocalForgotten: async ({ fileId, path }) => {
-      await state.forgetPath(path);
-      await state.forgetBaseHash(fileId);
-    },
+    // The SAME base-lifecycle logic production wires (obsidian-adapters.ts), so
+    // this integration test can never go false-green against a differently-
+    // modelled base: seed on first authorship only, never advance on a push.
+    onLocalMaterialized: (materialization) =>
+      applyLocalMaterialization(state, materialization),
+    onLocalForgotten: (forget) => forgetLocalMaterialization(state, forget),
   });
 
   const observer = new VaultChangeObserver({
@@ -211,11 +210,25 @@ function makeHarness() {
     await Promise.all(pending);
   }
 
-  function remoteEvent(revisionId: string, fileId: string): RemoteEvent {
+  function remoteEvent(
+    revisionId: string,
+    fileId: string,
+    parents?: readonly string[],
+  ): RemoteEvent {
     return {
       serverSequence: 1,
-      revision: { revisionId, fileId, contentHash: `ch-${revisionId}` },
+      revision: {
+        revisionId,
+        fileId,
+        contentHash: `ch-${revisionId}`,
+        ...(parents === undefined ? {} : { parentRevisionIds: parents }),
+      },
     };
+  }
+
+  /** The producer's current head revisionId for a file (for causal parenting). */
+  function localHead(fileId: string): string | undefined {
+    return producerState.heads[fileId];
   }
 
   function setRemote(
@@ -246,6 +259,7 @@ function makeHarness() {
     remoteEvent,
     setRemote,
     userCreate,
+    localHead,
     mintedCount: () => mintedFileIds,
     producerMappings: () => producerState.mappings,
   };
@@ -299,6 +313,42 @@ describe('two-person steady-state sync (integration)', () => {
     expect(h.vault.contents.get('Notes/note.md')).toBe('LOCAL-EDIT\n');
     expect(h.vault.contents.get(`Havemind Conflicts/${FILE_A}-r3.md`)).toBe(
       'PEER-EDIT\n',
+    );
+  });
+
+  it('(c) a concurrent peer revision with NO parentRevisionIds to a locally-edited shared file conflicts (never a silent overwrite)', async () => {
+    // PRODUCTION REALITY: the live transport delivers pulled events with NO
+    // parentRevisionIds (they are not surfaced through the pull path), so the
+    // causal fast-forward check cannot fire. The only thing standing between a
+    // concurrent peer edit and a silent overwrite is the on-disk-vs-base guard —
+    // which is only safe if the base was NOT advanced by this device's own push.
+    const h = makeHarness();
+    await h.userCreate('Notes/note.md', 'V1\n', FILE_A);
+    expect(h.state.baseHashFor(FILE_A)).toBe(await realSha256('V1\n'));
+
+    // The local user edits the note (observed): a genuine local push. The base
+    // must stay at the last MUTUALLY AGREED content (V1), never advance to V2.
+    await h.vault.modify({ path: 'Notes/note.md' }, 'V2\n');
+    await h.drainEvents();
+    expect(h.vault.contents.get('Notes/note.md')).toBe('V2\n');
+    expect(h.state.baseHashFor(FILE_A)).toBe(await realSha256('V1\n'));
+
+    // A CONCURRENT peer revision (built on V1, never having seen V2) arrives with
+    // NO parents, exactly as the real transport delivers it.
+    h.setRemote('r5', {
+      operation: 'update',
+      path: 'Notes/note.md',
+      previousPath: null,
+      content: 'PEER\n',
+    });
+    const outcome = await h.adapter.applyRemote(h.remoteEvent('r5', FILE_A));
+    await h.drainEvents();
+
+    // It must become a conflict artifact — never overwrite the local V2 edit.
+    expect(outcome).toBe('conflict');
+    expect(h.vault.contents.get('Notes/note.md')).toBe('V2\n');
+    expect(h.vault.contents.get(`Havemind Conflicts/${FILE_A}-r5.md`)).toBe(
+      'PEER\n',
     );
   });
 

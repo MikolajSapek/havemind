@@ -111,6 +111,18 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
     return (await this.options.store.load()).mappings;
   }
 
+  /**
+   * This device's current head revisionId for `fileId` — the last revision it
+   * authored locally or adopted from a remote apply — or null if none is
+   * known. Read by the apply side's causal apply-vs-conflict decision (rule 3)
+   * to tell a fast-forward (the incoming revision descends from this head)
+   * from a concurrent divergence that must never be silently overwritten.
+   */
+  async headFor(fileId: string): Promise<string | null> {
+    const state = await this.options.store.load();
+    return state.heads[fileId] ?? null;
+  }
+
   async commitLocalChange(commit: LocalChangeCommit): Promise<string | null> {
     const state = await this.options.store.load();
     const { operation } = commit;
