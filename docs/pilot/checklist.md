@@ -90,3 +90,12 @@ Pre-pilot confirmations and the daily 7-day pilot log live here
   producer's listeners; transport re-stamps the current identity onto every
   outbound header; 403 is now permanent (quarantine, no loop). After rebuild +
   plugin reload the owner shows clean POST /revisions 200s, no 403.
+- [x] **Two-way sync working, verified live (2026-07-17)**: invitee (Magda) push
+  (B→A) had never worked because her connection carried users.id as memberId, not
+  her active memberships.id (fix 6bfb3fc surfaces membershipId via the approval
+  poll). After a clean invitee re-onboard (fresh data.json + latest server build)
+  the server shows THREE distinct pushing devices — owner 6d0324f6, old owner
+  86acd3c2, and Magda's device 9a798b61 (revs>0). A→B (owner→invitee) was already
+  confirmed. Full append-only two-way sync is live. Note: the invitee MUST
+  re-onboard from clean state for the fix to take effect — a stale pre-fix
+  data.json keeps the old memberId and blocks push.
