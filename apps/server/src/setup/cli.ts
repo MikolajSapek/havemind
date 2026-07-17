@@ -12,7 +12,6 @@ import {
   OwnerSetupService,
   createLocalOwnerSetupContext,
 } from '../auth/setup.js';
-import { parseVerificationPin } from '../auth/verification-pin.js';
 import type { ServerEnvironment } from '../config.js';
 import { openDatabase } from '../db.js';
 import { runMigrations } from '../migrations.js';
@@ -71,7 +70,8 @@ const USAGE = [
   '  create-invitation [--role <role>]     Mint an invitation and print the secure',
   '    [--name <name>]                     v1. envelope for the joining device.',
   '  approve [--invitation <id>]           List devices awaiting approval, or',
-  '    [--phrase <phrase>]                 approve one after comparing the phrase.',
+  '    --pin <pin>]                        approve one with the PIN read from',
+  '                                        the joining device.',
   '  generate-db-key                       Print a fresh 256-bit database key.',
   '  doctor [--json]                       Run secret-free diagnostics.',
 ].join('\n');
@@ -199,21 +199,31 @@ function buildInviteEnvelope(
 interface PendingApproval {
   readonly deviceDisplayName: string;
   readonly intendedMemberDisplayName: string;
+  readonly intendedRole: string;
   readonly invitationId: string;
-  readonly verificationPhrase: string;
+  readonly expiresAt: string;
 }
 
 interface PendingDeviceRow {
   readonly invitationId: string;
   readonly vaultId: string;
   readonly inviterDeviceId: string;
-  readonly verificationSecret: string;
+  readonly intendedRole: string;
+  readonly expiresAt: string;
   readonly pendingDeviceId: string;
   readonly deviceDisplayName: string;
   readonly intendedMemberDisplayName: string | null;
 }
 
-/** Every redeemed-but-unapproved device with the phrase the owner compares. */
+/**
+ * Every redeemed-but-unapproved device with non-secret metadata only.
+ *
+ * The verification PIN is deliberately never read or surfaced here: its whole
+ * security guarantee is that only the joining device displays it and the
+ * owner types it in from that voice/eyes channel. Printing it here (or
+ * defaulting `approve` to it) would let anyone with shell access approve a
+ * device without ever knowing the PIN.
+ */
 function listPendingApprovals(
   database: Database.Database,
 ): readonly PendingApproval[] {
@@ -222,7 +232,8 @@ function listPendingApprovals(
       `SELECT i.id AS invitationId,
               i.vault_id AS vaultId,
               i.inviter_device_id AS inviterDeviceId,
-              i.verification_secret AS verificationSecret,
+              i.intended_role AS intendedRole,
+              i.expires_at AS expiresAt,
               i.pending_device_id AS pendingDeviceId,
               i.intended_member_display_name AS intendedMemberDisplayName,
               d.display_name AS deviceDisplayName
@@ -234,12 +245,11 @@ function listPendingApprovals(
     .all() as PendingDeviceRow[];
   return rows.map((row) => ({
     deviceDisplayName: row.deviceDisplayName,
+    expiresAt: row.expiresAt,
     intendedMemberDisplayName:
       row.intendedMemberDisplayName ?? '(unspecified)',
+    intendedRole: row.intendedRole,
     invitationId: row.invitationId,
-    // The stored secret is the 6-digit PIN itself; the operator reads it out to
-    // confirm what the joining device displays.
-    verificationPhrase: parseVerificationPin(row.verificationSecret),
   }));
 }
 
@@ -367,11 +377,14 @@ function runApprove(
         lines.push(`Invitation: ${item.invitationId}`);
         lines.push(`  Device:              ${item.deviceDisplayName}`);
         lines.push(`  Intended member:     ${item.intendedMemberDisplayName}`);
-        lines.push(`  Verification code:   ${item.verificationPhrase}`);
+        lines.push(`  Intended role:       ${item.intendedRole}`);
+        lines.push(`  Expires:             ${item.expiresAt}`);
         lines.push('');
       }
-      lines.push('Compare the 6-digit code with the joining device, then run:');
-      lines.push('  havemind approve --invitation <invitationId>');
+      lines.push(
+        'Ask the joining device to read out its 6-digit verification PIN, then run:',
+      );
+      lines.push('  havemind approve --invitation <invitationId> --pin <pin>');
       lines.push('');
       return { exitCode: 0, stderr: '', stdout: lines.join('\n') };
     }
@@ -384,10 +397,18 @@ function runApprove(
         stdout: '',
       };
     }
-    // Default to the server-derived phrase the operator already compared in the
-    // listing; an explicit --phrase re-checks a phrase typed from the invitee.
-    const verificationPhrase =
-      parsed.flags.get('phrase') ?? match.verificationPhrase;
+    // The PIN is a secret only the joining device displays; it must be typed
+    // in explicitly from that channel. There is no server-derived default —
+    // that would let anyone with shell access approve without knowing it.
+    const verificationPhrase = parsed.flags.get('pin') ?? parsed.flags.get('phrase');
+    if (verificationPhrase === undefined) {
+      return {
+        exitCode: 1,
+        stderr:
+          'approve failed: --pin <pin> is required (read it from the joining device).\n',
+        stdout: '',
+      };
+    }
     const result = session.service.approveRedeemedDevice({
       approverMembershipId: owner.membershipId,
       invitationId,

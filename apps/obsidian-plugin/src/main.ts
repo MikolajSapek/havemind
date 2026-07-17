@@ -128,6 +128,12 @@ export interface CreateConnectionViewModel {
   readonly invitationExpired?: boolean;
   /** Transient confirmation line (e.g. "Invitation created."), if any. */
   readonly notice?: string;
+  /**
+   * Visual treatment for `notice`. 'success' renders the icon+label+colour
+   * status-row convention (never colour alone); omitted/'info' renders the
+   * plain text line used for routine progress messages.
+   */
+  readonly noticeKind?: 'info' | 'success';
 }
 
 /**
@@ -400,7 +406,7 @@ export class HavemindOnboardingView extends ItemView {
     model: CreateConnectionViewModel,
   ): void {
     content.createEl('h3', { text: 'Creating connection' });
-    if (model.notice) content.createDiv({ text: model.notice });
+    if (model.notice) this.renderNotice(content, model.notice, model.noticeKind);
 
     this.renderCreateSection(content, model);
 
@@ -488,6 +494,28 @@ export class HavemindOnboardingView extends ItemView {
     dismiss.onClickEvent(() => this.options.onDismissInvitation?.());
   }
 
+  /**
+   * Renders the composer's transient notice line. 'success' (e.g. a device
+   * just connected) uses the icon+label+colour status-row convention shared
+   * with the Connect panel indicator — never colour alone; other notices
+   * (progress/info) stay a plain text line.
+   */
+  private renderNotice(
+    content: HTMLElement,
+    notice: string,
+    kind: 'info' | 'success' | undefined,
+  ): void {
+    if (kind !== 'success') {
+      content.createDiv({ text: notice });
+      return;
+    }
+    const row = content.createDiv({ text: '' });
+    row.addClass('havemind-status');
+    row.style.setProperty('color', 'var(--text-success)');
+    setIcon(row.createEl('span'), 'check-circle');
+    row.createEl('span', { text: ` ${notice}` });
+  }
+
   private renderPendingRow(
     content: HTMLElement,
     entry: PendingApprovalEntry,
@@ -550,6 +578,8 @@ export default class HavemindPlugin extends Plugin {
   private pendingApprovals: PendingApprovalEntry[] = [];
   private connectionActive = false;
   private connectionNotice: string | undefined;
+  /** Visual treatment for `connectionNotice`; see CreateConnectionViewModel. */
+  private connectionNoticeKind: 'info' | 'success' | undefined;
   private awaitingApproval: GuestWaitingViewModel | null = null;
   /**
    * True once the server reported this invitation is dead (owner rejected the
@@ -663,6 +693,7 @@ export default class HavemindPlugin extends Plugin {
   private openCreateConnectionView(): Promise<void> {
     this.connectionActive = true;
     this.connectionNotice = undefined;
+    this.connectionNoticeKind = undefined;
     this.onboardingView?.refresh();
     return this.openView(HAVEMIND_ONBOARDING_VIEW);
   }
@@ -678,6 +709,9 @@ export default class HavemindPlugin extends Plugin {
       ...(this.connectionNotice === undefined
         ? {}
         : { notice: this.connectionNotice }),
+      ...(this.connectionNoticeKind === undefined
+        ? {}
+        : { noticeKind: this.connectionNoticeKind }),
     };
   }
 
@@ -707,11 +741,18 @@ export default class HavemindPlugin extends Plugin {
         report('Connect as the vault owner before approving a device.');
         return;
       }
+      // The device's display name is only known while its waiting row still
+      // exists, so read it before filtering the row out.
+      const approvedName = this.pendingApprovals.find(
+        (entry) => entry.invitationId === invitationId,
+      )?.intendedMemberDisplayName;
+      const connectedMessage = `${approvedName ?? 'Device'} connected.`;
       this.pendingApprovals = this.pendingApprovals.filter(
         (entry) => entry.invitationId !== invitationId,
       );
-      this.connectionNotice = 'Device approved. It can now sync.';
-      report('Device approved. It can now sync.');
+      this.connectionNotice = connectedMessage;
+      this.connectionNoticeKind = 'success';
+      report(connectedMessage);
       // Re-render to drop the approved row while keeping the create section
       // (invitation + role/name) fully alive.
       this.onboardingView?.refresh();
@@ -724,6 +765,7 @@ export default class HavemindPlugin extends Plugin {
         );
         this.connectionNotice =
           'This invitation is now invalid. Create a new one above to try again.';
+        this.connectionNoticeKind = undefined;
         report(error.message);
         this.onboardingView?.refresh();
         return;
@@ -865,6 +907,7 @@ export default class HavemindPlugin extends Plugin {
       ];
       this.connectionNotice =
         'Invitation created. Copy it and send it to the other device.';
+      this.connectionNoticeKind = undefined;
       this.onboardingView?.refresh();
     } catch (error) {
       report(
@@ -879,6 +922,7 @@ export default class HavemindPlugin extends Plugin {
   private dismissInvitation(): void {
     this.pendingInvitation = null;
     this.connectionNotice = undefined;
+    this.connectionNoticeKind = undefined;
     this.onboardingView?.refresh();
   }
 

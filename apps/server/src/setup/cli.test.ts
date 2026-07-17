@@ -357,19 +357,40 @@ describe('approve', () => {
     expect(result.stdout).toContain('No devices awaiting approval');
   });
 
-  it('lists a pending device with its verification phrase', () => {
+  it('lists a pending device without ever printing its verification PIN', () => {
     const dataDir = makeDataDir();
     const { env, expectedPhrase, invitationId } = seedPendingDevice(dataDir);
     const result = runCli(['approve'], { env });
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain(invitationId);
-    expect(result.stdout).toContain(expectedPhrase);
+    expect(result.stdout).toContain('Magda');
+    expect(result.stdout).toContain('editor');
+    // The PIN's whole security guarantee is that only the joining device
+    // shows it; the listing must never leak it to shell access.
+    expect(result.stdout).not.toContain(expectedPhrase);
+    expect(result.stdout.toLowerCase()).not.toContain('verification code');
   });
 
-  it('approves a specific pending device', () => {
+  it('rejects approve with no --pin instead of auto-approving', () => {
     const dataDir = makeDataDir();
     const { env, invitationId } = seedPendingDevice(dataDir);
     const result = runCli(['approve', '--invitation', invitationId], { env });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain('approve failed');
+    expect(result.stderr).toContain('--pin');
+
+    // Still pending: the missing-PIN call must not have approved it.
+    const after = runCli(['approve'], { env });
+    expect(after.stdout).toContain(invitationId);
+  });
+
+  it('approves a specific pending device given the correct --pin', () => {
+    const dataDir = makeDataDir();
+    const { env, expectedPhrase, invitationId } = seedPendingDevice(dataDir);
+    const result = runCli(
+      ['approve', '--invitation', invitationId, '--pin', expectedPhrase],
+      { env },
+    );
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain('approved');
 
@@ -378,12 +399,12 @@ describe('approve', () => {
     expect(after.stdout).toContain('No devices awaiting approval');
   });
 
-  it('rejects a mismatched verification phrase', () => {
+  it('rejects a mismatched verification PIN', () => {
     const dataDir = makeDataDir();
     const { env, expectedPhrase, invitationId } = seedPendingDevice(dataDir);
     const wrongPhrase = expectedPhrase === '000000' ? '111111' : '000000';
     const result = runCli(
-      ['approve', '--invitation', invitationId, '--phrase', wrongPhrase],
+      ['approve', '--invitation', invitationId, '--pin', wrongPhrase],
       { env },
     );
     expect(result.exitCode).toBe(1);
@@ -393,7 +414,10 @@ describe('approve', () => {
   it('fails when the invitation id matches no pending device', () => {
     const dataDir = makeDataDir();
     const { env } = seedPendingDevice(dataDir);
-    const result = runCli(['approve', '--invitation', randomUUID()], { env });
+    const result = runCli(
+      ['approve', '--invitation', randomUUID(), '--pin', '000000'],
+      { env },
+    );
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain('approve failed');
   });

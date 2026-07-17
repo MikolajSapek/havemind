@@ -390,6 +390,65 @@ describe('plugin lifecycle', () => {
     expect(after.some(({ text }) => text === 'Create invitation')).toBe(true);
   });
 
+  it('shows a "connected" confirmation and drops the row after a successful approval', async () => {
+    let pending = [
+      {
+        invitationId: 'id-1',
+        expiresAt: '2026-07-16T10:15:00.000Z',
+        intendedMemberDisplayName: 'Magda',
+      },
+    ];
+    let notice: string | undefined;
+    let noticeKind: 'info' | 'success' | undefined;
+    const view = new HavemindOnboardingView(new WorkspaceLeaf(), {
+      composerProvider: () => ({
+        role: 'editor',
+        name: '',
+        invitation: null,
+        pending,
+        ...(notice === undefined ? {} : { notice }),
+        ...(noticeKind === undefined ? {} : { noticeKind }),
+      }),
+      onApprove: (invitationId, _phrase, report) => {
+        // Mirrors the plugin's real post-approve transition: drop the row and
+        // raise a durable owner-facing confirmation naming the device.
+        pending = pending.filter((entry) => entry.invitationId !== invitationId);
+        notice = 'Magda connected.';
+        noticeKind = 'success';
+        report('Magda connected.');
+        view.refresh();
+      },
+    });
+    await view.onOpen();
+
+    const content = (view.containerEl as unknown as MockElement).children[1];
+    const row = flatten(content as MockElement).find(({ classes }) =>
+      classes.includes('havemind-pending-row'),
+    );
+    const phraseInput = flatten(row as MockElement).find(
+      ({ tag }) => tag === 'input',
+    );
+    if (phraseInput) phraseInput.value = '123456';
+    flatten(row as MockElement)
+      .find(({ text }) => text === 'Approve')
+      ?.triggerClick();
+
+    const all = flatten(content as MockElement);
+    // The approved device's waiting row is gone.
+    expect(
+      all.some(({ classes }) => classes.includes('havemind-pending-row')),
+    ).toBe(false);
+    // A durable, named confirmation is shown using the icon+label+colour
+    // convention (never colour alone), matching the other status rows.
+    const confirmation = all.find(({ classes }) =>
+      classes.includes('havemind-status'),
+    );
+    expect(confirmation).toBeDefined();
+    const confirmationChildren = flatten(confirmation as MockElement);
+    expect(confirmationChildren.some(({ iconName }) => iconName === 'check-circle')).toBe(true);
+    expect(all.some(({ text }) => text === ' Magda connected.')).toBe(true);
+  });
+
   it('guards the waiting-device approval against a missing phrase', async () => {
     const approvals: string[] = [];
     const view = new HavemindOnboardingView(new WorkspaceLeaf(), {
