@@ -361,9 +361,21 @@ describe('onboarding HTTP surface', () => {
       method: 'GET',
       url: `/devices/${pending.pendingDeviceId}/approval`,
     });
+    // The approved poll surfaces the invitee's active membership id — the exact
+    // memberships.id that POST /revisions checks expectedMemberId against — so the
+    // invitee can stamp a valid push identity. It is the membership row, never the
+    // invitee's user id (intendedMemberId), which the server assigns as user_id.
+    const inviteeMembership = fixture.database
+      .prepare(
+        `SELECT id AS membershipId FROM memberships
+         WHERE user_id = ? AND vault_id = ? AND status = 'active'`,
+      )
+      .get(invitation.intendedMemberId, VAULT) as { membershipId: string };
+    expect(inviteeMembership.membershipId).not.toBe(invitation.intendedMemberId);
     expect(pollAfter.json()).toEqual({
       bootstrapCursor: null,
       deviceId: pending.pendingDeviceId,
+      membershipId: inviteeMembership.membershipId,
       status: 'approved',
     });
 

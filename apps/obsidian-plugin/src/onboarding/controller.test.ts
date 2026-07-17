@@ -23,6 +23,11 @@ const MEMBER_ID = '00000000-0000-4000-8000-000000000002';
 const PENDING_DEVICE_ID = '00000000-0000-4000-8000-000000000003';
 const DEVICE_ID = '00000000-0000-4000-8000-000000000004';
 const REDEMPTION_ID = '00000000-0000-4000-8000-000000000005';
+// The invitee's active membership id (memberships.id), minted at owner approval
+// and distinct from MEMBER_ID (the review's memberId, which is the invitee's
+// user id). This is the id POST /revisions authorises `expectedMemberId` against,
+// so it — not MEMBER_ID — must become the connection's push member id.
+const MEMBERSHIP_ID = '00000000-0000-4000-8000-000000000006';
 const VERIFICATION_PHRASE = '123456';
 const SERVER_ORIGIN = 'https://sync.example.test';
 const API_BASE_URL = `${SERVER_ORIGIN}/api/v1`;
@@ -355,6 +360,10 @@ describe('onboarding controller', () => {
       store: fixture.store,
     });
     await expect(approvedController.resume()).resolves.toMatchObject({
+      // The approval poll surfaces the invitee's active membership id, which
+      // overrides the review's memberId (the invitee's user id) so the push
+      // header carries the exact id POST /revisions authorises against.
+      memberId: MEMBERSHIP_ID,
       phase: 'approval-received',
     });
     expect(fixture.secrets.refreshToken).toBe(REFRESH_TOKEN);
@@ -414,6 +423,10 @@ describe('onboarding controller', () => {
 
     expect(connected).toMatchObject({
       downloadedItems: 2,
+      // The connected state carries the active membership id as its push member
+      // id — the value startSyncLoop threads into pushIdentity so the invitee's
+      // POST /revisions stamps expectedMemberId with an id the server accepts.
+      memberId: MEMBERSHIP_ID,
       phase: 'connected',
     });
     expect(fixture.store.bootstrapPages).toEqual([
@@ -430,6 +443,31 @@ describe('onboarding controller', () => {
     expect(String(firstPageRemote.calls[0]?.request.url)).not.toContain(
       REFRESH_TOKEN,
     );
+  });
+
+  it('rejects an approved poll response that omits the membershipId', async () => {
+    const fixture = createFixture();
+    await createPendingConnection(fixture);
+
+    const remote = new FakeRemoteApi();
+    remote.enqueue('poll', {
+      body: {
+        // No membershipId: the push member id cannot be derived, so the response
+        // is treated as invalid rather than connecting with a wrong identity.
+        bootstrapCursor: null,
+        deviceId: DEVICE_ID,
+        status: 'approved',
+      },
+      finalUrl: `${API_BASE_URL}/devices/${PENDING_DEVICE_ID}/approval`,
+      status: 200,
+    });
+    await expect(
+      createController({
+        remoteApi: remote,
+        secrets: fixture.secrets,
+        store: fixture.store,
+      }).resume(),
+    ).rejects.toMatchObject({ code: 'invalid-response' });
   });
 
   it('retries an interrupted redemption with the persisted idempotency key and redacted errors', async () => {
@@ -657,6 +695,7 @@ function approvedResponse(): RemoteResponse {
     body: {
       bootstrapCursor: null,
       deviceId: DEVICE_ID,
+      membershipId: MEMBERSHIP_ID,
       status: 'approved',
     },
     finalUrl: `${API_BASE_URL}/devices/${PENDING_DEVICE_ID}/approval`,

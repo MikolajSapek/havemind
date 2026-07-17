@@ -178,6 +178,11 @@ export type ApprovalStatus =
       readonly status: 'approved';
       readonly deviceId: string;
       readonly bootstrapCursor: string | null;
+      // The invitee's active `memberships.id` for this vault, minted at approval.
+      // This is the exact id POST /revisions authorises `expectedMemberId`
+      // against, so the joining device can stamp a push identity the server
+      // accepts (mirrors /owner/pair surfacing the owner membership id).
+      readonly membershipId: string;
     };
 
 export interface ApproveRedeemedDeviceInput {
@@ -833,7 +838,28 @@ export class InvitationService {
       return { status: 'pending' };
     }
     if (device.status === 'approved') {
-      return { bootstrapCursor: null, deviceId: pendingDeviceId, status: 'approved' };
+      // The membership was created for this user+vault in the same transaction
+      // that flipped the device to approved, so an approved device without an
+      // active membership is a repository-integrity fault, not a normal state.
+      const membership = this.#database
+        .prepare(
+          `SELECT m.id AS membershipId
+           FROM memberships m
+           INNER JOIN devices d ON d.user_id = m.user_id
+           WHERE d.id = ? AND m.vault_id = ? AND m.status = 'active'`,
+        )
+        .get(pendingDeviceId, invitation.vaultId) as
+        | { membershipId: string }
+        | undefined;
+      if (membership === undefined) {
+        throw new InvitationError('REPOSITORY_INTEGRITY');
+      }
+      return {
+        bootstrapCursor: null,
+        deviceId: pendingDeviceId,
+        membershipId: membership.membershipId,
+        status: 'approved',
+      };
     }
     return { status: 'rejected' };
   }

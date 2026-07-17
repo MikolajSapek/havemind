@@ -460,6 +460,12 @@ export class OnboardingController {
 
     const approved: ApprovalReceivedState = {
       ...connectionMetadata(state),
+      // Replace the review's memberId (the invitee's user id) with the active
+      // membership id the server minted at approval. This is the id POST
+      // /revisions authorises `expectedMemberId` against, so once it lands in the
+      // connection's push identity the invitee's revisions are accepted instead
+      // of 403'd. Every later phase copies it forward via connectionMetadata.
+      memberId: approval.membershipId,
       bootstrapCursor: approval.bootstrapCursor,
       deviceId: approval.deviceId,
       downloadedItems: 0,
@@ -741,6 +747,10 @@ type ApprovalResponse =
   | Readonly<{
       bootstrapCursor: string | null;
       deviceId: string;
+      // The invitee's active membership id (the server's memberships.id), which
+      // POST /revisions authorises push against. It becomes the connection's
+      // push member id — see pollApproval.
+      membershipId: string;
       status: 'approved';
     }>;
 
@@ -756,9 +766,10 @@ function parseApprovalResponse(
     return { status: 'rejected' };
   }
   if (
-    !hasExactKeys(body, ['bootstrapCursor', 'deviceId', 'status']) ||
+    !hasExactKeys(body, ['bootstrapCursor', 'deviceId', 'membershipId', 'status']) ||
     body.status !== 'approved' ||
     !isCanonicalUuid(body.deviceId) ||
+    !isCanonicalUuid(body.membershipId) ||
     !isCursor(body.bootstrapCursor)
   ) {
     throw new OnboardingError('invalid-response');
@@ -766,6 +777,7 @@ function parseApprovalResponse(
   return {
     bootstrapCursor: body.bootstrapCursor,
     deviceId: body.deviceId,
+    membershipId: body.membershipId,
     status: 'approved',
   };
 }
