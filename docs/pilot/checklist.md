@@ -49,4 +49,8 @@ Pre-pilot confirmations and the daily 7-day pilot log live here
 
 - [x] **Owner device connected (2026-07-16, day 1)**: Vault A paired over HTTP,
   live sync loop green (server logs: pair 200 -> refresh 200 -> events 200).
-  Vault B (friend) pending.
+- [x] **Vault B (Magda) connected (2026-07-17)**: second device onboarded and
+  approved through the unified "Create connection (owner)" panel; Magda's
+  status settled on Synced. Onboarding blocker closed — both vaults live.
+  Pre-connect DB reset cleared 15 stale invitations + 5 hanging pending
+  devices (approved owner devices untouched).
