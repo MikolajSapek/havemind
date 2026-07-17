@@ -6,11 +6,14 @@ type CreateElOptions = {
   type?: string;
   placeholder?: string;
   cls?: string;
+  attr?: Record<string, string>;
 };
 
 export type MockElement = {
   children: MockElement[];
   classes: string[];
+  attrs: Record<string, string>;
+  placeholder: string;
   addClass: (cls: string) => void;
   createDiv: (options?: { text?: string }) => MockElement;
   createEl: (tag: string, options?: CreateElOptions) => MockElement;
@@ -58,6 +61,8 @@ function createMockElement(): MockElement {
   const element: MockElement = {
     children,
     classes,
+    attrs: {},
+    placeholder: '',
     addClass(cls: string): void {
       classes.push(cls);
     },
@@ -78,6 +83,13 @@ function createMockElement(): MockElement {
       child.tag = tag;
       child.text = options?.text ?? '';
       child.value = options?.value ?? '';
+      child.placeholder = options?.placeholder ?? '';
+      if (options?.cls !== undefined) child.classes.push(options.cls);
+      if (options?.attr !== undefined) {
+        for (const [key, value] of Object.entries(options.attr)) {
+          child.attrs[key] = value;
+        }
+      }
       children.push(child);
       return child;
     },

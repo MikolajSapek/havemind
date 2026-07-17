@@ -12,10 +12,7 @@ import {
   OwnerSetupService,
   createLocalOwnerSetupContext,
 } from '../auth/setup.js';
-import {
-  deriveVerificationPhrase,
-  parseVerificationSecret,
-} from '../auth/verification-phrase.js';
+import { parseVerificationPin } from '../auth/verification-pin.js';
 import type { ServerEnvironment } from '../config.js';
 import { openDatabase } from '../db.js';
 import { runMigrations } from '../migrations.js';
@@ -240,15 +237,9 @@ function listPendingApprovals(
     intendedMemberDisplayName:
       row.intendedMemberDisplayName ?? '(unspecified)',
     invitationId: row.invitationId,
-    verificationPhrase: deriveVerificationPhrase(
-      parseVerificationSecret(row.verificationSecret),
-      {
-        invitationId: row.invitationId,
-        inviterDeviceId: row.inviterDeviceId,
-        pendingDeviceId: row.pendingDeviceId,
-        vaultId: row.vaultId,
-      },
-    ),
+    // The stored secret is the 6-digit PIN itself; the operator reads it out to
+    // confirm what the joining device displays.
+    verificationPhrase: parseVerificationPin(row.verificationSecret),
   }));
 }
 
@@ -376,10 +367,10 @@ function runApprove(
         lines.push(`Invitation: ${item.invitationId}`);
         lines.push(`  Device:              ${item.deviceDisplayName}`);
         lines.push(`  Intended member:     ${item.intendedMemberDisplayName}`);
-        lines.push(`  Verification phrase: ${item.verificationPhrase}`);
+        lines.push(`  Verification code:   ${item.verificationPhrase}`);
         lines.push('');
       }
-      lines.push('Compare the phrase with the joining device, then run:');
+      lines.push('Compare the 6-digit code with the joining device, then run:');
       lines.push('  havemind approve --invitation <invitationId>');
       lines.push('');
       return { exitCode: 0, stderr: '', stdout: lines.join('\n') };

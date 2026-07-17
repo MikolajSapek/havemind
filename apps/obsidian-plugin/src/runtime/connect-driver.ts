@@ -29,7 +29,9 @@ export async function driveToConnected(
   let state: OnboardingPhaseState = { phase: 'idle' };
   for (let step = 0; step < options.maxSteps; step += 1) {
     state = await options.controller.resume();
-    if (state.phase === 'connected') {
+    if (state.phase === 'connected' || state.phase === 'rejected') {
+      // 'connected' succeeds; 'rejected' is the terminal owner-rejection/lockout
+      // signal. Both leave the poll loop immediately rather than sleeping.
       return state;
     }
     if (state.phase === 'pending-approval') {

@@ -375,13 +375,13 @@ describe('plugin lifecycle', () => {
     const phraseInput = flatten(row as MockElement).find(
       ({ tag }) => tag === 'input',
     );
-    if (phraseInput) phraseInput.value = '7 tiger lamp';
+    if (phraseInput) phraseInput.value = '123456';
     flatten(row as MockElement)
       .find(({ text }) => text === 'Approve')
       ?.triggerClick();
 
     expect(approvals).toEqual([
-      { invitationId: 'id-1', phrase: '7 tiger lamp' },
+      { invitationId: 'id-1', phrase: '123456' },
     ]);
 
     // The top (create) section must still be present after approving.
@@ -450,17 +450,23 @@ describe('plugin lifecycle', () => {
     // The owner types the code in — an input exists, prompting for the code.
     expect(cells.some(({ tag }) => tag === 'input')).toBe(true);
     expect(
-      cells.some(({ text }) => text === 'Enter the code your peer reads to you'),
+      cells.some(
+        ({ text }) => text === 'Enter the 6-digit code your peer reads to you',
+      ),
     ).toBe(true);
+    // The code input is a numeric field capped at six digits.
+    const codeInput = cells.find(({ tag }) => tag === 'input');
+    expect(codeInput?.attrs.inputmode).toBe('numeric');
+    expect(codeInput?.attrs.maxlength).toBe('6');
     // The row must NOT surface any verification code (owner never sees it).
     expect(cells.some(({ classes }) =>
       classes.includes('havemind-verification-phrase'),
     )).toBe(false);
   });
 
-  it('shows the invitee the code with read-aloud guidance', async () => {
+  it('shows the invitee the 6-digit code with read-aloud guidance', async () => {
     const view = new HavemindOnboardingView(new WorkspaceLeaf(), {
-      guestWaitingProvider: () => ({ verificationPhrase: '7 tiger lamp' }),
+      guestWaitingProvider: () => ({ verificationPhrase: '123456' }),
       onConnect: () => undefined,
     });
     await view.onOpen();
@@ -470,16 +476,41 @@ describe('plugin lifecycle', () => {
     expect(
       all.some(
         ({ text, classes }) =>
-          text === '7 tiger lamp' &&
+          text === '123456' &&
           classes.includes('havemind-verification-phrase'),
       ),
     ).toBe(true);
     // …with guidance to read it to the vault owner.
     expect(
-      all.some(({ text }) =>
-        text === 'Read this code to the vault owner to approve this device:',
-      ),
+      all.some(({ text }) => text === 'Read this 6-digit code to the vault owner.'),
     ).toBe(true);
+  });
+
+  it('shows the invitee a terminal "invitation invalid" screen with a paste form', async () => {
+    const view = new HavemindOnboardingView(new WorkspaceLeaf(), {
+      // A rejection/lockout takes precedence over any lingering waiting model…
+      guestInvalidProvider: () => true,
+      guestWaitingProvider: () => ({ verificationPhrase: '123456' }),
+      onConnect: () => undefined,
+    });
+    await view.onOpen();
+
+    const all = flatten(view.containerEl as unknown as MockElement);
+    expect(
+      all.some(({ text }) => text === ' This invitation is no longer valid'),
+    ).toBe(true);
+    // …it never shows the waiting spinner or the code, and it never goes blank:
+    // the paste form is present so the guest can try a fresh invite.
+    expect(
+      all.some(({ text }) => text.includes('Waiting for the other device')),
+    ).toBe(false);
+    expect(
+      all.some(({ classes }) =>
+        classes.includes('havemind-verification-phrase'),
+      ),
+    ).toBe(false);
+    expect(all.some(({ tag }) => tag === 'textarea')).toBe(true);
+    expect(all.some(({ text }) => text === 'Connect')).toBe(true);
   });
 
   it('keeps the minted invitation after an approval removes its waiting row', async () => {

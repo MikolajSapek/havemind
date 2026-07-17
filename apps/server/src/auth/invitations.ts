@@ -15,11 +15,9 @@ import {
   type AccessToken,
 } from './tokens.js';
 import {
-  deriveVerificationPhrase,
-  generateVerificationSecret,
-  parseVerificationPhrase,
-  parseVerificationSecret,
-} from './verification-phrase.js';
+  generateVerificationPin,
+  parseVerificationPin,
+} from './verification-pin.js';
 
 const DEFAULT_ACCESS_TOKEN_TTL_SECONDS = 10 * 60;
 const DEFAULT_REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
@@ -175,6 +173,7 @@ export interface RedeemForOnboardingResult {
 
 export type ApprovalStatus =
   | { readonly status: 'pending' }
+  | { readonly status: 'rejected' }
   | {
       readonly status: 'approved';
       readonly deviceId: string;
@@ -382,7 +381,10 @@ export class InvitationService {
     const expiresAt = addSeconds(now, INVITATION_TTL_SECONDS);
     const invitationToken = generateInvitationToken();
     const tokenHash = hashInvitationToken(invitationToken);
-    const verificationSecret = generateVerificationSecret();
+    // The verification value is the 6-digit PIN itself, stored verbatim so the
+    // value the invitee is shown and the value the server compares are always
+    // byte-identical (no derivation step that could diverge).
+    const verificationSecret = generateVerificationPin();
     const intendedMemberId = this.#newUuid();
 
     const create = this.#database.transaction((): CreateInvitationResult => {
@@ -484,14 +486,8 @@ export class InvitationService {
         throw new InvitationError('INVITATION_ALREADY_REDEEMED');
       }
 
-      const verificationPhrase = deriveVerificationPhrase(
-        parseVerificationSecret(invitation.verificationSecret),
-        {
-          invitationId: invitation.id,
-          inviterDeviceId: invitation.inviterDeviceId,
-          pendingDeviceId: deviceId,
-          vaultId: invitation.vaultId,
-        },
+      const verificationPhrase = parseVerificationPin(
+        invitation.verificationSecret,
       );
 
       return {
@@ -520,7 +516,7 @@ export class InvitationService {
     const approverMembershipId = requireUuid(input.approverMembershipId);
     let suppliedPhrase: string;
     try {
-      suppliedPhrase = parseVerificationPhrase(input.verificationPhrase);
+      suppliedPhrase = parseVerificationPin(input.verificationPhrase);
     } catch {
       throw new InvitationError('INVALID_INPUT');
     }
@@ -543,14 +539,8 @@ export class InvitationService {
           throw new InvitationError('NO_PENDING_DEVICE');
         }
 
-        const expectedPhrase = deriveVerificationPhrase(
-          parseVerificationSecret(invitation.verificationSecret),
-          {
-            invitationId: invitation.id,
-            inviterDeviceId: invitation.inviterDeviceId,
-            pendingDeviceId,
-            vaultId: invitation.vaultId,
-          },
+        const expectedPhrase = parseVerificationPin(
+          invitation.verificationSecret,
         );
         if (suppliedPhrase !== expectedPhrase) {
           // Discard the pending device and surface the mismatch outside the
@@ -767,14 +757,8 @@ export class InvitationService {
         throw new InvitationError('INVITATION_ALREADY_REDEEMED');
       }
 
-      const verificationPhrase = deriveVerificationPhrase(
-        parseVerificationSecret(invitation.verificationSecret),
-        {
-          invitationId: invitation.id,
-          inviterDeviceId: invitation.inviterDeviceId,
-          pendingDeviceId: deviceId,
-          vaultId: invitation.vaultId,
-        },
+      const verificationPhrase = parseVerificationPin(
+        invitation.verificationSecret,
       );
 
       return {
@@ -824,10 +808,18 @@ export class InvitationService {
         `${INVITATION_SELECT} WHERE pending_credential_hash = ?`,
       )
       .get(credentialHash) as InvitationRow | undefined;
-    if (
-      invitation === undefined ||
-      invitation.pendingDeviceId !== pendingDeviceId
-    ) {
+    if (invitation === undefined) {
+      throw new InvitationError('INVALID_INVITATION');
+    }
+    // A matching pending credential proves the caller is the legitimate joining
+    // device. Once the owner rejects it or the 3-attempt cap deletes the pending
+    // device, the FK nulls `pending_device_id`; the invitation row survives, so
+    // the poller learns the invitation is dead ('rejected') instead of seeing an
+    // opaque 404 and waiting forever (the "went offline" regression).
+    if (invitation.pendingDeviceId === null) {
+      return { status: 'rejected' };
+    }
+    if (invitation.pendingDeviceId !== pendingDeviceId) {
       throw new InvitationError('INVALID_INVITATION');
     }
 
@@ -835,7 +827,7 @@ export class InvitationService {
       .prepare('SELECT status FROM devices WHERE id = ?')
       .get(pendingDeviceId) as { status: string } | undefined;
     if (device === undefined) {
-      throw new InvitationError('INVALID_INVITATION');
+      return { status: 'rejected' };
     }
     if (device.status === 'pending') {
       return { status: 'pending' };
@@ -843,7 +835,7 @@ export class InvitationService {
     if (device.status === 'approved') {
       return { bootstrapCursor: null, deviceId: pendingDeviceId, status: 'approved' };
     }
-    throw new InvitationError('INVALID_INVITATION');
+    return { status: 'rejected' };
   }
 
   /**
@@ -858,7 +850,7 @@ export class InvitationService {
     const approverMembershipId = requireUuid(input.approverMembershipId);
     let suppliedPhrase: string;
     try {
-      suppliedPhrase = parseVerificationPhrase(input.verificationPhrase);
+      suppliedPhrase = parseVerificationPin(input.verificationPhrase);
     } catch {
       throw new InvitationError('INVALID_INPUT');
     }
@@ -886,14 +878,8 @@ export class InvitationService {
         throw new InvitationError('NO_PENDING_DEVICE');
       }
 
-      const expectedPhrase = deriveVerificationPhrase(
-        parseVerificationSecret(invitation.verificationSecret),
-        {
-          invitationId: invitation.id,
-          inviterDeviceId: invitation.inviterDeviceId,
-          pendingDeviceId,
-          vaultId: invitation.vaultId,
-        },
+      const expectedPhrase = parseVerificationPin(
+        invitation.verificationSecret,
       );
       if (suppliedPhrase !== expectedPhrase) {
         // The counter is authoritative on the server; a client cannot bypass it.

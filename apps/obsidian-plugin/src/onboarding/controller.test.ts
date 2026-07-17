@@ -23,8 +23,7 @@ const MEMBER_ID = '00000000-0000-4000-8000-000000000002';
 const PENDING_DEVICE_ID = '00000000-0000-4000-8000-000000000003';
 const DEVICE_ID = '00000000-0000-4000-8000-000000000004';
 const REDEMPTION_ID = '00000000-0000-4000-8000-000000000005';
-const VERIFICATION_PHRASE =
-  'gold-dog ivory-panda red-frog aqua-deer cyan-dog silver-bird';
+const VERIFICATION_PHRASE = '123456';
 const SERVER_ORIGIN = 'https://sync.example.test';
 const API_BASE_URL = `${SERVER_ORIGIN}/api/v1`;
 const ENVELOPE = buildInviteEnvelope({

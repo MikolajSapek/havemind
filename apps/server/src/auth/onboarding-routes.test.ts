@@ -208,9 +208,23 @@ async function createInvitation(
 interface PendingRedemption {
   readonly invitationId: string;
   readonly pending: {
+    readonly pendingCredential: string;
     readonly pendingDeviceId: string;
     readonly verificationPhrase: string;
   };
+}
+
+/** Polls the pre-auth approval status endpoint as the joining device would. */
+function pollApproval(
+  app: ReturnType<typeof buildApp>,
+  pendingDeviceId: string,
+  pendingCredential: string,
+) {
+  return app.inject({
+    headers: { 'x-havemind-pending-credential': pendingCredential },
+    method: 'GET',
+    url: `/devices/${pendingDeviceId}/approval`,
+  });
 }
 
 /** Creates and redeems an invitation, returning the joining device's code. */
@@ -234,6 +248,7 @@ async function redeemPending(
     url: '/invitations/redeem',
   });
   const pending = redeem.json() as {
+    pendingCredential: string;
     pendingDeviceId: string;
     verificationPhrase: string;
   };
@@ -255,11 +270,9 @@ function approveWith(
   });
 }
 
-/** Produces a syntactically valid code guaranteed to differ from `code`. */
+/** Produces a syntactically valid 6-digit PIN guaranteed to differ from `code`. */
 function wrongCode(code: string): string {
-  const tokens = code.split(' ');
-  const wrongFirst = tokens[0] === 'amber-fox' ? 'aqua-bear' : 'amber-fox';
-  return [wrongFirst, ...tokens.slice(1)].join(' ');
+  return code === '000000' ? '111111' : '000000';
 }
 
 afterEach(async () => {
@@ -459,6 +472,15 @@ describe('onboarding HTTP surface', () => {
       .prepare('SELECT status FROM devices WHERE id = ?')
       .get(pending.pendingDeviceId) as { status: string } | undefined;
     expect(device?.status).toBe('pending');
+
+    // The joining device polling meanwhile still sees 'pending', so it stays on
+    // the waiting screen (never offline) through the owner's wrong attempt.
+    const poll = await pollApproval(
+      app,
+      pending.pendingDeviceId,
+      pending.pendingCredential,
+    );
+    expect(poll.json()).toEqual({ status: 'pending' });
   });
 
   it('locks the pending device after three wrong codes and blocks further approval', async () => {
@@ -497,6 +519,17 @@ describe('onboarding HTTP surface', () => {
       pending.verificationPhrase,
     );
     expect(afterLock.statusCode).toBe(409);
+
+    // The joining device polling after the lock learns it was rejected (200
+    // rejected, not an opaque 404), so it can move to the "invitation no longer
+    // valid" screen instead of waiting forever.
+    const poll = await pollApproval(
+      app,
+      pending.pendingDeviceId,
+      pending.pendingCredential,
+    );
+    expect(poll.statusCode).toBe(200);
+    expect(poll.json()).toEqual({ status: 'rejected' });
   });
 
   it('approves when the correct code is entered on the second attempt', async () => {

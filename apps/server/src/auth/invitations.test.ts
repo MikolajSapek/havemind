@@ -24,7 +24,7 @@ import {
   parseAccessToken,
   parseInvitationToken,
 } from './tokens.js';
-import { parseVerificationPhrase } from './verification-phrase.js';
+import { parseVerificationPin } from './verification-pin.js';
 
 const START_TIME = '2026-07-15T03:00:00.000Z';
 const FIFTEEN_MINUTES_MS = 15 * 60 * 1_000;
@@ -147,13 +147,9 @@ function approve(
   });
 }
 
-/** Produces a syntactically valid phrase guaranteed to differ from `phrase`. */
-function mutatePhrase(phrase: string): string {
-  const tokens = phrase.split(' ');
-  const [color, noun] = (tokens[0] ?? 'red-fox').split('-');
-  const replacementColor = color === 'red' ? 'blue' : 'red';
-  const mutated = [`${replacementColor}-${noun ?? 'fox'}`, ...tokens.slice(1)];
-  return mutated.join(' ');
+/** Produces a syntactically valid 6-digit PIN guaranteed to differ from `pin`. */
+function mutatePhrase(pin: string): string {
+  return pin === '000000' ? '111111' : '000000';
 }
 
 function deviceCount(database: Database.Database, status: string): number {
@@ -266,7 +262,15 @@ describe('InvitationService.redeemInvitation', () => {
 
     expect(result.state).toBe('pending_approval');
     expect(result.pendingDeviceId).toBe(JOINER_DEVICE_ID);
-    expect(() => parseVerificationPhrase(result.verificationPhrase)).not.toThrow();
+    // The verification value is a 6-digit numeric PIN…
+    expect(result.verificationPhrase).toMatch(/^[0-9]{6}$/u);
+    expect(() => parseVerificationPin(result.verificationPhrase)).not.toThrow();
+    // …and it is byte-identical to the secret the server stored and will later
+    // compare against (round-trip equality; no derivation to diverge).
+    const storedSecret = fixture.database
+      .prepare('SELECT verification_secret AS secret FROM invitations WHERE id = ?')
+      .get(invitation.invitationId) as { secret: string };
+    expect(result.verificationPhrase).toBe(storedSecret.secret);
 
     const device = fixture.database
       .prepare('SELECT status FROM devices WHERE id = ?')
@@ -473,11 +477,7 @@ describe('InvitationService.approvePendingDevice', () => {
 
     expectInvitationError(
       () =>
-        approve(
-          fixture,
-          invitation.invitationId,
-          'red-fox red-fox red-fox red-fox red-fox red-fox',
-        ),
+        approve(fixture, invitation.invitationId, '123456'),
       'NO_PENDING_DEVICE',
       409,
     );

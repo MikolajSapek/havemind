@@ -10,7 +10,7 @@ import type {
 const API = 'https://host';
 const VAULT = '11111111-1111-4111-8111-111111111111';
 const INVITATION = '22222222-2222-4222-8222-222222222222';
-const PHRASE = 'brave amber otter';
+const PHRASE = '123456';
 
 function build(
   responder: (o: RequestUrlOptions) => RequestUrlResponseLike,

@@ -155,6 +155,12 @@ export interface OnboardingViewOptions {
    * of the paste form, so a pane reopen resumes the wait rather than re-prompting.
    */
   readonly guestWaitingProvider?: () => GuestWaitingViewModel | null;
+  /**
+   * When it returns true the guest sees a terminal "invitation no longer valid"
+   * screen (with the paste form to try a fresh invite). Set after a server
+   * rejection/lockout so the waiting screen is never left offline or blank.
+   */
+  readonly guestInvalidProvider?: () => boolean;
   /** Live connection indicator model; defaults to the disconnected panel. */
   readonly panelProvider?: () => ConnectionPanelView;
   /**
@@ -251,6 +257,13 @@ export class HavemindOnboardingView extends ItemView {
       return;
     }
 
+    // A server rejection/lockout takes precedence over the waiting screen: the
+    // invitation is spent, so we never leave the guest waiting or offline.
+    if (this.options.guestInvalidProvider?.() === true) {
+      this.renderGuestInvalid(content);
+      return;
+    }
+
     const waiting = this.options.guestWaitingProvider?.() ?? null;
     if (waiting) {
       this.renderGuestWaiting(content, waiting);
@@ -314,7 +327,7 @@ export class HavemindOnboardingView extends ItemView {
     setIcon(row.createEl('span'), 'loader');
     row.createEl('span', { text: ' Waiting for the other device to approve…' });
     content.createDiv({
-      text: 'Read this code to the vault owner to approve this device:',
+      text: 'Read this 6-digit code to the vault owner.',
     });
     const phrase = content.createDiv({ text: model.verificationPhrase });
     phrase.addClass('havemind-verification-phrase');
@@ -323,6 +336,24 @@ export class HavemindOnboardingView extends ItemView {
     });
     const disconnect = content.createEl('button', { text: 'Cancel' });
     disconnect.onClickEvent(() => this.options.onDisconnect?.());
+  }
+
+  /**
+   * Terminal guest screen after the owner rejected this device or the 3-attempt
+   * cap was reached. The invitation is spent, so we present a clear message plus
+   * the paste form to try a fresh invite — never offline, never a blank form.
+   */
+  private renderGuestInvalid(content: HTMLElement): void {
+    content.createEl('h3', { text: 'Connect to Havemind' });
+    const row = content.createDiv({ text: '' });
+    row.addClass('havemind-status');
+    row.style.setProperty('color', 'var(--text-error)');
+    setIcon(row.createEl('span'), 'alert-triangle');
+    row.createEl('span', { text: ' This invitation is no longer valid' });
+    content.createDiv({
+      text: 'Ask the vault owner for a new invitation, then paste it below.',
+    });
+    this.renderForm(content);
   }
 
   private renderForm(content: HTMLElement): void {
@@ -474,11 +505,12 @@ export class HavemindOnboardingView extends ItemView {
     // reads aloud, so the human read-aloud check is meaningful (rule: the code
     // travels only over the out-of-band voice channel).
     row.createEl('label', {
-      text: 'Enter the code your peer reads to you',
+      text: 'Enter the 6-digit code your peer reads to you',
     });
     const phraseInput = row.createEl('input', {
       type: 'text',
-      placeholder: 'e.g. amber-fox blue-otter …',
+      placeholder: '123456',
+      attr: { inputmode: 'numeric', maxlength: '6', pattern: '[0-9]*' },
     });
     const status = row.createDiv({ text: '' });
     const approve = row.createEl('button', { text: 'Approve' });
@@ -519,6 +551,12 @@ export default class HavemindPlugin extends Plugin {
   private connectionActive = false;
   private connectionNotice: string | undefined;
   private awaitingApproval: GuestWaitingViewModel | null = null;
+  /**
+   * True once the server reported this invitation is dead (owner rejected the
+   * device or the 3-attempt cap was reached). Shows the "ask for a new invite"
+   * screen instead of the waiting screen — never offline, never a blank form.
+   */
+  private guestInvitationInvalid = false;
   private connectionStatus: ConnectionStatus = 'disconnected';
   private lastSyncedAt: number | undefined;
   private connectionError: string | undefined;
@@ -535,6 +573,7 @@ export default class HavemindPlugin extends Plugin {
         composerProvider: () =>
           this.connectionActive ? this.composerModel() : null,
         guestWaitingProvider: () => this.awaitingApproval,
+        guestInvalidProvider: () => this.guestInvitationInvalid,
         panelProvider: () => this.connectionPanel(),
         onConnect: (input, serverUrl, report) => {
           void this.connectFromInput(input, serverUrl, report);
@@ -720,19 +759,30 @@ export default class HavemindPlugin extends Plugin {
     serverUrl: string,
     report: ConnectReporter,
   ): Promise<void> {
+    // A fresh paste clears any prior "invitation invalid" screen.
+    this.guestInvitationInvalid = false;
     const handle = await connectFromInput(this, input, serverUrl, {
       report,
       onStatus: (status, view) => this.handleStatus(status, view),
       // Durably record the waiting state so a pane reopen resumes the waiting
-      // screen (with the phrase) instead of a blank paste form.
+      // screen (with the code) instead of a blank paste form.
       onPendingApproval: (verificationPhrase) => {
         this.awaitingApproval = { verificationPhrase };
+        this.onboardingView?.refresh();
+      },
+      // The owner rejected the device or the attempt cap was reached: leave the
+      // waiting screen for the terminal "invitation invalid" screen. This is an
+      // expected auth response, not a connection loss — status is untouched.
+      onInvitationRejected: () => {
+        this.awaitingApproval = null;
+        this.guestInvitationInvalid = true;
         this.onboardingView?.refresh();
       },
     });
     if (handle !== null) {
       // Connected: the wait is over.
       this.awaitingApproval = null;
+      this.guestInvitationInvalid = false;
       this.connection?.stop();
       this.connection = handle;
     }
@@ -746,6 +796,7 @@ export default class HavemindPlugin extends Plugin {
     this.lastSyncedAt = undefined;
     this.connectionError = undefined;
     this.awaitingApproval = null;
+    this.guestInvitationInvalid = false;
     this.setStatus(formatStatusBar({ status: 'disconnected' }));
     this.onboardingView?.refresh();
   }

@@ -17,42 +17,8 @@ const CAPABILITY_PATTERN =
   /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*-v[1-9][0-9]*$/u;
 const MAX_BOOTSTRAP_PAGE_ITEMS = 1_000;
 
-const VERIFICATION_COLORS = new Set([
-  'amber',
-  'aqua',
-  'blue',
-  'bronze',
-  'coral',
-  'cyan',
-  'gold',
-  'green',
-  'indigo',
-  'ivory',
-  'lime',
-  'orange',
-  'pink',
-  'purple',
-  'red',
-  'silver',
-]);
-const VERIFICATION_NOUNS = new Set([
-  'badger',
-  'bear',
-  'bird',
-  'cat',
-  'deer',
-  'dog',
-  'eagle',
-  'fox',
-  'frog',
-  'horse',
-  'lion',
-  'otter',
-  'panda',
-  'rabbit',
-  'tiger',
-  'wolf',
-]);
+/** The verification value is a 6-digit numeric PIN (see server verification-pin). */
+const VERIFICATION_PIN_PATTERN = /^[0-9]{6}$/u;
 
 export interface RemoteResponse {
   body: unknown;
@@ -187,6 +153,10 @@ export type DurableOnboardingState =
 export type OnboardingViewState =
   | Readonly<{ phase: 'idle' }>
   | Readonly<{ phase: 'origin-review'; serverOrigin: string }>
+  // Terminal, non-durable: the owner rejected this device or the 3-attempt cap
+  // was reached. The waiting device leaves the poll loop for a clear "invitation
+  // no longer valid" screen instead of falling to offline or waiting forever.
+  | Readonly<{ phase: 'rejected' }>
   | (ConnectionMetadata & { phase: 'invitation-review' })
   | DurableOnboardingState;
 
@@ -476,6 +446,17 @@ export class OnboardingController {
     );
     const approval = parseApprovalResponse(response, url);
     if (approval.status === 'pending') return this.state;
+    if (approval.status === 'rejected') {
+      // The owner rejected this device or the 3-attempt cap was reached. Drop
+      // the spent pending credential and leave the poll loop with a terminal,
+      // non-durable 'rejected' view state so the guest sees a clear "invitation
+      // no longer valid" screen — never offline, never a silent forever-wait.
+      await this.clearSecretBestEffort(() =>
+        this.secrets.clearPendingCredential(),
+      );
+      this.currentState = { phase: 'rejected' };
+      return this.state;
+    }
 
     const approved: ApprovalReceivedState = {
       ...connectionMetadata(state),
@@ -743,7 +724,7 @@ function parsePendingRedemptionResponse(
     body.status !== 'pending' ||
     !isCanonicalUuid(body.pendingDeviceId) ||
     !isCanonicalToken(body.pendingCredential, 'hm_pd_') ||
-    !isVerificationPhrase(body.verificationPhrase)
+    !isVerificationPin(body.verificationPhrase)
   ) {
     throw new OnboardingError('invalid-response');
   }
@@ -756,6 +737,7 @@ function parsePendingRedemptionResponse(
 
 type ApprovalResponse =
   | Readonly<{ status: 'pending' }>
+  | Readonly<{ status: 'rejected' }>
   | Readonly<{
       bootstrapCursor: string | null;
       deviceId: string;
@@ -769,6 +751,9 @@ function parseApprovalResponse(
   const body = parseSuccessfulResponse(response, expectedUrl);
   if (hasExactKeys(body, ['status']) && body.status === 'pending') {
     return { status: 'pending' };
+  }
+  if (hasExactKeys(body, ['status']) && body.status === 'rejected') {
+    return { status: 'rejected' };
   }
   if (
     !hasExactKeys(body, ['bootstrapCursor', 'deviceId', 'status']) ||
@@ -936,7 +921,7 @@ function parseDurableState(value: unknown): DurableOnboardingState {
     case 'pending-approval':
       if (
         !isCanonicalUuid(value.pendingDeviceId) ||
-        !isVerificationPhrase(value.verificationPhrase)
+        !isVerificationPin(value.verificationPhrase)
       ) {
         throw new OnboardingError('invalid-state');
       }
@@ -1049,18 +1034,8 @@ function isCanonicalToken(value: unknown, prefix: string): value is string {
   }
 }
 
-function isVerificationPhrase(value: unknown): value is string {
-  if (typeof value !== 'string') return false;
-  const tokens = value.split(' ');
-  if (tokens.length !== 6) return false;
-  return tokens.every((token) => {
-    const parts = token.split('-');
-    return (
-      parts.length === 2 &&
-      VERIFICATION_COLORS.has(parts[0] ?? '') &&
-      VERIFICATION_NOUNS.has(parts[1] ?? '')
-    );
-  });
+function isVerificationPin(value: unknown): value is string {
+  return typeof value === 'string' && VERIFICATION_PIN_PATTERN.test(value);
 }
 
 function isCanonicalUuid(value: unknown): value is string {

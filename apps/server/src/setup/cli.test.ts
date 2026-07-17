@@ -380,8 +380,8 @@ describe('approve', () => {
 
   it('rejects a mismatched verification phrase', () => {
     const dataDir = makeDataDir();
-    const { env, invitationId } = seedPendingDevice(dataDir);
-    const wrongPhrase = Array.from({ length: 6 }, () => 'amber-fox').join(' ');
+    const { env, expectedPhrase, invitationId } = seedPendingDevice(dataDir);
+    const wrongPhrase = expectedPhrase === '000000' ? '111111' : '000000';
     const result = runCli(
       ['approve', '--invitation', invitationId, '--phrase', wrongPhrase],
       { env },

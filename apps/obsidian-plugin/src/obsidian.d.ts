@@ -178,6 +178,7 @@ interface HTMLElement {
       type?: string;
       placeholder?: string;
       cls?: string;
+      attr?: Record<string, string>;
     },
   ): HTMLElement;
   empty(): void;
