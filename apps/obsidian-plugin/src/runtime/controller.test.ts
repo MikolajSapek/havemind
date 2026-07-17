@@ -106,6 +106,54 @@ describe('HavemindSyncController', () => {
     expect(runner.triggerCount).toBe(1);
   });
 
+  const OFFLINE: SyncCycleResult = { ...CLEAN, status: 'offline' };
+
+  it('does not latch Offline on a single transient failure — shows a retrying state', () => {
+    const { controller, statuses } = build();
+    // One blip: the status must be a brief retrying state, never "Offline".
+    controller.observeCycle(OFFLINE);
+    expect(statuses.at(-1)?.text).toBe('Havemind: syncing');
+    expect(statuses.at(-1)?.text).not.toBe('Havemind: Offline');
+  });
+
+  it('recovers to Synced on the next successful cycle after a failure', () => {
+    const { controller, statuses } = build();
+    controller.observeCycle(OFFLINE);
+    controller.observeCycle(CLEAN);
+    expect(statuses.at(-1)?.text).toBe('Havemind: Synced');
+  });
+
+  it('recovers to Synced from a sustained Offline once a later cycle succeeds', () => {
+    const { controller, statuses } = build();
+    // Sustained loss reaches Offline, but a background (backoff-driven) cycle
+    // that succeeds must clear it — status follows the LATEST cycle, not a flag.
+    controller.observeCycle(OFFLINE);
+    controller.observeCycle(OFFLINE);
+    controller.observeCycle(OFFLINE);
+    expect(statuses.at(-1)?.text).toBe('Havemind: Offline');
+    controller.observeCycle(CLEAN);
+    expect(statuses.at(-1)?.text).toBe('Havemind: Synced');
+  });
+
+  it('shows Offline only after several consecutive failures', () => {
+    const { controller, statuses } = build();
+    controller.observeCycle(OFFLINE);
+    controller.observeCycle(OFFLINE);
+    expect(statuses.at(-1)?.text).toBe('Havemind: syncing');
+    controller.observeCycle(OFFLINE);
+    expect(statuses.at(-1)?.text).toBe('Havemind: Offline');
+  });
+
+  it('ignores a stale duplicate cycle so status follows the latest outcome', () => {
+    const { controller, statuses } = build();
+    controller.observeCycle({ ...CLEAN, cycleId: 5 });
+    expect(statuses.at(-1)?.text).toBe('Havemind: Synced');
+    // A late, lower-id cycle (e.g. a coalesced/backoff duplicate) must not
+    // override the newer outcome.
+    controller.observeCycle({ ...OFFLINE, cycleId: 4 });
+    expect(statuses.at(-1)?.text).toBe('Havemind: Synced');
+  });
+
   it('halts the loop on an unauthenticated cycle — no 401 retry storm', async () => {
     const { controller, runner, hooks, statuses } = build();
     runner.result = { ...CLEAN, status: 'unauthenticated' };

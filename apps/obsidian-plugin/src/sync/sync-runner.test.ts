@@ -340,6 +340,30 @@ describe('SyncRunner single-flight and backoff', () => {
     expect(pull).toHaveBeenCalledTimes(2);
   });
 
+  it('reports every completed cycle through onCycleComplete, including backoff-driven recovery', async () => {
+    const pull = vi
+      .fn<SyncTransport['pull']>()
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValue({ cursor: 0, events: [] });
+    const observed: string[] = [];
+    const { runner, retries } = makeRunner({
+      transport: { push: vi.fn(async () => []), pull },
+      onCycleComplete: (result) => observed.push(result.status),
+    });
+
+    const first = await runner.trigger();
+    expect(first.status).toBe('offline');
+    // The failed cycle was observed…
+    expect(observed).toEqual(['offline']);
+
+    // …and the backoff-driven retry cycle is observed too, so a success reached
+    // only through the runner's own scheduler still surfaces the recovery. The
+    // scheduler callback fires the cycle without awaiting it, so flush the loop.
+    retries[0]?.callback();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(observed).toEqual(['offline', 'synced']);
+  });
+
   it('schedules a jittered exponential backoff retry when the transport fails', async () => {
     const pull = vi
       .fn<SyncTransport['pull']>()

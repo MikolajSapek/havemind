@@ -152,6 +152,15 @@ export interface SyncRunnerOptions {
   readonly maxPushBatchBytes?: number;
   /** Maximum revisions in one push request; defaults to the server's 64. */
   readonly maxPushBatchItems?: number;
+  /**
+   * Observes the outcome of every completed cycle — including cycles the runner
+   * drives itself through its internal backoff scheduler. Wiring the controller
+   * here (not only through `trigger()`'s return value) is what lets a background
+   * recovery cycle clear a stale "offline" status: a success reached only via
+   * backoff still surfaces, so the indicator never latches offline while cycles
+   * are succeeding.
+   */
+  readonly onCycleComplete?: (result: SyncCycleResult) => void;
 }
 
 export type SyncCycleStatus =
@@ -170,6 +179,12 @@ export interface SyncCycleResult {
   readonly deferred: number;
   /** Revisions dead-lettered this cycle (permanent push failure). */
   readonly quarantined: number;
+  /**
+   * Monotonic per-runner cycle number. Lets a status consumer ignore a stale or
+   * duplicate outcome (a coalesced trigger and a backoff retry can both surface
+   * the same cycle) so the indicator always reflects the LATEST cycle.
+   */
+  readonly cycleId?: number;
 }
 
 type RemoteApplyDecision = 'apply' | 'conflict' | 'defer';
@@ -226,6 +241,7 @@ export class SyncRunner {
   private inFlight: Promise<SyncCycleResult> | null = null;
   private rerunRequested = false;
   private failureCount = 0;
+  private cycleCounter = 0;
 
   public constructor(options: SyncRunnerOptions) {
     this.options = {
@@ -266,13 +282,16 @@ export class SyncRunner {
   }
 
   private async runCycle(): Promise<SyncCycleResult> {
+    const cycleId = (this.cycleCounter += 1);
+    let result: SyncCycleResult;
     try {
       const push = await this.runPush();
       const apply = await this.runPull();
       this.failureCount = 0;
-      return {
+      result = {
         applied: apply.applied,
         conflicts: apply.conflicts,
+        cycleId,
         deferred: apply.deferred,
         pushed: push.pushed,
         quarantined: push.quarantined,
@@ -288,9 +307,10 @@ export class SyncRunner {
       if (status === 'offline') {
         this.scheduleBackoff();
       }
-      return {
+      result = {
         applied: 0,
         conflicts: 0,
+        cycleId,
         deferred: 0,
         pushed: 0,
         quarantined: 0,
@@ -298,6 +318,11 @@ export class SyncRunner {
         suppressed: 0,
       };
     }
+    // Report every completed cycle — including backoff-driven retries — so a
+    // recovery reached only through the runner's own scheduler still clears a
+    // stale offline status.
+    this.options.onCycleComplete?.(result);
+    return result;
   }
 
   /**
