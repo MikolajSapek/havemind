@@ -134,3 +134,50 @@ describe('startConnection lifecycle safety', () => {
     expect((plugin as any).connection).toBe(handle);
   });
 });
+
+describe('connectFromInput lifecycle safety', () => {
+  beforeEach(() => {
+    resetObsidianMock();
+    adapterMocks.startHavemindConnection.mockReset();
+    adapterMocks.connectFromInput.mockReset();
+  });
+
+  it('stops (never leaves live) a connectFromInput handle that resolves after onunload', async () => {
+    // Same class of gap as startConnection FIX 1: connectFromInput's invitee
+    // approval poll can run up to ~1h. If the user disables the plugin while
+    // that poll is still in flight, onunload already ran its
+    // `connection?.stop()` on a still-null field, then the await resolves with
+    // a LIVE handle. Without the guard that handle is assigned and its vault
+    // listeners + sync loop leak forever. It must instead be stopped and never
+    // assigned.
+    const plugin = newPlugin();
+    const handle = fakeHandle('sapserver');
+    let resolveConnect!: (h: FakeHandle) => void;
+    adapterMocks.connectFromInput.mockReturnValue(
+      new Promise<FakeHandle>((resolve) => {
+        resolveConnect = resolve;
+      }),
+    );
+
+    const pending = (
+      plugin as unknown as {
+        connectFromInput: (
+          input: string,
+          serverUrl: string,
+          report: (message: string) => void,
+        ) => Promise<void>;
+      }
+    ).connectFromInput('invitation-envelope', 'https://sapserver.example', () => {});
+
+    // The user disables the plugin while the approval poll is still pending.
+    plugin.unload();
+
+    // Only now does the in-flight approval poll resolve with a live handle.
+    resolveConnect(handle);
+    await pending;
+
+    expect(handle.stop).toHaveBeenCalledTimes(1);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((plugin as any).connection).toBeNull();
+  });
+});

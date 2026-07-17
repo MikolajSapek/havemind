@@ -1073,6 +1073,16 @@ export default class HavemindPlugin extends Plugin {
       },
     });
     if (handle !== null) {
+      // Guard against the plugin being unloaded while the invitee approval poll
+      // (up to ~1h) was still in flight: `onunload` already ran its
+      // `connection?.stop()` on a still-null field, so assigning this late-
+      // resolved handle now would leave it LIVE forever (leaked vault listeners
+      // + sync loop). Mirrors the `startConnection` unload guard (FIX 1) — stop
+      // this handle and never assign.
+      if (this.unloaded) {
+        handle.stop();
+        return;
+      }
       // Connected: the wait is over. The prior connection was already stopped
       // above, before this new loop started, so nothing stale is left to tear
       // down here.
