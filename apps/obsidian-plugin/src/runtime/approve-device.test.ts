@@ -79,6 +79,41 @@ describe('approveRedeemedDevice', () => {
     expect((error as ApproveDeviceError).message).not.toContain(PHRASE);
   });
 
+  it('reports how many attempts remain on a wrong code without leaking it', async () => {
+    const { run } = build(
+      () => ({
+        status: 403,
+        json: { error: { attemptsRemaining: 2, code: 'PHRASE_MISMATCH' } },
+      }),
+      { verificationPhrase: PHRASE },
+    );
+
+    const error = (await run().catch(
+      (caught: unknown) => caught,
+    )) as ApproveDeviceError;
+
+    expect(error).toBeInstanceOf(ApproveDeviceError);
+    expect(error.attemptsRemaining).toBe(2);
+    expect(error.locked).toBe(false);
+    expect(error.message).toBe('Incorrect code — 2 attempts left.');
+    expect(error.message).not.toContain(PHRASE);
+  });
+
+  it('flags the invitation as locked after the final wrong code', async () => {
+    const { run } = build(() => ({
+      status: 403,
+      json: { error: { code: 'APPROVAL_LOCKED' } },
+    }));
+
+    const error = (await run().catch(
+      (caught: unknown) => caught,
+    )) as ApproveDeviceError;
+
+    expect(error).toBeInstanceOf(ApproveDeviceError);
+    expect(error.locked).toBe(true);
+    expect(error.message).toContain('create a new one');
+  });
+
   it('throws when the approve response is malformed', async () => {
     const { run } = build(() => ({ status: 200, json: { status: 'approved' } }));
     await expect(run()).rejects.toBeInstanceOf(ApproveDeviceError);

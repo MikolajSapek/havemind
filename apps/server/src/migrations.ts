@@ -125,9 +125,19 @@ const onboardingMigration: MigrationDefinition = Object.freeze({
   version: 2,
 });
 
+const approvalAttemptsMigration: MigrationDefinition = Object.freeze({
+  name: 'approval-attempts',
+  sql: readFileSync(
+    new URL('./migrations/003-approval-attempts.sql', import.meta.url),
+    'utf8',
+  ),
+  version: 3,
+});
+
 export const DEFAULT_MIGRATIONS: readonly MigrationDefinition[] = Object.freeze([
   initialMigration,
   onboardingMigration,
+  approvalAttemptsMigration,
 ]);
 
 export const CURRENT_SCHEMA_VERSION =

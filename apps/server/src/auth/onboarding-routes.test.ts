@@ -205,6 +205,63 @@ async function createInvitation(
   });
 }
 
+interface PendingRedemption {
+  readonly invitationId: string;
+  readonly pending: {
+    readonly pendingDeviceId: string;
+    readonly verificationPhrase: string;
+  };
+}
+
+/** Creates and redeems an invitation, returning the joining device's code. */
+async function redeemPending(
+  app: ReturnType<typeof buildApp>,
+  ownerAccessToken: string,
+): Promise<PendingRedemption> {
+  const created = await createInvitation(app, ownerAccessToken);
+  const invitation = created.json() as {
+    invitationId: string;
+    invitationToken: string;
+  };
+  const redeem = await app.inject({
+    body: {
+      deviceLabel: 'Bob Laptop',
+      initialRefreshToken: generateRefreshToken(),
+      invitationToken: invitation.invitationToken,
+      redemptionId: randomUUID(),
+    },
+    method: 'POST',
+    url: '/invitations/redeem',
+  });
+  const pending = redeem.json() as {
+    pendingDeviceId: string;
+    verificationPhrase: string;
+  };
+  return { invitationId: invitation.invitationId, pending };
+}
+
+/** POSTs a verification code to the owner approve route. */
+function approveWith(
+  app: ReturnType<typeof buildApp>,
+  ownerAccessToken: string,
+  invitationId: string,
+  verificationPhrase: string,
+) {
+  return app.inject({
+    body: { verificationPhrase },
+    headers: { authorization: `Bearer ${ownerAccessToken}` },
+    method: 'POST',
+    url: `/vaults/${VAULT}/invitations/${invitationId}/approve`,
+  });
+}
+
+/** Produces a syntactically valid code guaranteed to differ from `code`. */
+function wrongCode(code: string): string {
+  const tokens = code.split(' ');
+  const wrongFirst = tokens[0] === 'amber-fox' ? 'aqua-bear' : 'amber-fox';
+  return [wrongFirst, ...tokens.slice(1)].join(' ');
+}
+
 afterEach(async () => {
   await Promise.all(applications.splice(0).map(async (app) => app.close()));
   for (const database of databases.splice(0)) {
@@ -378,44 +435,127 @@ describe('onboarding HTTP surface', () => {
     expect(second.statusCode).toBe(409);
   });
 
-  it('discards the pending device and issues no token on a phrase mismatch (403)', async () => {
+  it('keeps the pending device and reports remaining attempts on a wrong code (403)', async () => {
     const fixture = makeFixture();
     const app = createApp(fixture);
-    const created = await createInvitation(app, fixture.ownerAccessToken);
-    const invitation = created.json() as {
-      invitationId: string;
-      invitationToken: string;
-    };
-    const redeem = await app.inject({
-      body: {
-        deviceLabel: 'Bob Laptop',
-        initialRefreshToken: generateRefreshToken(),
-        invitationToken: invitation.invitationToken,
-        redemptionId: randomUUID(),
-      },
-      method: 'POST',
-      url: '/invitations/redeem',
-    });
-    const pending = redeem.json() as {
-      pendingDeviceId: string;
-      verificationPhrase: string;
-    };
-    const tokens = pending.verificationPhrase.split(' ');
-    const wrongFirst = tokens[0] === 'amber-fox' ? 'aqua-bear' : 'amber-fox';
-    const wrongPhrase = [wrongFirst, ...tokens.slice(1)].join(' ');
+    const { invitationId, pending } = await redeemPending(
+      app,
+      fixture.ownerAccessToken,
+    );
 
-    const approve = await app.inject({
-      body: { verificationPhrase: wrongPhrase },
-      headers: { authorization: `Bearer ${fixture.ownerAccessToken}` },
-      method: 'POST',
-      url: `/vaults/${VAULT}/invitations/${invitation.invitationId}/approve`,
-    });
+    const approve = await approveWith(
+      app,
+      fixture.ownerAccessToken,
+      invitationId,
+      wrongCode(pending.verificationPhrase),
+    );
     expect(approve.statusCode).toBe(403);
+    expect(approve.json()).toEqual({
+      error: { attemptsRemaining: 2, code: 'PHRASE_MISMATCH' },
+    });
 
+    // A single typo must not kill the flow: the device is still pending.
     const device = fixture.database
-      .prepare('SELECT id FROM devices WHERE id = ?')
-      .get(pending.pendingDeviceId);
-    expect(device).toBeUndefined();
+      .prepare('SELECT status FROM devices WHERE id = ?')
+      .get(pending.pendingDeviceId) as { status: string } | undefined;
+    expect(device?.status).toBe('pending');
+  });
+
+  it('locks the pending device after three wrong codes and blocks further approval', async () => {
+    const fixture = makeFixture();
+    const app = createApp(fixture);
+    const { invitationId, pending } = await redeemPending(
+      app,
+      fixture.ownerAccessToken,
+    );
+    const wrong = wrongCode(pending.verificationPhrase);
+
+    const first = await approveWith(app, fixture.ownerAccessToken, invitationId, wrong);
+    expect(first.json()).toEqual({
+      error: { attemptsRemaining: 2, code: 'PHRASE_MISMATCH' },
+    });
+    const second = await approveWith(app, fixture.ownerAccessToken, invitationId, wrong);
+    expect(second.json()).toEqual({
+      error: { attemptsRemaining: 1, code: 'PHRASE_MISMATCH' },
+    });
+    // The third wrong code locks the attempt out.
+    const third = await approveWith(app, fixture.ownerAccessToken, invitationId, wrong);
+    expect(third.statusCode).toBe(403);
+    expect(third.json()).toEqual({ error: { code: 'APPROVAL_LOCKED' } });
+
+    // The device is gone and cannot be brute-forced further — even the correct
+    // code no longer approves; a fresh invitation is required.
+    expect(
+      fixture.database
+        .prepare('SELECT id FROM devices WHERE id = ?')
+        .get(pending.pendingDeviceId),
+    ).toBeUndefined();
+    const afterLock = await approveWith(
+      app,
+      fixture.ownerAccessToken,
+      invitationId,
+      pending.verificationPhrase,
+    );
+    expect(afterLock.statusCode).toBe(409);
+  });
+
+  it('approves when the correct code is entered on the second attempt', async () => {
+    const fixture = makeFixture();
+    const app = createApp(fixture);
+    const { invitationId, pending } = await redeemPending(
+      app,
+      fixture.ownerAccessToken,
+    );
+
+    const wrong = await approveWith(
+      app,
+      fixture.ownerAccessToken,
+      invitationId,
+      wrongCode(pending.verificationPhrase),
+    );
+    expect(wrong.statusCode).toBe(403);
+
+    const correct = await approveWith(
+      app,
+      fixture.ownerAccessToken,
+      invitationId,
+      pending.verificationPhrase,
+    );
+    expect(correct.statusCode).toBe(200);
+    expect(correct.json()).toMatchObject({
+      deviceId: pending.pendingDeviceId,
+      status: 'approved',
+    });
+    const device = fixture.database
+      .prepare('SELECT status FROM devices WHERE id = ?')
+      .get(pending.pendingDeviceId) as { status: string };
+    expect(device.status).toBe('approved');
+  });
+
+  it('never returns the verification code to the owner (create or approve body)', async () => {
+    const fixture = makeFixture();
+    const app = createApp(fixture);
+
+    const created = await createInvitation(app, fixture.ownerAccessToken);
+    const createdBody = JSON.stringify(created.json());
+    // The owner mints the invitation but must never receive the derived code.
+    expect(createdBody).not.toContain('verificationPhrase');
+    expect(createdBody).not.toContain('verification_secret');
+
+    const { invitationId, pending } = await redeemPending(
+      app,
+      fixture.ownerAccessToken,
+    );
+    const approve = await approveWith(
+      app,
+      fixture.ownerAccessToken,
+      invitationId,
+      pending.verificationPhrase,
+    );
+    const approveBody = JSON.stringify(approve.json());
+    expect(approve.statusCode).toBe(200);
+    expect(approveBody).not.toContain('verificationPhrase');
+    expect(approveBody).not.toContain(pending.verificationPhrase);
   });
 
   it('requires owner authentication to generate an invitation', async () => {

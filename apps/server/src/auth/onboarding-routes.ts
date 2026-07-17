@@ -34,10 +34,12 @@ export interface OnboardingRoutesDeps {
 
 /** Stable, secret-free machine error code for the onboarding surface. */
 type OnboardingErrorCode =
+  | 'APPROVAL_LOCKED'
   | 'FORBIDDEN'
   | 'GONE'
   | 'INVALID_REQUEST'
   | 'NOT_FOUND'
+  | 'PHRASE_MISMATCH'
   | 'REDEEMED'
   | 'UNAUTHENTICATED';
 
@@ -135,7 +137,13 @@ function sendInvitationError(reply: FastifyReply, error: unknown): FastifyReply 
   if (error instanceof InvitationError) {
     reply.header('cache-control', 'no-store');
     const code = ONBOARDING_CODE_BY_INVITATION[error.code];
-    reply.code(error.httpStatus).send({ error: { code } });
+    // attemptsRemaining is non-secret guidance for the owner's retry UI (how
+    // many code attempts are left); it never carries the code itself.
+    const body =
+      error.attemptsRemaining === undefined
+        ? { error: { code } }
+        : { error: { attemptsRemaining: error.attemptsRemaining, code } };
+    reply.code(error.httpStatus).send(body);
     return reply;
   }
   return sendError(reply, 500, 'INVALID_REQUEST');
@@ -144,13 +152,14 @@ function sendInvitationError(reply: FastifyReply, error: unknown): FastifyReply 
 const ONBOARDING_CODE_BY_INVITATION: Readonly<
   Record<InvitationError['code'], OnboardingErrorCode>
 > = {
+  APPROVAL_LOCKED: 'APPROVAL_LOCKED',
   INVALID_INPUT: 'INVALID_REQUEST',
   INVALID_INVITATION: 'NOT_FOUND',
   INVITATION_ALREADY_REDEEMED: 'REDEEMED',
   INVITATION_EXPIRED: 'GONE',
   NO_PENDING_DEVICE: 'REDEEMED',
   NOT_AUTHORIZED: 'FORBIDDEN',
-  PHRASE_MISMATCH: 'FORBIDDEN',
+  PHRASE_MISMATCH: 'PHRASE_MISMATCH',
   REPOSITORY_INTEGRITY: 'INVALID_REQUEST',
 };
 

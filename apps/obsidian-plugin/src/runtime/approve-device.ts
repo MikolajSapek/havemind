@@ -29,13 +29,34 @@ export interface ApprovedDevice {
   readonly status: 'approved';
 }
 
-export class ApproveDeviceError extends Error {
-  override readonly name = 'ApproveDeviceError';
+export interface ApproveDeviceErrorOptions {
+  /** How many code attempts remain before the invitation locks (wrong-code only). */
+  readonly attemptsRemaining?: number;
+  /** True once the invitation is locked and a fresh one must be minted. */
+  readonly locked?: boolean;
 }
 
+export class ApproveDeviceError extends Error {
+  override readonly name = 'ApproveDeviceError';
+  /** Attempts left after a wrong code, when the server reported it. */
+  readonly attemptsRemaining?: number;
+  /** True when the invitation is now locked (too many wrong codes). */
+  readonly locked: boolean;
+
+  constructor(message: string, options: ApproveDeviceErrorOptions = {}) {
+    super(message);
+    this.locked = options.locked ?? false;
+    if (options.attemptsRemaining !== undefined) {
+      this.attemptsRemaining = options.attemptsRemaining;
+    }
+  }
+}
+
+const LOCKED_MESSAGE =
+  'Too many incorrect codes. This invitation is now invalid — create a new one.';
+
 const MESSAGE_BY_CODE: Readonly<Record<string, string>> = {
-  FORBIDDEN:
-    'The phrase does not match this pending device, or you are not the owner.',
+  FORBIDDEN: 'You are not the owner of this vault, so you cannot approve here.',
   NOT_FOUND: 'No pending device is waiting for this invitation.',
   REDEEMED: 'This invitation has no device awaiting approval.',
   GONE: 'This invitation has expired. Create a new one.',
@@ -57,7 +78,7 @@ export async function approveRedeemedDevice(
   });
 
   if (response.status < 200 || response.status >= 300) {
-    throw new ApproveDeviceError(describeFailure(response.status, response.json));
+    throw describeFailure(response.status, response.json);
   }
 
   const json = response.json;
@@ -78,15 +99,35 @@ export async function approveRedeemedDevice(
   };
 }
 
-function describeFailure(status: number, json: unknown): string {
-  const code =
-    isRecord(json) && isRecord(json.error) && typeof json.error.code === 'string'
-      ? json.error.code
+/**
+ * Maps a secret-free error body to a user-facing message. A wrong code carries
+ * how many attempts remain (from the server-authoritative counter); the code
+ * itself is never interpolated into the message.
+ */
+function describeFailure(status: number, json: unknown): ApproveDeviceError {
+  const error = isRecord(json) && isRecord(json.error) ? json.error : undefined;
+  const code = typeof error?.code === 'string' ? error.code : undefined;
+  const attemptsRemaining =
+    typeof error?.attemptsRemaining === 'number'
+      ? error.attemptsRemaining
       : undefined;
-  if (code !== undefined && MESSAGE_BY_CODE[code] !== undefined) {
-    return MESSAGE_BY_CODE[code];
+
+  if (code === 'PHRASE_MISMATCH') {
+    const remaining = attemptsRemaining ?? 0;
+    const plural = remaining === 1 ? 'attempt' : 'attempts';
+    return new ApproveDeviceError(
+      `Incorrect code — ${remaining} ${plural} left.`,
+      { attemptsRemaining: remaining },
+    );
   }
-  return `Approval returned HTTP ${status}.`;
+  if (code === 'APPROVAL_LOCKED') {
+    return new ApproveDeviceError(LOCKED_MESSAGE, { locked: true });
+  }
+  const known = code === undefined ? undefined : MESSAGE_BY_CODE[code];
+  if (known !== undefined) {
+    return new ApproveDeviceError(known);
+  }
+  return new ApproveDeviceError(`Approval returned HTTP ${status}.`);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

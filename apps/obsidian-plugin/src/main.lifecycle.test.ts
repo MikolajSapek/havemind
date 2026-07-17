@@ -420,7 +420,64 @@ describe('plugin lifecycle', () => {
     expect(approvals).toEqual([]);
     expect(
       flatten(row as MockElement).some(
-        ({ text }) => text === 'Enter the phrase you heard, then approve.',
+        ({ text }) => text === 'Enter the code you heard, then approve.',
+      ),
+    ).toBe(true);
+  });
+
+  it('shows the owner a code input and never the code itself in the waiting row', async () => {
+    const view = new HavemindOnboardingView(new WorkspaceLeaf(), {
+      composerProvider: () => ({
+        role: 'editor',
+        name: '',
+        invitation: null,
+        pending: [
+          {
+            invitationId: 'id-1',
+            expiresAt: '2026-07-16T10:15:00.000Z',
+            intendedMemberDisplayName: 'Magda',
+          },
+        ],
+      }),
+    });
+    await view.onOpen();
+
+    const content = (view.containerEl as unknown as MockElement).children[1];
+    const row = flatten(content as MockElement).find(({ classes }) =>
+      classes.includes('havemind-pending-row'),
+    );
+    const cells = flatten(row as MockElement);
+    // The owner types the code in — an input exists, prompting for the code.
+    expect(cells.some(({ tag }) => tag === 'input')).toBe(true);
+    expect(
+      cells.some(({ text }) => text === 'Enter the code your peer reads to you'),
+    ).toBe(true);
+    // The row must NOT surface any verification code (owner never sees it).
+    expect(cells.some(({ classes }) =>
+      classes.includes('havemind-verification-phrase'),
+    )).toBe(false);
+  });
+
+  it('shows the invitee the code with read-aloud guidance', async () => {
+    const view = new HavemindOnboardingView(new WorkspaceLeaf(), {
+      guestWaitingProvider: () => ({ verificationPhrase: '7 tiger lamp' }),
+      onConnect: () => undefined,
+    });
+    await view.onOpen();
+
+    const all = flatten(view.containerEl as unknown as MockElement);
+    // The code is shown prominently to the joining device only…
+    expect(
+      all.some(
+        ({ text, classes }) =>
+          text === '7 tiger lamp' &&
+          classes.includes('havemind-verification-phrase'),
+      ),
+    ).toBe(true);
+    // …with guidance to read it to the vault owner.
+    expect(
+      all.some(({ text }) =>
+        text === 'Read this code to the vault owner to approve this device:',
       ),
     ).toBe(true);
   });

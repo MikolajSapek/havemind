@@ -43,6 +43,7 @@ function hasControlCharacter(value: string): boolean {
 }
 
 export type InvitationErrorCode =
+  | 'APPROVAL_LOCKED'
   | 'INVALID_INPUT'
   | 'INVALID_INVITATION'
   | 'INVITATION_ALREADY_REDEEMED'
@@ -53,17 +54,20 @@ export type InvitationErrorCode =
   | 'REPOSITORY_INTEGRITY';
 
 const ERROR_MESSAGES: Readonly<Record<InvitationErrorCode, string>> = {
+  APPROVAL_LOCKED:
+    'Too many incorrect verification attempts; the invitation is now locked.',
   INVALID_INPUT: 'Invalid invitation input.',
   INVALID_INVITATION: 'Invalid invitation.',
   INVITATION_ALREADY_REDEEMED: 'The invitation was already redeemed.',
   INVITATION_EXPIRED: 'The invitation has expired.',
   NO_PENDING_DEVICE: 'No pending device awaits approval.',
   NOT_AUTHORIZED: 'The membership may not perform this action.',
-  PHRASE_MISMATCH: 'The verification phrase did not match.',
+  PHRASE_MISMATCH: 'The verification code did not match.',
   REPOSITORY_INTEGRITY: 'Stored invitation state is invalid.',
 };
 
 const ERROR_HTTP_STATUS: Readonly<Record<InvitationErrorCode, number>> = {
+  APPROVAL_LOCKED: 403,
   INVALID_INPUT: 400,
   INVALID_INVITATION: 404,
   INVITATION_ALREADY_REDEEMED: 409,
@@ -74,14 +78,24 @@ const ERROR_HTTP_STATUS: Readonly<Record<InvitationErrorCode, number>> = {
   REPOSITORY_INTEGRITY: 500,
 };
 
+/** Non-secret detail an error may carry alongside its code (never a secret). */
+export interface InvitationErrorDetails {
+  /** How many code attempts remain before the invitation locks (mismatch only). */
+  readonly attemptsRemaining?: number;
+}
+
 /** A deliberately secret-free invitation error safe to log or serialize. */
 export class InvitationError extends Error {
   public readonly code: InvitationErrorCode;
+  public readonly attemptsRemaining?: number;
 
-  public constructor(code: InvitationErrorCode) {
+  public constructor(code: InvitationErrorCode, details: InvitationErrorDetails = {}) {
     super(ERROR_MESSAGES[code]);
     this.name = 'InvitationError';
     this.code = code;
+    if (details.attemptsRemaining !== undefined) {
+      this.attemptsRemaining = details.attemptsRemaining;
+    }
   }
 
   public get httpStatus(): number {
@@ -92,10 +106,25 @@ export class InvitationError extends Error {
     name: string;
     code: InvitationErrorCode;
     message: string;
+    attemptsRemaining?: number;
   }> {
-    return { code: this.code, message: this.message, name: this.name };
+    return {
+      code: this.code,
+      message: this.message,
+      name: this.name,
+      ...(this.attemptsRemaining === undefined
+        ? {}
+        : { attemptsRemaining: this.attemptsRemaining }),
+    };
   }
 }
+
+/**
+ * The owner may try the code a bounded number of times before the pending
+ * device is locked out — a server-authoritative brute-force ceiling. A fresh
+ * invitation is required after a lockout.
+ */
+export const MAX_APPROVAL_ATTEMPTS = 3;
 
 export interface InvitationServiceOptions {
   readonly accessTokenTtlSeconds?: number;
@@ -211,6 +240,11 @@ type ApproveOutcome =
   | { readonly kind: 'mismatch' }
   | { readonly kind: 'ok'; readonly result: ApprovePendingDeviceResult };
 
+type RedeemedApproveOutcome =
+  | { readonly kind: 'mismatch'; readonly attemptsRemaining: number }
+  | { readonly kind: 'locked' }
+  | { readonly kind: 'ok'; readonly result: ApproveRedeemedDeviceResult };
+
 interface InvitationRow {
   readonly id: string;
   readonly vaultId: string;
@@ -225,6 +259,7 @@ interface InvitationRow {
   readonly intendedMemberId: string | null;
   readonly pendingCredentialHash: string | null;
   readonly pendingRefreshTokenHash: string | null;
+  readonly approvalAttempts: number;
 }
 
 interface OwnerMembershipRow {
@@ -830,7 +865,7 @@ export class InvitationService {
     const now = readClock(this.#now);
     const approvedAt = now.toISOString();
 
-    const approve = this.#database.transaction((): ApproveOutcome => {
+    const approve = this.#database.transaction((): RedeemedApproveOutcome => {
       const invitation = this.#loadInvitationById(invitationId);
       this.#requireOwnerMembership(approverMembershipId, invitation.vaultId);
 
@@ -861,9 +896,26 @@ export class InvitationService {
         },
       );
       if (suppliedPhrase !== expectedPhrase) {
-        this.#deletePendingUser(pendingUserId);
-        return { kind: 'mismatch' };
+        // The counter is authoritative on the server; a client cannot bypass it.
+        const attempts = invitation.approvalAttempts + 1;
+        if (attempts >= MAX_APPROVAL_ATTEMPTS) {
+          // Lockout: burn the pending device so the code cannot be guessed
+          // further. The owner must mint a fresh invitation to retry.
+          this.#recordApprovalAttempts(invitation.id, attempts);
+          this.#deletePendingUser(pendingUserId);
+          return { kind: 'locked' };
+        }
+        // Keep the pending device so the owner can retry after a typo, and
+        // report how many attempts remain.
+        this.#recordApprovalAttempts(invitation.id, attempts);
+        return {
+          attemptsRemaining: MAX_APPROVAL_ATTEMPTS - attempts,
+          kind: 'mismatch',
+        };
       }
+
+      // A correct code clears the counter for good hygiene before approval.
+      this.#recordApprovalAttempts(invitation.id, 0);
 
       const approved = this.#database
         .prepare(
@@ -901,20 +953,22 @@ export class InvitationService {
       return {
         kind: 'ok',
         result: {
-          accessExpiresAt: '',
-          accessToken: '' as AccessToken,
           deviceId: pendingDeviceId,
           familyId: family.familyId,
           membershipId,
-          refreshExpiresAt: family.refreshExpiresAt,
           userId: pendingUserId,
         },
       };
     });
 
     const outcome = approve.immediate();
+    if (outcome.kind === 'locked') {
+      throw new InvitationError('APPROVAL_LOCKED');
+    }
     if (outcome.kind === 'mismatch') {
-      throw new InvitationError('PHRASE_MISMATCH');
+      throw new InvitationError('PHRASE_MISMATCH', {
+        attemptsRemaining: outcome.attemptsRemaining,
+      });
     }
     return {
       deviceId: outcome.result.deviceId,
@@ -922,6 +976,12 @@ export class InvitationService {
       membershipId: outcome.result.membershipId,
       userId: outcome.result.userId,
     };
+  }
+
+  #recordApprovalAttempts(invitationId: string, attempts: number): void {
+    this.#database
+      .prepare('UPDATE invitations SET approval_attempts = ? WHERE id = ?')
+      .run(attempts, invitationId);
   }
 
   #loadInvitationByHash(tokenHash: string): InvitationRow {
@@ -1020,6 +1080,7 @@ const INVITATION_SELECT = `
          intended_member_display_name AS intendedMemberDisplayName,
          intended_member_id AS intendedMemberId,
          pending_credential_hash AS pendingCredentialHash,
-         pending_refresh_token_hash AS pendingRefreshTokenHash
+         pending_refresh_token_hash AS pendingRefreshTokenHash,
+         approval_attempts AS approvalAttempts
   FROM invitations
 `;

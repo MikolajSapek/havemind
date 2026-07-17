@@ -25,6 +25,7 @@ import {
   type ConnectionHandle,
 } from './runtime/obsidian-adapters';
 import type { CreatedInvitation } from './runtime/create-invitation';
+import { ApproveDeviceError } from './runtime/approve-device';
 import {
   browserClipboardCopyDeps,
   copyTextToClipboard,
@@ -313,7 +314,7 @@ export class HavemindOnboardingView extends ItemView {
     setIcon(row.createEl('span'), 'loader');
     row.createEl('span', { text: ' Waiting for the other device to approve…' });
     content.createDiv({
-      text: 'Read this phrase aloud to the owner so they can approve this device:',
+      text: 'Read this code to the vault owner to approve this device:',
     });
     const phrase = content.createDiv({ text: model.verificationPhrase });
     phrase.addClass('havemind-verification-phrase');
@@ -469,12 +470,15 @@ export class HavemindOnboardingView extends ItemView {
     row.createEl('span', {
       text: ` ${entry.intendedMemberDisplayName ?? 'Pending device'} · expires ${entry.expiresAt}`,
     });
+    // The owner never sees the code: they type in what the joining device
+    // reads aloud, so the human read-aloud check is meaningful (rule: the code
+    // travels only over the out-of-band voice channel).
     row.createEl('label', {
-      text: 'Verification phrase (read aloud by the joining device)',
+      text: 'Enter the code your peer reads to you',
     });
     const phraseInput = row.createEl('input', {
       type: 'text',
-      placeholder: 'three short words',
+      placeholder: 'e.g. amber-fox blue-otter …',
     });
     const status = row.createDiv({ text: '' });
     const approve = row.createEl('button', { text: 'Approve' });
@@ -482,10 +486,12 @@ export class HavemindOnboardingView extends ItemView {
     approve.onClickEvent(() => {
       const phrase = phraseInput.value.trim();
       if (phrase.length === 0) {
-        status.setText('Enter the phrase you heard, then approve.');
+        status.setText('Enter the code you heard, then approve.');
         return;
       }
       status.setText('Approving…');
+      // The row is not re-rendered on a wrong code, so the input keeps its
+      // value and focus and the owner can simply correct the code and retry.
       this.options.onApprove?.(entry.invitationId, phrase, (message) =>
         status.setText(message),
       );
@@ -671,6 +677,24 @@ export default class HavemindPlugin extends Plugin {
       // (invitation + role/name) fully alive.
       this.onboardingView?.refresh();
     } catch (error) {
+      if (error instanceof ApproveDeviceError && error.locked) {
+        // The invitation is spent after too many wrong codes: drop its waiting
+        // row and point the owner back to Create invitation.
+        this.pendingApprovals = this.pendingApprovals.filter(
+          (entry) => entry.invitationId !== invitationId,
+        );
+        this.connectionNotice =
+          'This invitation is now invalid. Create a new one above to try again.';
+        report(error.message);
+        this.onboardingView?.refresh();
+        return;
+      }
+      if (error instanceof ApproveDeviceError) {
+        // A wrong code (or other approval error): keep the row so the owner can
+        // retry in place, and surface the "N attempts left" message inline.
+        report(error.message);
+        return;
+      }
       report(
         `Could not approve: ${
           error instanceof Error ? error.message : 'unexpected error'
