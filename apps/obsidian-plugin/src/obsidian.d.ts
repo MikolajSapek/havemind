@@ -37,6 +37,10 @@ declare module 'obsidian' {
     extension: string;
   }
 
+  export class Notice {
+    constructor(message: string, timeout?: number);
+  }
+
   export interface Vault {
     getAbstractFileByPath(path: string): TAbstractFile | null;
     getMarkdownFiles(): TFile[];

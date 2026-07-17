@@ -26,11 +26,36 @@ export interface PushRevision {
   readonly revisionId: string;
   readonly fileId: string;
   readonly contentHash: string;
+  /**
+   * Decoded payload byte length. Drives size-bounded push batching so a single
+   * large revision is isolated into its own request and can never wedge a whole
+   * multi-item batch. Optional; treated as 0 (best-effort batching) when unknown.
+   */
+  readonly payloadBytes?: number;
 }
 
 export interface PushReceipt {
   readonly revisionId: string;
   readonly serverSequence: number;
+}
+
+/**
+ * The per-revision outcome the opaque server reports for one pushed revision.
+ * Returning a result per revision (instead of aborting the whole batch on the
+ * first failure) is what lets the runner record the accepted prefix and isolate
+ * a single poison revision, so one bad file never blocks every other file.
+ */
+export interface PushItemResult {
+  readonly revisionId: string;
+  readonly outcome: 'accepted' | 'rejected';
+  /** Present when `outcome === 'accepted'`. */
+  readonly receipt?: PushReceipt;
+  /**
+   * Present when `outcome === 'rejected'`: `true` means the revision will never
+   * be accepted on a blind retry (quarantine it); `false`/absent means a
+   * transient rejection that should be retried after the next pull.
+   */
+  readonly permanent?: boolean;
 }
 
 export interface PullResult {
@@ -44,7 +69,7 @@ export interface PullResult {
  * events.
  */
 export interface SyncTransport {
-  push(revisions: readonly PushRevision[]): Promise<readonly PushReceipt[]>;
+  push(revisions: readonly PushRevision[]): Promise<readonly PushItemResult[]>;
   pull(after: number): Promise<PullResult>;
 }
 
@@ -61,6 +86,13 @@ export interface SyncStatePort {
   listOutbox(): Promise<readonly PushRevision[]>;
   /** Remove a pushed revision from the outbox and remember local authorship. */
   recordPushReceipt(receipt: PushReceipt): Promise<void>;
+  /**
+   * Dead-letter a poison revision: remove it from the outbox and record it as a
+   * visible, durable failure. Used when the server permanently rejects a
+   * revision (or a single-item request permanently fails), so one bad file can
+   * never block the rest of the outbox and can never trigger an infinite retry.
+   */
+  quarantineOutboxItem(revisionId: string, reason: string): Promise<void>;
   /** Echo suppression: was this revision authored by this device? */
   isLocallyAuthored(revisionId: string): Promise<boolean>;
 }
@@ -111,6 +143,15 @@ export interface SyncRunnerOptions {
   readonly baseBackoffMs?: number;
   /** Upper bound on the backoff ceiling. */
   readonly maxBackoffMs?: number;
+  /**
+   * Byte budget for one push request. The outbox is drained in sub-batches that
+   * stay under this budget so a single large revision is isolated into its own
+   * request and cannot wedge a whole multi-item batch. Defaults to the server's
+   * 512 KiB per-payload ceiling.
+   */
+  readonly maxPushBatchBytes?: number;
+  /** Maximum revisions in one push request; defaults to the server's 64. */
+  readonly maxPushBatchItems?: number;
 }
 
 export type SyncCycleStatus =
@@ -127,12 +168,18 @@ export interface SyncCycleResult {
   readonly suppressed: number;
   readonly conflicts: number;
   readonly deferred: number;
+  /** Revisions dead-lettered this cycle (permanent push failure). */
+  readonly quarantined: number;
 }
 
 type RemoteApplyDecision = 'apply' | 'conflict' | 'defer';
 
 const DEFAULT_BASE_BACKOFF_MS = 5000;
 const DEFAULT_MAX_BACKOFF_MS = 60_000;
+/** Mirrors the server's per-payload ceiling so a sub-batch never overflows it. */
+const DEFAULT_MAX_PUSH_BATCH_BYTES = 512 * 1024;
+/** Mirrors the server's DEFAULT_MAX_BATCH_SIZE. */
+const DEFAULT_MAX_PUSH_BATCH_ITEMS = 64;
 
 /**
  * Decides how to handle a remote event given the open editor buffers for its
@@ -165,7 +212,14 @@ export function decideRemoteApply(
 
 export class SyncRunner {
   private readonly options: Required<
-    Pick<SyncRunnerOptions, 'baseBackoffMs' | 'maxBackoffMs' | 'random'>
+    Pick<
+      SyncRunnerOptions,
+      | 'baseBackoffMs'
+      | 'maxBackoffMs'
+      | 'random'
+      | 'maxPushBatchBytes'
+      | 'maxPushBatchItems'
+    >
   > &
     SyncRunnerOptions;
 
@@ -178,6 +232,8 @@ export class SyncRunner {
       baseBackoffMs: options.baseBackoffMs ?? DEFAULT_BASE_BACKOFF_MS,
       maxBackoffMs: options.maxBackoffMs ?? DEFAULT_MAX_BACKOFF_MS,
       random: options.random ?? Math.random,
+      maxPushBatchBytes: options.maxPushBatchBytes ?? DEFAULT_MAX_PUSH_BATCH_BYTES,
+      maxPushBatchItems: options.maxPushBatchItems ?? DEFAULT_MAX_PUSH_BATCH_ITEMS,
       ...options,
     };
   }
@@ -211,14 +267,15 @@ export class SyncRunner {
 
   private async runCycle(): Promise<SyncCycleResult> {
     try {
-      const pushed = await this.runPush();
+      const push = await this.runPush();
       const apply = await this.runPull();
       this.failureCount = 0;
       return {
         applied: apply.applied,
         conflicts: apply.conflicts,
         deferred: apply.deferred,
-        pushed,
+        pushed: push.pushed,
+        quarantined: push.quarantined,
         status: apply.status,
         suppressed: apply.suppressed,
       };
@@ -236,26 +293,119 @@ export class SyncRunner {
         conflicts: 0,
         deferred: 0,
         pushed: 0,
+        quarantined: 0,
         status,
         suppressed: 0,
       };
     }
   }
 
-  private async runPush(): Promise<number> {
+  /**
+   * Drains the outbox in size-bounded sub-batches and reconciles each per-item
+   * result. A permanently rejected revision is dead-lettered (quarantined) so it
+   * can never block other files or trigger an infinite retry; a transient
+   * rejection is left in the outbox to retry after the next pull. A whole-request
+   * permanent failure is isolated to a single item and quarantined; a transient
+   * transport failure is re-thrown so the cycle backs off offline as before.
+   */
+  private async runPush(): Promise<{ pushed: number; quarantined: number }> {
     const outbox = await this.options.state.listOutbox();
     if (outbox.length === 0) {
-      return 0;
+      return { pushed: 0, quarantined: 0 };
     }
 
-    const receipts = await this.options.transport.push(outbox);
-    for (const receipt of receipts) {
-      await this.options.state.recordPushReceipt(receipt);
+    // A work queue so a multi-item batch that fails permanently can be split into
+    // singletons and re-tried this same cycle to isolate the poison revision.
+    const queue = this.planPushBatches(outbox);
+    let pushed = 0;
+    let quarantined = 0;
+
+    for (let index = 0; index < queue.length; index += 1) {
+      const batch = queue[index];
+      if (batch === undefined || batch.length === 0) {
+        continue;
+      }
+
+      let results: readonly PushItemResult[];
+      try {
+        results = await this.options.transport.push(batch);
+      } catch (error) {
+        if (isAuthDenied(error)) {
+          throw error; // terminal: bubble to runCycle → 'unauthenticated'
+        }
+        if (isPermanentError(error)) {
+          if (batch.length === 1 && batch[0] !== undefined) {
+            await this.options.state.quarantineOutboxItem(
+              batch[0].revisionId,
+              permanentReason(error),
+            );
+            quarantined += 1;
+            continue;
+          }
+          // Can't attribute a multi-item permanent failure: split to isolate it.
+          for (const item of batch) {
+            queue.push([item]);
+          }
+          continue;
+        }
+        throw error; // transient: bubble to runCycle → 'offline' + backoff
+      }
+
+      for (const result of results) {
+        if (result.outcome === 'accepted' && result.receipt !== undefined) {
+          await this.options.state.recordPushReceipt(result.receipt);
+          pushed += 1;
+        } else if (result.outcome === 'rejected' && result.permanent === true) {
+          await this.options.state.quarantineOutboxItem(
+            result.revisionId,
+            'server-rejected',
+          );
+          quarantined += 1;
+        }
+        // A non-permanent rejection is left in the outbox to retry after a pull.
+      }
     }
-    return receipts.length;
+
+    return { pushed, quarantined };
   }
 
-  private async runPull(): Promise<Omit<SyncCycleResult, 'pushed'>> {
+  /**
+   * Groups the outbox into sub-batches that each stay under the byte and item
+   * budgets. A single revision larger than the byte budget still occupies its
+   * own batch (it is the first item, so no split fires), isolating it so a 4xx
+   * on that one request never wedges other files.
+   */
+  private planPushBatches(
+    outbox: readonly PushRevision[],
+  ): PushRevision[][] {
+    const maxBytes = this.options.maxPushBatchBytes;
+    const maxItems = this.options.maxPushBatchItems;
+    const batches: PushRevision[][] = [];
+    let current: PushRevision[] = [];
+    let currentBytes = 0;
+
+    for (const item of outbox) {
+      const bytes = item.payloadBytes ?? 0;
+      const wouldOverflow =
+        current.length > 0 &&
+        (current.length >= maxItems || currentBytes + bytes > maxBytes);
+      if (wouldOverflow) {
+        batches.push(current);
+        current = [];
+        currentBytes = 0;
+      }
+      current.push(item);
+      currentBytes += bytes;
+    }
+    if (current.length > 0) {
+      batches.push(current);
+    }
+    return batches;
+  }
+
+  private async runPull(): Promise<
+    Omit<SyncCycleResult, 'pushed' | 'quarantined'>
+  > {
     let cursor = await this.options.state.loadCursor();
     const { events } = await this.options.transport.pull(cursor);
     const ordered = [...events].sort(
@@ -348,6 +498,28 @@ function isAuthDenied(error: unknown): boolean {
     error !== null &&
     (error as { authDenied?: unknown }).authDenied === true
   );
+}
+
+/**
+ * A transport error is permanent (a 4xx the same bytes will never satisfy —
+ * e.g. 413 too large, 422 invalid batch, 400 bad request) when it carries
+ * `permanent === true`. Such a request must never be retried forever; the
+ * offending revision is quarantined instead. Structural check keeps the runner
+ * decoupled from the concrete error classes.
+ */
+function isPermanentError(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    (error as { permanent?: unknown }).permanent === true
+  );
+}
+
+function permanentReason(error: unknown): string {
+  if (error instanceof Error && error.message.length > 0) {
+    return error.message;
+  }
+  return 'permanent-http-error';
 }
 
 function resolveStatus(counts: {

@@ -49,6 +49,41 @@ export interface BuildRevisionEnvelopeInput {
   /** Note content, or `null` for a delete tombstone. */
   readonly content: string | null;
   readonly idempotencyKey: string;
+  /**
+   * Reject (rather than build) an envelope whose payload exceeds this many
+   * bytes. This is the real effective ceiling the server enforces per payload,
+   * so a note too large to ever be accepted is caught here — before it can be
+   * enqueued and silently wedge the whole outbox. Defaults to
+   * {@link DEFAULT_MAX_REVISION_PAYLOAD_BYTES}.
+   */
+  readonly maxPayloadBytes?: number;
+}
+
+/**
+ * The server's per-payload ceiling (`DEFAULT_MAX_PAYLOAD_BYTES`). The payload is
+ * measured as the exact bytes the server stores, which is what its own limit
+ * checks — so a payload at or under this size is guaranteed to clear the
+ * per-payload gate.
+ */
+export const DEFAULT_MAX_REVISION_PAYLOAD_BYTES = 512 * 1024;
+
+/**
+ * Thrown by {@link buildRevisionEnvelope} when a change's payload exceeds the
+ * effective server limit. Surfacing this (instead of enqueuing) is what stops a
+ * single oversized note from permanently blocking every other file's sync.
+ */
+export class RevisionPayloadTooLargeError extends Error {
+  override readonly name = 'RevisionPayloadTooLargeError';
+
+  constructor(
+    readonly path: string,
+    readonly byteLength: number,
+    readonly maxByteLength: number,
+  ) {
+    super(
+      `Note "${path}" is too large to sync: ${byteLength} bytes exceeds the ${maxByteLength}-byte limit.`,
+    );
+  }
 }
 
 export interface BuiltRevisionEnvelope {
@@ -99,6 +134,19 @@ export async function buildRevisionEnvelope(
   const json = JSON.stringify(payload);
   const bytes = new TextEncoder().encode(json);
 
+  // Fail fast on an oversized payload: the server would reject these bytes with
+  // a 4xx that no retry can satisfy, so surface it here rather than enqueue a
+  // revision that would wedge the outbox forever.
+  const maxPayloadBytes =
+    input.maxPayloadBytes ?? DEFAULT_MAX_REVISION_PAYLOAD_BYTES;
+  if (bytes.byteLength > maxPayloadBytes) {
+    throw new RevisionPayloadTooLargeError(
+      path,
+      bytes.byteLength,
+      maxPayloadBytes,
+    );
+  }
+
   return {
     header,
     payloadBase64: bytesToBase64(bytes),
@@ -138,6 +186,16 @@ async function buildInnerPayload(
   }
   base.content = content;
   base.plaintextHash = await hashPlaintext(content);
+  // NOTE: this stores the content a second time inside the literal recipe part,
+  // so the payload carries the note twice. This duplication is NOT removable
+  // without a protocol change: `contentRevisionPayloadSchema` (revision-schema)
+  // requires BOTH a non-null `content` string AND a non-null `recipe`, and a
+  // literal recipe part must carry its own `text`. Dropping either field, or
+  // reconstructing `content` from the recipe alone, would break the peer decoder
+  // and the header/payload validation contract. Halving the payload therefore
+  // belongs to a future protocol revision, not this fix; the effective ceiling
+  // is instead raised by the pre-enqueue size guard above catching payloads that
+  // would be rejected. See revision-schema.ts contentRevisionPayloadSchema.
   base.recipe = buildLiteralRecipe(content);
   return base;
 }

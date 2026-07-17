@@ -15,7 +15,7 @@
 
 import type {
   PullResult,
-  PushReceipt,
+  PushItemResult,
   PushRevision,
   RemoteEvent,
   SyncTransport,
@@ -61,14 +61,48 @@ export class RequestUrlTransportError extends Error {
   /** True on HTTP 401 — the session was refused; the loop must stop, not retry. */
   readonly authDenied: boolean;
 
+  /**
+   * True on a whole-request 4xx the same bytes will never satisfy (400 bad
+   * request, 413 payload too large, 422 invalid batch). The runner quarantines
+   * the offending revision instead of retrying it forever. 5xx and network
+   * failures stay transient (this is false) and keep the retry-with-backoff path.
+   */
+  readonly permanent: boolean;
+
   constructor(
     readonly reason: 'unresolved-envelope' | 'http-status' | 'malformed-response',
     message: string,
-    options?: { authDenied?: boolean },
+    options?: { authDenied?: boolean; permanent?: boolean },
   ) {
     super(message);
     this.authDenied = options?.authDenied ?? false;
+    this.permanent = options?.permanent ?? false;
   }
+}
+
+/**
+ * Server error codes (returned per revision on a 200, or as the whole-request
+ * error code) that will never be satisfied by re-sending the identical bytes, so
+ * the runner dead-letters them. HEAD_SET_CHANGED and MISSING_PARENT are
+ * deliberately excluded — they are retryable once the client pulls the newer
+ * head or the missing parent lands, so they stay in the outbox.
+ */
+const PERMANENT_SYNC_CODES: ReadonlySet<string> = new Set([
+  'INVALID_REQUEST',
+  'INVALID_BATCH',
+  'FORBIDDEN',
+  'REVISION_ID_REUSE',
+  'CONFLICT',
+  'NOT_FOUND',
+]);
+
+function isPermanentSyncCode(code: unknown): boolean {
+  return typeof code === 'string' && PERMANENT_SYNC_CODES.has(code);
+}
+
+/** Whole-request HTTP statuses that will never succeed on a blind retry. */
+function isPermanentStatus(status: number): boolean {
+  return status === 400 || status === 413 || status === 422;
 }
 
 export class RequestUrlTransport implements SyncTransport {
@@ -80,7 +114,7 @@ export class RequestUrlTransport implements SyncTransport {
 
   async push(
     revisions: readonly PushRevision[],
-  ): Promise<readonly PushReceipt[]> {
+  ): Promise<readonly PushItemResult[]> {
     const payload = revisions.map((revision) => {
       const envelope = this.options.resolveEnvelope(revision.revisionId);
       if (envelope === undefined) {
@@ -136,7 +170,10 @@ export class RequestUrlTransport implements SyncTransport {
       throw new RequestUrlTransportError(
         'http-status',
         `Server returned HTTP ${response.status}.`,
-        { authDenied: response.status === 401 },
+        {
+          authDenied: response.status === 401,
+          permanent: isPermanentStatus(response.status),
+        },
       );
     }
     return response;
@@ -145,25 +182,44 @@ export class RequestUrlTransport implements SyncTransport {
 
 function parsePushResponse(
   response: RequestUrlResponseLike,
-): readonly PushReceipt[] {
+): readonly PushItemResult[] {
   const body = response.json;
   if (!isRecord(body) || !Array.isArray(body.results)) {
     throw malformed('push response missing results array');
   }
-  return body.results.map((result): PushReceipt => {
-    if (!isRecord(result) || !isRecord(result.receipt)) {
+  return body.results.map((result): PushItemResult => {
+    if (!isRecord(result) || typeof result.revisionId !== 'string') {
+      throw malformed('push result missing revisionId');
+    }
+    // A per-revision rejection carries a machine code but no receipt; classify
+    // it so the runner quarantines permanent failures and retries transient ones.
+    if (result.status === 'rejected') {
+      return {
+        revisionId: result.revisionId,
+        outcome: 'rejected',
+        permanent: isPermanentSyncCode(result.code),
+      };
+    }
+    if (!isRecord(result.receipt)) {
       throw malformed('push result missing receipt');
     }
-    const revisionId = result.receipt.revisionId;
+    const receiptRevisionId = result.receipt.revisionId;
     const serverSequence = result.receipt.serverSequence;
     if (
-      typeof revisionId !== 'string' ||
+      typeof receiptRevisionId !== 'string' ||
       !Number.isSafeInteger(serverSequence) ||
       (serverSequence as number) < 0
     ) {
       throw malformed('push receipt has invalid identity or sequence');
     }
-    return { revisionId, serverSequence: serverSequence as number };
+    return {
+      revisionId: result.revisionId,
+      outcome: 'accepted',
+      receipt: {
+        revisionId: receiptRevisionId,
+        serverSequence: serverSequence as number,
+      },
+    };
   });
 }
 

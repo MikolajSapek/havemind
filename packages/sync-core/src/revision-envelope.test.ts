@@ -6,7 +6,10 @@ import {
 } from '@havemind/protocol';
 
 import { decodeRevisionPayload } from './index';
-import { buildRevisionEnvelope } from './revision-envelope';
+import {
+  buildRevisionEnvelope,
+  RevisionPayloadTooLargeError,
+} from './revision-envelope';
 
 const IDENTITY = {
   vaultId: '11111111-1111-4111-8111-111111111111',
@@ -95,6 +98,23 @@ describe('buildRevisionEnvelope', () => {
     const decoded = decodeRevisionPayload(decodeBase64(envelope.payloadBase64));
     expect(decoded.operation).toBe('delete');
     expect(decoded.content).toBeNull();
+  });
+
+  it('rejects an oversized payload with RevisionPayloadTooLargeError instead of building it', async () => {
+    // A tiny explicit limit makes even a small note "too large", proving the
+    // guard fires before the envelope (and therefore the outbox) is built.
+    await expect(
+      buildRevisionEnvelope({
+        identity: IDENTITY,
+        revisionId: REVISION_A,
+        parentRevisionIds: [],
+        operation: 'create',
+        path: 'Notes/big.md',
+        content: 'This note is larger than the tiny limit under test.\n',
+        idempotencyKey: 'op-big',
+        maxPayloadBytes: 16,
+      }),
+    ).rejects.toBeInstanceOf(RevisionPayloadTooLargeError);
   });
 
   it('handles empty content without an invalid empty literal recipe', async () => {

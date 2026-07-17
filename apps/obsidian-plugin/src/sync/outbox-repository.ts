@@ -52,6 +52,14 @@ export interface OutboxLocalChangeRepositoryOptions {
   readonly store: ProducerStorePort;
   readonly enqueue: (envelope: OutboxEnvelope) => Promise<void>;
   readonly generateRevisionId: () => string;
+  /**
+   * Effective per-payload byte ceiling. A change whose payload would exceed it
+   * is rejected here — before enqueue — with a surfaced
+   * `RevisionPayloadTooLargeError`, so an oversized note can never silently wedge
+   * the outbox. Defaults to the sync-core default (the server's per-payload
+   * limit).
+   */
+  readonly maxPayloadBytes?: number;
 }
 
 const OPERATION_BY_KIND: Readonly<
@@ -86,6 +94,10 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
       const parentRevisionIds =
         envelopeOperation === 'create' || head === undefined ? [] : [head];
       const revisionId = this.options.generateRevisionId();
+      // buildRevisionEnvelope throws RevisionPayloadTooLargeError for an
+      // oversized change. It propagates out of commitLocalChange BEFORE the
+      // enqueue and the store.save below, so a too-large note is surfaced to the
+      // caller and never enters the outbox (no silent wedge, no state mutation).
       const built = await buildRevisionEnvelope({
         identity: {
           vaultId: this.options.identity.vaultId,
@@ -100,6 +112,9 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
         previousPath: operation.previousPath,
         content: operation.content,
         idempotencyKey: operation.operationId,
+        ...(this.options.maxPayloadBytes === undefined
+          ? {}
+          : { maxPayloadBytes: this.options.maxPayloadBytes }),
       });
 
       await this.options.enqueue({

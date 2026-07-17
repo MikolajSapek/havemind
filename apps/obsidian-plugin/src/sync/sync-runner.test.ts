@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   SyncRunner,
   type OpenBuffer,
+  type PushItemResult,
   type PushReceipt,
   type PushRevision,
   type RemoteApplyOutcome,
@@ -22,6 +23,7 @@ class FakeState implements SyncStatePort {
   cursor = 0;
   readonly outbox = new Map<string, PushRevision>();
   readonly authored = new Set<string>();
+  readonly quarantined = new Map<string, string>();
 
   constructor(seed?: {
     cursor?: number;
@@ -50,6 +52,11 @@ class FakeState implements SyncStatePort {
   async recordPushReceipt(receipt: PushReceipt): Promise<void> {
     this.outbox.delete(receipt.revisionId);
     this.authored.add(receipt.revisionId);
+  }
+
+  async quarantineOutboxItem(revisionId: string, reason: string): Promise<void> {
+    this.outbox.delete(revisionId);
+    this.quarantined.set(revisionId, reason);
   }
 
   async isLocallyAuthored(revisionId: string): Promise<boolean> {
@@ -127,8 +134,12 @@ describe('SyncRunner push', () => {
       outbox: [{ contentHash: 'h-a', fileId: 'file-a', revisionId: 'rev-a' }],
     });
     const push = vi.fn(
-      async (): Promise<readonly PushReceipt[]> => [
-        { revisionId: 'rev-a', serverSequence: 1 },
+      async (): Promise<readonly PushItemResult[]> => [
+        {
+          revisionId: 'rev-a',
+          outcome: 'accepted',
+          receipt: { revisionId: 'rev-a', serverSequence: 1 },
+        },
       ],
     );
     const { runner } = makeRunner({
@@ -148,7 +159,7 @@ describe('SyncRunner push', () => {
     // Simulates a process restart: the durable outbox is empty because the
     // revision was already pushed and recorded before the crash.
     const state = new FakeState({ authored: ['rev-a'], cursor: 0 });
-    const push = vi.fn(async (): Promise<readonly PushReceipt[]> => []);
+    const push = vi.fn(async (): Promise<readonly PushItemResult[]> => []);
     const { runner } = makeRunner({
       state,
       transport: { push, pull: vi.fn(async () => ({ cursor: 0, events: [] })) },
@@ -157,6 +168,151 @@ describe('SyncRunner push', () => {
     await runner.trigger();
 
     expect(push).not.toHaveBeenCalled();
+  });
+});
+
+describe('SyncRunner poison-item isolation', () => {
+  it('quarantines a permanently rejected item while the rest of the outbox drains, without infinite backoff', async () => {
+    // A 600 KB note and a small note share the outbox. The big note is isolated
+    // into its own request (byte budget) and the transport rejects it with a
+    // permanent 4xx; the small note commits. The bad item lands in quarantine
+    // and NO backoff retry is scheduled.
+    const state = new FakeState({
+      outbox: [
+        {
+          contentHash: 'h-big',
+          fileId: 'file-big',
+          revisionId: 'rev-big',
+          payloadBytes: 600 * 1024,
+        },
+        {
+          contentHash: 'h-small',
+          fileId: 'file-small',
+          revisionId: 'rev-small',
+          payloadBytes: 32,
+        },
+      ],
+    });
+    const push = vi.fn(
+      async (
+        revisions: readonly PushRevision[],
+      ): Promise<readonly PushItemResult[]> => {
+        if (revisions.some((revision) => revision.revisionId === 'rev-big')) {
+          // The server refused the oversized payload (e.g. 413/422).
+          throw Object.assign(new Error('Server returned HTTP 413.'), {
+            permanent: true,
+          });
+        }
+        return revisions.map((revision) => ({
+          revisionId: revision.revisionId,
+          outcome: 'accepted' as const,
+          receipt: { revisionId: revision.revisionId, serverSequence: 7 },
+        }));
+      },
+    );
+    const { runner, retries } = makeRunner({
+      state,
+      transport: { push, pull: vi.fn(async () => ({ cursor: 0, events: [] })) },
+      maxPushBatchBytes: 512 * 1024,
+    });
+
+    const result = await runner.trigger();
+
+    expect(result.pushed).toBe(1);
+    expect(result.quarantined).toBe(1);
+    // The small note synced; the big note is gone from the outbox…
+    expect([...state.outbox.keys()]).toEqual([]);
+    expect(state.authored.has('rev-small')).toBe(true);
+    // …and dead-lettered with a surfaced reason, not silently dropped.
+    expect(state.quarantined.get('rev-big')).toBe('Server returned HTTP 413.');
+    // A permanent failure never schedules a retry: no infinite backoff.
+    expect(retries).toHaveLength(0);
+  });
+
+  it('records the accepted prefix and only isolates the permanently rejected item in a batch', async () => {
+    // Both items ship in one batch; the server accepts #1 and permanently
+    // rejects #2. #1 must be recorded done and never re-sent; only #2 is removed.
+    const state = new FakeState({
+      outbox: [
+        { contentHash: 'h1', fileId: 'file-1', revisionId: 'rev-1', payloadBytes: 16 },
+        { contentHash: 'h2', fileId: 'file-2', revisionId: 'rev-2', payloadBytes: 16 },
+      ],
+    });
+    const push = vi.fn(
+      async (): Promise<readonly PushItemResult[]> => [
+        {
+          revisionId: 'rev-1',
+          outcome: 'accepted',
+          receipt: { revisionId: 'rev-1', serverSequence: 3 },
+        },
+        { revisionId: 'rev-2', outcome: 'rejected', permanent: true },
+      ],
+    );
+    const { runner, retries } = makeRunner({
+      state,
+      transport: { push, pull: vi.fn(async () => ({ cursor: 0, events: [] })) },
+    });
+
+    const result = await runner.trigger();
+
+    // The whole batch was pushed once — #1 is not re-sent forever.
+    expect(push).toHaveBeenCalledTimes(1);
+    expect(result.pushed).toBe(1);
+    expect(result.quarantined).toBe(1);
+    expect(state.authored.has('rev-1')).toBe(true);
+    expect([...state.outbox.keys()]).toEqual([]);
+    expect(state.quarantined.has('rev-2')).toBe(true);
+    expect(retries).toHaveLength(0);
+  });
+
+  it('keeps a transiently rejected item in the outbox to retry after a pull', async () => {
+    const state = new FakeState({
+      outbox: [
+        { contentHash: 'h1', fileId: 'file-1', revisionId: 'rev-1', payloadBytes: 16 },
+      ],
+    });
+    const push = vi.fn(
+      async (): Promise<readonly PushItemResult[]> => [
+        { revisionId: 'rev-1', outcome: 'rejected', permanent: false },
+      ],
+    );
+    const { runner } = makeRunner({
+      state,
+      transport: { push, pull: vi.fn(async () => ({ cursor: 0, events: [] })) },
+    });
+
+    const result = await runner.trigger();
+
+    expect(result.pushed).toBe(0);
+    expect(result.quarantined).toBe(0);
+    // Left in the outbox, not quarantined: it will be retried next cycle.
+    expect([...state.outbox.keys()]).toEqual(['rev-1']);
+    expect(state.quarantined.size).toBe(0);
+  });
+
+  it('backs off (does not quarantine) when a push fails transiently', async () => {
+    const state = new FakeState({
+      outbox: [
+        { contentHash: 'h1', fileId: 'file-1', revisionId: 'rev-1', payloadBytes: 16 },
+      ],
+    });
+    const push = vi.fn(async () => {
+      // A 5xx / network error carries no `permanent` flag → transient.
+      throw new Error('Server returned HTTP 503.');
+    });
+    const { runner, retries } = makeRunner({
+      state,
+      transport: { push, pull: vi.fn(async () => ({ cursor: 0, events: [] })) },
+    });
+
+    const result = await runner.trigger();
+
+    expect(result.status).toBe('offline');
+    expect(result.quarantined).toBe(0);
+    // The item stays queued and a backoff retry is scheduled.
+    expect([...state.outbox.keys()]).toEqual(['rev-1']);
+    expect(state.quarantined.size).toBe(0);
+    expect(retries).toHaveLength(1);
   });
 });
 

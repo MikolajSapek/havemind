@@ -70,7 +70,8 @@ describe('DurableSyncState', () => {
   it('enqueues envelopes and returns runner-shaped outbox rows', async () => {
     await state.enqueue(envelope());
     expect(await state.listOutbox()).toEqual([
-      { revisionId: 'rev-1', fileId: 'file-1', contentHash: 'hash-1' },
+      // 'AAAA' base64 decodes to 3 bytes — the size that drives push batching.
+      { revisionId: 'rev-1', fileId: 'file-1', contentHash: 'hash-1', payloadBytes: 3 },
     ]);
     expect(await state.getEnvelope('rev-1')).toEqual({
       header: { revisionId: 'rev-1' },
@@ -187,6 +188,23 @@ describe('DurableSyncState', () => {
     const recovered = new DurableSyncState({ persist: corrupt });
     await recovered.loadCursor();
     expect(recovered.baseHashFor('file-1')).toBeNull();
+  });
+
+  it('quarantines an outbox item durably, removing it from the outbox', async () => {
+    await state.enqueue(envelope());
+    await state.quarantineOutboxItem('rev-1', 'server-rejected');
+
+    expect(await state.listOutbox()).toEqual([]);
+    expect(await state.listQuarantine()).toEqual([
+      { revisionId: 'rev-1', fileId: 'file-1', reason: 'server-rejected' },
+    ]);
+
+    // The dead-letter record and the emptied outbox both survive a restart.
+    const reopened = new DurableSyncState({ persist });
+    expect(await reopened.listOutbox()).toEqual([]);
+    expect(await reopened.listQuarantine()).toEqual([
+      { revisionId: 'rev-1', fileId: 'file-1', reason: 'server-rejected' },
+    ]);
   });
 
   it('deduplicates an envelope re-enqueued with the same revision id', async () => {

@@ -67,9 +67,15 @@ describe('RequestUrlTransport', () => {
       },
     }));
 
-    const receipts = await transport.push([pushRevision]);
+    const results = await transport.push([pushRevision]);
 
-    expect(receipts).toEqual([{ revisionId: 'rev-1', serverSequence: 9 }]);
+    expect(results).toEqual([
+      {
+        revisionId: 'rev-1',
+        outcome: 'accepted',
+        receipt: { revisionId: 'rev-1', serverSequence: 9 },
+      },
+    ]);
     const call = calls[0];
     expect(call?.method).toBe('POST');
     expect(call?.url).toBe(`${API}/vaults/${VAULT}/revisions`);
@@ -92,14 +98,47 @@ describe('RequestUrlTransport', () => {
     );
   });
 
-  it('throws on a non-2xx push so the runner backs off offline', async () => {
+  it('throws a transient (non-permanent) error on a 5xx so the runner backs off', async () => {
     const { transport } = build(() => ({
-      status: 409,
-      json: { error: { code: 'REVISION_ID_REUSE' } },
+      status: 503,
+      json: { error: { code: 'INTERNAL' } },
     }));
-    await expect(transport.push([pushRevision])).rejects.toBeInstanceOf(
-      RequestUrlTransportError,
-    );
+    await expect(transport.push([pushRevision])).rejects.toMatchObject({
+      name: 'RequestUrlTransportError',
+      authDenied: false,
+      permanent: false,
+    });
+  });
+
+  it('flags a whole-request 4xx (413/422/400) as permanent so the runner quarantines it', async () => {
+    for (const status of [400, 413, 422]) {
+      const { transport } = build(() => ({
+        status,
+        json: { error: { code: 'INVALID_BATCH' } },
+      }));
+      await expect(transport.push([pushRevision])).rejects.toMatchObject({
+        permanent: true,
+        authDenied: false,
+      });
+    }
+  });
+
+  it('classifies a per-revision rejection: permanent for a poison code, transient otherwise', async () => {
+    const permanent = build(() => ({
+      status: 200,
+      json: { results: [{ revisionId: 'rev-1', status: 'rejected', code: 'REVISION_ID_REUSE' }] },
+    }));
+    const transient = build(() => ({
+      status: 200,
+      json: { results: [{ revisionId: 'rev-1', status: 'rejected', code: 'HEAD_SET_CHANGED' }] },
+    }));
+
+    expect(await permanent.transport.push([pushRevision])).toEqual([
+      { revisionId: 'rev-1', outcome: 'rejected', permanent: true },
+    ]);
+    expect(await transient.transport.push([pushRevision])).toEqual([
+      { revisionId: 'rev-1', outcome: 'rejected', permanent: false },
+    ]);
   });
 
   it('pulls ordered remote events shaped for the runner', async () => {

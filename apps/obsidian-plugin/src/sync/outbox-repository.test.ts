@@ -50,7 +50,7 @@ class MemoryStore {
   }
 }
 
-function makeRepo() {
+function makeRepo(maxPayloadBytes?: number) {
   const store = new MemoryStore();
   const enqueued: OutboxEnvelope[] = [];
   let counter = 0;
@@ -64,6 +64,7 @@ function makeRepo() {
       counter += 1;
       return `00000000-0000-4000-8000-00000000000${counter}`;
     },
+    ...(maxPayloadBytes === undefined ? {} : { maxPayloadBytes }),
   });
   return { repo, store, enqueued };
 }
@@ -136,6 +137,32 @@ describe('OutboxLocalChangeRepository', () => {
       (enqueued[1] as OutboxEnvelope).header,
     );
     expect(updateHeader.parentRevisionIds).toEqual([createRevisionId]);
+  });
+
+  it('rejects an oversized change before enqueue and leaves producer state untouched', async () => {
+    const { repo, store, enqueued } = makeRepo(16);
+
+    await expect(
+      repo.commitLocalChange({
+        operation: makeOperation({
+          content: 'This note is well over the tiny per-payload limit.\n',
+        }),
+        removeFileId: null,
+        upsertMapping: {
+          collisionKey: 'notes/a.md',
+          content: 'This note is well over the tiny per-payload limit.\n',
+          contentHash: 'hash-1',
+          fileId: FILE_ID,
+          path: 'Notes/a.md',
+        },
+      }),
+    ).rejects.toThrow(/too large/u);
+
+    // The oversized change never entered the outbox and never mutated the map or
+    // head — so it cannot silently wedge the outbox.
+    expect(enqueued).toHaveLength(0);
+    expect(store.state).toEqual({ mappings: [], heads: {} });
+    expect(await repo.listMappings()).toHaveLength(0);
   });
 
   it('emits a delete tombstone and forgets the file head', async () => {

@@ -325,11 +325,25 @@ export function registerSyncRoutes(
       return sendSyncError(reply, 422, 'INVALID_BATCH');
     }
 
-    const results: Array<{
-      readonly receipt: unknown;
-      readonly revisionId: string;
-      readonly status: string;
-    }> = [];
+    // Per-revision results: a domain failure on one revision rejects only that
+    // revision (with its machine code) and never aborts the batch, so the client
+    // records the accepted prefix and isolates the single failure instead of
+    // re-sending the whole batch forever (append-only liveness). Request-level
+    // faults (bad body, unknown vault, identity mismatch, cyclic/oversized batch)
+    // are still whole-request 4xx above — only per-revision commit outcomes are
+    // reported here.
+    const results: Array<
+      | {
+          readonly receipt: unknown;
+          readonly revisionId: string;
+          readonly status: string;
+        }
+      | {
+          readonly code: SyncErrorCode;
+          readonly revisionId: string;
+          readonly status: 'rejected';
+        }
+    > = [];
     for (const revision of ordered) {
       const stored = await deps.blobStore.put(revision.payload);
       try {
@@ -348,6 +362,16 @@ export function registerSyncRoutes(
           status: result.status,
         });
       } catch (error) {
+        if (error instanceof RevisionRepositoryError) {
+          results.push({
+            code: SYNC_CODE_BY_REPOSITORY_CODE[error.code],
+            revisionId: revision.header.revisionId,
+            status: 'rejected',
+          });
+          continue;
+        }
+        // An unexpected (non-domain) error is a real server fault: fail the whole
+        // request so the client retries rather than dead-letters.
         return sendCommitError(reply, error);
       }
     }

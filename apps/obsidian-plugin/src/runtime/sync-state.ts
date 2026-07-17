@@ -36,12 +36,26 @@ export interface OutboxEnvelope extends TransportEnvelope {
   readonly contentHash: string;
 }
 
+/**
+ * A dead-lettered revision: one the server permanently rejected (or a single
+ * push that permanently failed). It is removed from the outbox so it can never
+ * block other files, and kept here as a durable, surfaced record of the failure
+ * rather than silently dropped.
+ */
+export interface QuarantinedRevision {
+  readonly revisionId: string;
+  readonly fileId: string;
+  readonly reason: string;
+}
+
 export interface PersistedSyncState {
   readonly version: 1;
   readonly cursor: number;
   readonly outbox: readonly OutboxEnvelope[];
   readonly locallyAuthored: readonly string[];
   readonly deferred: readonly RemoteEvent[];
+  /** Durable dead-letter list of revisions the server permanently rejected. */
+  readonly quarantine: readonly QuarantinedRevision[];
   /** Durable fileId↔path map for files Havemind has materialized/synced. */
   readonly pathOwners: Readonly<Record<string, string>>;
   /**
@@ -75,9 +89,25 @@ function emptyState(): PersistedSyncState {
     outbox: [],
     locallyAuthored: [],
     deferred: [],
+    quarantine: [],
     pathOwners: {},
     baseHashes: {},
   };
+}
+
+/**
+ * Byte length of the payload a base64 string decodes to. The server measures the
+ * decoded payload against its per-payload ceiling, so this is the effective size
+ * that drives push batching — computed without `Buffer` so it also runs in the
+ * browser-flavoured Obsidian runtime.
+ */
+function base64ByteLength(base64: string): number {
+  const length = base64.length;
+  if (length === 0) return 0;
+  let padding = 0;
+  if (base64.endsWith('==')) padding = 2;
+  else if (base64.endsWith('=')) padding = 1;
+  return Math.floor((length * 3) / 4) - padding;
 }
 
 export class DurableSyncState implements SyncStatePort {
@@ -106,6 +136,7 @@ export class DurableSyncState implements SyncStatePort {
       revisionId: envelope.revisionId,
       fileId: envelope.fileId,
       contentHash: envelope.contentHash,
+      payloadBytes: base64ByteLength(envelope.payloadBase64),
     }));
   }
 
@@ -122,6 +153,30 @@ export class DurableSyncState implements SyncStatePort {
         receipt.revisionId,
       ),
     });
+  }
+
+  async quarantineOutboxItem(revisionId: string, reason: string): Promise<void> {
+    const state = await this.ensureLoaded();
+    const failed = state.outbox.find(
+      (envelope) => envelope.revisionId === revisionId,
+    );
+    const outbox = state.outbox.filter(
+      (envelope) => envelope.revisionId !== revisionId,
+    );
+    const entry: QuarantinedRevision = {
+      revisionId,
+      fileId: failed?.fileId ?? '',
+      reason,
+    };
+    const quarantine = [
+      ...state.quarantine.filter((item) => item.revisionId !== revisionId),
+      entry,
+    ];
+    await this.mutate({ ...state, outbox, quarantine });
+  }
+
+  async listQuarantine(): Promise<readonly QuarantinedRevision[]> {
+    return (await this.ensureLoaded()).quarantine;
   }
 
   async isLocallyAuthored(revisionId: string): Promise<boolean> {
@@ -287,15 +342,42 @@ function parsePersistedState(raw: unknown): PersistedSyncState {
   const baseHashes = parseStringMap(raw.baseHashes);
   if (baseHashes === null) return emptyState();
 
+  const quarantine = parseQuarantine(raw.quarantine);
+  if (quarantine === null) return emptyState();
+
   return {
     version: 1,
     cursor: cursor as number,
     outbox: parsedOutbox,
     locallyAuthored: locallyAuthored as string[],
     deferred: parsedDeferred,
+    quarantine,
     pathOwners,
     baseHashes,
   };
+}
+
+/** Parses an untrusted quarantine list; undefined (legacy blob) degrades to []. */
+function parseQuarantine(value: unknown): QuarantinedRevision[] | null {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) return null;
+  const result: QuarantinedRevision[] = [];
+  for (const entry of value) {
+    if (
+      !isRecord(entry) ||
+      typeof entry.revisionId !== 'string' ||
+      typeof entry.fileId !== 'string' ||
+      typeof entry.reason !== 'string'
+    ) {
+      return null;
+    }
+    result.push({
+      revisionId: entry.revisionId,
+      fileId: entry.fileId,
+      reason: entry.reason,
+    });
+  }
+  return result;
 }
 
 function parsePathOwners(

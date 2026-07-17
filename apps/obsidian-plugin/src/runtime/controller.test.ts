@@ -12,6 +12,7 @@ const CLEAN: SyncCycleResult = {
   suppressed: 0,
   conflicts: 0,
   deferred: 0,
+  quarantined: 0,
 };
 
 class FakeRunner implements SyncRunnerLike {

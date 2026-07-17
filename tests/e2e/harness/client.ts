@@ -28,6 +28,7 @@ import {
   SyncRunner,
   type OpenBuffer,
   type PullResult,
+  type PushItemResult,
   type PushReceipt,
   type PushRevision,
   type RemoteEvent,
@@ -343,6 +344,9 @@ export class HarnessClient {
       saveCursor: async (sequence) => {
         state.cursor = sequence;
       },
+      quarantineOutboxItem: async (revisionId) => {
+        state.outbox.delete(revisionId);
+      },
     };
   }
 
@@ -366,7 +370,7 @@ export class HarnessClient {
 
   async #push(
     revisions: readonly PushRevision[],
-  ): Promise<readonly PushReceipt[]> {
+  ): Promise<readonly PushItemResult[]> {
     const records = revisions.map((revision) => {
       const record = this.#state.outbox.get(revision.revisionId);
       if (record === undefined) {
@@ -404,16 +408,29 @@ export class HarnessClient {
 
     const body = response.json() as {
       results: Array<{
-        receipt: { serverSequence: number };
+        receipt?: { serverSequence: number };
         revisionId: string;
+        status: string;
+        code?: string;
       }>;
     };
-    const receipts = body.results.map((result) => ({
-      revisionId: result.revisionId,
-      serverSequence: result.receipt.serverSequence,
-    }));
-    this.#lastPushReceipts = receipts;
-    return receipts;
+    const results: PushItemResult[] = body.results.map((result) => {
+      if (result.status === 'rejected' || result.receipt === undefined) {
+        return { revisionId: result.revisionId, outcome: 'rejected' as const };
+      }
+      return {
+        revisionId: result.revisionId,
+        outcome: 'accepted' as const,
+        receipt: {
+          revisionId: result.revisionId,
+          serverSequence: result.receipt.serverSequence,
+        },
+      };
+    });
+    this.#lastPushReceipts = results.flatMap((result) =>
+      result.receipt === undefined ? [] : [result.receipt],
+    );
+    return results;
   }
 
   async #pull(after: number): Promise<PullResult> {

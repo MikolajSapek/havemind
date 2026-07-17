@@ -345,7 +345,7 @@ describe('sync push/pull routes', () => {
     expect(secondResult?.receipt).toEqual(firstResult?.receipt);
   });
 
-  it('rejects an identical revision id with different bytes with 409', async () => {
+  it('reports an identical revision id with different bytes as a per-revision rejection', async () => {
     const fixture = makeFixture();
     const app = createApp(fixture);
 
@@ -356,10 +356,54 @@ describe('sync push/pull routes', () => {
       revisionInput(REVISION_1, [], 'k1-conflict', 'different-bytes'),
     ]);
 
-    expect(conflicting.statusCode).toBe(409);
-    expect(conflicting.json()).toEqual({
-      error: { code: 'REVISION_ID_REUSE' },
+    // The batch was processed to completion (200) and the domain failure is
+    // reported per revision, so the client can dead-letter this one item instead
+    // of retrying the whole batch forever.
+    expect(conflicting.statusCode).toBe(200);
+    const result = (conflicting.json() as {
+      results: Array<{ revisionId: string; status: string; code?: string }>;
+    }).results[0];
+    expect(result?.status).toBe('rejected');
+    expect(result?.code).toBe('REVISION_ID_REUSE');
+  });
+
+  it('commits the accepted prefix and rejects only the failing revision in a mixed batch', async () => {
+    const fixture = makeFixture();
+    const app = createApp(fixture);
+
+    // Pre-commit REVISION_1 so re-pushing it with different bytes is rejected,
+    // while a fresh REVISION_2 in the same batch still commits.
+    await push(app, fixture.accessTokenA, VAULT_A, [
+      revisionInput(REVISION_1, [], 'k1', 'opaque-1'),
+    ]);
+
+    // REVISION_2 parents on the already-committed REVISION_1 (same file), so it
+    // is a valid child that commits even though the re-pushed REVISION_1 rejects.
+    const mixed = await push(app, fixture.accessTokenA, VAULT_A, [
+      revisionInput(REVISION_1, [], 'k1-conflict', 'different-bytes'),
+      revisionInput(REVISION_2, [REVISION_1], 'k2', 'opaque-2'),
+    ]);
+
+    expect(mixed.statusCode).toBe(200);
+    const results = (mixed.json() as {
+      results: Array<{ revisionId: string; status: string; code?: string }>;
+    }).results;
+    const byId = new Map(results.map((entry) => [entry.revisionId, entry]));
+    expect(byId.get(REVISION_1)?.status).toBe('rejected');
+    expect(byId.get(REVISION_1)?.code).toBe('REVISION_ID_REUSE');
+    expect(byId.get(REVISION_2)?.status).toBe('accepted');
+
+    // The accepted revision was durably committed and is now visible on pull.
+    const pulled = await app.inject({
+      headers: { authorization: `Bearer ${fixture.accessTokenA}` },
+      method: 'GET',
+      url: `/vaults/${VAULT_A}/events`,
     });
+    const pull = pulled.json() as { events: Array<{ revisionId: string }> };
+    expect(pull.events.map((event) => event.revisionId)).toEqual([
+      REVISION_1,
+      REVISION_2,
+    ]);
   });
 
   it('rejects a header whose vault or actor does not match the session with 403', async () => {
