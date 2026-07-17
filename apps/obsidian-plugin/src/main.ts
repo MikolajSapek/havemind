@@ -668,6 +668,14 @@ export default class HavemindPlugin extends Plugin {
   private activityOptions: ActivityViewOptions = {};
   private statusItem: HTMLElement | null = null;
   private connection: ConnectionHandle | null = null;
+  /**
+   * Set true in `onunload`. `startConnection` runs on `onLayoutReady` and awaits
+   * an async connection build; if the plugin is disabled while that await is in
+   * flight, `onunload` runs first and the resolved handle must be stopped, never
+   * assigned — otherwise its vault listeners and running sync loop leak with no
+   * `stop()` ever reaching them.
+   */
+  private unloaded = false;
   private pendingInvitation: CreatedInvitation | null = null;
   private pendingApprovals: PendingApprovalEntry[] = [];
   private connectionActive = false;
@@ -792,6 +800,9 @@ export default class HavemindPlugin extends Plugin {
   }
 
   override onunload(): void {
+    // Mark unloaded BEFORE anything else so an in-flight `startConnection` await
+    // that resolves after this point stops its handle instead of assigning it.
+    this.unloaded = true;
     this.connection?.stop();
     this.connection = null;
     this.activityLogUnsubscribe?.();
@@ -918,11 +929,27 @@ export default class HavemindPlugin extends Plugin {
     // Load the persisted roster first so a reopened, already-connected vault
     // shows its connected members immediately (never derived from activity).
     await this.loadRoster();
-    this.connection = await startHavemindConnection(
+    const handle = await startHavemindConnection(
       this,
       (status, view) => this.handleStatus(status, view),
       this.activityHooks(),
     );
+    // Guard the assignment against two races that resolve only after the await:
+    //  - FIX 1: the plugin was unloaded while this build was in flight. `onunload`
+    //    already ran its `connection?.stop()` on a still-null field, so assigning
+    //    now would leave a LIVE handle (vault listeners + sync loop) with no stop
+    //    ever reaching it.
+    //  - FIX 2: a user-initiated `connectFromInput` established a live connection
+    //    while this passive layout-ready connect was still building. Assigning
+    //    here would clobber and orphan that handle (its producer/timers never
+    //    stopped). The user connection wins; this late handle yields.
+    // Either way, stop THIS handle and do not assign — never orphan an existing
+    // connection, never leak past unload.
+    if (this.unloaded || this.connection !== null) {
+      handle.stop();
+      return;
+    }
+    this.connection = handle;
     this.adoptSelfMembership(this.connection);
   }
 

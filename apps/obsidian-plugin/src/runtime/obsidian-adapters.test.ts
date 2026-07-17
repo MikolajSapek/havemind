@@ -84,4 +84,76 @@ describe('createRequestUrlFn', () => {
     expect(response.status).toBe(200);
     expect(response.json).toEqual({ ok: true });
   });
+
+  it('does not read json eagerly, so a non-JSON error body never throws during response construction', async () => {
+    // Regression: `.json` was read eagerly when building the response object. In
+    // the real Obsidian runtime `.json` is a lazy getter that THROWS on a
+    // non-JSON body (a 502/504 proxy HTML page, a Tailscale Funnel error page, an
+    // empty body). Reading it eagerly made the whole transport call reject before
+    // the consumer could inspect `status`, so a permanent 4xx delivered as HTML
+    // was misclassified as thrown/offline and retried forever.
+    const { createRequestUrlFn } = await import('./obsidian-adapters');
+
+    let jsonReads = 0;
+    mockRequestUrl.mockResolvedValue({
+      status: 502,
+      headers: {},
+      arrayBuffer: new ArrayBuffer(0),
+      text: '<html>502 Bad Gateway</html>',
+      get json() {
+        jsonReads += 1;
+        throw new SyntaxError('Unexpected token < in JSON at position 0');
+      },
+    });
+
+    const requestUrlFn = createRequestUrlFn();
+    // Building the response must NOT touch `.json` (which throws here).
+    const response = await requestUrlFn({
+      url: 'https://proxy.test/vaults/v/events?after=0',
+      method: 'GET',
+    });
+
+    expect(jsonReads).toBe(0);
+    expect(response.status).toBe(502);
+    expect(response.text).toBe('<html>502 Bad Gateway</html>');
+    // Reading `.json` on a non-JSON body is guarded: it yields undefined, never
+    // a throw, so status classification downstream always runs.
+    expect(() => JSON.stringify(response.json)).not.toThrow();
+    expect(response.json).toBeUndefined();
+  });
+
+  it('lets the transport classify a non-JSON error body by HTTP status instead of throwing a parse error', async () => {
+    const { createRequestUrlFn } = await import('./obsidian-adapters');
+    const { RequestUrlTransport } = await import('./sync-transport');
+
+    const cases: ReadonlyArray<readonly [number, boolean]> = [
+      [400, true], // permanent — quarantine, do not retry forever
+      [502, false], // transient — retry with backoff
+    ];
+    for (const [status, permanent] of cases) {
+      mockRequestUrl.mockResolvedValue({
+        status,
+        headers: {},
+        arrayBuffer: new ArrayBuffer(0),
+        text: '<html>upstream error</html>',
+        get json() {
+          throw new SyntaxError('non-JSON body');
+        },
+      });
+
+      const transport = new RequestUrlTransport({
+        requestUrl: createRequestUrlFn(),
+        apiBaseUrl: 'https://host',
+        vaultId: 'vault-1',
+        getAuthToken: async () => 'tok',
+        resolveEnvelope: () => undefined,
+      });
+
+      await expect(transport.pull(0)).rejects.toMatchObject({
+        name: 'RequestUrlTransportError',
+        reason: 'http-status',
+        permanent,
+      });
+    }
+  });
 });
