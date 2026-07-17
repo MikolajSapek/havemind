@@ -80,3 +80,13 @@ Pre-pilot confirmations and the daily 7-day pilot log live here
     binary support deferred to F9.
   - ⏭ Requires: server rebuild on sapserver (B changed sync-routes) + plugin swap
     on both devices + clean two-way live test.
+- [x] **403 push loop fixed and verified live (2026-07-17, fc1cf9e)**: after the
+  hardening round the owner push looped on a mix of 200/403. Root cause: a leaked
+  vault-change observer — `ConnectionHandle.stop()` stopped the sync loop but never
+  detached the plugin-lifetime vault listeners, so every re-pair left the previous
+  producer attached, bound to the OLD memberId/deviceId. Each edit enqueued twice
+  (current identity → 200, stale identity → whole-request 403), and 403 was
+  classified transient so the runner looped forever. Fix: stop() disposes the
+  producer's listeners; transport re-stamps the current identity onto every
+  outbound header; 403 is now permanent (quarantine, no loop). After rebuild +
+  plugin reload the owner shows clean POST /revisions 200s, no 403.
