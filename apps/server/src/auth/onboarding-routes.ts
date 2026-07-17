@@ -105,6 +105,17 @@ interface MembershipRow {
   readonly role: string;
 }
 
+/**
+ * Response contract for `POST /owner/pair`. `membershipId` is the owner's active
+ * `memberships.id`, i.e. the exact identifier `POST /revisions` authorises
+ * `expectedMemberId` against, so the owner push producer round-trips.
+ */
+interface OwnerPairResponse {
+  readonly deviceId: string;
+  readonly membershipId: string;
+  readonly vaultId: string;
+}
+
 function sendError(
   reply: FastifyReply,
   status: number,
@@ -295,11 +306,24 @@ export function registerPreAuthOnboardingRoutes(
       if (vaultId === null) {
         return sendError(reply, 403, 'FORBIDDEN');
       }
+      // Surface the owner's active membership id so the client can set
+      // `expectedMemberId` on push. This is the exact identifier that
+      // POST /revisions authorises against (see sync-routes loadActiveMembership).
+      const membership = loadActiveMembership(
+        deps.database,
+        result.ownerUserId,
+        vaultId,
+      );
+      if (membership === null) {
+        return sendError(reply, 403, 'FORBIDDEN');
+      }
       reply.header('cache-control', 'no-store');
-      return {
+      const response: OwnerPairResponse = {
         deviceId: result.deviceId,
+        membershipId: membership.membershipId,
         vaultId,
       };
+      return response;
     } catch {
       // Any pairing failure — unknown, expired, already consumed, malformed —
       // is a flat 401 so a caller cannot distinguish the cases.

@@ -45,7 +45,10 @@ declare module 'obsidian' {
     modify(file: TFile, data: string): Promise<void>;
     delete(file: TAbstractFile): Promise<void>;
     createFolder(path: string): Promise<void>;
+    on(name: string, callback: (...args: unknown[]) => unknown): EventRef;
   }
+
+  export type EventRef = unknown;
 
   export interface ViewState {
     active?: boolean;
@@ -109,6 +112,7 @@ declare module 'obsidian' {
     loadData(): Promise<unknown>;
     saveData(data: unknown): Promise<void>;
     registerInterval(id: number): number;
+    registerEvent(ref: EventRef): void;
     registerDomEvent(
       target: Window,
       type: string,

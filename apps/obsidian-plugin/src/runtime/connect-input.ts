@@ -37,6 +37,11 @@ export interface PairOwnerDeviceOptions {
 export interface OwnerPairing {
   readonly vaultId: string;
   readonly deviceId: string;
+  /**
+   * Server membership id for the owner, when the pairing response supplies it.
+   * Required before the owner device can build push revision headers (rule 3).
+   */
+  readonly memberId?: string;
 }
 
 export class OwnerPairError extends Error {
@@ -68,7 +73,13 @@ export async function pairOwnerDevice(
   ) {
     throw new OwnerPairError('Owner pairing response was malformed.');
   }
-  return { vaultId: json.vaultId, deviceId: json.deviceId };
+  return {
+    vaultId: json.vaultId,
+    deviceId: json.deviceId,
+    ...(typeof json.membershipId === 'string'
+      ? { memberId: json.membershipId }
+      : {}),
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -5,4 +5,5 @@ export * from './path-ownership.js';
 export * from './payload-codec.js';
 export * from './provenance.js';
 export * from './recipe.js';
+export * from './revision-envelope.js';
 export * from './revision-dag.js';

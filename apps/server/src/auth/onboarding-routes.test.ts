@@ -632,6 +632,25 @@ describe('owner device pairing HTTP surface', () => {
     expect(body.deviceId).toMatch(/^[0-9a-f-]{36}$/u);
   });
 
+  it('returns the owner active membershipId that revisions authorises against', async () => {
+    const fixture = makeFixture();
+    const pairingToken = generatePairingToken();
+    insertPairing(fixture.database, pairingToken);
+    const app = createApp(fixture);
+
+    const response = await app.inject({
+      body: pairBody(pairingToken),
+      method: 'POST',
+      url: '/owner/pair',
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json() as { membershipId: string };
+    // Must equal the memberships.id row that POST /revisions compares
+    // `expectedMemberId` against, so the owner push producer round-trips.
+    expect(body.membershipId).toBe(OWNER_MEMBERSHIP);
+  });
+
   it('lets the paired owner refresh to an access token (pair → refresh → 200)', async () => {
     const fixture = makeFixture();
     const pairingToken = generatePairingToken();
