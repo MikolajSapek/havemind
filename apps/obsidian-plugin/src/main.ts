@@ -11,6 +11,17 @@ import { isSafePassiveJoinProtocolData } from './onboarding/invite';
 import type { RevisionRecord } from './activity/activity';
 import { buildActivityViewModel } from './runtime/activity-render';
 import {
+  ActivityLog,
+  activityEntriesToRecords,
+} from './runtime/activity-log';
+import {
+  buildRosterView,
+  RosterStore,
+  type MemberRole,
+  type RosterMember,
+  type RosterView,
+} from './runtime/roster';
+import {
   buildConnectionPanel,
   formatStatusBar,
   type ConnectionPanelView,
@@ -45,6 +56,45 @@ function prefersReducedMotion(): boolean {
   );
 }
 
+/** Compact local time for an activity row (e.g. "16 Jul, 15:42"). */
+function formatActivityTime(timestamp: number): string {
+  const date = new Date(timestamp);
+  return `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
+}
+
+/**
+ * Renders the "Connected" presence roster: one row per persistent member with a
+ * green dot + a "connected" text label (never colour alone) + the member's
+ * stable colour. Presence is CONNECTION STATE — a member stays connected until
+ * an explicit teardown, never derived from activity.
+ */
+function renderRosterList(content: HTMLElement, roster: RosterView): void {
+  content.createEl('h4', { text: 'Connected' });
+  if (roster.empty) {
+    content.createDiv({
+      text: 'No members yet. Approved devices appear here as connected.',
+    });
+    return;
+  }
+  for (const row of roster.rows) {
+    const item = content.createDiv({ text: '' });
+    item.addClass('havemind-roster-row');
+    // Green connected dot, coloured by the member's stable token — paired with
+    // the "connected" text label so colour is never the only signal.
+    const dot = item.createEl('span');
+    dot.addClass('havemind-roster-dot');
+    dot.style.setProperty('color', `var(${row.colorToken})`);
+    setIcon(dot, 'circle');
+    const name = row.self ? `${row.displayName} (you)` : row.displayName;
+    item.createEl('span', {
+      text: ` ${name} · ${row.role} · connected`,
+    });
+    // FUTURE (seam, not built now): when a known contact's connection is torn
+    // down (revoke) their row should offer a "Rejoin" button that re-admits
+    // them without re-running the full pairing flow. Do not implement here.
+  }
+}
+
 /** Injected data + actions for the Activity surface (F5-01 feed + restore). */
 export interface ActivityViewOptions {
   readonly feedProvider?: () => readonly RevisionRecord[];
@@ -72,13 +122,24 @@ class HavemindActivityView extends ItemView {
   }
 
   override onOpen(): void {
+    this.render();
+  }
+
+  /** Re-renders from the live feed — called when the activity log changes. */
+  refresh(): void {
+    this.render();
+  }
+
+  private render(): void {
     const content = this.containerEl.children[1] as HTMLElement | undefined;
     if (!content) return;
 
     content.empty();
     content.createEl('h3', { text: 'Havemind activity' });
 
-    const model = buildActivityViewModel(this.options.feedProvider?.() ?? []);
+    const model = buildActivityViewModel(this.options.feedProvider?.() ?? [], {
+      formatTimestamp: formatActivityTime,
+    });
     if (model.empty) {
       content.createDiv({ text: EMPTY_ACTIVITY_TEXT });
       return;
@@ -86,10 +147,18 @@ class HavemindActivityView extends ItemView {
 
     for (const row of model.rows) {
       const entry = content.createDiv({ text: row.label });
+      entry.addClass('havemind-activity-row');
+      // Author colour as a left accent, paired with the author name already in
+      // the label — colour is never the only signal (accessibility rule).
+      entry.style.setProperty('--havemind-row-color', `var(${row.colorToken})`);
+      // The Restore button stays the first child so the F5 restore contract is
+      // unchanged; the time is appended after it.
       if (row.canRestore && this.options.onRestore) {
         const restore = entry.createEl('button', { text: 'Restore' });
         restore.onClickEvent(() => this.options.onRestore?.(row.revisionId));
       }
+      const time = entry.createEl('span', { text: ` ${row.timeLabel}` });
+      time.addClass('havemind-activity-time');
     }
   }
 }
@@ -105,6 +174,8 @@ export interface PendingApprovalEntry {
   readonly expiresAt: string;
   /** Name the owner gave the intended member (e.g. "Magda"), if any. */
   readonly intendedMemberDisplayName?: string;
+  /** Role the invitation was minted for; carried into the roster on approval. */
+  readonly intendedRole?: MemberRole;
 }
 
 /** The invitee role the owner mints an invitation for. */
@@ -169,6 +240,12 @@ export interface OnboardingViewOptions {
   readonly guestInvalidProvider?: () => boolean;
   /** Live connection indicator model; defaults to the disconnected panel. */
   readonly panelProvider?: () => ConnectionPanelView;
+  /**
+   * Presence roster (who is connected). Rendered in the owner composer and in
+   * the connected panel so both the owner and the invitee see a clear
+   * "Connected" list. Presence is persistent connection state, never activity.
+   */
+  readonly rosterProvider?: () => RosterView;
   /**
    * Runs the connect flow for the pasted input (invitation envelope `v1.…` or
    * owner pairing token `hm_pt_…`) against the given server URL, reporting
@@ -311,6 +388,12 @@ export class HavemindOnboardingView extends ItemView {
   }
 
   private renderConnected(content: HTMLElement): void {
+    // Presence roster makes "connected" unambiguous for the invitee (and owner):
+    // once approval succeeds the panel clearly lists who is connected.
+    const roster = this.options.rosterProvider?.();
+    if (roster !== undefined) {
+      renderRosterList(content, roster);
+    }
     const disconnect = content.createEl('button', { text: 'Disconnect' });
     disconnect.onClickEvent(() => this.options.onDisconnect?.());
   }
@@ -409,6 +492,14 @@ export class HavemindOnboardingView extends ItemView {
     if (model.notice) this.renderNotice(content, model.notice, model.noticeKind);
 
     this.renderCreateSection(content, model);
+
+    // The persistent "Connected" roster — who is already a member of this vault.
+    const roster = this.options.rosterProvider?.();
+    if (roster !== undefined && !roster.empty) {
+      const rosterDivider = content.createEl('hr');
+      rosterDivider.addClass('havemind-divider');
+      renderRosterList(content, roster);
+    }
 
     const divider = content.createEl('hr');
     divider.addClass('havemind-divider');
@@ -591,13 +682,31 @@ export default class HavemindPlugin extends Plugin {
   private lastSyncedAt: number | undefined;
   private connectionError: string | undefined;
   private onboardingView: HavemindOnboardingView | null = null;
+  private activityView: HavemindActivityView | null = null;
+  /** Live feed behind the Activity view (previously orphaned — now wired). */
+  private readonly activityLog = new ActivityLog();
+  /**
+   * Persistent presence roster: the members connected to this vault. Sourced
+   * from approve-time records + the local self membership and persisted in
+   * data.json (endpoint-free). Never derived from sync activity.
+   */
+  private rosterMembers: RosterMember[] = [];
 
   override onload(): void {
-    this.registerView(
-      HAVEMIND_ACTIVITY_VIEW,
-      (leaf: WorkspaceLeaf) =>
-        new HavemindActivityView(leaf, this.activityOptions),
-    );
+    // Wire the Activity view to the live feed: the log snapshot is mapped through
+    // the roster so each row shows the author's display name + colour. Without
+    // this the view was orphaned and always rendered the empty placeholder.
+    this.activityOptions = {
+      feedProvider: () =>
+        activityEntriesToRecords(this.activityLog.snapshot(), this.rosterMembers),
+    };
+    this.activityLog.subscribe(() => this.activityView?.refresh());
+
+    this.registerView(HAVEMIND_ACTIVITY_VIEW, (leaf: WorkspaceLeaf) => {
+      const view = new HavemindActivityView(leaf, this.activityOptions);
+      this.activityView = view;
+      return view;
+    });
     this.registerView(HAVEMIND_ONBOARDING_VIEW, (leaf: WorkspaceLeaf) => {
       const view = new HavemindOnboardingView(leaf, {
         composerProvider: () =>
@@ -605,6 +714,7 @@ export default class HavemindPlugin extends Plugin {
         guestWaitingProvider: () => this.awaitingApproval,
         guestInvalidProvider: () => this.guestInvitationInvalid,
         panelProvider: () => this.connectionPanel(),
+        rosterProvider: () => buildRosterView(this.rosterMembers),
         onConnect: (input, serverUrl, report) => {
           void this.connectFromInput(input, serverUrl, report);
         },
@@ -743,10 +853,20 @@ export default class HavemindPlugin extends Plugin {
       }
       // The device's display name is only known while its waiting row still
       // exists, so read it before filtering the row out.
-      const approvedName = this.pendingApprovals.find(
+      const approvedEntry = this.pendingApprovals.find(
         (entry) => entry.invitationId === invitationId,
-      )?.intendedMemberDisplayName;
+      );
+      const approvedName = approvedEntry?.intendedMemberDisplayName;
       const connectedMessage = `${approvedName ?? 'Device'} connected.`;
+      // Record the approved device as a PERSISTENT roster member (green until an
+      // explicit teardown). The owner's client already knows the display name,
+      // role and server membershipId at approval time — endpoint-free.
+      void this.recordRosterMember({
+        membershipId: approved.membershipId,
+        displayName: approvedName ?? 'Member',
+        role: approvedEntry?.intendedRole ?? 'editor',
+        self: false,
+      });
       this.pendingApprovals = this.pendingApprovals.filter(
         (entry) => entry.invitationId !== invitationId,
       );
@@ -785,9 +905,54 @@ export default class HavemindPlugin extends Plugin {
   }
 
   private async startConnection(): Promise<void> {
-    this.connection = await startHavemindConnection(this, (status, view) =>
-      this.handleStatus(status, view),
+    // Load the persisted roster first so a reopened, already-connected vault
+    // shows its connected members immediately (never derived from activity).
+    await this.loadRoster();
+    this.connection = await startHavemindConnection(
+      this,
+      (status, view) => this.handleStatus(status, view),
+      this.activityHooks(),
     );
+    this.adoptSelfMembership(this.connection);
+  }
+
+  /** Runtime hooks handed to the sync loop so live surfaces stay fed. */
+  private activityHooks(): { onLocalActivity: (entry: Parameters<ActivityLog['record']>[0]) => void } {
+    return { onLocalActivity: (entry) => this.activityLog.record(entry) };
+  }
+
+  /** Records the local member into the roster once the connection knows it. */
+  private adoptSelfMembership(handle: ConnectionHandle | null): void {
+    const self = handle?.selfMembership;
+    if (self === undefined) return;
+    void this.recordRosterMember({
+      membershipId: self.membershipId,
+      displayName: 'You',
+      role: self.role,
+      self: true,
+    });
+  }
+
+  /** The durable roster store over the shared plugin-data blob. */
+  private rosterStore(): RosterStore {
+    return new RosterStore({
+      persist: {
+        load: () => this.loadData(),
+        save: (data) => this.saveData(data),
+      },
+    });
+  }
+
+  private async loadRoster(): Promise<void> {
+    this.rosterMembers = await this.rosterStore().readMembers();
+    this.onboardingView?.refresh();
+  }
+
+  /** Upserts a member, persists the roster, and refreshes the live surfaces. */
+  private async recordRosterMember(member: RosterMember): Promise<void> {
+    this.rosterMembers = await this.rosterStore().recordMember(member);
+    this.onboardingView?.refresh();
+    this.activityView?.refresh();
   }
 
   /**
@@ -806,6 +971,7 @@ export default class HavemindPlugin extends Plugin {
     const handle = await connectFromInput(this, input, serverUrl, {
       report,
       onStatus: (status, view) => this.handleStatus(status, view),
+      hooks: this.activityHooks(),
       // Durably record the waiting state so a pane reopen resumes the waiting
       // screen (with the code) instead of a blank paste form.
       onPendingApproval: (verificationPhrase) => {
@@ -827,6 +993,9 @@ export default class HavemindPlugin extends Plugin {
       this.guestInvitationInvalid = false;
       this.connection?.stop();
       this.connection = handle;
+      // Record this device's own membership as a persistent roster member so the
+      // invitee's UI clearly shows it is connected.
+      this.adoptSelfMembership(handle);
     }
   }
 
@@ -902,6 +1071,7 @@ export default class HavemindPlugin extends Plugin {
         {
           invitationId: invitation.invitationId,
           expiresAt: invitation.expiresAt,
+          intendedRole: role,
           ...(name.length === 0 ? {} : { intendedMemberDisplayName: name }),
         },
       ];

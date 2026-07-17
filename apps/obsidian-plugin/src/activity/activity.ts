@@ -64,6 +64,13 @@ export interface ActivityEntry {
   readonly path: string;
   readonly kind: ActivityKind;
   readonly actorLabel: string;
+  /**
+   * The author's stable id for colour assignment, or `null` for an
+   * `initial-import` fragment (which has no author). Kept alongside the
+   * human-readable `actorLabel` so a renderer can pair a deterministic colour
+   * with the name without re-deriving the actor.
+   */
+  readonly actorId: string | null;
   readonly timestamp: number;
   readonly canRestore: boolean;
 }
@@ -129,6 +136,7 @@ export function buildActivityFeed(
         path: record.path,
         kind: record.kind,
         actorLabel: actorLabel(record.actor),
+        actorId: record.actor.kind === 'author' ? record.actor.actorId : null,
         timestamp: record.timestamp,
         canRestore: record.content !== null,
       }),

@@ -29,21 +29,22 @@
 
 import { provenanceLength, type ProvenanceRun } from '@havemind/sync-core';
 
-/** Palette of editor-layer colour tokens assigned to human authors. */
-export const AUTHOR_COLOR_TOKENS = [
-  '--havemind-author-1',
-  '--havemind-author-2',
-  '--havemind-author-3',
-  '--havemind-author-4',
-  '--havemind-author-5',
-  '--havemind-author-6',
-] as const;
+import {
+  AUTHOR_COLOR_TOKENS,
+  authorColorToken,
+  INITIAL_IMPORT_COLOR_TOKEN,
+  INITIAL_IMPORT_LABEL,
+} from '../runtime/author-colors';
 
-/** Distinct, neutral token reserved for the `Initial import` provenance. */
-export const INITIAL_IMPORT_COLOR_TOKEN = '--havemind-author-initial';
-
-/** Human-readable label shown for imported (non-authored) fragments. */
-export const INITIAL_IMPORT_LABEL = 'Initial import';
+// Re-exported so existing overlay consumers keep importing these from here. The
+// palette and the stable memberId→colour assignment live in `author-colors` so
+// the roster, the Activity log and this overlay all draw the same person in the
+// same colour (colour is always paired with the author's name/label).
+export {
+  AUTHOR_COLOR_TOKENS,
+  INITIAL_IMPORT_COLOR_TOKEN,
+  INITIAL_IMPORT_LABEL,
+};
 
 export type OverlayActor =
   | {
@@ -174,32 +175,26 @@ function defaultFormatTimestamp(timestamp: number): string {
 }
 
 /**
- * Deterministically assigns colour tokens: human authors sorted by actorId map
- * onto the palette (cycling if there are more authors than tokens); the import
+ * Assigns each human author a deterministic, stable colour token via the shared
+ * `authorColorToken` (a stable hash of the actorId onto the palette). "Stable"
+ * means an author keeps the same colour regardless of which other authors are
+ * present, so the overlay, roster and Activity log always agree. The import
  * source always gets its reserved neutral token.
  */
 function assignColorTokens(
   authors: ReadonlyMap<string, RevisionAuthorInfo>,
   presentSources: ReadonlySet<string>,
 ): Map<string, string> {
-  const humanActorIds = new Set<string>();
+  const tokenByActorId = new Map<string, string>();
   for (const sourceId of presentSources) {
     const info = authors.get(sourceId);
     if (info?.actor.kind === 'author') {
-      humanActorIds.add(info.actor.actorId);
+      tokenByActorId.set(
+        info.actor.actorId,
+        authorColorToken(info.actor.actorId),
+      );
     }
   }
-
-  const sorted = [...humanActorIds].sort((left, right) =>
-    left < right ? -1 : left > right ? 1 : 0,
-  );
-
-  const tokenByActorId = new Map<string, string>();
-  sorted.forEach((actorId, index) => {
-    const token = AUTHOR_COLOR_TOKENS[index % AUTHOR_COLOR_TOKENS.length];
-    tokenByActorId.set(actorId, token ?? AUTHOR_COLOR_TOKENS[0]);
-  });
-
   return tokenByActorId;
 }
 
@@ -271,7 +266,8 @@ function resolveAuthor(
     displayName: info.actor.displayName,
     timestamp: info.timestamp,
     colorToken:
-      tokenByActorId.get(info.actor.actorId) ?? AUTHOR_COLOR_TOKENS[0],
+      tokenByActorId.get(info.actor.actorId) ??
+      authorColorToken(info.actor.actorId),
   };
 }
 

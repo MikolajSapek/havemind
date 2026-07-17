@@ -11,6 +11,7 @@ import {
   type ReadingBlock,
   type RevisionAuthorInfo,
 } from './attribution';
+import { authorColorToken } from '../runtime/author-colors';
 
 const CONTENT = 'Alpha\nBeta\n';
 const HASH = 'blob-alpha-beta';
@@ -138,16 +139,19 @@ describe('buildLivePreviewOverlay — decorations', () => {
   it('assigns deterministic colour tokens by author and never reuses a note-content colour', () => {
     const overlay = buildLivePreviewOverlay(baseInput());
     const [first, second] = overlay.segments;
-    // Sorted by actorId: a-ana → token[0], a-bob → token[1].
-    expect(first?.colorToken).toBe(AUTHOR_COLOR_TOKENS[0]);
-    expect(second?.colorToken).toBe(AUTHOR_COLOR_TOKENS[1]);
+    // Each author gets the shared stable-per-memberId colour (not a positional
+    // slot), so the overlay agrees with the roster and Activity log.
+    expect(first?.colorToken).toBe(authorColorToken('a-ana'));
+    expect(second?.colorToken).toBe(authorColorToken('a-bob'));
+    expect(first?.colorToken).not.toBe(second?.colorToken);
     // Tokens are CSS custom properties (editor layer), never raw colours.
     for (const segment of overlay.segments) {
       expect(segment.colorToken.startsWith('--havemind-')).toBe(true);
+      expect(AUTHOR_COLOR_TOKENS).toContain(segment.colorToken);
     }
     expect(overlay.legend).toEqual([
-      { colorToken: AUTHOR_COLOR_TOKENS[0], label: 'Ana' },
-      { colorToken: AUTHOR_COLOR_TOKENS[1], label: 'Bob' },
+      { colorToken: authorColorToken('a-ana'), label: 'Ana' },
+      { colorToken: authorColorToken('a-bob'), label: 'Bob' },
     ]);
   });
 
@@ -210,7 +214,7 @@ describe('buildReadingViewOverlay — block-level markers, silence without getSe
 
     const alpha = overlay.markers.find((m) => m.blockId === 'b-alpha');
     expect(alpha).toMatchObject({
-      colorToken: AUTHOR_COLOR_TOKENS[0],
+      colorToken: authorColorToken('a-ana'),
       underline: true,
       tooltip: 'Ana · t100',
     });
@@ -239,7 +243,7 @@ describe('buildReadingViewOverlay — block-level markers, silence without getSe
     expect(overlay.markers).toHaveLength(1);
     const [marker] = overlay.markers;
     // Ana covers 6 chars, Bob covers 5 → Ana is dominant for the colour.
-    expect(marker?.colorToken).toBe(AUTHOR_COLOR_TOKENS[0]);
+    expect(marker?.colorToken).toBe(authorColorToken('a-ana'));
     expect(marker?.authors.map((a) => a.displayName)).toEqual(['Ana', 'Bob']);
     // Colour is not the only signal: the tooltip enumerates both authors.
     expect(marker?.tooltip).toBe('Ana · t100; Bob · t200');

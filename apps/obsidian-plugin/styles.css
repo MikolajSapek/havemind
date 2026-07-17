@@ -1,0 +1,88 @@
+/* Havemind — Apache-2.0 */
+
+/*
+ * Author colour tokens. These back `author-colors.ts` (AUTHOR_COLORS) and are
+ * consumed by the presence roster, the Activity log rows and the F6 author
+ * overlay. Colour is ALWAYS paired with a name/label in the DOM, so these values
+ * are reinforcement, never the sole signal. Light values are the default; the
+ * dark overrides use lighter tints so a member reads as the same colour across
+ * themes.
+ */
+.theme-light,
+:root {
+  --havemind-author-1: #1a73c2;
+  --havemind-author-2: #8a3fc0;
+  --havemind-author-3: #0f8a6a;
+  --havemind-author-4: #c25a00;
+  --havemind-author-5: #b03060;
+  --havemind-author-6: #5a6ac0;
+  --havemind-author-initial: #6b7280;
+}
+
+.theme-dark {
+  --havemind-author-1: #7cb6f0;
+  --havemind-author-2: #c99bf0;
+  --havemind-author-3: #5fd3ac;
+  --havemind-author-4: #f0a35f;
+  --havemind-author-5: #ef92b6;
+  --havemind-author-6: #a3aef0;
+  --havemind-author-initial: #9aa1ac;
+}
+
+/* Fallback for hosts that expose the OS theme rather than the theme classes. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --havemind-author-1: #7cb6f0;
+    --havemind-author-2: #c99bf0;
+    --havemind-author-3: #5fd3ac;
+    --havemind-author-4: #f0a35f;
+    --havemind-author-5: #ef92b6;
+    --havemind-author-6: #a3aef0;
+    --havemind-author-initial: #9aa1ac;
+  }
+}
+
+/* Activity log row: left colour accent for the author, text label carries name. */
+.havemind-activity-row {
+  border-left: 3px solid var(--havemind-row-color, var(--background-modifier-border));
+  padding-left: 8px;
+  margin: 4px 0;
+}
+
+.havemind-activity-time {
+  color: var(--text-muted);
+  font-size: var(--font-smaller);
+}
+
+/* Presence roster row: green connected dot + name + role + "connected" label. */
+.havemind-roster-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  margin: 2px 0;
+}
+
+.havemind-roster-dot {
+  display: inline-flex;
+  align-items: center;
+}
+
+.havemind-status {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.havemind-verification-phrase {
+  font-size: 1.6em;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  font-family: var(--font-monospace);
+}
+
+.havemind-divider {
+  margin: 12px 0;
+  border: none;
+  border-top: 1px solid var(--background-modifier-border);
+}

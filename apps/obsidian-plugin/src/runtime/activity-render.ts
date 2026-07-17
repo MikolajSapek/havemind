@@ -13,12 +13,26 @@ import {
   computeRevisionDiff,
   type RevisionRecord,
 } from '../activity/activity';
+import {
+  authorColorToken,
+  INITIAL_IMPORT_COLOR_TOKEN,
+} from './author-colors';
 
 export interface ActivityRowView {
   readonly revisionId: string;
   readonly fileId: string;
+  /** `kind · path · author` — author is paired with the colour token below. */
   readonly label: string;
   readonly timestamp: number;
+  /** Human-readable time shown alongside each entry (author + file + time). */
+  readonly timeLabel: string;
+  /**
+   * Deterministic, stable colour token for the entry's author (see
+   * `author-colors`). Rendered as an accent paired with the author name in
+   * `label` — colour is never the only signal. Initial-import fragments get the
+   * reserved neutral token.
+   */
+  readonly colorToken: string;
   readonly canRestore: boolean;
 }
 
@@ -27,15 +41,31 @@ export interface ActivityViewModel {
   readonly rows: readonly ActivityRowView[];
 }
 
+export interface ActivityViewModelOptions {
+  /** Formats an entry timestamp for display; defaults to ISO-8601. */
+  readonly formatTimestamp?: (timestamp: number) => string;
+}
+
+function defaultFormatTimestamp(timestamp: number): string {
+  return new Date(timestamp).toISOString();
+}
+
 export function buildActivityViewModel(
   records: readonly RevisionRecord[],
+  options: ActivityViewModelOptions = {},
 ): ActivityViewModel {
+  const format = options.formatTimestamp ?? defaultFormatTimestamp;
   const rows = buildActivityFeed(records).map(
     (entry): ActivityRowView => ({
       revisionId: entry.revisionId,
       fileId: entry.fileId,
       label: `${entry.kind} · ${entry.path} · ${entry.actorLabel}`,
       timestamp: entry.timestamp,
+      timeLabel: format(entry.timestamp),
+      colorToken:
+        entry.actorId === null
+          ? INITIAL_IMPORT_COLOR_TOKEN
+          : authorColorToken(entry.actorId),
       canRestore: entry.canRestore,
     }),
   );
