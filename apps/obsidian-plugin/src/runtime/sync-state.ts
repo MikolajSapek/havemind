@@ -44,6 +44,14 @@ export interface PersistedSyncState {
   readonly deferred: readonly RemoteEvent[];
   /** Durable fileId↔path map for files Havemind has materialized/synced. */
   readonly pathOwners: Readonly<Record<string, string>>;
+  /**
+   * Durable fileId→content-hash map of the last synced base for each file: the
+   * on-disk content both peers are known to share after the last successful
+   * apply. The overwrite guard compares the current on-disk content against this
+   * base to detect a local divergence before writing an incoming revision
+   * (rule 3: zero silent overwrites).
+   */
+  readonly baseHashes: Readonly<Record<string, string>>;
 }
 
 /** Persistence boundary; wraps `Plugin.loadData`/`Plugin.saveData` in production. */
@@ -68,6 +76,7 @@ function emptyState(): PersistedSyncState {
     locallyAuthored: [],
     deferred: [],
     pathOwners: {},
+    baseHashes: {},
   };
 }
 
@@ -144,6 +153,32 @@ export class DurableSyncState implements SyncStatePort {
     const pathOwners = { ...state.pathOwners };
     delete pathOwners[path];
     await this.mutate({ ...state, pathOwners });
+  }
+
+  /**
+   * Synchronous lookup of the last synced base content hash for a file against
+   * the warmed cache, or null when Havemind has no recorded base yet. The vault
+   * adapter uses this to detect whether the on-disk content has diverged from
+   * the shared base before applying an incoming remote revision.
+   */
+  baseHashFor(fileId: string): string | null {
+    return this.cache?.baseHashes[fileId] ?? null;
+  }
+
+  async recordBaseHash(fileId: string, hash: string): Promise<void> {
+    const state = await this.ensureLoaded();
+    await this.mutate({
+      ...state,
+      baseHashes: { ...state.baseHashes, [fileId]: hash },
+    });
+  }
+
+  async forgetBaseHash(fileId: string): Promise<void> {
+    const state = await this.ensureLoaded();
+    if (!(fileId in state.baseHashes)) return;
+    const baseHashes = { ...state.baseHashes };
+    delete baseHashes[fileId];
+    await this.mutate({ ...state, baseHashes });
   }
 
   async enqueue(envelope: OutboxEnvelope): Promise<void> {
@@ -249,6 +284,9 @@ function parsePersistedState(raw: unknown): PersistedSyncState {
   const pathOwners = parsePathOwners(raw.pathOwners);
   if (pathOwners === null) return emptyState();
 
+  const baseHashes = parseStringMap(raw.baseHashes);
+  if (baseHashes === null) return emptyState();
+
   return {
     version: 1,
     cursor: cursor as number,
@@ -256,20 +294,26 @@ function parsePersistedState(raw: unknown): PersistedSyncState {
     locallyAuthored: locallyAuthored as string[],
     deferred: parsedDeferred,
     pathOwners,
+    baseHashes,
   };
 }
 
 function parsePathOwners(
   value: unknown,
 ): Record<string, string> | null {
+  return parseStringMap(value);
+}
+
+/** Parses an untrusted `Record<string, string>`; undefined degrades to empty. */
+function parseStringMap(value: unknown): Record<string, string> | null {
   if (value === undefined) return {};
   if (!isRecord(value)) return null;
-  const owners: Record<string, string> = {};
-  for (const [path, fileId] of Object.entries(value)) {
-    if (typeof fileId !== 'string') return null;
-    owners[path] = fileId;
+  const result: Record<string, string> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (typeof entry !== 'string') return null;
+    result[key] = entry;
   }
-  return owners;
+  return result;
 }
 
 function parseEnvelope(value: unknown): OutboxEnvelope | null {

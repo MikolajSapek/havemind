@@ -5,6 +5,7 @@ import {
   type OpenBuffer,
   type PushReceipt,
   type PushRevision,
+  type RemoteApplyOutcome,
   type RemoteEvent,
   type SyncRunnerOptions,
   type SyncStatePort,
@@ -60,13 +61,21 @@ class FakeVault implements VaultApplyPort {
   readonly buffers = new Map<string, OpenBuffer[]>();
   readonly applied: RemoteEvent[] = [];
   readonly conflicts: RemoteEvent[] = [];
+  /** Outcome `applyRemote` returns per fileId; defaults to 'applied'. */
+  readonly applyOutcomes = new Map<string, RemoteApplyOutcome>();
 
   async openBuffers(fileId: string): Promise<readonly OpenBuffer[]> {
     return this.buffers.get(fileId) ?? [];
   }
 
-  async applyRemote(event: RemoteEvent): Promise<void> {
-    this.applied.push(event);
+  async applyRemote(event: RemoteEvent): Promise<RemoteApplyOutcome> {
+    const outcome = this.applyOutcomes.get(event.revision.fileId) ?? 'applied';
+    if (outcome === 'conflict') {
+      this.conflicts.push(event);
+    } else {
+      this.applied.push(event);
+    }
+    return outcome;
   }
 
   async recordConflict(event: RemoteEvent): Promise<void> {
@@ -333,6 +342,54 @@ describe('SyncRunner remote apply', () => {
     const result = await runner.trigger();
 
     expect(vault.applied).toHaveLength(1);
+    expect(vault.conflicts).toHaveLength(0);
+    expect(result.status).toBe('synced');
+  });
+
+  it('routes to conflict when the on-disk guard rejects a clean-buffer apply', async () => {
+    // The open buffer guard is clean (no buffers), but the vault's on-disk
+    // overwrite guard reports the file diverged. The runner must count this as a
+    // conflict, not a silent apply (rule 3), and still advance the cursor.
+    const vault = new FakeVault();
+    vault.applyOutcomes.set('file-a', 'conflict');
+    const { runner, state } = makeRunner({
+      vault,
+      transport: {
+        push: vi.fn(async () => []),
+        pull: vi.fn(async () => ({
+          cursor: 1,
+          events: [event(1, 'file-a', 'remote-hash')],
+        })),
+      },
+    });
+
+    const result = await runner.trigger();
+
+    expect(vault.applied).toHaveLength(0);
+    expect(vault.conflicts).toHaveLength(1);
+    expect(result.status).toBe('conflict');
+    expect(result.conflicts).toBe(1);
+    expect(state.cursor).toBe(1);
+  });
+
+  it('treats an on-disk no-op apply as synced without a conflict', async () => {
+    // The on-disk content already equals the incoming revision: the vault skips
+    // the write and reports a no-op. The runner stays synced.
+    const vault = new FakeVault();
+    vault.applyOutcomes.set('file-a', 'noop');
+    const { runner } = makeRunner({
+      vault,
+      transport: {
+        push: vi.fn(async () => []),
+        pull: vi.fn(async () => ({
+          cursor: 1,
+          events: [event(1, 'file-a', 'remote-hash')],
+        })),
+      },
+    });
+
+    const result = await runner.trigger();
+
     expect(vault.conflicts).toHaveLength(0);
     expect(result.status).toBe('synced');
   });

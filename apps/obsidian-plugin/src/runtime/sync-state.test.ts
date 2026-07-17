@@ -161,6 +161,34 @@ describe('DurableSyncState', () => {
     expect(recovered.fileIdAtPath('Notes/a.md')).toBeNull();
   });
 
+  it('records, reads and forgets base hashes durably', async () => {
+    expect(state.baseHashFor('file-1')).toBeNull();
+    await state.recordBaseHash('file-1', 'base-hash-1');
+    expect(state.baseHashFor('file-1')).toBe('base-hash-1');
+
+    const reopened = new DurableSyncState({ persist });
+    await reopened.loadCursor(); // warm cache
+    expect(reopened.baseHashFor('file-1')).toBe('base-hash-1');
+
+    await reopened.forgetBaseHash('file-1');
+    expect(reopened.baseHashFor('file-1')).toBeNull();
+  });
+
+  it('treats a malformed baseHashes map as empty', async () => {
+    const corrupt = new MemoryPersist({
+      version: 1,
+      cursor: 0,
+      outbox: [],
+      locallyAuthored: [],
+      deferred: [],
+      pathOwners: {},
+      baseHashes: { 'file-1': 42 },
+    });
+    const recovered = new DurableSyncState({ persist: corrupt });
+    await recovered.loadCursor();
+    expect(recovered.baseHashFor('file-1')).toBeNull();
+  });
+
   it('deduplicates an envelope re-enqueued with the same revision id', async () => {
     await state.enqueue(envelope());
     await state.enqueue(envelope({ contentHash: 'hash-2', payloadBase64: 'BBBB' }));

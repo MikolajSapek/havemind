@@ -72,11 +72,27 @@ export interface OpenBuffer {
   readonly currentHash: string;
 }
 
+/**
+ * What `applyRemote` actually did. The runner asks the vault to apply a remote
+ * revision only after the open-buffer guard cleared it, but the vault runs a
+ * second, on-disk overwrite guard of its own: it compares the current on-disk
+ * content against the last synced base before writing (rule 3). It therefore
+ * reports back whether it wrote the content (`applied`), diverted it to a
+ * conflict artifact because the on-disk file had diverged (`conflict`), or
+ * skipped the write because the file had already converged to the incoming
+ * content (`noop`).
+ */
+export type RemoteApplyOutcome = 'applied' | 'conflict' | 'noop';
+
 export interface VaultApplyPort {
   /** Every open leaf/popout buffer for the target file. */
   openBuffers(fileId: string): Promise<readonly OpenBuffer[]>;
-  /** Write the remote revision content to the vault file. */
-  applyRemote(event: RemoteEvent): Promise<void>;
+  /**
+   * Write the remote revision content to the vault file, subject to the vault's
+   * own on-disk overwrite guard. Returns what it did so the runner can report a
+   * conflict the on-disk guard raised even though the buffer guard was clean.
+   */
+  applyRemote(event: RemoteEvent): Promise<RemoteApplyOutcome>;
   /** Record a visible conflict artifact without overwriting the active file. */
   recordConflict(event: RemoteEvent): Promise<void>;
 }
@@ -280,8 +296,17 @@ export class SyncRunner {
         await this.options.vault.recordConflict(remoteEvent);
         conflicts += 1;
       } else {
-        await this.options.vault.applyRemote(remoteEvent);
-        applied += 1;
+        // The open-buffer guard cleared this event, but the vault runs a second
+        // on-disk overwrite guard before writing. A divergent on-disk file is
+        // diverted to a conflict artifact rather than silently overwritten
+        // (rule 3), and the runner counts it as a conflict so the status
+        // surfaces it.
+        const outcome = await this.options.vault.applyRemote(remoteEvent);
+        if (outcome === 'conflict') {
+          conflicts += 1;
+        } else {
+          applied += 1;
+        }
       }
 
       cursor = remoteEvent.serverSequence;
