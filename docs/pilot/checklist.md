@@ -54,3 +54,10 @@ Pre-pilot confirmations and the daily 7-day pilot log live here
   status settled on Synced. Onboarding blocker closed — both vaults live.
   Pre-connect DB reset cleared 15 stale invitations + 5 hanging pending
   devices (approved owner devices untouched).
+- [x] **Push path fixed and verified live (2026-07-17)**: earlier the client
+  never issued POST /revisions (server FILES=REVISIONS=events=0) — root cause
+  was the push producer (VaultChangeObserver + reconcileVaultState) never being
+  wired into the runtime, plus /owner/pair not returning the owner membershipId.
+  Fixed in commit 8796d2c; server rebuilt on sapserver, DB re-onboarded clean,
+  owner re-paired. After a save in Vault A the server shows FILES 8 / REVISIONS
+  18 / EVENTS 18 — owner push and pre-existing-file enumeration both confirmed.
