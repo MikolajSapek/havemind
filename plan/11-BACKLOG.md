@@ -316,6 +316,49 @@ raporcie fazy (co działa, co odłożone, dowód).
     `docs/pilot/checklist.md`).
   - Blokuje: F8-02 (pilotaż 7-dniowy).
 
+## AUDIT-FINDINGS (loop bug-hunt, 2026-07-18)
+
+Znaleziska z równoległych audytów (współistnienie pluginów + e2e/migracje/config/DAG).
+Naprawione w tej pętli commituje się osobno; poniżej to, co świadomie odłożone.
+
+- [x] **AUD-01** `serwer,bezpieczeństwo` TOCTOU race w czyszczeniu osieroconych blobów
+  - Fix na hot-path (reject) usunięty; sweep przy starcie serwera (bez równoległych pushy).
+  - Naprawione: `915cc4b` (blob-gc.ts + startup sweep). Poprzedni racy fix `0382eb8` cofnięty.
+- [x] **AUD-02** `plugin` Plik (nie folder) o nazwie `Havemind Conflicts` klinuje pętlę pull
+  - Guard `instanceof TFolder` + fallback (`Havemind Conflicts (files)` → root) w `writeConflictArtifact`.
+  - Naprawione: commit plugin conflict-folder (poniżej, ta sama pętla).
+- [ ] **AUD-03** `plugin` Churn formatera/lintera między maszynami o różnych ustawieniach
+  - Objaw: plugin auto-formatujący (Linter „format on save", Prettier-for-Obsidian) przepisuje
+    notatkę po zapisie Havemind → `contentHash` różny od zaseedowanego → nowa rewizja pushowana.
+    Dwie maszyny o różnych stylach oscylują w nieskończoność; przy współbieżności rosnący stos
+    `Havemind Conflicts/`. Bez utraty danych. MEDIUM, częściowo inherentne dla file-sync+formatery.
+  - Kierunek: (1) rozszerzyć `canonicalizeMarkdown` (już normalizuje CRLF) o trailing-newline
+    symetrycznie przed hashem; (2) krótkie okno „settling" po apply przed hashowaniem; (3) DOC —
+    zalecić userom zsynchronizowanie ustawień formatera / wyłączenie format-on-save konfliktów.
+  - Decyzja: dla pilotażu 2-osobowego wystarczy DOC + trailing-newline; pełny fix odłożony.
+- [ ] **AUD-04** `plugin` Rename/delete folderu z innego pluginu może zostawić nieaktualne mapowania
+  - Warunkowe (zależy od tego, czy Obsidian emituje per-child TFile eventy przy ruchu folderu).
+    Jeśli tylko event TFolder — dziecko dostaje nowy fileId (fork/duplikat u peera) do czasu
+    `reconcileVaultState` przy reconnect, które to leczy (content-match pairing). LOW-MEDIUM,
+    eventual-consistency, bez trwałej utraty.
+  - Kierunek: na event TFolder rename/delete od razu re-path/tombstone mapowań dzieci, albo
+    zweryfikować na żywym buildzie Obsidiana, że per-child TFile eventy zawsze lecą, i udokumentować.
+- [ ] **AUD-05** `serwer,sapserver` Rate limiter dzieli jeden globalny bucket za Tailscale
+  - `trustProxy: false` + `request.ip` = loopback pod Tailscale serve/funnel → limit 120/60s jest
+    globalny dla obu urządzeń, nie per-klient. Przy pierwszym bulk-download inwitera (dużo blob
+    GET + strony eventów) jedno urządzenie może dostać 429. Klient klasyfikuje 429 jako transient
+    i backoffuje — bez utraty, ale onboarding dużego vaulta zwalnia. MINOR/operacyjne.
+  - Kierunek: podnieść/scope'ować limit, kluczować per authenticated device gdy sesja istnieje,
+    albo wyłączyć blob GET z limitu.
+- [ ] **AUD-06** `serwer` Brakujące ścieżki w macierzy usterek (test coverage, nie bug)
+  - Nie pokryte w `tests/e2e/fault-matrix.test.ts`: (b) multi-page catch-up po długim offline
+    (>100 eventów — realny drop/resume Wi-Fi); (c) reuse/race rotacji refresh-tokena przy
+    zgubionej odpowiedzi. Najbardziej warte jawnego testu.
+- [ ] **AUD-07** `plugin` Notatki użytkownika pod ścieżką z kropką lub w folderze `Havemind Conflicts`
+  - `isEligiblePath` odrzuca dowolny segment zaczynający się `.` (np. `Notes/.drafts/x.md`) oraz
+    reserved root `Havemind Conflicts/` → takie notatki się NIE synchronizują (under-sync, bezpieczne
+    kierunkowo). LOW/usability — tylko nota w dokumentacji dla usera.
+
 ## GITLAB-IMPORT
 
 - Labels: `fundament`, `serwer`, `plugin`, `sapserver`, `bezpieczeństwo`, `decyzja-usera`.

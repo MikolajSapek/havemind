@@ -15,6 +15,7 @@ import {
   Notice,
   requestUrl,
   TFile,
+  TFolder,
   type EventRef,
   type Plugin,
   type TAbstractFile,
@@ -232,6 +233,44 @@ export interface VaultFilePortOptions {
  * still protected by the adapter's on-disk overwrite guard (a null base with
  * divergent content becomes a conflict, never a silent overwrite).
  */
+/**
+ * Ensures `folder` exists and is genuinely a folder, returning the path to
+ * write under. Guards against a non-folder file occupying the reserved path
+ * (e.g. a note literally named `Havemind Conflicts` with no extension):
+ * `getAbstractFileByPath` returning non-null does not mean the path is a
+ * folder, and skipping `createFolder` in that case would make the later
+ * `vault.create` throw — a throw the sync cycle has no permanent-error
+ * classification for on the pull path, so it wedges the pull loop in
+ * infinite 'offline' backoff (see `writeConflictArtifact`). Falls back to a
+ * sanitized sibling folder name, then to the vault root, so a single
+ * occupied path can never wedge sync.
+ */
+async function ensureWritableConflictFolder(
+  vault: Pick<Vault, 'getAbstractFileByPath' | 'createFolder'>,
+  folder: string,
+): Promise<string> {
+  const abstract = vault.getAbstractFileByPath(folder);
+  if (abstract === null) {
+    await vault.createFolder(folder);
+    return folder;
+  }
+  if (abstract instanceof TFolder) {
+    return folder;
+  }
+  const fallback = `${folder} (files)`;
+  const fallbackAbstract = vault.getAbstractFileByPath(fallback);
+  if (fallbackAbstract === null) {
+    await vault.createFolder(fallback);
+    return fallback;
+  }
+  if (fallbackAbstract instanceof TFolder) {
+    return fallback;
+  }
+  // Even the sanitized fallback is occupied by a non-folder file. Land the
+  // artifact at the vault root rather than throwing.
+  return '';
+}
+
 export function createVaultFilePort(options: VaultFilePortOptions): VaultFilePort {
   const { vault, state } = options;
   return {
@@ -273,17 +312,22 @@ export function createVaultFilePort(options: VaultFilePortOptions): VaultFilePor
       }
     },
     async writeConflictArtifact(path, content) {
-      if (vault.getAbstractFileByPath(CONFLICT_FOLDER) === null) {
-        await vault.createFolder(CONFLICT_FOLDER);
-      }
+      const separatorIndex = path.lastIndexOf('/');
+      const folder = separatorIndex === -1 ? '' : path.slice(0, separatorIndex);
+      const filename =
+        separatorIndex === -1 ? path : path.slice(separatorIndex + 1);
+      const resolvedFolder =
+        folder === '' ? '' : await ensureWritableConflictFolder(vault, folder);
+      const targetPath =
+        resolvedFolder === '' ? filename : `${resolvedFolder}/${filename}`;
       // Idempotent (create-or-overwrite). `vault.create` throws if the path
       // already exists, and the runner saves the pull cursor only AFTER apply,
       // so a crash mid-cycle or a second delivery re-writes the same
       // `fileId-revisionId.md` artifact. A throw here would be caught by the
       // cycle as 'offline' and wedge the whole pull loop in infinite backoff.
-      const existing = vault.getAbstractFileByPath(path);
+      const existing = vault.getAbstractFileByPath(targetPath);
       if (existing === null) {
-        await vault.create(path, content);
+        await vault.create(targetPath, content);
         return;
       }
       await vault.modify(existing as TFile, content);

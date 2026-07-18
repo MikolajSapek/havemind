@@ -15,6 +15,85 @@ vi.mock('obsidian', async (importOriginal) => {
   };
 });
 
+/**
+ * Minimal stand-in for Obsidian's `TFile`/`TFolder` shape: just enough for
+ * `instanceof` checks and a `path` field. This suite cannot statically
+ * `import { TFile, TFolder } from 'obsidian'` because the module is
+ * `vi.mock`-ed above with a factory that reads the hoisted `mockRequestUrl`
+ * variable; a static import of the mocked module would itself be hoisted
+ * ahead of that variable's initialization. Each test instead resolves the
+ * real mock classes via a dynamic `import('obsidian')`, matching how this
+ * file already dynamically imports `./obsidian-adapters`.
+ */
+type AbstractFileLike = { path: string };
+
+/**
+ * Minimal in-memory Vault double for `createVaultFilePort`'s
+ * `writeConflictArtifact`. Distinguishes files from folders so it can model
+ * the regression scenario: a FILE (no extension) occupying the exact
+ * reserved conflict-folder path.
+ */
+class FakeVault {
+  private readonly entries = new Map<
+    string,
+    { kind: 'file' | 'folder'; content?: string }
+  >();
+
+  constructor(
+    private readonly TFileClass: new () => AbstractFileLike,
+    private readonly TFolderClass: new () => AbstractFileLike,
+  ) {}
+
+  seedFile(path: string, content = ''): void {
+    this.entries.set(path, { kind: 'file', content });
+  }
+
+  getAbstractFileByPath(path: string): AbstractFileLike | null {
+    const entry = this.entries.get(path);
+    if (entry === undefined) return null;
+    if (entry.kind === 'folder') {
+      const folder = new this.TFolderClass();
+      folder.path = path;
+      return folder;
+    }
+    const file = new this.TFileClass();
+    file.path = path;
+    return file;
+  }
+
+  async createFolder(path: string): Promise<void> {
+    this.entries.set(path, { kind: 'folder' });
+  }
+
+  async create(path: string, data: string): Promise<AbstractFileLike> {
+    if (this.entries.has(path)) {
+      throw new Error(`already exists: ${path}`);
+    }
+    this.entries.set(path, { kind: 'file', content: data });
+    const file = new this.TFileClass();
+    file.path = path;
+    return file;
+  }
+
+  async modify(file: AbstractFileLike, data: string): Promise<void> {
+    this.entries.set(file.path, { kind: 'file', content: data });
+  }
+
+  contentAt(path: string): string | undefined {
+    return this.entries.get(path)?.content;
+  }
+}
+
+/** `createVaultFilePort`'s `state` port is unused by `writeConflictArtifact`. */
+const noopState = {
+  fileIdAtPath: () => null,
+  baseHashFor: () => undefined,
+  recordBaseHash: () => undefined,
+  forgetBaseHash: () => undefined,
+  recordPathOwner: () => undefined,
+  forgetPath: () => undefined,
+};
+
 describe('registerVaultChangeListeners', () => {
   it('detaches exactly the listeners it registered when the disposer runs', async () => {
     // Regression: a re-pair used to leave the prior-session producer's vault
@@ -155,5 +234,71 @@ describe('createRequestUrlFn', () => {
         permanent,
       });
     }
+  });
+});
+
+describe('createVaultFilePort writeConflictArtifact', () => {
+  it('creates the conflict folder on first write when absent', async () => {
+    const { createVaultFilePort } = await import('./obsidian-adapters');
+    const { TFile, TFolder } = await import('obsidian');
+    const vault = new FakeVault(TFile, TFolder);
+    const port = createVaultFilePort({
+      vault: vault as never,
+      state: noopState as never,
+    });
+
+    await port.writeConflictArtifact('Havemind Conflicts/file-1-rev-1.md', 'C\n');
+
+    expect(vault.contentAt('Havemind Conflicts/file-1-rev-1.md')).toBe('C\n');
+    expect(vault.getAbstractFileByPath('Havemind Conflicts')).toBeInstanceOf(
+      TFolder,
+    );
+  });
+
+  it('overwrites an existing conflict artifact idempotently when the folder already exists', async () => {
+    const { createVaultFilePort } = await import('./obsidian-adapters');
+    const { TFile, TFolder } = await import('obsidian');
+    const vault = new FakeVault(TFile, TFolder);
+    await vault.createFolder('Havemind Conflicts');
+    vault.seedFile('Havemind Conflicts/file-1-rev-1.md', 'OLD\n');
+    const port = createVaultFilePort({
+      vault: vault as never,
+      state: noopState as never,
+    });
+
+    await port.writeConflictArtifact('Havemind Conflicts/file-1-rev-1.md', 'NEW\n');
+
+    expect(vault.contentAt('Havemind Conflicts/file-1-rev-1.md')).toBe('NEW\n');
+  });
+
+  it('regression: a non-folder file occupying the reserved conflict-folder path must not wedge the pull loop', async () => {
+    // A FILE (no extension) named exactly "Havemind Conflicts" satisfies
+    // `getAbstractFileByPath(...) !== null`, so the old guard skipped
+    // `createFolder` and the later `vault.create` threw because the parent
+    // path was a file, not a folder. That throw bubbles to the sync cycle's
+    // catch, which has no permanent-error classification on the pull path,
+    // so every throw here was treated as 'offline' and backed off forever —
+    // a single stray note wedged sync permanently. It must recover instead.
+    const { createVaultFilePort } = await import('./obsidian-adapters');
+    const { TFile, TFolder } = await import('obsidian');
+    const vault = new FakeVault(TFile, TFolder);
+    vault.seedFile('Havemind Conflicts'); // occupies the reserved path with a file
+    const port = createVaultFilePort({
+      vault: vault as never,
+      state: noopState as never,
+    });
+
+    await expect(
+      port.writeConflictArtifact('Havemind Conflicts/file-1-rev-1.md', 'C\n'),
+    ).resolves.toBeUndefined();
+
+    // The reserved file is left untouched, and the artifact still lands
+    // somewhere retrievable rather than being silently dropped.
+    expect(vault.getAbstractFileByPath('Havemind Conflicts')).toBeInstanceOf(
+      TFile,
+    );
+    expect(
+      vault.contentAt('Havemind Conflicts (files)/file-1-rev-1.md'),
+    ).toBe('C\n');
   });
 });

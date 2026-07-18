@@ -10,6 +10,8 @@
 
 import { describe, expect, it } from 'vitest';
 
+import { TFile, TFolder } from 'obsidian';
+
 import type { DecodedRevisionPayload } from '@havemind/sync-core';
 
 import {
@@ -49,9 +51,22 @@ class InMemoryVault {
   onEvent: (kind: 'create' | 'modify' | 'delete', path: string) => void =
     () => undefined;
 
-  getAbstractFileByPath(path: string): { path: string } | null {
-    if (this.contents.has(path)) return { path };
-    if (this.folders.has(path)) return { path };
+  getAbstractFileByPath(path: string): TFile | TFolder | null {
+    // Real Obsidian distinguishes files from folders by class identity
+    // (`instanceof TFolder`), which `createVaultFilePort`'s conflict-folder
+    // guard relies on to recover when a non-folder occupies the reserved
+    // path. Return real TFile/TFolder instances (not a bare `{ path }`
+    // object) so this double matches that contract.
+    if (this.folders.has(path)) {
+      const folder = new TFolder();
+      folder.path = path;
+      return folder;
+    }
+    if (this.contents.has(path)) {
+      const file = new TFile();
+      file.path = path;
+      return file;
+    }
     return null;
   }
 

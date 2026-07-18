@@ -37,6 +37,10 @@ declare module 'obsidian' {
     extension: string;
   }
 
+  export class TFolder extends TAbstractFile {
+    children: TAbstractFile[];
+  }
+
   export class Notice {
     constructor(message: string, timeout?: number);
   }
