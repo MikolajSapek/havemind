@@ -44,7 +44,7 @@ export type SyncErrorCode =
 
 export interface SyncRoutesDeps {
   readonly revisions: RevisionRepository;
-  readonly blobStore: Pick<BlobStore, 'put' | 'read' | 'remove'>;
+  readonly blobStore: Pick<BlobStore, 'put' | 'read'>;
   readonly database: Database.Database;
   readonly maxBatchSize?: number;
   readonly maxPayloadBytes?: number;
@@ -269,50 +269,6 @@ function blobBelongsToVault(
 }
 
 /**
- * The blob store is content-addressed and shared across vaults, so a blob is
- * only truly orphaned when no committed revision anywhere references its
- * hash. Used to clean up bytes written for a revision whose commit was then
- * rejected (see cleanupOrphanedBlob below).
- */
-function blobIsReferenced(
-  database: Database.Database,
-  blobHash: string,
-): boolean {
-  const row = database
-    .prepare(
-      `SELECT 1 AS present
-       FROM revisions
-       WHERE blob_hash = ?
-       LIMIT 1`,
-    )
-    .get(blobHash) as { present: number } | undefined;
-  return row !== undefined;
-}
-
-/**
- * Best-effort cleanup for the disk-growth case where `blobStore.put` already
- * wrote bytes for a revision whose commit was then rejected (idempotency or
- * revision-id reuse, forbidden actor, missing parent, etc). If no committed
- * revision (in this batch or otherwise) ends up referencing the hash, the
- * blob is removed so repeated rejects cannot grow disk usage without bound.
- * Failures here are swallowed: cleanup is an optimization, never allowed to
- * turn an already-classified per-revision rejection into a request failure.
- */
-async function cleanupOrphanedBlob(
-  deps: SyncRoutesDeps,
-  blobHash: string,
-): Promise<void> {
-  try {
-    if (!blobIsReferenced(deps.database, blobHash)) {
-      await deps.blobStore.remove(blobHash as never);
-    }
-  } catch {
-    // Best-effort: an orphaned blob left behind on cleanup failure is still
-    // strictly better than aborting a batch that already recorded results.
-  }
-}
-
-/**
  * Registers the batched push, cursor-based pull and byte-exact blob retrieval
  * routes. The caller must register this inside the deny-by-default protected
  * scope from `auth-routes`, so every request already carries an authenticated
@@ -407,7 +363,12 @@ export function registerSyncRoutes(
         });
       } catch (error) {
         if (error instanceof RevisionRepositoryError) {
-          await cleanupOrphanedBlob(deps, stored.hash);
+          // The blob bytes for this rejected revision are left on disk. They
+          // are content-addressed and may still be referenced by another
+          // concurrently-committing request for the same bytes, so deleting
+          // here would race; any truly orphaned blob is instead reclaimed by
+          // the startup sweep (`sweepOrphanedBlobs` in blob-gc.ts), which only
+          // runs when no push can be concurrently committing.
           results.push({
             code: SYNC_CODE_BY_REPOSITORY_CODE[error.code],
             revisionId: revision.header.revisionId,

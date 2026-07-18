@@ -407,7 +407,7 @@ describe('sync push/pull routes', () => {
     ]);
   });
 
-  it('removes the orphaned blob for a rejected revision while keeping blobs accepted revisions still reference', async () => {
+  it('leaves a rejected revision blob on disk for the startup sweep, while keeping blobs accepted revisions reference', async () => {
     const fixture = makeFixture();
     const app = createApp(fixture);
 
@@ -433,15 +433,15 @@ describe('sync push/pull routes', () => {
     expect(byId.get(REVISION_2)?.status).toBe('accepted');
 
     // The rejected revision's payload was written to disk before the domain
-    // rejection (blobStore.put runs ahead of commitRevision), but since no
-    // committed revision ends up referencing it, it must not linger on disk.
+    // rejection (blobStore.put runs ahead of commitRevision). The request hot
+    // path must NOT delete it: deleting here would race a concurrent request
+    // committing a revision that references the same hash. The orphan is
+    // reclaimed later, only by the startup sweep (see blob-gc.test.ts).
     const orphanHash = await hashBlob(Buffer.from(rejectedContent, 'utf8'));
-    expect(existsSync(fixture.blobStore.pathForHash(orphanHash))).toBe(false);
+    expect(existsSync(fixture.blobStore.pathForHash(orphanHash))).toBe(true);
 
-    // Blobs still referenced by committed revisions (the original REVISION_1
-    // content and the accepted REVISION_2) must remain readable — cleanup
-    // must not touch bytes any revision still needs, and a replay must still
-    // find them.
+    // Blobs referenced by committed revisions (the original REVISION_1
+    // content and the accepted REVISION_2) must remain readable regardless.
     const originalHash = await hashBlob(Buffer.from('opaque-1', 'utf8'));
     const acceptedHash = await hashBlob(Buffer.from('opaque-2', 'utf8'));
     expect(existsSync(fixture.blobStore.pathForHash(originalHash))).toBe(true);

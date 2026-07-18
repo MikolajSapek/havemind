@@ -2,6 +2,7 @@ import {
   constants,
   mkdir,
   open,
+  readdir,
   rename,
   stat,
   unlink,
@@ -113,6 +114,45 @@ export class BlobStore {
   public async remove(hash: BlobHash): Promise<void> {
     const path = this.pathForHash(hash);
     await unlinkIfPresent(path);
+  }
+
+  /**
+   * Enumerates every blob hash currently materialised on disk by walking the
+   * two-level shard directory layout. Used only by the startup orphan sweep
+   * (see `blob-gc.ts`), which is the sole place blob deletion by liveness is
+   * decided — never from the request hot path.
+   */
+  public async listHashes(): Promise<readonly BlobHash[]> {
+    let shardNames: string[];
+    try {
+      shardNames = await readdir(this.#rootDirectory);
+    } catch (error) {
+      if (isNodeError(error) && error.code === 'ENOENT') {
+        return [];
+      }
+      throw error;
+    }
+
+    const hashes: BlobHash[] = [];
+    for (const shardName of shardNames) {
+      const shardPath = join(this.#rootDirectory, shardName);
+      let entries: string[];
+      try {
+        entries = await readdir(shardPath);
+      } catch (error) {
+        if (isNodeError(error) && error.code === 'ENOENT') {
+          continue;
+        }
+        throw error;
+      }
+      for (const entry of entries) {
+        const parsed = blobHashSchema.safeParse(entry);
+        if (parsed.success) {
+          hashes.push(parsed.data);
+        }
+      }
+    }
+    return hashes;
   }
 
   public async put(input: Uint8Array): Promise<BlobWriteResult> {

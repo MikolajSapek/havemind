@@ -10,6 +10,7 @@
 import { join } from 'node:path';
 
 import { buildApp } from './app.js';
+import { sweepOrphanedBlobs } from './blob-gc.js';
 import { parseServerConfig, type ServerEnvironment } from './config.js';
 import { DB_FILENAME, openDatabase } from './db.js';
 import { runMigrations } from './migrations.js';
@@ -47,6 +48,13 @@ async function main(): Promise<void> {
   const invitations = new InvitationService(database);
   const blobStore = new BlobStore(join(dataDir, BLOBS_DIRNAME));
   const revisions = new RevisionRepository(database, blobStore);
+
+  // Reclaim blobs orphaned by rejected pushes (idempotency/revision-id reuse,
+  // forbidden actor, missing parent, etc). This must run before the server
+  // accepts any connections: it is the only point at which no push request
+  // can be concurrently committing a revision that references a
+  // freshly-written blob, so it is race-free (see blob-gc.ts).
+  await sweepOrphanedBlobs(database, blobStore);
 
   const app = buildApp({
     config,
