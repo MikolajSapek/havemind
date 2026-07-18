@@ -212,6 +212,16 @@ export class VaultApplyAdapter implements VaultApplyPort {
       // conflict artifact.
       if (onDisk !== null && onDisk === text) {
         const contentHash = await this.hashContent(text);
+        // The path is switching from the superseded local fileId (`owner`) to
+        // the incoming remote fileId. Forget the superseded fileId's state
+        // FIRST — its producer mapping/head (keyed by fileId, not path) and its
+        // apply-side base hash — so exactly one fileId ends up owning this path
+        // and no orphaned heads[owner]/baseHashes[owner] survives the adopt.
+        // Order matters: this must run before onRemoteWrite below, since that
+        // call's own upsert would otherwise be undone by a later same-collision
+        // -key forget targeting the old owner.
+        await this.producerSync?.onRemoteDelete({ fileId: owner, path: decoded.path });
+        await this.files.forgetBaseHash(owner);
         await this.files.recordPathOwner(fileId, decoded.path);
         await this.files.recordBaseHash(fileId, contentHash);
         // Adopt the remote fileId into the producer mapping too (no disk write

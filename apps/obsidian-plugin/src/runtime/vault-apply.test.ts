@@ -537,6 +537,54 @@ describe('VaultApplyAdapter', () => {
       expect(files.owners.get('Notes/Shared.md')).toBe('device-b-random');
       expect(files.baseHashes.has('file-a')).toBe(false);
     });
+
+    it('forgets the superseded local fileId\'s head/base on adopt, leaving no orphan', async () => {
+      // Path 'Notes/Shared.md' was previously owned (and pushed) by this
+      // device's own random fileId 'file-b-local' with a recorded base. The
+      // peer's revision arrives under a DIFFERENT fileId 'file-a' for the same,
+      // byte-identical content — the F3 adopt branch. After adopting, exactly
+      // one fileId ('file-a') must own the path, and the superseded fileId's
+      // apply-side base hash AND producer-side head must both be gone — no
+      // orphaned heads[file-b-local]/baseHashes[file-b-local] left behind.
+      const producerDeletes: Array<{ fileId: string; path: string }> = [];
+      const producerWrites: Array<{ fileId: string; path: string }> = [];
+      const files = new FakeFiles();
+      files.owners.set('Notes/Shared.md', 'file-b-local');
+      files.onDisk.set('Notes/Shared.md', 'SHARED\n');
+      files.baseHashes.set('file-b-local', await fakeHash('SHARED\n'));
+
+      const adapter = new VaultApplyAdapter({
+        files,
+        conflictFolder: 'Havemind Conflicts',
+        resolveRevision: async () => content('Notes/Shared.md', 'SHARED\n'),
+        hashContent: fakeHash,
+        producerSync: {
+          async onRemoteWrite(input) {
+            producerWrites.push({ fileId: input.fileId, path: input.path });
+          },
+          async onRemoteDelete(input) {
+            producerDeletes.push({ fileId: input.fileId, path: input.path });
+          },
+        },
+      });
+
+      const outcome = await adapter.applyRemote(event('rev-a', 'file-a'));
+
+      expect(outcome).toBe('noop');
+      // Exactly one fileId owns the path now.
+      expect(files.owners.get('Notes/Shared.md')).toBe('file-a');
+      expect(files.baseHashes.get('file-a')).toBe(await fakeHash('SHARED\n'));
+      // No orphaned base hash left for the superseded fileId.
+      expect(files.baseHashes.has('file-b-local')).toBe(false);
+      // The superseded fileId's producer mapping/head was forgotten BEFORE the
+      // new fileId was adopted (order matters — see the implementation note).
+      expect(producerDeletes).toEqual([
+        { fileId: 'file-b-local', path: 'Notes/Shared.md' },
+      ]);
+      expect(producerWrites).toEqual([
+        { fileId: 'file-a', path: 'Notes/Shared.md' },
+      ]);
+    });
   });
 
   describe('rename divergence guard (rule 3, FIX 3)', () => {
