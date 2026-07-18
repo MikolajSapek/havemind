@@ -1,8 +1,9 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
+  hashBlob,
   PROTOCOL_VERSION,
   type ProtectedRevisionHeader,
 } from '@havemind/protocol';
@@ -394,6 +395,58 @@ describe('sync push/pull routes', () => {
     expect(byId.get(REVISION_2)?.status).toBe('accepted');
 
     // The accepted revision was durably committed and is now visible on pull.
+    const pulled = await app.inject({
+      headers: { authorization: `Bearer ${fixture.accessTokenA}` },
+      method: 'GET',
+      url: `/vaults/${VAULT_A}/events`,
+    });
+    const pull = pulled.json() as { events: Array<{ revisionId: string }> };
+    expect(pull.events.map((event) => event.revisionId)).toEqual([
+      REVISION_1,
+      REVISION_2,
+    ]);
+  });
+
+  it('removes the orphaned blob for a rejected revision while keeping blobs accepted revisions still reference', async () => {
+    const fixture = makeFixture();
+    const app = createApp(fixture);
+
+    // Pre-commit REVISION_1 so re-pushing it with different bytes is rejected
+    // (REVISION_ID_REUSE), while REVISION_2 in the same batch still commits.
+    await push(app, fixture.accessTokenA, VAULT_A, [
+      revisionInput(REVISION_1, [], 'k1', 'opaque-1'),
+    ]);
+
+    const rejectedContent = 'different-bytes-orphan';
+    const mixed = await push(app, fixture.accessTokenA, VAULT_A, [
+      revisionInput(REVISION_1, [], 'k1-conflict', rejectedContent),
+      revisionInput(REVISION_2, [REVISION_1], 'k2', 'opaque-2'),
+    ]);
+
+    expect(mixed.statusCode).toBe(200);
+    const results = (mixed.json() as {
+      results: Array<{ revisionId: string; status: string; code?: string }>;
+    }).results;
+    const byId = new Map(results.map((entry) => [entry.revisionId, entry]));
+    expect(byId.get(REVISION_1)?.status).toBe('rejected');
+    expect(byId.get(REVISION_1)?.code).toBe('REVISION_ID_REUSE');
+    expect(byId.get(REVISION_2)?.status).toBe('accepted');
+
+    // The rejected revision's payload was written to disk before the domain
+    // rejection (blobStore.put runs ahead of commitRevision), but since no
+    // committed revision ends up referencing it, it must not linger on disk.
+    const orphanHash = await hashBlob(Buffer.from(rejectedContent, 'utf8'));
+    expect(existsSync(fixture.blobStore.pathForHash(orphanHash))).toBe(false);
+
+    // Blobs still referenced by committed revisions (the original REVISION_1
+    // content and the accepted REVISION_2) must remain readable — cleanup
+    // must not touch bytes any revision still needs, and a replay must still
+    // find them.
+    const originalHash = await hashBlob(Buffer.from('opaque-1', 'utf8'));
+    const acceptedHash = await hashBlob(Buffer.from('opaque-2', 'utf8'));
+    expect(existsSync(fixture.blobStore.pathForHash(originalHash))).toBe(true);
+    expect(existsSync(fixture.blobStore.pathForHash(acceptedHash))).toBe(true);
+
     const pulled = await app.inject({
       headers: { authorization: `Bearer ${fixture.accessTokenA}` },
       method: 'GET',

@@ -103,6 +103,18 @@ export class BlobStore {
     return this.#verifyExisting(path, hash);
   }
 
+  /**
+   * Best-effort removal of a blob that turned out to be orphaned (for example
+   * a rejected revision's blob no committed revision ends up referencing).
+   * The store is content-addressed and idempotent, so this is safe to call
+   * even if another writer is concurrently recreating the same hash: `put`
+   * always re-materializes the bytes from scratch when the path is absent.
+   */
+  public async remove(hash: BlobHash): Promise<void> {
+    const path = this.pathForHash(hash);
+    await unlinkIfPresent(path);
+  }
+
   public async put(input: Uint8Array): Promise<BlobWriteResult> {
     const bytes = Buffer.from(input);
     const hash = await hashBlob(bytes);
