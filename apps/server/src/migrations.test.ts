@@ -99,7 +99,10 @@ describe('controlled migrations', () => {
     const database = trackDatabase(openDatabase(temporaryDatabasePath()));
 
     expect(runMigrations(database)).toEqual({
-      appliedVersions: [1, 2, 3],
+      appliedVersions: Array.from(
+        { length: CURRENT_SCHEMA_VERSION },
+        (_, index) => index + 1,
+      ),
       currentVersion: CURRENT_SCHEMA_VERSION,
     });
 

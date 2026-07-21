@@ -11,6 +11,7 @@ import {
 import Fastify, { LogController, type FastifyInstance } from 'fastify';
 
 import { registerAuthRoutes, type AuthRoutesDeps } from './auth/auth-routes.js';
+import { registerRejoinRoutes } from './auth/rejoin-routes.js';
 import type { ServerConfig } from './config.js';
 
 const LOGGER_REDACTION_PATHS = [
@@ -89,6 +90,14 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
 
   if (options.auth !== undefined) {
     registerAuthRoutes(app, options.auth);
+    // F9 rejoin surface: a self-contained encapsulated plugin registered
+    // alongside (not inside) auth-routes, so re-admitting a known contact after
+    // a terminal auth failure needs no change to the auth-routes module.
+    registerRejoinRoutes(app, {
+      database: options.auth.database,
+      sessions: options.auth.sessions,
+      ...(options.auth.now === undefined ? {} : { now: options.auth.now }),
+    });
   }
 
   app.get('/readyz', async (request, reply) => {

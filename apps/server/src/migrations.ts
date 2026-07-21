@@ -134,10 +134,20 @@ const approvalAttemptsMigration: MigrationDefinition = Object.freeze({
   version: 3,
 });
 
+const rejoinGrantsMigration: MigrationDefinition = Object.freeze({
+  name: 'rejoin-grants',
+  sql: readFileSync(
+    new URL('./migrations/004-rejoin-grants.sql', import.meta.url),
+    'utf8',
+  ),
+  version: 4,
+});
+
 export const DEFAULT_MIGRATIONS: readonly MigrationDefinition[] = Object.freeze([
   initialMigration,
   onboardingMigration,
   approvalAttemptsMigration,
+  rejoinGrantsMigration,
 ]);
 
 export const CURRENT_SCHEMA_VERSION =

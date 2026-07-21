@@ -1,0 +1,348 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import type Database from 'better-sqlite3';
+import { afterEach, describe, expect, it } from 'vitest';
+
+import { openDatabase } from '../db.js';
+import { runMigrations } from '../migrations.js';
+import {
+  RejoinGrantError,
+  RejoinGrantService,
+} from './rejoin-grants.js';
+import { SessionRepository } from './session-repository.js';
+import {
+  createRefreshSuccessor,
+  generateRefreshToken,
+  hashRefreshToken,
+  parseRefreshToken,
+} from './tokens.js';
+
+const START_TIME = '2026-07-21T03:00:00.000Z';
+const FIFTEEN_MINUTES_MS = 15 * 60 * 1_000;
+const ACCESS_TTL_SECONDS = 600;
+const REFRESH_TTL_SECONDS = 24 * 60 * 60;
+
+const OWNER_USER = '90000000-0000-4000-8000-0000000000a1';
+const OWNER_DEVICE = '90000000-0000-4000-8000-0000000000a2';
+const VAULT = '90000000-0000-4000-8000-0000000000a3';
+const OWNER_MEMBERSHIP = '90000000-0000-4000-8000-0000000000a4';
+const INVITEE_USER = '90000000-0000-4000-8000-0000000000b1';
+const INVITEE_DEVICE = '90000000-0000-4000-8000-0000000000b2';
+const INVITEE_MEMBERSHIP = '90000000-0000-4000-8000-0000000000b4';
+
+interface MutableClock {
+  readonly now: () => Date;
+  advance(milliseconds: number): void;
+}
+
+interface Fixture {
+  readonly clock: MutableClock;
+  readonly database: Database.Database;
+  readonly service: RejoinGrantService;
+  readonly sessions: SessionRepository;
+}
+
+const databases: Database.Database[] = [];
+const temporaryDirectories: string[] = [];
+
+function createClock(initial = START_TIME): MutableClock {
+  let milliseconds = Date.parse(initial);
+  return {
+    advance(value): void {
+      milliseconds += value;
+    },
+    now: () => new Date(milliseconds),
+  };
+}
+
+function insertUser(database: Database.Database, id: string, name: string, owner: 0 | 1): void {
+  database
+    .prepare(
+      `INSERT INTO users (id, display_name, is_instance_owner, status, created_at, revoked_at)
+       VALUES (?, ?, ?, 'active', ?, NULL)`,
+    )
+    .run(id, name, owner, START_TIME);
+}
+
+function insertDevice(
+  database: Database.Database,
+  id: string,
+  userId: string,
+  name: string,
+): void {
+  database
+    .prepare(
+      `INSERT INTO devices (id, user_id, display_name, public_key, status, created_at, approved_at, revoked_at)
+       VALUES (?, ?, ?, ?, 'approved', ?, ?, NULL)`,
+    )
+    .run(id, userId, name, Buffer.alloc(32, 0x22), START_TIME, START_TIME);
+}
+
+function insertMembership(
+  database: Database.Database,
+  id: string,
+  userId: string,
+  role: 'owner' | 'editor',
+): void {
+  database
+    .prepare(
+      `INSERT INTO memberships (id, vault_id, user_id, role, status, created_at, revoked_at)
+       VALUES (?, ?, ?, ?, 'active', ?, NULL)`,
+    )
+    .run(id, VAULT, userId, role, START_TIME);
+}
+
+function makeFixture(): Fixture {
+  const directory = mkdtempSync(join(tmpdir(), 'havemind-rejoin-'));
+  temporaryDirectories.push(directory);
+  const database = openDatabase(join(directory, 'havemind.sqlite'));
+  databases.push(database);
+  runMigrations(database);
+
+  const clock = createClock();
+  insertUser(database, OWNER_USER, 'Owner', 1);
+  insertUser(database, INVITEE_USER, 'Magda', 0);
+  insertDevice(database, OWNER_DEVICE, OWNER_USER, "Owner's laptop");
+  insertDevice(database, INVITEE_DEVICE, INVITEE_USER, "Magda's laptop");
+  database
+    .prepare(
+      `INSERT INTO vaults (id, display_name, write_epoch, next_server_sequence, created_at, deleted_at)
+       VALUES (?, ?, 0, 1, ?, NULL)`,
+    )
+    .run(VAULT, 'Pilot vault', START_TIME);
+  insertMembership(database, OWNER_MEMBERSHIP, OWNER_USER, 'owner');
+  insertMembership(database, INVITEE_MEMBERSHIP, INVITEE_USER, 'editor');
+
+  const service = new RejoinGrantService(database, {
+    accessTokenTtlSeconds: ACCESS_TTL_SECONDS,
+    now: clock.now,
+    refreshTokenTtlSeconds: REFRESH_TTL_SECONDS,
+  });
+  const sessions = new SessionRepository(database, {
+    accessTokenTtlSeconds: ACCESS_TTL_SECONDS,
+    now: clock.now,
+  });
+  return { clock, database, service, sessions };
+}
+
+function expectRejoinError(fn: () => unknown, code: RejoinGrantError['code']): void {
+  try {
+    fn();
+    throw new Error('Expected RejoinGrantError but none was thrown.');
+  } catch (error) {
+    expect(error).toBeInstanceOf(RejoinGrantError);
+    expect((error as RejoinGrantError).code).toBe(code);
+  }
+}
+
+afterEach(() => {
+  while (databases.length > 0) {
+    databases.pop()?.close();
+  }
+  while (temporaryDirectories.length > 0) {
+    const directory = temporaryDirectories.pop();
+    if (directory !== undefined) {
+      rmSync(directory, { force: true, recursive: true });
+    }
+  }
+});
+
+describe('RejoinGrantService.createGrant', () => {
+  it('binds a grant to the target membership and its approved device', () => {
+    const { database, service } = makeFixture();
+    const result = service.createGrant({
+      ownerMembershipId: OWNER_MEMBERSHIP,
+      targetMembershipId: INVITEE_MEMBERSHIP,
+    });
+    expect(result.membershipId).toBe(INVITEE_MEMBERSHIP);
+    expect(result.boundDeviceId).toBe(INVITEE_DEVICE);
+
+    const row = database
+      .prepare(
+        `SELECT membership_id AS membershipId, device_id AS deviceId, consumed_at AS consumedAt
+         FROM rejoin_grants WHERE id = ?`,
+      )
+      .get(result.grantId) as
+      | { membershipId: string; deviceId: string; consumedAt: string | null }
+      | undefined;
+    expect(row).toEqual({
+      membershipId: INVITEE_MEMBERSHIP,
+      deviceId: INVITEE_DEVICE,
+      consumedAt: null,
+    });
+  });
+
+  it('rejects a caller that is not an active owner of the vault', () => {
+    const { service } = makeFixture();
+    // The invitee (editor) may not issue a grant for itself.
+    expectRejoinError(
+      () =>
+        service.createGrant({
+          ownerMembershipId: INVITEE_MEMBERSHIP,
+          targetMembershipId: INVITEE_MEMBERSHIP,
+        }),
+      'NOT_AUTHORIZED',
+    );
+  });
+
+  it('refuses to grant a revoked membership', () => {
+    const { database, service } = makeFixture();
+    database
+      .prepare(
+        `UPDATE memberships SET status = 'revoked', revoked_at = ? WHERE id = ?`,
+      )
+      .run(START_TIME, INVITEE_MEMBERSHIP);
+    expectRejoinError(
+      () =>
+        service.createGrant({
+          ownerMembershipId: OWNER_MEMBERSHIP,
+          targetMembershipId: INVITEE_MEMBERSHIP,
+        }),
+      'MEMBERSHIP_INACTIVE',
+    );
+  });
+});
+
+describe('RejoinGrantService.redeemGrant', () => {
+  function grant(fixture: Fixture): void {
+    fixture.service.createGrant({
+      ownerMembershipId: OWNER_MEMBERSHIP,
+      targetMembershipId: INVITEE_MEMBERSHIP,
+    });
+  }
+
+  it('mints a fresh session for the same identity that works for push', () => {
+    const fixture = makeFixture();
+    grant(fixture);
+    const refreshToken = generateRefreshToken();
+
+    const result = fixture.service.redeemGrant({
+      deviceId: INVITEE_DEVICE,
+      initialRefreshTokenHash: hashRefreshToken(refreshToken),
+      membershipId: INVITEE_MEMBERSHIP,
+    });
+    expect(result.membershipId).toBe(INVITEE_MEMBERSHIP);
+    expect(result.vaultId).toBe(VAULT);
+    expect(result.deviceId).toBe(INVITEE_DEVICE);
+
+    // The invitee rotates its own refresh token into an access token: the
+    // resumed session resolves to the SAME user and device.
+    const successor = createRefreshSuccessor();
+    const rotated = fixture.sessions.rotateRefresh({
+      currentRefreshToken: refreshToken,
+      rotationId: successor.rotationId,
+      successorRefreshToken: successor.refreshToken,
+    });
+    const session = fixture.sessions.lookupAccess(rotated.accessToken);
+    expect(session).not.toBeNull();
+    expect(session?.userId).toBe(INVITEE_USER);
+    expect(session?.deviceId).toBe(INVITEE_DEVICE);
+
+    // Push authorises expectedMemberId against the active membership — unchanged.
+    const membership = fixture.database
+      .prepare(
+        `SELECT id AS membershipId FROM memberships
+         WHERE user_id = ? AND vault_id = ? AND status = 'active'`,
+      )
+      .get(INVITEE_USER, VAULT) as { membershipId: string };
+    expect(membership.membershipId).toBe(INVITEE_MEMBERSHIP);
+  });
+
+  it('is single-use: a second redemption is rejected', () => {
+    const fixture = makeFixture();
+    grant(fixture);
+    fixture.service.redeemGrant({
+      deviceId: INVITEE_DEVICE,
+      initialRefreshTokenHash: hashRefreshToken(generateRefreshToken()),
+      membershipId: INVITEE_MEMBERSHIP,
+    });
+    expectRejoinError(
+      () =>
+        fixture.service.redeemGrant({
+          deviceId: INVITEE_DEVICE,
+          initialRefreshTokenHash: hashRefreshToken(generateRefreshToken()),
+          membershipId: INVITEE_MEMBERSHIP,
+        }),
+      'GRANT_NOT_FOUND',
+    );
+  });
+
+  it('rejects a redemption after the grant expires', () => {
+    const fixture = makeFixture();
+    grant(fixture);
+    fixture.clock.advance(FIFTEEN_MINUTES_MS + 1_000);
+    expectRejoinError(
+      () =>
+        fixture.service.redeemGrant({
+          deviceId: INVITEE_DEVICE,
+          initialRefreshTokenHash: hashRefreshToken(generateRefreshToken()),
+          membershipId: INVITEE_MEMBERSHIP,
+        }),
+      'GRANT_NOT_FOUND',
+    );
+  });
+
+  it('refuses to rejoin a membership revoked after the grant was issued', () => {
+    const fixture = makeFixture();
+    grant(fixture);
+    fixture.database
+      .prepare(
+        `UPDATE memberships SET status = 'revoked', revoked_at = ? WHERE id = ?`,
+      )
+      .run(START_TIME, INVITEE_MEMBERSHIP);
+    expectRejoinError(
+      () =>
+        fixture.service.redeemGrant({
+          deviceId: INVITEE_DEVICE,
+          initialRefreshTokenHash: hashRefreshToken(generateRefreshToken()),
+          membershipId: INVITEE_MEMBERSHIP,
+        }),
+      'MEMBERSHIP_INACTIVE',
+    );
+  });
+
+  it('rejects a device that is not the one bound to the grant', () => {
+    const fixture = makeFixture();
+    grant(fixture);
+    expectRejoinError(
+      () =>
+        fixture.service.redeemGrant({
+          deviceId: OWNER_DEVICE,
+          initialRefreshTokenHash: hashRefreshToken(generateRefreshToken()),
+          membershipId: INVITEE_MEMBERSHIP,
+        }),
+      'WRONG_DEVICE',
+    );
+  });
+
+  it('rejects a redemption when no grant was ever issued', () => {
+    const fixture = makeFixture();
+    expectRejoinError(
+      () =>
+        fixture.service.redeemGrant({
+          deviceId: INVITEE_DEVICE,
+          initialRefreshTokenHash: hashRefreshToken(generateRefreshToken()),
+          membershipId: INVITEE_MEMBERSHIP,
+        }),
+      'GRANT_NOT_FOUND',
+    );
+  });
+
+  it('rejects a malformed refresh token hash', () => {
+    const fixture = makeFixture();
+    grant(fixture);
+    expectRejoinError(
+      () =>
+        fixture.service.redeemGrant({
+          deviceId: INVITEE_DEVICE,
+          initialRefreshTokenHash: 'not-a-hash',
+          membershipId: INVITEE_MEMBERSHIP,
+        }),
+      'INVALID_INPUT',
+    );
+    // The raw refresh token parser is still the primitive of record.
+    expect(() => parseRefreshToken('hm_rt_short')).toThrow();
+  });
+});
