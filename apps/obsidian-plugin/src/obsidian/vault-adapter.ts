@@ -146,6 +146,36 @@ export class VaultChangeObserver {
     return this.enqueue(() => this.handleDelete(path));
   }
 
+  /**
+   * Handles a folder-level rename (Obsidian or another plugin moving a whole
+   * folder). Defence-in-depth: it does NOT assume Obsidian emits a per-child
+   * TFile rename for every note. It enumerates the mappings under the folder's
+   * OLD path prefix and routes each through the existing per-file rename
+   * machinery so heads/base state stay consistent. If a per-child event ALSO
+   * fires later, that child is already at its new path and dedupes to a no-op
+   * (see `handleRename`), so no child is double-processed. Returns the genuine
+   * per-child operations (empty when nothing was under the folder).
+   */
+  async observeFolderRename(
+    previousFolderPath: string,
+    nextFolderPath: string,
+  ): Promise<LocalChangeOperation[]> {
+    return this.enqueue(() =>
+      this.handleFolderRename(previousFolderPath, nextFolderPath),
+    );
+  }
+
+  /**
+   * Handles a folder-level delete by enumerating the mappings under the deleted
+   * folder's prefix and routing each through the existing per-file delete path
+   * (tombstoning each note). Idempotent with any per-child TFile delete events.
+   */
+  async observeFolderDelete(
+    folderPath: string,
+  ): Promise<LocalChangeOperation[]> {
+    return this.enqueue(() => this.handleFolderDelete(folderPath));
+  }
+
   private enqueue<T>(task: () => Promise<T>): Promise<T> {
     const run = this.tail.then(task, task);
     this.tail = run.then(noop, noop);
@@ -263,7 +293,13 @@ export class VaultChangeObserver {
 
     const mapping = await this.findMapping(from.collisionKey);
     if (mapping === undefined) {
-      return this.commitCreate(nextPath, to.canonicalPath, to.collisionKey);
+      // The source is no longer mapped. The likely cause is a folder-level
+      // rename that already re-pathed this child through the per-file machinery
+      // (see handleFolderRename); a late per-child event then arrives with the
+      // OLD source path. Route through handleCreate so an event for a path we
+      // ALREADY map at the destination dedupes to a no-op instead of minting a
+      // fresh fileId (a fork). A genuinely new destination still creates.
+      return this.handleCreate(nextPath);
     }
 
     const occupant = await this.findMapping(to.collisionKey);
@@ -307,6 +343,38 @@ export class VaultChangeObserver {
     const classified = classifyVaultPath(path);
     if (!classified.eligible) return null;
     return this.commitDelete(classified.collisionKey);
+  }
+
+  private async handleFolderRename(
+    previousFolderPath: string,
+    nextFolderPath: string,
+  ): Promise<LocalChangeOperation[]> {
+    const fromPrefix = previousFolderPath.normalize('NFC');
+    const toPrefix = nextFolderPath.normalize('NFC');
+    const results: LocalChangeOperation[] = [];
+    // A snapshot taken up-front; per-child renames below mutate the underlying
+    // store, but each child has a distinct path so iterating the snapshot never
+    // revisits a child.
+    for (const mapping of await this.options.repository.listMappings()) {
+      const suffix = pathUnderFolder(mapping.path, fromPrefix);
+      if (suffix === null) continue;
+      const op = await this.handleRename(mapping.path, `${toPrefix}${suffix}`);
+      if (op !== null) results.push(op);
+    }
+    return results;
+  }
+
+  private async handleFolderDelete(
+    folderPath: string,
+  ): Promise<LocalChangeOperation[]> {
+    const prefix = folderPath.normalize('NFC');
+    const results: LocalChangeOperation[] = [];
+    for (const mapping of await this.options.repository.listMappings()) {
+      if (pathUnderFolder(mapping.path, prefix) === null) continue;
+      const op = await this.handleDelete(mapping.path);
+      if (op !== null) results.push(op);
+    }
+    return results;
   }
 
   private async commitDelete(
@@ -357,6 +425,17 @@ export class VaultChangeObserver {
 
 function normalizeContent(text: string): string {
   return text.replace(/\r\n?/gu, '\n');
+}
+
+/**
+ * Returns the path suffix (leading '/') if `path` lies directly under
+ * `folderPrefix`, or `null` otherwise. Segment-exact: `Notes/Sub` matches
+ * `Notes/Sub/x.md` but never the sibling `Notes/Subtle/y.md`, because matching
+ * requires the trailing '/' boundary.
+ */
+function pathUnderFolder(path: string, folderPrefix: string): string | null {
+  const prefix = `${folderPrefix}/`;
+  return path.startsWith(prefix) ? path.slice(folderPrefix.length) : null;
 }
 
 async function sha256Hex(text: string): Promise<string> {

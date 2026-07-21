@@ -858,6 +858,16 @@ function startPushProducer(
       }),
     );
   };
+  // Folder-level events expand to zero or more per-child operations; record each
+  // genuine one in the Activity feed and trigger a single sync afterwards.
+  const observedMany = (task: Promise<LocalChangeOperation[]>): void => {
+    afterChange(
+      task.then((ops) => {
+        for (const op of ops) recordActivity(op);
+        return ops;
+      }),
+    );
+  };
 
   // Capture the listener refs so the returned disposer can detach exactly this
   // producer's listeners on stop/re-pair (not tied to plugin unload via
@@ -869,6 +879,10 @@ function startPushProducer(
     onDelete: (path) => observed(observer.observeDelete(path)),
     onRename: (oldPath, newPath) =>
       observed(observer.observeRename(oldPath, newPath)),
+    onFolderRename: (oldPath, newPath) =>
+      observedMany(observer.observeFolderRename(oldPath, newPath)),
+    onFolderDelete: (folderPath) =>
+      observedMany(observer.observeFolderDelete(folderPath)),
   });
 
   // Existing notes predate the change listeners, so enumerate them once on
@@ -904,6 +918,15 @@ export interface VaultChangeListenerHandlers {
   onModify: (path: string) => void;
   onDelete: (path: string) => void;
   onRename: (oldPath: string, newPath: string) => void;
+  /**
+   * A folder-level rename (Obsidian or another plugin moving a whole folder).
+   * Defence-in-depth against Obsidian emitting only the TFolder event: the
+   * producer re-paths every child mapping under the old folder prefix so a
+   * later child edit resolves to its existing fileId instead of forking.
+   */
+  onFolderRename: (oldFolderPath: string, newFolderPath: string) => void;
+  /** A folder-level delete: every child mapping under the prefix is tombstoned. */
+  onFolderDelete: (folderPath: string) => void;
 }
 
 /**
@@ -925,12 +948,19 @@ export function registerVaultChangeListeners(
       if (file instanceof TFile) handlers.onModify(file.path);
     }),
     vault.on('delete', (file) => {
+      if (file instanceof TFolder) {
+        handlers.onFolderDelete(file.path);
+        return;
+      }
       const path = (file as TAbstractFile).path;
       if (typeof path === 'string') handlers.onDelete(path);
     }),
     vault.on('rename', (file, oldPath) => {
-      if (file instanceof TFile && typeof oldPath === 'string') {
+      if (typeof oldPath !== 'string') return;
+      if (file instanceof TFile) {
         handlers.onRename(oldPath, file.path);
+      } else if (file instanceof TFolder) {
+        handlers.onFolderRename(oldPath, file.path);
       }
     }),
   ];

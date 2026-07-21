@@ -318,6 +318,150 @@ describe('VaultChangeObserver', () => {
   });
 });
 
+describe('VaultChangeObserver folder events (AUD-04)', () => {
+  it('re-paths every child mapping under a renamed folder and preserves each fileId', async () => {
+    // Obsidian (or another plugin) can move a whole folder and emit only a
+    // TFolder rename event. Without folder-level handling the child notes keep
+    // their OLD paths, so a later edit of a moved child fails to resolve and
+    // mints a fresh fileId — forking the note on the peer.
+    const vault = new MemoryVault();
+    vault.contents.set('Archive/Sub/a.md', 'A');
+    vault.contents.set('Archive/Sub/b.md', 'B');
+    const repository = new MemoryRepository([
+      {
+        collisionKey: 'notes/sub/a.md',
+        content: 'A',
+        contentHash: 'hash-a',
+        fileId: 'file-a',
+        path: 'Notes/Sub/a.md',
+      },
+      {
+        collisionKey: 'notes/sub/b.md',
+        content: 'B',
+        contentHash: 'hash-b',
+        fileId: 'file-b',
+        path: 'Notes/Sub/b.md',
+      },
+    ]);
+    const observer = createObserver(vault, repository);
+
+    const ops = await observer.observeFolderRename('Notes/Sub', 'Archive/Sub');
+
+    expect(ops.map((op) => op.kind)).toEqual(['rename', 'rename']);
+    expect(repository.mappings.get('file-a')?.path).toBe('Archive/Sub/a.md');
+    expect(repository.mappings.get('file-b')?.path).toBe('Archive/Sub/b.md');
+
+    // A later edit of a moved child resolves to its ORIGINAL fileId (no fork).
+    vault.contents.set('Archive/Sub/a.md', 'A changed');
+    const edited = await observer.observeModify('Archive/Sub/a.md');
+    expect(edited).toMatchObject({ kind: 'update', fileId: 'file-a' });
+  });
+
+  it('does not double-process when per-child rename events also fire after the folder rename', async () => {
+    // On desktop Obsidian a folder move likely emits the TFolder rename AND a
+    // per-child TFile rename for each note. The child that the folder handler
+    // already re-pathed must dedupe to a no-op, never a second rename or a fork.
+    const vault = new MemoryVault();
+    vault.contents.set('Archive/Sub/a.md', 'A');
+    vault.contents.set('Archive/Sub/b.md', 'B');
+    const repository = new MemoryRepository([
+      {
+        collisionKey: 'notes/sub/a.md',
+        content: 'A',
+        contentHash: 'hash-a',
+        fileId: 'file-a',
+        path: 'Notes/Sub/a.md',
+      },
+      {
+        collisionKey: 'notes/sub/b.md',
+        content: 'B',
+        contentHash: 'hash-b',
+        fileId: 'file-b',
+        path: 'Notes/Sub/b.md',
+      },
+    ]);
+    const observer = createObserver(vault, repository);
+
+    const folderOps = await observer.observeFolderRename('Notes/Sub', 'Archive/Sub');
+    expect(folderOps).toHaveLength(2);
+    expect(repository.commits).toHaveLength(2);
+
+    const childA = await observer.observeRename(
+      'Notes/Sub/a.md',
+      'Archive/Sub/a.md',
+    );
+    const childB = await observer.observeRename(
+      'Notes/Sub/b.md',
+      'Archive/Sub/b.md',
+    );
+
+    expect(childA).toBeNull();
+    expect(childB).toBeNull();
+    // Exactly one rename per child — the late per-child events are no-ops.
+    expect(repository.commits).toHaveLength(2);
+    expect(repository.mappings.get('file-a')?.path).toBe('Archive/Sub/a.md');
+    expect(repository.mappings.get('file-b')?.path).toBe('Archive/Sub/b.md');
+  });
+
+  it('tombstones every child under a deleted folder through the per-file delete path', async () => {
+    const vault = new MemoryVault();
+    const repository = new MemoryRepository([
+      {
+        collisionKey: 'notes/sub/a.md',
+        content: 'A',
+        contentHash: 'hash-a',
+        fileId: 'file-a',
+        path: 'Notes/Sub/a.md',
+      },
+      {
+        collisionKey: 'notes/sub/b.md',
+        content: 'B',
+        contentHash: 'hash-b',
+        fileId: 'file-b',
+        path: 'Notes/Sub/b.md',
+      },
+    ]);
+    const observer = createObserver(vault, repository);
+
+    const ops = await observer.observeFolderDelete('Notes/Sub');
+
+    expect(ops.map((op) => op.kind)).toEqual(['delete', 'delete']);
+    expect(repository.mappings.has('file-a')).toBe(false);
+    expect(repository.mappings.has('file-b')).toBe(false);
+    // Delete reuses the durable snapshot and never reads the removed files.
+    expect(vault.reads).toEqual([]);
+  });
+
+  it('matches folder prefixes on segment boundaries (Notes/Sub not Notes/Subtle)', async () => {
+    const vault = new MemoryVault();
+    vault.contents.set('Notes/Moved/x.md', 'X');
+    const repository = new MemoryRepository([
+      {
+        collisionKey: 'notes/sub/x.md',
+        content: 'X',
+        contentHash: 'hash-x',
+        fileId: 'file-x',
+        path: 'Notes/Sub/x.md',
+      },
+      {
+        collisionKey: 'notes/subtle/y.md',
+        content: 'Y',
+        contentHash: 'hash-y',
+        fileId: 'file-y',
+        path: 'Notes/Subtle/y.md',
+      },
+    ]);
+    const observer = createObserver(vault, repository);
+
+    const ops = await observer.observeFolderRename('Notes/Sub', 'Notes/Moved');
+
+    expect(ops).toHaveLength(1);
+    expect(repository.mappings.get('file-x')?.path).toBe('Notes/Moved/x.md');
+    // Notes/Subtle is a sibling, not a child — it must be untouched.
+    expect(repository.mappings.get('file-y')?.path).toBe('Notes/Subtle/y.md');
+  });
+});
+
 function createObserver(
   vault: VaultSnapshotPort,
   repository: LocalChangeRepository,

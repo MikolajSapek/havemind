@@ -124,6 +124,8 @@ describe('registerVaultChangeListeners', () => {
         onModify: () => undefined,
         onDelete: () => undefined,
         onRename: () => undefined,
+        onFolderRename: () => undefined,
+        onFolderDelete: () => undefined,
       },
     );
 
@@ -135,6 +137,59 @@ describe('registerVaultChangeListeners', () => {
 
     // Every registered ref is detached, and only those refs.
     expect(offed).toEqual(registered);
+  });
+});
+
+describe('registerVaultChangeListeners folder events (AUD-04)', () => {
+  it('routes a TFolder rename/delete to the folder handlers and keeps TFile events on the per-file handlers', async () => {
+    // Defence-in-depth: a folder-level move/delete from Obsidian or another
+    // plugin must reach the folder handlers so child mappings are re-pathed or
+    // tombstoned even if no per-child TFile event ever fires.
+    const { registerVaultChangeListeners } = await import('./obsidian-adapters');
+    const { TFile, TFolder } = await import('obsidian');
+
+    const listeners = new Map<string, (...args: unknown[]) => unknown>();
+    const fakeVault = {
+      on: (name: string, callback: (...args: unknown[]) => unknown) => {
+        listeners.set(name, callback);
+        return { name };
+      },
+      offref: () => undefined,
+    };
+
+    const calls: string[] = [];
+    registerVaultChangeListeners(fakeVault as never, {
+      onCreate: (path) => calls.push(`create:${path}`),
+      onModify: (path) => calls.push(`modify:${path}`),
+      onDelete: (path) => calls.push(`delete:${path}`),
+      onRename: (oldPath, newPath) => calls.push(`rename:${oldPath}->${newPath}`),
+      onFolderRename: (oldPath, newPath) =>
+        calls.push(`folderRename:${oldPath}->${newPath}`),
+      onFolderDelete: (path) => calls.push(`folderDelete:${path}`),
+    });
+
+    const renamedFolder = new TFolder();
+    renamedFolder.path = 'Archive/Sub';
+    listeners.get('rename')?.(renamedFolder, 'Notes/Sub');
+
+    const deletedFolder = new TFolder();
+    deletedFolder.path = 'Notes/Gone';
+    listeners.get('delete')?.(deletedFolder);
+
+    const renamedFile = new TFile();
+    renamedFile.path = 'Notes/New.md';
+    listeners.get('rename')?.(renamedFile, 'Notes/Old.md');
+
+    const deletedFile = new TFile();
+    deletedFile.path = 'Notes/Removed.md';
+    listeners.get('delete')?.(deletedFile);
+
+    expect(calls).toEqual([
+      'folderRename:Notes/Sub->Archive/Sub',
+      'folderDelete:Notes/Gone',
+      'rename:Notes/Old.md->Notes/New.md',
+      'delete:Notes/Removed.md',
+    ]);
   });
 });
 
