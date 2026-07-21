@@ -1,3 +1,5 @@
+import { canonicalizeMarkdown } from '@havemind/protocol';
+
 import {
   classifyVaultPath,
   LocalVaultError,
@@ -209,5 +211,7 @@ function groupBy<T>(
 }
 
 function normalizeContent(text: string): string {
-  return text.replace(/\r\n?/gu, '\n');
+  // Same canonical transform every hashing/diff site uses (AUD-03), so a
+  // content-match comparison here is on equal terms with the producer mapping.
+  return canonicalizeMarkdown(text);
 }

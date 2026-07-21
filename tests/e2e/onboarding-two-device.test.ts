@@ -46,6 +46,8 @@ import { openDatabase } from '../../apps/server/src/db.js';
 import { runMigrations } from '../../apps/server/src/migrations.js';
 import { RevisionRepository } from '../../apps/server/src/revision-repository.js';
 
+import { canonicalizeMarkdown } from '@havemind/protocol';
+
 import { OnboardingController } from '../../apps/obsidian-plugin/src/onboarding/controller.js';
 import type {
   OnboardingSecretsPort,
@@ -328,7 +330,8 @@ class DeviceRuntime {
       files: this.buildFilePort(),
       conflictFolder: CONFLICT_FOLDER,
       resolveRevision: resolvers.resolveRevision,
-      hashContent: async (content) => sha256Hex(content),
+      // AUD-03: base hash over the SAME canonical form the producer uses.
+      hashContent: async (content) => sha256Hex(canonicalizeMarkdown(content)),
     });
 
     this.runner = new SyncRunner({

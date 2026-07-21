@@ -13,8 +13,39 @@ describe('canonicalization', () => {
     const decomposed = 'Cafe\u0301';
 
     expect(canonicalizeMarkdown(`a\r\n${decomposed}\rb`)).toBe(
-      `a\n${decomposed}\nb`,
+      `a\n${decomposed}\nb\n`,
     );
+  });
+
+  it('ensures exactly one trailing newline at EOF', () => {
+    expect(canonicalizeMarkdown('a')).toBe('a\n');
+    expect(canonicalizeMarkdown('a\n')).toBe('a\n');
+    expect(canonicalizeMarkdown('a\n\n\n')).toBe('a\n');
+    expect(canonicalizeMarkdown('a\r\n\r\n')).toBe('a\n');
+  });
+
+  it('keeps an empty (or newline-only) file empty', () => {
+    expect(canonicalizeMarkdown('')).toBe('');
+    expect(canonicalizeMarkdown('\n')).toBe('');
+    expect(canonicalizeMarkdown('\r\n\r\n')).toBe('');
+  });
+
+  it('strips a leading UTF-8 BOM but never an interior one', () => {
+    expect(canonicalizeMarkdown('\ufeffhello')).toBe('hello\n');
+    expect(canonicalizeMarkdown('a\ufeffb')).toBe('a\ufeffb\n');
+  });
+
+  it('does not touch intra-line spacing, quotes or list markers', () => {
+    const body = '-  item   with  spaces\n> "quote"  ';
+    expect(canonicalizeMarkdown(body)).toBe(`${body}\n`);
+  });
+
+  it('is idempotent', () => {
+    const inputs = ['a', 'a\n', '\ufeffa\r\n\r\n', '', '\n', 'x\ny\n\n'];
+    for (const input of inputs) {
+      const once = canonicalizeMarkdown(input);
+      expect(canonicalizeMarkdown(once)).toBe(once);
+    }
   });
 
   it('reports JavaScript and CodeMirror UTF-16 code-unit length', () => {

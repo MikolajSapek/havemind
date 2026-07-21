@@ -102,7 +102,7 @@ describe('VaultChangeObserver', () => {
     const duplicate = await observer.observeModify('Notes/Plan.md');
 
     expect(created).toMatchObject({
-      content: 'First\nline',
+      content: 'First\nline\n',
       fileId: FILE_ID,
       kind: 'create',
       path: 'Notes/Plan.md',
@@ -113,10 +113,28 @@ describe('VaultChangeObserver', () => {
     expect(duplicate).toBeNull();
     expect(repository.commits).toHaveLength(1);
     expect(repository.mappings.get(FILE_ID)).toMatchObject({
-      content: 'First\nline',
+      content: 'First\nline\n',
       fileId: FILE_ID,
       path: 'Notes/Plan.md',
     });
+  });
+
+  it('dedupes a modify that differs from the mapping only by a trailing newline (AUD-03)', async () => {
+    // A formatter that only appended a trailing newline after Havemind's apply
+    // must NOT mint a spurious revision: the producer hashes the CANONICAL form,
+    // so 'Body' and 'Body\n' share a content hash and the modify is a no-op.
+    const vault = new MemoryVault();
+    vault.contents.set('Notes/Plan.md', 'Body');
+    const repository = new MemoryRepository();
+    const observer = createObserver(vault, repository);
+
+    const created = await observer.observeCreate('Notes/Plan.md');
+    vault.contents.set('Notes/Plan.md', 'Body\n\n'); // formatter reflow, same text
+    const reflowed = await observer.observeModify('Notes/Plan.md');
+
+    expect(created?.content).toBe('Body\n');
+    expect(reflowed).toBeNull();
+    expect(repository.commits).toHaveLength(1);
   });
 
   it('returns the repository-generated revisionId on the operation, never the operationId', async () => {
@@ -153,7 +171,7 @@ describe('VaultChangeObserver', () => {
 
     const operation = await observer.observeModify('Notes/Plan.md');
     expect(operation).toMatchObject({
-      content: 'new text',
+      content: 'new text\n',
       kind: 'update',
       previousContent: 'old text',
       previousContentHash: 'old-hash',
@@ -270,10 +288,10 @@ describe('VaultChangeObserver', () => {
     expect(vault.reads).toEqual(['Notes/Plan.md']);
 
     releaseFirstCommit?.();
-    await expect(first).resolves.toMatchObject({ content: 'one' });
+    await expect(first).resolves.toMatchObject({ content: 'one\n' });
     await expect(second).resolves.toMatchObject({
-      content: 'two',
-      previousContent: 'one',
+      content: 'two\n',
+      previousContent: 'one\n',
     });
   });
 

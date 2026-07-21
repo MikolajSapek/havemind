@@ -1,3 +1,5 @@
+import { canonicalizeMarkdown } from '@havemind/protocol';
+
 const RESERVED_TOP_LEVEL_DIRECTORIES = new Set(['Havemind Conflicts']);
 
 export type LocalVaultErrorCode = 'path-collision';
@@ -424,7 +426,11 @@ export class VaultChangeObserver {
 }
 
 function normalizeContent(text: string): string {
-  return text.replace(/\r\n?/gu, '\n');
+  // Single canonical content transform shared with every other hashing/diff
+  // site (protocol `canonicalizeMarkdown`): CRLF/CR→LF, strip BOM, exactly one
+  // trailing newline. Hash-side only — the user's file on disk is never
+  // rewritten. See AUD-03.
+  return canonicalizeMarkdown(text);
 }
 
 /**

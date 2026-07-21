@@ -22,6 +22,7 @@ import {
   type Vault,
 } from 'obsidian';
 
+import { canonicalizeMarkdown, hashPlaintext } from '@havemind/protocol';
 import {
   RevisionPayloadTooLargeError,
   type DecodedRevisionPayload,
@@ -43,7 +44,12 @@ import {
 /** The runtime App exposes a Vault; the ambient stub only models what we use. */
 type AppWithVault = { vault: Vault };
 
+import {
+  rebaseCanonicalizedHashes,
+  type RebaseVaultPort,
+} from './canonicalization-rebase';
 import { HavemindSyncController, type StatusListener } from './controller';
+import { ModifyDebouncer } from './modify-debounce';
 import { SyncScheduler, type SchedulerHooks } from './scheduler';
 import { formatStatusBar } from './status';
 import {
@@ -196,6 +202,39 @@ export function createPersistPort(plugin: Plugin): SyncStatePersistPort {
   };
 }
 
+/** Top-level plugin-data key recording the AUD-03 rebase version applied. */
+const CANONICALIZATION_REBASE_MARKER_KEY = 'canonicalizationRebaseVersion';
+
+/**
+ * Runs the AUD-03 one-time hash rebase (PART 2) over the plugin's own data
+ * blob, reading current on-disk bytes through the real Vault. Idempotent via the
+ * persisted version marker; safe to call on every connect.
+ */
+async function runCanonicalizationRebase(plugin: Plugin): Promise<void> {
+  const vaultApi = (plugin.app as unknown as AppWithVault).vault;
+  const vault: RebaseVaultPort = {
+    exists: (path) => vaultApi.getAbstractFileByPath(path) !== null,
+    read: async (path) => {
+      const file = vaultApi.getAbstractFileByPath(path);
+      return file === null ? '' : vaultApi.read(file as TFile);
+    },
+  };
+  await rebaseCanonicalizedHashes({
+    data: {
+      load: () => plugin.loadData(),
+      save: (data) => plugin.saveData(data),
+    },
+    vault,
+    hash: (content) => hashPlaintext(content),
+    canonicalize: canonicalizeMarkdown,
+    keys: {
+      markerKey: CANONICALIZATION_REBASE_MARKER_KEY,
+      persistKey: PERSIST_KEY,
+      producerKey: PUSH_PRODUCER_KEY,
+    },
+  });
+}
+
 /** Startup/focus/online/interval scheduler hooks over the Obsidian runtime. */
 export function createSchedulerHooks(plugin: Plugin): SchedulerHooks {
   return {
@@ -297,7 +336,10 @@ export function createVaultFilePort(options: VaultFilePortOptions): VaultFilePor
       // Normalise line endings the same way the push producer does, so the
       // on-disk overwrite guard compares content on equal terms.
       const raw = await vault.read(existing as TFile);
-      return raw.replace(/\r\n?/gu, '\n');
+      // Canonicalise the same way the push producer and base-hash seed do
+      // (AUD-03), so the on-disk overwrite guard compares content on equal
+      // terms. Hash/compare-side only — the file on disk is never rewritten.
+      return canonicalizeMarkdown(raw);
     },
     baseHashFor: (fileId) => state.baseHashFor(fileId),
     recordBaseHash: (fileId, hash) => state.recordBaseHash(fileId, hash),
@@ -405,7 +447,11 @@ export function buildSyncController(
     }),
     conflictFolder: CONFLICT_FOLDER,
     resolveRevision: connection.resolveRevision,
-    hashContent: sha256Hex,
+    // AUD-03: the apply-side base hash must be computed over the SAME canonical
+    // content form the push producer uses (`hashPlaintext` = SHA-256 over
+    // `canonicalizeMarkdown`), so a base seeded by a local push and an on-disk
+    // read compare on equal terms. Never the raw token digest below.
+    hashContent: (content) => hashPlaintext(content),
     // FIX 1: a genuinely applied remote revision (never 'noop'/'conflict')
     // reaches the Activity feed too, attributed to `remote` — previously only
     // the local-change wrapper ever recorded an entry, so the other device's
@@ -685,6 +731,15 @@ async function startSyncLoop(
     extras.hooks,
     producerSync,
   );
+
+  // AUD-03 PART 2 — one-time migration. BEFORE the first sync cycle, rebase any
+  // persisted base hashes / producer-mapping content hashes that were computed
+  // under the OLD canonicalization to the NEW canonical form, so the first pull
+  // does not read stale hashes and mint spurious revisions / conflict artifacts
+  // for files whose bytes differ only by a trailing newline or BOM. A version
+  // marker in plugin data makes this run exactly once.
+  await runCanonicalizationRebase(plugin);
+
   controller.start();
 
   // The push producer detects local edits, enumerates pre-existing files and
@@ -878,9 +933,16 @@ function startPushProducer(
   // producer's listeners on stop/re-pair (not tied to plugin unload via
   // registerEvent, which would outlive a re-pair and leak a stale-identity
   // observer). See registerVaultChangeListeners.
+  // AUD-03 (settling window): a `modify` event is debounced per path so an
+  // apply-then-formatter-rewrite burst hashes ONCE, after the file settles,
+  // reading its final content. Create/rename/delete are ordering-sensitive and
+  // fire immediately (never debounced).
+  const modifyDebouncer = new ModifyDebouncer({
+    onSettled: (path) => observed(observer.observeModify(path)),
+  });
   const disposeListeners = registerVaultChangeListeners(vault, {
     onCreate: (path) => observed(observer.observeCreate(path)),
-    onModify: (path) => observed(observer.observeModify(path)),
+    onModify: (path) => modifyDebouncer.trigger(path),
     onDelete: (path) => observed(observer.observeDelete(path)),
     onRename: (oldPath, newPath) =>
       observed(observer.observeRename(oldPath, newPath)),
@@ -914,7 +976,12 @@ function startPushProducer(
     ),
   );
 
-  return disposeListeners;
+  return () => {
+    // Cancel any in-flight settle timers before detaching listeners so a
+    // pending modify can never fire after teardown/re-pair.
+    modifyDebouncer.dispose();
+    disposeListeners();
+  };
 }
 
 /** The four vault-change callbacks the push producer reacts to. */

@@ -1,14 +1,23 @@
 import { z } from 'zod';
 
-import {
-  canonicalizeMarkdown,
-  canonicalizeVaultPath,
-} from './canonicalization.js';
+import { canonicalizeVaultPath } from './canonicalization.js';
 import { blobHashSchema, plaintextHashSchema } from './hashing.js';
 import { protocolVersionSchema } from './version.js';
 
 const identifierSchema = z.string().uuid();
 const parentRevisionIdsSchema = z.array(identifierSchema).max(32);
+
+/**
+ * Wire-format line-ending check: content and recipe-literal fragments must use
+ * LF, never CR/CRLF. This is DELIBERATELY only a line-ending check, not the full
+ * `canonicalizeMarkdown` transform: a literal recipe part is a mid-document
+ * fragment, so it must NOT be forced to a single trailing newline (AUD-03).
+ * Hashing/diff-base canonicalisation lives in `canonicalizeMarkdown`; this schema
+ * validates wire structure only.
+ */
+function usesLfLineEndings(text: string): boolean {
+  return !text.includes('\r');
+}
 
 export const requiredSemanticsSchema = z
   .object({
@@ -101,7 +110,7 @@ const literalPartSchema = z
     text: z
       .string()
       .min(1)
-      .refine((text) => canonicalizeMarkdown(text) === text, {
+      .refine(usesLfLineEndings, {
         message: 'Literal text must use LF line endings.',
       }),
   })
@@ -131,10 +140,9 @@ const canonicalPathSchema = z.string().refine(
   { message: 'Path must be a canonical non-reserved vault path.' },
 );
 
-const normalizedMarkdownSchema = z.string().refine(
-  (content) => canonicalizeMarkdown(content) === content,
-  { message: 'Markdown content must use LF line endings.' },
-);
+const normalizedMarkdownSchema = z.string().refine(usesLfLineEndings, {
+  message: 'Markdown content must use LF line endings.',
+});
 
 const contentRevisionPayloadSchema = z
   .object({

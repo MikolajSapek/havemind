@@ -13,6 +13,7 @@
  * calls `applyRemote`; `recordConflict` handles that separate case.
  */
 
+import { canonicalizeMarkdown } from '@havemind/protocol';
 import type { DecodedRevisionPayload } from '@havemind/sync-core';
 
 import type {
@@ -210,7 +211,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
       // only safe moment to seed a base — never on a local push). Both peers
       // already hold the content, so this converges in place with no write and no
       // conflict artifact.
-      if (onDisk !== null && onDisk === text) {
+      if (onDisk !== null && contentMatches(onDisk, text)) {
         const contentHash = await this.hashContent(text);
         // The path is switching from the superseded local fileId (`owner`) to
         // the incoming remote fileId. Forget the superseded fileId's state
@@ -259,7 +260,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
     // text merge (@havemind/sync-core mergeSnapshots) would refine the conflict
     // branch — see the seam noted below.
     if (onDisk !== null) {
-      if (onDisk === text) {
+      if (contentMatches(onDisk, text)) {
         // Both sides already hold the incoming content: advance the base and
         // skip the write entirely (test: on-disk == incoming → no write).
         const contentHash = await this.hashContent(text);
@@ -375,4 +376,15 @@ export class VaultApplyAdapter implements VaultApplyPort {
   private conflictPath(event: RemoteEvent): string {
     return `${this.conflictFolder}/${event.revision.fileId}-${event.revision.revisionId}.md`;
   }
+}
+
+/**
+ * Convergence/noop equality between on-disk content and an incoming revision.
+ * Compares the CANONICAL forms (AUD-03): a formatter that only touched line
+ * endings, a BOM or trailing newlines after Havemind's last apply must read as
+ * "already converged" here, not as a divergence that spawns a conflict artifact
+ * or a spurious overwrite. Byte-exact disk content is untouched either way.
+ */
+function contentMatches(onDisk: string, incoming: string): boolean {
+  return canonicalizeMarkdown(onDisk) === canonicalizeMarkdown(incoming);
 }

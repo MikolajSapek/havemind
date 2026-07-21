@@ -1,3 +1,4 @@
+import { canonicalizeMarkdown } from '@havemind/protocol';
 import { describe, expect, it } from 'vitest';
 
 import { RevisionPayloadTooLargeError } from '@havemind/sync-core';
@@ -57,8 +58,12 @@ class ReconciliationRepository implements LocalChangeRepository {
 
 /** Fails `commitLocalChange` for one content marker, succeeds for the rest. */
 class ThrowingRepository extends ReconciliationRepository {
-  constructor(private readonly failContent: string) {
+  private readonly failContent: string;
+
+  constructor(failContent: string) {
     super();
+    // The observer hands operations the CANONICAL content, so match on that.
+    this.failContent = canonicalizeMarkdown(failContent);
   }
 
   override async commitLocalChange(
@@ -104,7 +109,7 @@ describe('startup reconciliation', () => {
     expect(
       repository.commits.find((entry) => entry.operation.kind === 'delete')
         ?.operation.previousContent,
-    ).toBe('recoverable');
+    ).toBe('recoverable\n');
   });
 
   it('infers only an unambiguous same-content rename and preserves its file identity', async () => {
@@ -233,10 +238,16 @@ function mapping(
   path: string,
   content: string,
 ): LocalFileMapping {
+  // Stored mappings hold the CANONICAL content form in production (the producer
+  // canonicalises on write and the AUD-03 startup rebase canonicalises existing
+  // state), so the fixture must too — otherwise a content-match comparison
+  // against the now-canonicalised vault read would drift and mint a spurious
+  // revision only in the test, never in production.
+  const canonical = canonicalizeMarkdown(content);
   return {
     collisionKey: path.toLowerCase(),
-    content,
-    contentHash: `hash:${content}`,
+    content: canonical,
+    contentHash: `hash:${canonical}`,
     fileId,
     path,
   };

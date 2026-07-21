@@ -5,8 +5,30 @@ const RESERVED_ROOTS = new Set([
   'havemind conflicts',
 ]);
 
+/**
+ * Canonical form of note content used for HASHING and DIFF BASES only — never
+ * written back to disk (a user's file stays byte-exact as received). The
+ * transform is deliberately CONSERVATIVE so it can never mask a real edit:
+ *  1. strip a leading UTF-8 BOM (an interior U+FEFF is left untouched);
+ *  2. normalize CRLF and lone CR to LF;
+ *  3. collapse trailing blank lines to exactly one final LF (an empty — or
+ *     newline-only — file stays empty).
+ * Nothing intra-line (quotes, list markers, spacing) is normalized; that would
+ * hide genuine content changes. The transform is idempotent.
+ *
+ * Rationale (AUD-03): a formatter plugin rewriting a note after Havemind's apply
+ * differs from the seeded hash only by line endings, a BOM or trailing newlines,
+ * which would otherwise be pushed as a spurious revision and oscillate forever
+ * between two machines with different formatter settings.
+ */
 export function canonicalizeMarkdown(content: string): string {
-  return content.replace(/\r\n?/gu, '\n');
+  const withoutBom =
+    content.charCodeAt(0) === 0xfeff ? content.slice(1) : content;
+  const lf = withoutBom.replace(/\r\n?/gu, '\n');
+  const withoutTrailingNewlines = lf.replace(/\n+$/u, '');
+  return withoutTrailingNewlines.length === 0
+    ? ''
+    : `${withoutTrailingNewlines}\n`;
 }
 
 export function utf16Length(content: string): number {
