@@ -18,17 +18,25 @@
  */
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { createRefreshSuccessor } from '../../apps/server/src/auth/tokens.js';
+
 import { HarnessClient } from './harness/client.js';
-import { cleanupHarnessDirectories, ServerHarness } from './harness/server.js';
+import {
+  cleanupHarnessDirectories,
+  ServerHarness,
+  type ServerHarnessOptions,
+} from './harness/server.js';
 
 const harnesses: ServerHarness[] = [];
 
-async function makeHarness(): Promise<{
+async function makeHarness(
+  options: ServerHarnessOptions = {},
+): Promise<{
   server: ServerHarness;
   alice: HarnessClient;
   bob: HarnessClient;
 }> {
-  const server = await ServerHarness.create();
+  const server = await ServerHarness.create(options);
   harnesses.push(server);
   return {
     alice: new HarnessClient(server, server.alice),
@@ -195,6 +203,156 @@ describe('F8-01 fault matrix — two clients against a real opaque server', () =
     // Each divergence surfaced as a visible conflict artifact.
     expect(alice.conflictPaths().length).toBeGreaterThanOrEqual(1);
     expect(bob.conflictPaths().length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('row 7: multi-page catch-up after a long offline gap applies every revision exactly once', async () => {
+    // Draining a >100-revision backlog also fetches one blob per applied
+    // revision (both the harness transport and the real plugin transport in
+    // apps/obsidian-plugin/src/runtime/connection.ts do this), so this test's
+    // own request volume would otherwise collide with the server's unrelated
+    // per-device auth/sync rate limit (auth-routes.ts DEFAULT_RATE_LIMIT =
+    // 120 req/60s) and 429 before the pagination behaviour under test even
+    // gets exercised. Raising it here isolates cursor-pagination correctness
+    // from that separate, real rate-limiting concern.
+    const { server, alice, bob } = await makeHarness({
+      authRateLimit: { maxRequests: 10_000, windowMs: 60_000 },
+    });
+
+    // The server pages pulls at DEFAULT_PULL_LIMIT=100 (apps/server/src/sync/
+    // sync-routes.ts). 120 revisions guarantees the backlog spans at least two
+    // pull pages, so draining it exercises the client's per-event cursor
+    // advancement (sync-runner.ts `runPull`) across a page boundary, not just
+    // within a single page.
+    const REVISION_COUNT = 120;
+    const paths = Array.from(
+      { length: REVISION_COUNT },
+      (_unused, index) => `catchup-${String(index).padStart(3, '0')}.md`,
+    );
+    const contents = new Map(
+      paths.map((path, index) => [path, `content ${index}\n`]),
+    );
+
+    // Bob never syncs while Alice authors the backlog — models the long
+    // offline gap. All edits land in Alice's outbox before any push.
+    for (const path of paths) {
+      await alice.edit(path, contents.get(path) as string);
+    }
+    // A single cycle drains the whole outbox: runPush sub-batches internally
+    // (maxPushBatchItems=64), so one alice.sync() ships all 120 revisions.
+    await alice.sync();
+    expect(server.revisionCount()).toBe(REVISION_COUNT);
+    expect(server.eventCount()).toBe(REVISION_COUNT);
+
+    // Bob reconnects and drives sync cycles until the backlog is drained. Each
+    // cycle pulls at most one page (DEFAULT_PULL_LIMIT=100), so this loop must
+    // run at least twice to cross the page boundary.
+    let totalApplied = 0;
+    let cycles = 0;
+    const MAX_CYCLES = 10;
+    while (bob.cursor() < REVISION_COUNT && cycles < MAX_CYCLES) {
+      const result = await bob.sync();
+      totalApplied += result.applied;
+      cycles += 1;
+    }
+
+    expect(cycles).toBeGreaterThanOrEqual(2); // proves >1 page was actually pulled
+    expect(bob.cursor()).toBe(REVISION_COUNT); // cursor advanced contiguously to the end
+    expect(totalApplied).toBe(REVISION_COUNT); // no event skipped or double-applied
+    expect(bob.paths()).toHaveLength(REVISION_COUNT);
+
+    // Byte-identical final contents for every file. Bob has no prior mapping
+    // for these never-before-seen remote files, so the harness names each one
+    // deterministically from its fileId (`remote-<fileId8>.md`) rather than
+    // reusing Alice's original filename — comparing the multiset of contents
+    // (not path-for-path) is what actually proves every revision landed
+    // byte-identical with none skipped or double-applied.
+    const expectedContents = [...contents.values()].sort();
+    const actualContents = bob
+      .paths()
+      .map((path) => bob.read(path))
+      .sort();
+    expect(actualContents).toEqual(expectedContents);
+  });
+
+  it('row 8: refresh-token rotation retry after a dropped response succeeds idempotently, and stale-token reuse is rejected', async () => {
+    const { server } = await makeHarness();
+
+    const firstRotation = createRefreshSuccessor();
+    const firstBody = {
+      refreshToken: server.bob.refreshToken,
+      rotationId: firstRotation.rotationId,
+      successorRefreshToken: firstRotation.refreshToken,
+    };
+
+    // The server processes the refresh and commits the rotation, but the
+    // response never reaches the client (dropped connection).
+    const original = await server.app.inject({
+      body: firstBody,
+      method: 'POST',
+      url: '/auth/refresh',
+    });
+    expect(original.statusCode).toBe(200);
+
+    // The client, having never seen a response, retries the identical request
+    // (same rotationId, same current/successor tokens). The exact-retry
+    // contract in session-repository.ts must resolve this idempotently: a
+    // fresh access token for the same successor session, not a second
+    // rotation.
+    const retry = await server.app.inject({
+      body: firstBody,
+      method: 'POST',
+      url: '/auth/refresh',
+    });
+    expect(retry.statusCode).toBe(200);
+    const retryBody = retry.json() as { accessToken: string };
+    expect(retryBody.accessToken.startsWith('hm_at_')).toBe(true);
+
+    // Proof the generation was not double-incremented: the successor token
+    // from the retried rotation is still exactly one generation ahead, so
+    // rotating forward from it succeeds normally. If the retry had advanced
+    // the family's generation a second time, this forward rotation would be
+    // misclassified as reuse (generation !== currentGeneration) and rejected.
+    const secondRotation = createRefreshSuccessor();
+    const forward = await server.app.inject({
+      body: {
+        refreshToken: firstRotation.refreshToken,
+        rotationId: secondRotation.rotationId,
+        successorRefreshToken: secondRotation.refreshToken,
+      },
+      method: 'POST',
+      url: '/auth/refresh',
+    });
+    expect(forward.statusCode).toBe(200);
+
+    // A third call reusing the now-consumed OLD token — but with a *different*
+    // rotation/successor than the original exact retry — cannot be a retry of
+    // any prior request. The repository must classify this as reuse and burn
+    // the whole family (session-repository.ts `#rotateInTransaction`).
+    const reuseAttempt = createRefreshSuccessor();
+    const reused = await server.app.inject({
+      body: {
+        refreshToken: server.bob.refreshToken,
+        rotationId: reuseAttempt.rotationId,
+        successorRefreshToken: reuseAttempt.refreshToken,
+      },
+      method: 'POST',
+      url: '/auth/refresh',
+    });
+    expect(reused.statusCode).toBe(401);
+
+    // Reuse detection revokes the whole family: even the legitimately-advanced
+    // successor chain from the forward rotation is now dead.
+    const thirdRotation = createRefreshSuccessor();
+    const afterReuse = await server.app.inject({
+      body: {
+        refreshToken: secondRotation.refreshToken,
+        rotationId: thirdRotation.rotationId,
+        successorRefreshToken: thirdRotation.refreshToken,
+      },
+      method: 'POST',
+      url: '/auth/refresh',
+    });
+    expect(afterReuse.statusCode).toBe(401);
   });
 });
 

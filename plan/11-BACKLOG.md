@@ -336,24 +336,37 @@ Naprawione w tej pętli commituje się osobno; poniżej to, co świadomie odło�
     symetrycznie przed hashem; (2) krótkie okno „settling" po apply przed hashowaniem; (3) DOC —
     zalecić userom zsynchronizowanie ustawień formatera / wyłączenie format-on-save konfliktów.
   - Decyzja: dla pilotażu 2-osobowego wystarczy DOC + trailing-newline; pełny fix odłożony.
-- [ ] **AUD-04** `plugin` Rename/delete folderu z innego pluginu może zostawić nieaktualne mapowania
+- [x] **AUD-04** `plugin` Rename/delete folderu z innego pluginu może zostawić nieaktualne mapowania
+  - Naprawione: `1ace877` — `observeFolderRename`/`observeFolderDelete` (prefix segment-exact,
+    idempotentne przy per-child eventach, reuse per-file machinery). 371 testów pluginu.
   - Warunkowe (zależy od tego, czy Obsidian emituje per-child TFile eventy przy ruchu folderu).
     Jeśli tylko event TFolder — dziecko dostaje nowy fileId (fork/duplikat u peera) do czasu
     `reconcileVaultState` przy reconnect, które to leczy (content-match pairing). LOW-MEDIUM,
     eventual-consistency, bez trwałej utraty.
   - Kierunek: na event TFolder rename/delete od razu re-path/tombstone mapowań dzieci, albo
     zweryfikować na żywym buildzie Obsidiana, że per-child TFile eventy zawsze lecą, i udokumentować.
-- [ ] **AUD-05** `serwer,sapserver` Rate limiter dzieli jeden globalny bucket za Tailscale
+- [x] **AUD-05** `serwer,sapserver` Rate limiter dzieli jeden globalny bucket za Tailscale
+  - Naprawione: `eb4acdc` — bucket kluczowany `device:<deviceId>` przy ważnej sesji bearer,
+    fallback `request.ip` dla ruchu nieuwierzytelnionego (brute-force cap zachowany).
   - `trustProxy: false` + `request.ip` = loopback pod Tailscale serve/funnel → limit 120/60s jest
     globalny dla obu urządzeń, nie per-klient. Przy pierwszym bulk-download inwitera (dużo blob
     GET + strony eventów) jedno urządzenie może dostać 429. Klient klasyfikuje 429 jako transient
     i backoffuje — bez utraty, ale onboarding dużego vaulta zwalnia. MINOR/operacyjne.
   - Kierunek: podnieść/scope'ować limit, kluczować per authenticated device gdy sesja istnieje,
     albo wyłączyć blob GET z limitu.
-- [ ] **AUD-06** `serwer` Brakujące ścieżki w macierzy usterek (test coverage, nie bug)
-  - Nie pokryte w `tests/e2e/fault-matrix.test.ts`: (b) multi-page catch-up po długim offline
-    (>100 eventów — realny drop/resume Wi-Fi); (c) reuse/race rotacji refresh-tokena przy
-    zgubionej odpowiedzi. Najbardziej warte jawnego testu.
+- [x] **AUD-06** `serwer` Brakujące ścieżki w macierzy usterek (test coverage, nie bug)
+  - Domknięte: row 7 (multi-page catch-up, 120 eventów przez granicę strony 100, cursor
+    dokładnie 120, zero skip/double-apply) + row 8 (idempotencja retry rotacji refresh-tokena
+    po zgubionej odpowiedzi; generation +1 nie +2; reuse → 401). Harness fix: InvitationService
+    był niepodpięty do buildApp (pre-auth routes 404-owały w e2e).
+- [ ] **AUD-08** `serwer,plugin` Catch-up dużego backlogu może łapać 429 w trakcie drainu
+  - Znalezisko z AUD-06: drain >100 rewizji = 1 blob-fetch per rewizja; przy limicie 120/60s
+    per urządzenie (po AUD-05) legalny catch-up po dłuższym offline może dostawać 429 w seriach.
+    Klient klasyfikuje 429 jako transient i backoffuje — samo-leczy się po oknie 60s, bez utraty;
+    koszt to dławienie catch-upu (dziesiątki sekund–minuty przy dużym backlogu). Nie blokuje
+    pilotażu 2-osobowego.
+  - Kierunek: batch blob-fetch (wiele hashy w jednym request), wyłączenie blob GET z limitu dla
+    uwierzytelnionych urządzeń, albo podniesienie limitu dla sesji z ważnym bearer.
 - [ ] **AUD-07** `plugin` Notatki użytkownika pod ścieżką z kropką lub w folderze `Havemind Conflicts`
   - `isEligiblePath` odrzuca dowolny segment zaczynający się `.` (np. `Notes/.drafts/x.md`) oraz
     reserved root `Havemind Conflicts/` → takie notatki się NIE synchronizują (under-sync, bezpieczne

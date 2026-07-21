@@ -18,6 +18,7 @@ import { join } from 'node:path';
 import { Writable } from 'node:stream';
 
 import { buildApp } from '../../../apps/server/src/app.js';
+import type { AuthRateLimitConfig } from '../../../apps/server/src/auth/auth-routes.js';
 import { SessionRepository } from '../../../apps/server/src/auth/session-repository.js';
 import {
   createLocalOwnerSetupContext,
@@ -30,6 +31,7 @@ import {
   restoreInstance,
 } from '../../../apps/server/src/backup-restore.js';
 import { BlobStore } from '../../../apps/server/src/blob-store.js';
+import { InvitationService } from '../../../apps/server/src/auth/invitations.js';
 import { parseServerConfig } from '../../../apps/server/src/config.js';
 import { DB_FILENAME, openDatabase } from '../../../apps/server/src/db.js';
 import { runMigrations } from '../../../apps/server/src/migrations.js';
@@ -50,6 +52,12 @@ export interface ClientIdentity {
   readonly membershipId: string;
   readonly vaultId: string;
   readonly accessToken: string;
+  /**
+   * The raw current refresh token backing this identity's session (generation
+   * zero). Exposed so tests can exercise `/auth/refresh` directly at the HTTP
+   * route level instead of only through the access token.
+   */
+  readonly refreshToken: string;
 }
 
 type FastifyApp = ReturnType<typeof buildApp>;
@@ -63,9 +71,22 @@ interface ServerRuntime {
   app: FastifyApp;
 }
 
+/** Options for {@link ServerHarness.create}. */
+export interface ServerHarnessOptions {
+  /**
+   * Overrides the per-device auth/sync rate limit (default: production's
+   * 120 requests/60s). Only intended for tests deliberately exercising a
+   * request volume the default limit would otherwise gate — e.g. a
+   * multi-page pull backlog that also fetches one blob per applied
+   * revision. Tests exercising the rate limiter itself should not set this.
+   */
+  readonly authRateLimit?: AuthRateLimitConfig;
+}
+
 export class ServerHarness {
   #runtime: ServerRuntime;
   #closed = false;
+  readonly #authRateLimit: AuthRateLimitConfig | undefined;
 
   public readonly alice: ClientIdentity;
   public readonly bob: ClientIdentity;
@@ -74,8 +95,10 @@ export class ServerHarness {
     runtime: ServerRuntime,
     alice: ClientIdentity,
     bob: ClientIdentity,
+    authRateLimit: AuthRateLimitConfig | undefined,
   ) {
     this.#runtime = runtime;
+    this.#authRateLimit = authRateLimit;
     this.alice = alice;
     this.bob = bob;
   }
@@ -133,7 +156,7 @@ export class ServerHarness {
   public async restart(): Promise<void> {
     const { dataDir } = this.#runtime;
     await this.#teardownRuntime();
-    this.#runtime = openRuntime(dataDir);
+    this.#runtime = openRuntime(dataDir, this.#authRateLimit);
   }
 
   /**
@@ -158,7 +181,7 @@ export class ServerHarness {
     const restored = await restoreInstance({ backupDir, targetDir });
 
     await this.#teardownRuntime();
-    this.#runtime = openRuntime(targetDir);
+    this.#runtime = openRuntime(targetDir, this.#authRateLimit);
     return restored.serverEpoch;
   }
 
@@ -175,7 +198,10 @@ export class ServerHarness {
     this.#runtime.database.close();
   }
 
-  public static async create(): Promise<ServerHarness> {
+  public static async create(
+    options: ServerHarnessOptions = {},
+  ): Promise<ServerHarness> {
+    const { authRateLimit } = options;
     const dataDir = mkdtempSync(join(tmpdir(), 'havemind-e2e-data-'));
     trackedDirectories.push(dataDir);
 
@@ -190,10 +216,11 @@ export class ServerHarness {
     });
 
     const aliceDeviceId = randomUUID();
+    const aliceRefreshToken = generateRefreshToken();
     const pair = setup.pairOwnerDevice({
       deviceDisplayName: 'Alice Laptop',
       deviceId: aliceDeviceId,
-      initialRefreshToken: generateRefreshToken(),
+      initialRefreshToken: aliceRefreshToken,
       pairingToken: init.pairingToken,
       publicKey: Buffer.alloc(32, 0x11),
     });
@@ -214,19 +241,20 @@ export class ServerHarness {
     insertUser(database, bobUserId, 'Bob');
     insertDevice(database, bobDeviceId, bobUserId, 'Bob Laptop');
     insertMembership(database, bobMembershipId, vaultId, bobUserId);
-    const bobAccessToken = mintAccessToken(
-      database,
-      sessions,
-      bobUserId,
-      bobDeviceId,
-    );
+    const bobSession = mintAccessToken(database, sessions, bobUserId, bobDeviceId);
 
     const blobStore = new BlobStore(join(dataDir, BLOBS_DIRNAME));
     const revisions = new RevisionRepository(database, blobStore, { now });
+    // `invitations` gates registration of the pre-auth onboarding scope
+    // (registerAuthRoutes), which is where `/auth/refresh` lives — without it
+    // that route (and the rest of the invite/redeem/refresh surface) 404s.
+    const invitations = new InvitationService(database, { now });
     const app = buildApp({
       auth: {
         clientKey: () => 'fixed-test-client',
         database,
+        invitations,
+        ...(authRateLimit === undefined ? {} : { rateLimit: authRateLimit }),
         sessions,
         sync: { blobStore, database, revisions },
       },
@@ -247,18 +275,20 @@ export class ServerHarness {
       accessToken: pair.accessToken,
       deviceId: aliceDeviceId,
       membershipId: init.membershipId,
+      refreshToken: aliceRefreshToken,
       userId: init.ownerUserId,
       vaultId,
     };
     const bob: ClientIdentity = {
-      accessToken: bobAccessToken,
+      accessToken: bobSession.accessToken,
       deviceId: bobDeviceId,
       membershipId: bobMembershipId,
+      refreshToken: bobSession.refreshToken,
       userId: bobUserId,
       vaultId,
     };
 
-    return new ServerHarness(runtime, alice, bob);
+    return new ServerHarness(runtime, alice, bob, authRateLimit);
   }
 }
 
@@ -267,17 +297,23 @@ export class ServerHarness {
  * restart (same directory) and restore (fresh directory) — in each case the
  * durable state already exists and is not re-derived.
  */
-function openRuntime(dataDir: string): ServerRuntime {
+function openRuntime(
+  dataDir: string,
+  authRateLimit: AuthRateLimitConfig | undefined,
+): ServerRuntime {
   const now = (): Date => new Date(START_TIME);
   const database = openDatabase(join(dataDir, DB_FILENAME));
   runMigrations(database);
   const sessions = new SessionRepository(database, { now });
   const blobStore = new BlobStore(join(dataDir, BLOBS_DIRNAME));
   const revisions = new RevisionRepository(database, blobStore, { now });
+  const invitations = new InvitationService(database, { now });
   const app = buildApp({
     auth: {
       clientKey: () => 'fixed-test-client',
       database,
+      invitations,
+      ...(authRateLimit === undefined ? {} : { rateLimit: authRateLimit }),
       sessions,
       sync: { blobStore, database, revisions },
     },
@@ -346,19 +382,25 @@ function insertMembership(
     .run(id, vaultId, userId, START_TIME);
 }
 
+interface MintedSession {
+  readonly accessToken: string;
+  readonly refreshToken: string;
+}
+
 function mintAccessToken(
   database: ServerRuntime['database'],
   sessions: SessionRepository,
   userId: string,
   deviceId: string,
-): string {
+): MintedSession {
+  const refreshToken = generateRefreshToken();
   const issue = database.transaction(() =>
     sessions.createInitialSessionInCurrentTransaction({
       deviceId,
-      initialRefreshToken: generateRefreshToken(),
+      initialRefreshToken: refreshToken,
       refreshTokenTtlSeconds: REFRESH_TTL_SECONDS,
       userId,
     }),
   );
-  return issue.immediate().accessToken;
+  return { accessToken: issue.immediate().accessToken, refreshToken };
 }
