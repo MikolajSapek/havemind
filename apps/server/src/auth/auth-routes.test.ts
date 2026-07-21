@@ -151,12 +151,19 @@ function createApp(
     loggerStream?: Writable;
     rateLimit?: { maxRequests: number; windowMs: number };
     now?: () => Date;
+    /**
+     * Test fixtures default to a single fixed rate-limit bucket for
+     * simplicity. Pass `false` to exercise the real default `clientKey`
+     * (device-keyed for authenticated requests, IP-keyed otherwise).
+     */
+    useFixedClientKey?: boolean;
   },
 ): ReturnType<typeof buildApp> {
   const config = parseServerConfig(TEST_ENV);
+  const useFixedClientKey = options?.useFixedClientKey ?? true;
   const app = buildApp({
     auth: {
-      clientKey: () => 'fixed-test-client',
+      ...(useFixedClientKey ? { clientKey: () => 'fixed-test-client' } : {}),
       database: fixture.database,
       sessions: fixture.sessions,
       ...(options?.now === undefined ? {} : { now: options.now }),
@@ -383,5 +390,59 @@ describe('deny-by-default auth-routes', () => {
     expect(first.statusCode).toBe(200);
     expect(limited.statusCode).toBe(429);
     expect(afterWindow.statusCode).toBe(200);
+  });
+
+  it('keys the rate-limit bucket per authenticated device, not the shared IP', async () => {
+    // Behind Tailscale serve (trustProxy: false), every request in this test
+    // arrives from the same loopback IP, mirroring production. Device A
+    // exhausting its own bucket must not 429 device B on the same tunnel.
+    const fixture = makeFixture();
+    const app = createApp(fixture, {
+      rateLimit: { maxRequests: 1, windowMs: 60_000 },
+      useFixedClientKey: false,
+    });
+
+    const deviceAFirst = await app.inject({
+      headers: { authorization: `Bearer ${fixture.accessTokenA}` },
+      method: 'GET',
+      url: `/vaults/${VAULT_A}/members`,
+    });
+    const deviceAExhausted = await app.inject({
+      headers: { authorization: `Bearer ${fixture.accessTokenA}` },
+      method: 'GET',
+      url: `/vaults/${VAULT_A}/members`,
+    });
+    const deviceBFirst = await app.inject({
+      headers: { authorization: `Bearer ${fixture.accessTokenB}` },
+      method: 'GET',
+      url: `/vaults/${VAULT_B}/members`,
+    });
+
+    expect(deviceAFirst.statusCode).toBe(200);
+    expect(deviceAExhausted.statusCode).toBe(429);
+    expect(deviceBFirst.statusCode).toBe(200);
+  });
+
+  it('still shares a single IP-keyed bucket for unauthenticated requests', async () => {
+    // Brute-force protection on pairing/approval-style endpoints depends on
+    // IP-keying holding for requests with no valid session.
+    const fixture = makeFixture();
+    const app = createApp(fixture, {
+      rateLimit: { maxRequests: 1, windowMs: 60_000 },
+      useFixedClientKey: false,
+    });
+
+    const first = await app.inject({
+      method: 'GET',
+      url: `/vaults/${VAULT_A}/members`,
+    });
+    const second = await app.inject({
+      headers: { authorization: 'Bearer not-a-real-token' },
+      method: 'GET',
+      url: `/vaults/${VAULT_A}/members`,
+    });
+
+    expect(first.statusCode).toBe(401);
+    expect(second.statusCode).toBe(429);
   });
 });

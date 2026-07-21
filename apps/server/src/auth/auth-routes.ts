@@ -129,6 +129,28 @@ function createRateLimiter(
   };
 }
 
+/**
+ * Keys an authenticated device's requests by its own device identity rather
+ * than by IP: behind Tailscale serve (`trustProxy: false`) every request
+ * arrives from the loopback address, so IP-keying would put every device
+ * sharing that tunnel into one global bucket and let one device's bulk
+ * traffic 429 every other device. Falls back to IP for requests that carry
+ * no valid session — pairing/approval endpoints never send a bearer token,
+ * so they keep the IP-keyed brute-force protection unchanged.
+ */
+function defaultClientKey(
+  sessions: SessionRepository,
+): (request: FastifyRequest) => string {
+  return (request) => {
+    const token = extractBearerToken(request.headers.authorization);
+    if (token === null) {
+      return request.ip;
+    }
+    const session = sessions.lookupAccess(token);
+    return session === null ? request.ip : `device:${session.deviceId}`;
+  };
+}
+
 function loadActiveMembership(
   database: Database.Database,
   userId: string,
@@ -170,7 +192,7 @@ export function registerAuthRoutes(
   deps: AuthRoutesDeps,
 ): void {
   const now = deps.now ?? (() => new Date());
-  const clientKey = deps.clientKey ?? ((request) => request.ip);
+  const clientKey = deps.clientKey ?? defaultClientKey(deps.sessions);
   const rateLimit = createRateLimiter(
     deps.rateLimit ?? DEFAULT_RATE_LIMIT,
     now,
