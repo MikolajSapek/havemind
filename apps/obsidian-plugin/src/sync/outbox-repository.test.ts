@@ -110,7 +110,9 @@ describe('OutboxLocalChangeRepository', () => {
       operation: 'create',
       path: 'Notes/a.md',
       previousPath: null,
+      kind: 'markdown',
       content: 'Hello\n',
+      binaryContent: null,
     });
     // The mapping is now durable so a later modify resolves it.
     expect(await repo.listMappings()).toHaveLength(1);

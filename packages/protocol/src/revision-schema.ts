@@ -144,6 +144,24 @@ const normalizedMarkdownSchema = z.string().refine(usesLfLineEndings, {
   message: 'Markdown content must use LF line endings.',
 });
 
+const sha256HexField = z.string().regex(/^[0-9a-f]{64}$/u);
+
+/**
+ * Standard base64 (with padding). Accepts the empty string (an empty binary
+ * file). This is DELIBERATELY the only encoding of binary content on the wire:
+ * a JSON string cannot carry arbitrary bytes (NUL, lone surrogates), so binary
+ * attachments are base64-encoded — a bijection that preserves every byte
+ * exactly. No canonicalisation is applied to binary content (F9): the raw bytes
+ * are hashed and shipped verbatim, keeping the binary path cleanly separate from
+ * `canonicalizeMarkdown`.
+ */
+const base64ContentSchema = z
+  .string()
+  .regex(
+    /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u,
+    { message: 'Binary content must be standard base64.' },
+  );
+
 const contentRevisionPayloadSchema = z
   .object({
     schemaVersion: z.literal(1),
@@ -186,6 +204,57 @@ const contentRevisionPayloadSchema = z
     }
   });
 
+/**
+ * Binary attachment payload (F9). Whole-file replace only — there is no line
+ * diff or three-way merge for binary, so the recipe is always `null`. The raw
+ * bytes are carried base64-encoded and identified by `blobByteHash` (SHA-256 of
+ * the RAW bytes, never a canonicalised form). A legacy markdown payload carries
+ * no `kind` field, so the presence of `kind: 'binary'` is what selects this
+ * union member; old revisions keep decoding through `contentRevisionPayloadSchema`.
+ */
+const binaryRevisionPayloadSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    operation: z.enum([
+      'initial-import',
+      'create',
+      'update',
+      'rename',
+      'restore',
+      'reconcile',
+    ]),
+    kind: z.literal('binary'),
+    path: canonicalPathSchema,
+    previousPath: canonicalPathSchema.optional(),
+    contentBase64: base64ContentSchema,
+    blobByteHash: sha256HexField,
+    recipe: z.null(),
+  })
+  .strict()
+  .superRefine((payload, context) => {
+    if (payload.operation === 'rename') {
+      if (payload.previousPath === undefined) {
+        context.addIssue({
+          code: 'custom',
+          message: 'Rename requires previousPath.',
+          path: ['previousPath'],
+        });
+      } else if (payload.previousPath === payload.path) {
+        context.addIssue({
+          code: 'custom',
+          message: 'Rename path and previousPath must be different.',
+          path: ['previousPath'],
+        });
+      }
+    } else if (payload.previousPath !== undefined) {
+      context.addIssue({
+        code: 'custom',
+        message: 'previousPath is valid only for rename.',
+        path: ['previousPath'],
+      });
+    }
+  });
+
 const tombstoneRevisionPayloadSchema = z
   .object({
     schemaVersion: z.literal(1),
@@ -199,6 +268,7 @@ const tombstoneRevisionPayloadSchema = z
 
 export const innerRevisionPayloadSchema = z.union([
   contentRevisionPayloadSchema,
+  binaryRevisionPayloadSchema,
   tombstoneRevisionPayloadSchema,
 ]);
 
@@ -219,7 +289,13 @@ export function validateRevisionPayloadAgainstHeader(
   const payload = innerRevisionPayloadSchema.parse(payloadInput);
   const parents = new Set(header.parentRevisionIds);
 
-  if (payload.operation !== 'delete' && payload.operation !== 'restore') {
+  // Binary payloads (kind 'binary') carry no recipe (whole-file replace only),
+  // as do delete tombstones and restores — none has source parts to validate.
+  if (
+    payload.operation !== 'delete' &&
+    payload.operation !== 'restore' &&
+    payload.recipe !== null
+  ) {
     for (const part of payload.recipe.parts) {
       if (part.type === 'source' && !parents.has(part.parentRevisionId)) {
         throw new Error(

@@ -63,7 +63,9 @@ describe('buildConnectionResolvers', () => {
       operation: 'create',
       path: 'Notes/a.md',
       previousPath: null,
+      kind: 'markdown',
       content: 'Remote body\n',
+      binaryContent: null,
     });
     expect(calls[0]?.url).toBe(`${API}/vaults/${VAULT}/blobs/blob-abc`);
     expect(calls[0]?.headers?.Authorization).toBe('Bearer access-1');

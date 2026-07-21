@@ -36,8 +36,24 @@ export interface DecodedRevisionPayload {
   readonly operation: RevisionOperation;
   readonly path: string;
   readonly previousPath: string | null;
-  /** Plaintext file content, or `null` for a delete tombstone. */
+  /**
+   * Whether the payload carries markdown text (`content`) or raw binary bytes
+   * (`binaryContent`). The decoder always populates it; it is OPTIONAL only so
+   * the many existing test doubles that build a decoded payload literally
+   * (omitting it) keep type-checking — an absent `kind` means `'markdown'`.
+   * A legacy on-wire payload with no `kind` field also decodes as `'markdown'`,
+   * so old revisions keep working unchanged (F9).
+   */
+  readonly kind?: 'markdown' | 'binary';
+  /** Plaintext markdown content, or `null` for a delete/binary payload. */
   readonly content: string | null;
+  /**
+   * Raw file bytes for a binary payload, or `null` for markdown/delete. The
+   * bytes are the exact file content — never canonicalised — so materialising
+   * them reproduces the source file byte-for-byte. Optional for the same
+   * test-double reason as `kind`.
+   */
+  readonly binaryContent?: Uint8Array | null;
 }
 
 export class PayloadDecodeError extends Error {
@@ -77,6 +93,20 @@ export function decodeRevisionPayload(
       ? null
       : assertCanonicalPath(json.previousPath, 'previousPath');
 
+  // Binary payloads (F9) carry raw bytes base64-encoded and never a delete
+  // tombstone — a binary delete is still a markdown-kind tombstone. Whole-file
+  // replace only, so `content` (markdown text) is always null here.
+  if (json.kind === 'binary') {
+    if (operation === 'delete') {
+      throw new PayloadDecodeError('A binary payload cannot be a delete tombstone.');
+    }
+    if (typeof json.contentBase64 !== 'string') {
+      throw new PayloadDecodeError('A binary revision must carry string contentBase64.');
+    }
+    const binaryContent = decodeBase64(json.contentBase64);
+    return { operation, path, previousPath, kind: 'binary', content: null, binaryContent };
+  }
+
   let content: string | null;
   if (operation === 'delete') {
     if (json.content !== null && json.content !== undefined) {
@@ -90,7 +120,29 @@ export function decodeRevisionPayload(
     content = json.content;
   }
 
-  return { operation, path, previousPath, content };
+  return { operation, path, previousPath, kind: 'markdown', content, binaryContent: null };
+}
+
+/**
+ * Decodes standard base64 to raw bytes. A malformed body (a payload a hostile
+ * or corrupt peer forged) is rejected as a decode error rather than silently
+ * yielding garbage bytes, matching the reserved-path guard's fail-closed stance.
+ */
+function decodeBase64(base64: string): Uint8Array {
+  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u.test(base64)) {
+    throw new PayloadDecodeError('Binary revision content is not valid base64.');
+  }
+  let binary: string;
+  try {
+    binary = atob(base64);
+  } catch (error) {
+    throw new PayloadDecodeError('Binary revision content is not valid base64.', error);
+  }
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
 }
 
 function assertCanonicalPath(value: unknown, field: string): string {

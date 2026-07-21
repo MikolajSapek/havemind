@@ -22,7 +22,9 @@ describe('decodeRevisionPayload', () => {
       operation: 'create',
       path: 'Notes/a.md',
       previousPath: null,
+      kind: 'markdown',
       content: 'Hello\n',
+      binaryContent: null,
     });
   });
 

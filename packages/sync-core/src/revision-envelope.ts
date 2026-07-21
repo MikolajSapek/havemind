@@ -16,6 +16,7 @@
 import {
   canonicalizeMarkdown,
   canonicalizeVaultPath,
+  hashBlob,
   hashPlaintext,
   PROTOCOL_VERSION,
   sha256Hex,
@@ -46,8 +47,17 @@ export interface BuildRevisionEnvelopeInput {
   readonly operation: RevisionEnvelopeOperation;
   readonly path: string;
   readonly previousPath?: string | null;
-  /** Note content, or `null` for a delete tombstone. */
+  /**
+   * Whether this change carries markdown text (`content`) or raw binary bytes
+   * (`binaryContent`). Defaults to `'markdown'` so every existing caller is
+   * unchanged. A `'binary'` change is a whole-file replace (F9) — no line diff,
+   * no recipe, no canonicalisation.
+   */
+  readonly kind?: 'markdown' | 'binary';
+  /** Note content, or `null` for a delete tombstone / binary change. */
   readonly content: string | null;
+  /** Raw file bytes for a binary change; ignored for markdown/delete. */
+  readonly binaryContent?: Uint8Array | null;
   readonly idempotencyKey: string;
   /**
    * Reject (rather than build) an envelope whose payload exceeds this many
@@ -170,6 +180,30 @@ async function buildInnerPayload(
       plaintextHash: null,
       recipe: null,
     };
+  }
+
+  if (input.kind === 'binary') {
+    // Whole-file replace over RAW bytes: no canonicalisation, no recipe. The
+    // byte hash identifies the exact source file so the peer can track its base
+    // and detect divergence over bytes (never over a canonicalised markdown
+    // form). Kept deliberately separate from the markdown path below.
+    const bytes = input.binaryContent ?? new Uint8Array(0);
+    const base: Record<string, unknown> = {
+      schemaVersion: 1,
+      operation: input.operation,
+      kind: 'binary',
+      path,
+    };
+    if (input.operation === 'rename') {
+      if (input.previousPath === undefined || input.previousPath === null) {
+        throw new Error('A rename revision requires a previousPath.');
+      }
+      base.previousPath = canonicalizeVaultPath(input.previousPath);
+    }
+    base.contentBase64 = bytesToBase64(bytes);
+    base.blobByteHash = await hashBlob(bytes);
+    base.recipe = null;
+    return base;
   }
 
   const content = canonicalizeMarkdown(input.content ?? '');
