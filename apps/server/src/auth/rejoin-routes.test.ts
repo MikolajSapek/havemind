@@ -144,7 +144,10 @@ function makeFixture(): Fixture {
   };
 }
 
-function createApp(fixture: Fixture) {
+function createApp(
+  fixture: Fixture,
+  rateLimit?: { maxRequests: number; windowMs: number },
+) {
   const config = parseServerConfig(TEST_ENV);
   const app = buildApp({
     auth: {
@@ -152,6 +155,7 @@ function createApp(fixture: Fixture) {
       database: fixture.database,
       invitations: fixture.invitations,
       now: () => new Date(fixture.clock.ms),
+      ...(rateLimit === undefined ? {} : { rateLimit }),
       sessions: fixture.sessions,
     },
     config,
@@ -284,5 +288,29 @@ describe('POST /auth/rejoin', () => {
     const app = createApp(fixture);
     const response = await redeem(app, hashRefreshToken(generateRefreshToken()));
     expect(response.statusCode).toBe(401);
+  });
+});
+
+describe('rate limiting on POST /auth/rejoin', () => {
+  it('429s once one IP exceeds the pre-auth rejoin threshold', async () => {
+    const fixture = makeFixture();
+    const app = createApp(fixture, { maxRequests: 3, windowMs: 60_000 });
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const response = await redeem(app, hashRefreshToken(generateRefreshToken()));
+      expect(response.statusCode).toBe(401);
+    }
+
+    const limited = await redeem(app, hashRefreshToken(generateRefreshToken()));
+    expect(limited.statusCode).toBe(429);
+  });
+
+  it('leaves under-threshold rejoin traffic unaffected', async () => {
+    const fixture = makeFixture();
+    const app = createApp(fixture, { maxRequests: 5, windowMs: 60_000 });
+    await requestGrant(app, fixture.ownerAccessToken, INVITEE_MEMBERSHIP);
+
+    const response = await redeem(app, hashRefreshToken(generateRefreshToken()));
+    expect(response.statusCode).toBe(200);
   });
 });

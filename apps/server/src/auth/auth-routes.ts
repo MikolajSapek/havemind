@@ -26,7 +26,7 @@ const IDENTITY_HEADERS = [
 
 const BEARER_PATTERN = /^Bearer (?<token>\S+)$/u;
 
-const DEFAULT_RATE_LIMIT: AuthRateLimitConfig = {
+export const DEFAULT_RATE_LIMIT: AuthRateLimitConfig = {
   maxRequests: 120,
   windowMs: 60_000,
 };
@@ -110,7 +110,7 @@ function hasImpersonationHeader(
   });
 }
 
-function createRateLimiter(
+export function createRateLimiter(
   config: AuthRateLimitConfig,
   now: () => Date,
   clientKey: (request: FastifyRequest) => string | null,

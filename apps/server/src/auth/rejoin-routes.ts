@@ -3,6 +3,11 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
 import {
+  createRateLimiter,
+  DEFAULT_RATE_LIMIT,
+  type AuthRateLimitConfig,
+} from './auth-routes.js';
+import {
   RejoinGrantError,
   RejoinGrantService,
 } from './rejoin-grants.js';
@@ -32,6 +37,7 @@ export interface RejoinRoutesDeps {
   readonly sessions: SessionRepository;
   readonly rejoin?: RejoinGrantService;
   readonly now?: () => Date;
+  readonly rateLimit?: AuthRateLimitConfig;
 }
 
 const createGrantBodySchema = z
@@ -128,8 +134,26 @@ export function registerRejoinRoutes(
   const service =
     deps.rejoin ??
     new RejoinGrantService(deps.database, { now });
+  // Pre-auth traffic: no session exists yet, so per-device keying (as used by
+  // the authenticated auth-routes surface) doesn't apply — key by IP, same as
+  // /auth/refresh and /owner/pair. Reuses the auth-routes limiter factory
+  // rather than a bespoke one.
+  const rejoinRateLimit = createRateLimiter(
+    deps.rateLimit ?? DEFAULT_RATE_LIMIT,
+    now,
+    (request) => request.ip,
+  );
 
   void app.register(async (instance) => {
+    // /owner/rejoin-grants is bearer-authenticated (session looked up below)
+    // and deliberately left unlimited here: giving it the same device-keyed
+    // treatment as the authenticated auth-routes surface would require
+    // duplicating `defaultClientKey`'s session-aware exemption logic (not
+    // exported from auth-routes.ts), which is not a one-liner. Bolting on the
+    // IP-keyed limiter built for /auth/rejoin instead would fight the
+    // device-keyed pattern used elsewhere for authenticated traffic behind a
+    // shared tunnel (see auth-routes.ts `defaultClientKey`). Left as a
+    // follow-up rather than widening this hardening pass's scope.
     instance.post('/owner/rejoin-grants', async (request, reply) => {
       const token = extractBearerToken(request.headers.authorization);
       if (token === null) {
@@ -173,32 +197,41 @@ export function registerRejoinRoutes(
       }
     });
 
-    instance.post('/auth/rejoin', async (request, reply) => {
-      const body = redeemBodySchema.safeParse(request.body);
-      if (!body.success) {
-        return sendError(reply, 400, 'INVALID_REQUEST');
-      }
-      try {
-        const result = service.redeemGrant({
-          deviceId: body.data.deviceId,
-          initialRefreshTokenHash: body.data.initialRefreshTokenHash,
-          membershipId: body.data.membershipId,
-        });
-        reply.header('cache-control', 'no-store');
-        return {
-          deviceId: result.deviceId,
-          membershipId: result.membershipId,
-          refreshExpiresAt: result.refreshExpiresAt,
-          status: 'rejoined',
-          vaultId: result.vaultId,
-        };
-      } catch {
-        // Any redemption failure — no grant, expired, consumed, wrong device,
-        // inactive membership, malformed — is a flat 401 so a caller cannot
-        // distinguish the cases (mirrors /auth/refresh and /owner/pair).
-        return sendError(reply, 401, 'UNAUTHENTICATED');
-      }
-    });
+    instance.post(
+      '/auth/rejoin',
+      {
+        onRequest: async (request, reply) => {
+          rejoinRateLimit(request, reply);
+        },
+      },
+      async (request, reply) => {
+        const body = redeemBodySchema.safeParse(request.body);
+        if (!body.success) {
+          return sendError(reply, 400, 'INVALID_REQUEST');
+        }
+        try {
+          const result = service.redeemGrant({
+            deviceId: body.data.deviceId,
+            initialRefreshTokenHash: body.data.initialRefreshTokenHash,
+            membershipId: body.data.membershipId,
+          });
+          reply.header('cache-control', 'no-store');
+          return {
+            deviceId: result.deviceId,
+            membershipId: result.membershipId,
+            refreshExpiresAt: result.refreshExpiresAt,
+            status: 'rejoined',
+            vaultId: result.vaultId,
+          };
+        } catch {
+          // Any redemption failure — no grant, expired, consumed, wrong
+          // device, inactive membership, malformed — is a flat 401 so a
+          // caller cannot distinguish the cases (mirrors /auth/refresh and
+          // /owner/pair).
+          return sendError(reply, 401, 'UNAUTHENTICATED');
+        }
+      },
+    );
   });
 }
 

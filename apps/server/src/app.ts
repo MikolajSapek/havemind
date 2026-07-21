@@ -97,6 +97,9 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
       database: options.auth.database,
       sessions: options.auth.sessions,
       ...(options.auth.now === undefined ? {} : { now: options.auth.now }),
+      ...(options.auth.rateLimit === undefined
+        ? {}
+        : { rateLimit: options.auth.rateLimit }),
     });
   }
 
