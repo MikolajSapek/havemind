@@ -28,6 +28,29 @@ import type {
 } from '../obsidian/vault-adapter';
 import type { OutboxEnvelope } from '../runtime/sync-state';
 
+/**
+ * Effective per-payload ceiling for a BINARY attachment (F9). A 25 MB file
+ * ({@link MAX_BINARY_FILE_BYTES}) is ~33 MB once base64-encoded, plus the JSON
+ * envelope (path, blobByteHash, field names); 40 MB covers that with headroom.
+ * The observer already excludes over-cap files before they reach here, so this
+ * ceiling is the belt-and-braces stop that keeps an oversized binary from
+ * silently wedging the outbox — the same role the default markdown ceiling plays.
+ */
+export const MAX_BINARY_PAYLOAD_BYTES = 40 * 1024 * 1024;
+
+/**
+ * Decodes standard base64 (the form the observer stores in a binary operation's
+ * `content`) back to the raw bytes `buildRevisionEnvelope` re-hashes and ships.
+ */
+function decodeBase64ToBytes(base64: string): Uint8Array {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
+}
+
 /** Server identity a revision header must carry to be accepted (rule 3). */
 export interface PushIdentity {
   readonly vaultId: string;
@@ -139,6 +162,13 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
       // oversized change. It propagates out of commitLocalChange BEFORE the
       // enqueue and the store.save below, so a too-large note is surfaced to the
       // caller and never enters the outbox (no silent wedge, no state mutation).
+      // A binary change (F9) is a whole-file replace over RAW bytes: the observer
+      // stored those bytes as base64 in `content`, so decode them and hand the
+      // codec `kind: 'binary'` + `binaryContent` (never markdown `content`, which
+      // would be canonicalised). The base64 of a 25 MB file needs a raised
+      // ceiling, so binary uses {@link MAX_BINARY_PAYLOAD_BYTES} rather than the
+      // markdown default.
+      const isBinary = operation.contentKind === 'binary';
       const built = await buildRevisionEnvelope({
         identity: {
           vaultId: this.options.identity.vaultId,
@@ -151,11 +181,20 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
         operation: envelopeOperation,
         path: operation.path,
         previousPath: operation.previousPath,
-        content: operation.content,
+        ...(isBinary
+          ? {
+              kind: 'binary' as const,
+              content: null,
+              binaryContent: decodeBase64ToBytes(operation.content ?? ''),
+              maxPayloadBytes: MAX_BINARY_PAYLOAD_BYTES,
+            }
+          : {
+              content: operation.content,
+              ...(this.options.maxPayloadBytes === undefined
+                ? {}
+                : { maxPayloadBytes: this.options.maxPayloadBytes }),
+            }),
         idempotencyKey: operation.operationId,
-        ...(this.options.maxPayloadBytes === undefined
-          ? {}
-          : { maxPayloadBytes: this.options.maxPayloadBytes }),
       });
 
       await this.options.enqueue({

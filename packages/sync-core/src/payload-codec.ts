@@ -11,7 +11,7 @@
  * validates the full schema — recipe, hashes — at creation time).
  */
 
-import { canonicalizeVaultPath } from '@havemind/protocol';
+import { canonicalizeVaultPath, isCanonicalBase64 } from '@havemind/protocol';
 
 export type RevisionOperation =
   | 'initial-import'
@@ -129,7 +129,10 @@ export function decodeRevisionPayload(
  * yielding garbage bytes, matching the reserved-path guard's fail-closed stance.
  */
 function decodeBase64(base64: string): Uint8Array {
-  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u.test(base64)) {
+  // Linear validation (shared with the wire schema): the previous inline regex
+  // overflowed V8's regex stack on multi-MB inputs, so a real binary attachment
+  // (F9) could never be decoded on the receive side. Same accepted language.
+  if (!isCanonicalBase64(base64)) {
     throw new PayloadDecodeError('Binary revision content is not valid base64.');
   }
   let binary: string;

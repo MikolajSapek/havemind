@@ -29,6 +29,8 @@ import {
 } from '@havemind/sync-core';
 
 import {
+  pathExtension,
+  SYNCABLE_BINARY_EXTENSIONS,
   VaultChangeObserver,
   type LocalFileMapping,
   type VaultSnapshotPort,
@@ -140,7 +142,15 @@ export interface RuntimeHooks {
   readonly onRemoteActivity?: (entry: ActivityLogEntry) => void;
 }
 
-/** Maps a local-change kind onto the Activity feed's kind vocabulary. */
+/**
+ * Maps a local-change kind onto the Activity feed's kind vocabulary. Binary
+ * attachment ops (F9) carry the same change kinds (create/update/rename/delete),
+ * so they are recorded and attributed here EXACTLY like markdown ops — the
+ * activity wiring is content-kind agnostic. Restore-from-feed remains a
+ * markdown-only affordance (it reconstructs text from provenance ranges, which a
+ * whole-file binary revision has none of); a binary entry still appears in the
+ * feed, it simply is not a meaningful restore target.
+ */
 function toActivityKind(kind: LocalChangeKind): ActivityKind {
   return kind === 'update' ? 'edit' : kind;
 }
@@ -315,6 +325,36 @@ async function ensureWritableConflictFolder(
   return '';
 }
 
+/**
+ * Splits an artifact path into folder + filename and resolves a guaranteed-
+ * writable target under a confirmed folder (falling back per
+ * {@link ensureWritableConflictFolder}). Shared by the markdown and binary
+ * conflict writers so both land the artifact identically (F9).
+ */
+async function resolveConflictTarget(
+  vault: Pick<Vault, 'getAbstractFileByPath' | 'createFolder'>,
+  path: string,
+): Promise<string> {
+  const separatorIndex = path.lastIndexOf('/');
+  const folder = separatorIndex === -1 ? '' : path.slice(0, separatorIndex);
+  const filename = separatorIndex === -1 ? path : path.slice(separatorIndex + 1);
+  const resolvedFolder =
+    folder === '' ? '' : await ensureWritableConflictFolder(vault, folder);
+  return resolvedFolder === '' ? filename : `${resolvedFolder}/${filename}`;
+}
+
+/**
+ * Exact ArrayBuffer view of `bytes` — copies only the used region, so a
+ * Uint8Array that is a subview of a larger buffer never ships trailing bytes to
+ * `createBinary`/`modifyBinary` (F9).
+ */
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  return bytes.buffer.slice(
+    bytes.byteOffset,
+    bytes.byteOffset + bytes.byteLength,
+  ) as ArrayBuffer;
+}
+
 export function createVaultFilePort(options: VaultFilePortOptions): VaultFilePort {
   const { vault, state } = options;
   return {
@@ -341,6 +381,14 @@ export function createVaultFilePort(options: VaultFilePortOptions): VaultFilePor
       // terms. Hash/compare-side only — the file on disk is never rewritten.
       return canonicalizeMarkdown(raw);
     },
+    async readBinaryByPath(path) {
+      const existing = vault.getAbstractFileByPath(path);
+      if (existing === null) return null;
+      // Raw bytes, never canonicalised (F9) — the binary apply path compares and
+      // hashes them byte-for-byte.
+      const buffer = await vault.readBinary(existing as TFile);
+      return new Uint8Array(buffer);
+    },
     baseHashFor: (fileId) => state.baseHashFor(fileId),
     recordBaseHash: (fileId, hash) => state.recordBaseHash(fileId, hash),
     forgetBaseHash: (fileId) => state.forgetBaseHash(fileId),
@@ -352,6 +400,15 @@ export function createVaultFilePort(options: VaultFilePortOptions): VaultFilePor
       }
       await vault.modify(existing as TFile, content);
     },
+    async writeBinaryByPath(path, bytes) {
+      const existing = vault.getAbstractFileByPath(path);
+      const data = toArrayBuffer(bytes);
+      if (existing === null) {
+        await vault.createBinary(path, data);
+        return;
+      }
+      await vault.modifyBinary(existing as TFile, data);
+    },
     async deleteByPath(path) {
       const existing = vault.getAbstractFileByPath(path);
       if (existing !== null) {
@@ -359,14 +416,7 @@ export function createVaultFilePort(options: VaultFilePortOptions): VaultFilePor
       }
     },
     async writeConflictArtifact(path, content) {
-      const separatorIndex = path.lastIndexOf('/');
-      const folder = separatorIndex === -1 ? '' : path.slice(0, separatorIndex);
-      const filename =
-        separatorIndex === -1 ? path : path.slice(separatorIndex + 1);
-      const resolvedFolder =
-        folder === '' ? '' : await ensureWritableConflictFolder(vault, folder);
-      const targetPath =
-        resolvedFolder === '' ? filename : `${resolvedFolder}/${filename}`;
+      const targetPath = await resolveConflictTarget(vault, path);
       // Idempotent (create-or-overwrite). `vault.create` throws if the path
       // already exists, and the runner saves the pull cursor only AFTER apply,
       // so a crash mid-cycle or a second delivery re-writes the same
@@ -378,6 +428,18 @@ export function createVaultFilePort(options: VaultFilePortOptions): VaultFilePor
         return;
       }
       await vault.modify(existing as TFile, content);
+    },
+    async writeBinaryConflictArtifact(path, bytes) {
+      // Same idempotent folder-resolution as the markdown conflict writer, but
+      // over raw bytes and preserving the original extension (F9).
+      const targetPath = await resolveConflictTarget(vault, path);
+      const data = toArrayBuffer(bytes);
+      const existing = vault.getAbstractFileByPath(targetPath);
+      if (existing === null) {
+        await vault.createBinary(targetPath, data);
+        return;
+      }
+      await vault.modifyBinary(existing as TFile, data);
     },
     recordPathOwner: (fileId, path) => state.recordPathOwner(fileId, path),
     forgetPath: (path) => state.forgetPath(path),
@@ -850,17 +912,36 @@ function startPushProducer(
   producerRef.current = repository;
 
   const snapshot: VaultSnapshotPort = {
-    async listMarkdownPaths() {
-      return vault.getMarkdownFiles().map((file) => file.path);
+    async listSyncablePaths() {
+      // Markdown notes AND allowlisted binary attachments (F9). Obsidian has no
+      // single API for both, so filter every vault file down to the syncable
+      // extensions; `classifyVaultPath` still applies the dotpath/reserved
+      // exclusions downstream (so reserved-folder files are counted as ignored,
+      // exactly as the old markdown-only listing did).
+      return vault
+        .getFiles()
+        .map((file) => file.path)
+        .filter((path) => {
+          const extension = pathExtension(path.normalize('NFC'));
+          return (
+            extension === 'md' ||
+            (SYNCABLE_BINARY_EXTENSIONS as readonly string[]).includes(extension)
+          );
+        });
     },
     async readText(path) {
       const file = vault.getAbstractFileByPath(path);
       return file === null ? '' : vault.read(file as TFile);
     },
+    async readBinary(path) {
+      const file = vault.getAbstractFileByPath(path);
+      if (file === null) return new Uint8Array(0);
+      return new Uint8Array(await vault.readBinary(file as TFile));
+    },
     async listAllPaths() {
-      // Every vault file, markdown or not. Used only by reconciliation to count
-      // (never read or enqueue) the non-markdown attachments the pilot's
-      // markdown-only scope excludes, so that exclusion stays visible.
+      // Every vault file, of any type. Used only by reconciliation to count
+      // (never read or enqueue) the non-syncable attachments the pilot's scope
+      // excludes, so that exclusion stays visible.
       return vault.getFiles().map((file) => file.path);
     },
   };

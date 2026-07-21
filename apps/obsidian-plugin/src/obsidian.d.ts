@@ -50,8 +50,11 @@ declare module 'obsidian' {
     getMarkdownFiles(): TFile[];
     getFiles(): TFile[];
     read(file: TFile): Promise<string>;
+    readBinary(file: TFile): Promise<ArrayBuffer>;
     create(path: string, data: string): Promise<TFile>;
+    createBinary(path: string, data: ArrayBuffer): Promise<TFile>;
     modify(file: TFile, data: string): Promise<void>;
+    modifyBinary(file: TFile, data: ArrayBuffer): Promise<void>;
     delete(file: TAbstractFile): Promise<void>;
     createFolder(path: string): Promise<void>;
     on(name: string, callback: (...args: unknown[]) => unknown): EventRef;

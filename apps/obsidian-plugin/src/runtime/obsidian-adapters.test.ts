@@ -36,7 +36,7 @@ type AbstractFileLike = { path: string };
 class FakeVault {
   private readonly entries = new Map<
     string,
-    { kind: 'file' | 'folder'; content?: string }
+    { kind: 'file' | 'folder'; content?: string; binaryContent?: ArrayBuffer }
   >();
 
   constructor(
@@ -46,6 +46,10 @@ class FakeVault {
 
   seedFile(path: string, content = ''): void {
     this.entries.set(path, { kind: 'file', content });
+  }
+
+  seedBinaryFile(path: string, data: ArrayBuffer): void {
+    this.entries.set(path, { kind: 'file', binaryContent: data });
   }
 
   getAbstractFileByPath(path: string): AbstractFileLike | null {
@@ -79,8 +83,30 @@ class FakeVault {
     this.entries.set(file.path, { kind: 'file', content: data });
   }
 
+  async readBinary(file: AbstractFileLike): Promise<ArrayBuffer> {
+    return this.entries.get(file.path)?.binaryContent ?? new ArrayBuffer(0);
+  }
+
+  async createBinary(path: string, data: ArrayBuffer): Promise<AbstractFileLike> {
+    if (this.entries.has(path)) {
+      throw new Error(`already exists: ${path}`);
+    }
+    this.entries.set(path, { kind: 'file', binaryContent: data });
+    const file = new this.TFileClass();
+    file.path = path;
+    return file;
+  }
+
+  async modifyBinary(file: AbstractFileLike, data: ArrayBuffer): Promise<void> {
+    this.entries.set(file.path, { kind: 'file', binaryContent: data });
+  }
+
   contentAt(path: string): string | undefined {
     return this.entries.get(path)?.content;
+  }
+
+  binaryContentAt(path: string): ArrayBuffer | undefined {
+    return this.entries.get(path)?.binaryContent;
   }
 }
 
@@ -355,5 +381,98 @@ describe('createVaultFilePort writeConflictArtifact', () => {
     expect(
       vault.contentAt('Havemind Conflicts (files)/file-1-rev-1.md'),
     ).toBe('C\n');
+  });
+});
+
+describe('createVaultFilePort binary attachments (F9)', () => {
+  it('round-trips raw bytes byte-for-byte through writeBinaryByPath/readBinaryByPath', async () => {
+    const { createVaultFilePort } = await import('./obsidian-adapters');
+    const { TFile, TFolder } = await import('obsidian');
+    const vault = new FakeVault(TFile, TFolder);
+    const port = createVaultFilePort({
+      vault: vault as never,
+      state: noopState as never,
+    });
+
+    const bytes = new Uint8Array([0x00, 0xff, 0x80, 10, 20, 30]);
+    await port.writeBinaryByPath('Attachments/img.png', bytes);
+    const read = await port.readBinaryByPath('Attachments/img.png');
+
+    expect(read).toEqual(bytes);
+  });
+
+  it('returns null from readBinaryByPath when no file exists at the path', async () => {
+    const { createVaultFilePort } = await import('./obsidian-adapters');
+    const { TFile, TFolder } = await import('obsidian');
+    const vault = new FakeVault(TFile, TFolder);
+    const port = createVaultFilePort({
+      vault: vault as never,
+      state: noopState as never,
+    });
+
+    expect(await port.readBinaryByPath('Attachments/missing.png')).toBeNull();
+  });
+
+  it('overwrites the on-disk bytes when writing binary to an existing path', async () => {
+    const { createVaultFilePort } = await import('./obsidian-adapters');
+    const { TFile, TFolder } = await import('obsidian');
+    const vault = new FakeVault(TFile, TFolder);
+    vault.seedBinaryFile('Attachments/img.png', new Uint8Array([1, 2, 3]).buffer);
+    const port = createVaultFilePort({
+      vault: vault as never,
+      state: noopState as never,
+    });
+
+    const next = new Uint8Array([4, 5, 6, 7]);
+    await port.writeBinaryByPath('Attachments/img.png', next);
+
+    expect(await port.readBinaryByPath('Attachments/img.png')).toEqual(next);
+  });
+
+  it('writes a binary conflict artifact under Havemind Conflicts/ preserving the original extension', async () => {
+    const { createVaultFilePort } = await import('./obsidian-adapters');
+    const { TFile, TFolder } = await import('obsidian');
+    const vault = new FakeVault(TFile, TFolder);
+    const port = createVaultFilePort({
+      vault: vault as never,
+      state: noopState as never,
+    });
+
+    const bytes = new Uint8Array([1, 2, 3]);
+    await port.writeBinaryConflictArtifact(
+      'Havemind Conflicts/file-1-rev-1.png',
+      bytes,
+    );
+
+    const stored = vault.binaryContentAt('Havemind Conflicts/file-1-rev-1.png');
+    expect(stored).toBeDefined();
+    expect(new Uint8Array(stored as ArrayBuffer)).toEqual(bytes);
+    expect(vault.getAbstractFileByPath('Havemind Conflicts')).toBeInstanceOf(
+      TFolder,
+    );
+  });
+
+  it('overwrites an existing binary conflict artifact idempotently', async () => {
+    const { createVaultFilePort } = await import('./obsidian-adapters');
+    const { TFile, TFolder } = await import('obsidian');
+    const vault = new FakeVault(TFile, TFolder);
+    await vault.createFolder('Havemind Conflicts');
+    vault.seedBinaryFile(
+      'Havemind Conflicts/file-1-rev-1.png',
+      new Uint8Array([9, 9]).buffer,
+    );
+    const port = createVaultFilePort({
+      vault: vault as never,
+      state: noopState as never,
+    });
+
+    const next = new Uint8Array([1, 2, 3]);
+    await port.writeBinaryConflictArtifact(
+      'Havemind Conflicts/file-1-rev-1.png',
+      next,
+    );
+
+    const stored = vault.binaryContentAt('Havemind Conflicts/file-1-rev-1.png');
+    expect(new Uint8Array(stored as ArrayBuffer)).toEqual(next);
   });
 });

@@ -1,6 +1,33 @@
-import { canonicalizeMarkdown } from '@havemind/protocol';
+import { canonicalizeMarkdown, hashBlob } from '@havemind/protocol';
 
 const RESERVED_TOP_LEVEL_DIRECTORIES = new Set(['Havemind Conflicts']);
+
+/**
+ * Non-markdown file extensions the pilot syncs as whole-file binary attachments
+ * (F9). Lowercase, no leading dot. Every other non-markdown extension stays
+ * excluded (counted as an attachment in reconciliation, never read or enqueued).
+ */
+export const SYNCABLE_BINARY_EXTENSIONS = [
+  'png',
+  'jpg',
+  'jpeg',
+  'gif',
+  'webp',
+  'svg',
+  'pdf',
+] as const;
+
+/**
+ * Hard per-file byte ceiling for a binary attachment. A file above this is
+ * excluded-with-notice by reconciliation and skipped by the live observer — it
+ * is intentionally NOT an error, so a single oversized asset never aborts a scan
+ * or wedges the loop. The base64 payload of a file this size (~33 MB) is covered
+ * by the raised payload ceiling in `outbox-repository.ts`.
+ */
+export const MAX_BINARY_FILE_BYTES = 25 * 1024 * 1024;
+
+/** Whether a synced file carries markdown text or raw binary bytes (F9). */
+export type SyncContentKind = 'markdown' | 'binary';
 
 export type LocalVaultErrorCode = 'path-collision';
 
@@ -19,8 +46,19 @@ export type LocalChangeKind = 'create' | 'update' | 'rename' | 'delete';
 
 export interface LocalFileMapping {
   collisionKey: string;
+  /**
+   * Canonical markdown text, or — for a binary attachment (F9) — the base64 of
+   * the raw file bytes. Optional discriminator `contentKind` says which; absent
+   * means markdown, so every legacy mapping keeps its meaning unchanged.
+   */
   content: string;
+  /**
+   * SHA-256 hex. For markdown this is the hash of the canonical text; for a
+   * binary attachment it is the hash of the RAW bytes (`hashBlob`), never a
+   * canonicalised form.
+   */
   contentHash: string;
+  contentKind?: SyncContentKind;
   fileId: string;
   path: string;
 }
@@ -28,6 +66,12 @@ export interface LocalFileMapping {
 export interface LocalChangeOperation {
   content: string | null;
   contentHash: string | null;
+  /**
+   * Markdown vs binary attachment (F9). Absent means markdown. For a binary
+   * change, `content` carries base64 of the raw bytes and `contentHash` is the
+   * raw-byte hash.
+   */
+  contentKind?: SyncContentKind;
   fileId: string;
   kind: LocalChangeKind;
   observedAt: number;
@@ -54,13 +98,19 @@ export interface LocalChangeCommit {
 }
 
 export interface VaultSnapshotPort {
-  listMarkdownPaths(): Promise<readonly string[]>;
-  readText(path: string): Promise<string>;
   /**
-   * Every file in the vault, markdown or not. Used only to count non-markdown
-   * attachments that `listMarkdownPaths` never surfaces, so the pilot's
-   * markdown-only scope stays observable instead of a silent gap (see
-   * `isEligiblePath` below). Never read via `readText` and never enqueued.
+   * Every syncable path — markdown notes AND allowlisted binary attachments
+   * (F9). Renamed from the markdown-only `listMarkdownPaths`; callers must
+   * classify each path with `classifyVaultPath` to learn its `kind`.
+   */
+  listSyncablePaths(): Promise<readonly string[]>;
+  readText(path: string): Promise<string>;
+  /** Raw bytes of a binary attachment at `path` (F9). */
+  readBinary(path: string): Promise<Uint8Array>;
+  /**
+   * Every file in the vault, of any type. Used only to count non-syncable
+   * attachments that `listSyncablePaths` never surfaces, so the pilot's sync
+   * scope stays observable instead of a silent gap. Never read/enqueued.
    */
   listAllPaths(): Promise<readonly string[]>;
 }
@@ -79,7 +129,14 @@ export interface LocalChangeRepository {
 
 export type VaultPathClassification =
   | { eligible: false }
-  | { canonicalPath: string; collisionKey: string; eligible: true };
+  | {
+      canonicalPath: string;
+      collisionKey: string;
+      eligible: true;
+      kind: SyncContentKind;
+    };
+
+type EligibleClassification = Extract<VaultPathClassification, { eligible: true }>;
 
 export interface VaultChangeObserverOptions {
   clock: () => number;
@@ -91,7 +148,8 @@ export interface VaultChangeObserverOptions {
 
 export function classifyVaultPath(path: string): VaultPathClassification {
   const canonicalPath = path.normalize('NFC');
-  if (!isEligiblePath(canonicalPath)) {
+  const kind = eligibleKind(canonicalPath);
+  if (kind === null) {
     return { eligible: false };
   }
 
@@ -99,26 +157,54 @@ export function classifyVaultPath(path: string): VaultPathClassification {
     canonicalPath,
     collisionKey: canonicalPath.toLowerCase(),
     eligible: true,
+    kind,
   };
 }
 
-function isEligiblePath(canonicalPath: string): boolean {
-  // Deliberate MVP scope, not an oversight: the pilot syncs markdown notes only.
-  // Non-markdown attachments (images, PDFs, ...) are intentionally excluded here
-  // and are never read or enqueued. Full binary/attachment sync is a follow-up
-  // (F9) — until then, reconciliation counts and surfaces the exclusion so it
-  // stays visible to the user instead of silently dropping attachments.
-  if (!canonicalPath.toLowerCase().endsWith('.md')) {
-    return false;
+/**
+ * Extension of a path, lowercased, without the dot; `''` when there is none.
+ * A dotfile like `.gitignore` has no extension by this definition — its leading
+ * dot is caught by the dotpath guard, never mistaken for an attachment.
+ */
+export function pathExtension(canonicalPath: string): string {
+  const dot = canonicalPath.lastIndexOf('.');
+  const slash = canonicalPath.lastIndexOf('/');
+  if (dot <= slash + 1) return '';
+  return canonicalPath.slice(dot + 1).toLowerCase();
+}
+
+const SYNCABLE_BINARY_EXTENSION_SET: ReadonlySet<string> = new Set(
+  SYNCABLE_BINARY_EXTENSIONS,
+);
+
+/**
+ * Returns the sync kind of a path, or `null` when it is not syncable. Markdown
+ * notes and the allowlisted binary attachments (F9) are eligible; the dotpath
+ * and reserved-`Havemind Conflicts` exclusions are UNCHANGED, so a Havemind
+ * conflict artifact or a `.obsidian/` file is never re-synced (rule: no cycles).
+ */
+function eligibleKind(canonicalPath: string): SyncContentKind | null {
+  const extension = pathExtension(canonicalPath);
+  const kind: SyncContentKind | null =
+    extension === 'md'
+      ? 'markdown'
+      : SYNCABLE_BINARY_EXTENSION_SET.has(extension)
+        ? 'binary'
+        : null;
+  if (kind === null) {
+    return null;
   }
 
   const segments = canonicalPath.split('/');
   if (segments.some((segment) => segment === '' || segment.startsWith('.'))) {
-    return false;
+    return null;
   }
 
   const [top] = segments;
-  return top !== undefined && !RESERVED_TOP_LEVEL_DIRECTORIES.has(top);
+  if (top === undefined || RESERVED_TOP_LEVEL_DIRECTORIES.has(top)) {
+    return null;
+  }
+  return kind;
 }
 
 export class VaultChangeObserver {
@@ -199,23 +285,44 @@ export class VaultChangeObserver {
     if (existing !== undefined) {
       return this.commitModify(path, classified, existing);
     }
-    return this.commitCreate(path, classified.canonicalPath, classified.collisionKey);
+    return this.commitCreate(path, classified);
+  }
+
+  /**
+   * Reads a file's content and content hash according to its sync kind: markdown
+   * is canonicalised text hashed with SHA-256; a binary attachment is read as raw
+   * bytes, carried as base64 in `content`, and hashed over the RAW bytes
+   * (`hashBlob`) — never a canonicalised form (F9). Returns `null` for a binary
+   * file over {@link MAX_BINARY_FILE_BYTES}: it is excluded, not an error.
+   */
+  private async readContentForKind(
+    readPath: string,
+    kind: SyncContentKind,
+  ): Promise<{ content: string; contentHash: string } | null> {
+    if (kind === 'binary') {
+      const bytes = await this.options.vault.readBinary(readPath);
+      if (bytes.byteLength > MAX_BINARY_FILE_BYTES) return null;
+      return { content: bytesToBase64(bytes), contentHash: await hashBlob(bytes) };
+    }
+    const content = normalizeContent(await this.options.vault.readText(readPath));
+    return { content, contentHash: await sha256Hex(content) };
   }
 
   private async commitCreate(
     readPath: string,
-    canonicalPath: string,
-    collisionKey: string,
-  ): Promise<LocalChangeOperation> {
-    const content = normalizeContent(await this.options.vault.readText(readPath));
-    const contentHash = await sha256Hex(content);
+    classified: EligibleClassification,
+  ): Promise<LocalChangeOperation | null> {
+    const read = await this.readContentForKind(readPath, classified.kind);
+    if (read === null) return null;
+    const { content, contentHash } = read;
     const fileId = this.options.generateFileId();
     const operation = this.buildOperation({
       content,
       contentHash,
+      contentKind: classified.kind,
       fileId,
       kind: 'create',
-      path: canonicalPath,
+      path: classified.canonicalPath,
       previousContent: null,
       previousContentHash: null,
       previousPath: null,
@@ -224,7 +331,14 @@ export class VaultChangeObserver {
     const revisionId = await this.options.repository.commitLocalChange({
       operation,
       removeFileId: null,
-      upsertMapping: { collisionKey, content, contentHash, fileId, path: canonicalPath },
+      upsertMapping: {
+        collisionKey: classified.collisionKey,
+        content,
+        contentHash,
+        contentKind: classified.kind,
+        fileId,
+        path: classified.canonicalPath,
+      },
     });
     return { ...operation, revisionId };
   }
@@ -237,7 +351,7 @@ export class VaultChangeObserver {
 
     const mapping = await this.findMapping(classified.collisionKey);
     if (mapping === undefined) {
-      return this.commitCreate(path, classified.canonicalPath, classified.collisionKey);
+      return this.commitCreate(path, classified);
     }
 
     return this.commitModify(path, classified, mapping);
@@ -245,16 +359,18 @@ export class VaultChangeObserver {
 
   private async commitModify(
     readPath: string,
-    classified: Extract<VaultPathClassification, { eligible: true }>,
+    classified: EligibleClassification,
     mapping: LocalFileMapping,
   ): Promise<LocalChangeOperation | null> {
-    const content = normalizeContent(await this.options.vault.readText(readPath));
-    const contentHash = await sha256Hex(content);
+    const read = await this.readContentForKind(readPath, classified.kind);
+    if (read === null) return null;
+    const { content, contentHash } = read;
     if (contentHash === mapping.contentHash) return null;
 
     const operation = this.buildOperation({
       content,
       contentHash,
+      contentKind: classified.kind,
       fileId: mapping.fileId,
       kind: 'update',
       path: classified.canonicalPath,
@@ -270,6 +386,7 @@ export class VaultChangeObserver {
         collisionKey: classified.collisionKey,
         content,
         contentHash,
+        contentKind: classified.kind,
         fileId: mapping.fileId,
         path: classified.canonicalPath,
       },
@@ -285,9 +402,7 @@ export class VaultChangeObserver {
     const to = classifyVaultPath(nextPath);
 
     if (!from.eligible) {
-      return to.eligible
-        ? this.commitCreate(nextPath, to.canonicalPath, to.collisionKey)
-        : null;
+      return to.eligible ? this.commitCreate(nextPath, to) : null;
     }
     if (!to.eligible) {
       return this.commitDelete(from.collisionKey);
@@ -312,11 +427,13 @@ export class VaultChangeObserver {
       );
     }
 
-    const content = normalizeContent(await this.options.vault.readText(nextPath));
-    const contentHash = await sha256Hex(content);
+    const read = await this.readContentForKind(nextPath, to.kind);
+    if (read === null) return null;
+    const { content, contentHash } = read;
     const operation = this.buildOperation({
       content,
       contentHash,
+      contentKind: to.kind,
       fileId: mapping.fileId,
       kind: 'rename',
       path: to.canonicalPath,
@@ -332,6 +449,7 @@ export class VaultChangeObserver {
         collisionKey: to.collisionKey,
         content,
         contentHash,
+        contentKind: to.kind,
         fileId: mapping.fileId,
         path: to.canonicalPath,
       },
@@ -388,6 +506,7 @@ export class VaultChangeObserver {
     const operation = this.buildOperation({
       content: null,
       contentHash: null,
+      ...(mapping.contentKind === undefined ? {} : { contentKind: mapping.contentKind }),
       fileId: mapping.fileId,
       kind: 'delete',
       path: mapping.path,
@@ -442,6 +561,19 @@ function normalizeContent(text: string): string {
 function pathUnderFolder(path: string, folderPrefix: string): string | null {
   const prefix = `${folderPrefix}/`;
   return path.startsWith(prefix) ? path.slice(folderPrefix.length) : null;
+}
+
+/**
+ * Base64 of raw bytes, binary-safe (every byte 0x00–0xFF preserved). This is the
+ * exact bijection the wire codec (`@havemind/sync-core`) uses, so the base64 an
+ * observer stores in `content` round-trips to identical bytes on decode (F9).
+ */
+export function bytesToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary);
 }
 
 async function sha256Hex(text: string): Promise<string> {

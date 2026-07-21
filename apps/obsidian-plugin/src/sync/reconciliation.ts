@@ -1,13 +1,23 @@
 import { canonicalizeMarkdown } from '@havemind/protocol';
 
 import {
+  bytesToBase64,
   classifyVaultPath,
   LocalVaultError,
+  MAX_BINARY_FILE_BYTES,
+  pathExtension,
+  SYNCABLE_BINARY_EXTENSIONS,
   type LocalChangeRepository,
   type LocalFileMapping,
+  type SyncContentKind,
   type VaultChangeObserver,
   type VaultSnapshotPort,
 } from '../obsidian/vault-adapter';
+
+const SYNCABLE_EXTENSION_SET: ReadonlySet<string> = new Set<string>([
+  'md',
+  ...SYNCABLE_BINARY_EXTENSIONS,
+]);
 
 export interface ReconcileVaultStateOptions {
   observer: VaultChangeObserver;
@@ -17,12 +27,19 @@ export interface ReconcileVaultStateOptions {
 
 export interface ReconcileResult {
   /**
-   * Count of non-markdown vault files (images, PDFs, ...) that the markdown-only
-   * MVP scope never syncs. Enumerated for visibility only — never read or
-   * enqueued. Distinct from `ignored`, which counts markdown files excluded for
-   * other reasons (dotfiles, reserved folders).
+   * Count of vault files whose type the pilot never syncs — anything that is
+   * neither a markdown note nor an allowlisted binary attachment (F9). Narrowed
+   * from the old "every non-markdown file": images/PDFs in the allowlist are now
+   * synced, so this figure is the honest "still excluded" count for the notice.
+   * Enumerated for visibility only — never read or enqueued.
    */
   attachmentsExcluded: number;
+  /**
+   * Count of allowlisted binary attachments excluded because their on-disk size
+   * exceeds {@link MAX_BINARY_FILE_BYTES}. Excluded-with-notice, never an error:
+   * enumeration continues so one oversized asset cannot abort the scan (F9).
+   */
+  binaryExcluded: number;
   completed: boolean;
   created: number;
   deleted: number;
@@ -45,6 +62,26 @@ interface EligibleVaultFile {
   readPath: string;
 }
 
+/**
+ * Reads an eligible file's content for comparison, honouring its sync kind. A
+ * binary attachment (F9) is compared over its RAW bytes (hashed with `hashBlob`,
+ * carried as base64) so a byte-identical asset reads as unchanged; markdown is
+ * canonicalised text. A binary file over {@link MAX_BINARY_FILE_BYTES} returns
+ * `'too-large'` — excluded-with-notice, never an error.
+ */
+async function readEligibleContent(
+  vault: VaultSnapshotPort,
+  readPath: string,
+  kind: SyncContentKind,
+): Promise<{ content: string } | 'too-large'> {
+  if (kind === 'binary') {
+    const bytes = await vault.readBinary(readPath);
+    if (bytes.byteLength > MAX_BINARY_FILE_BYTES) return 'too-large';
+    return { content: bytesToBase64(bytes) };
+  }
+  return { content: normalizeContent(await vault.readText(readPath)) };
+}
+
 export async function reconcileVaultState(
   options: ReconcileVaultStateOptions,
 ): Promise<ReconcileResult> {
@@ -52,11 +89,11 @@ export async function reconcileVaultState(
 
   const allPaths = await vault.listAllPaths();
   const attachmentsExcluded = allPaths.filter(
-    (path) => !path.toLowerCase().endsWith('.md'),
+    (path) => !SYNCABLE_EXTENSION_SET.has(pathExtension(path.normalize('NFC'))),
   ).length;
 
-  const paths = await vault.listMarkdownPaths();
-  const eligible = new Map<string, string>();
+  const paths = await vault.listSyncablePaths();
+  const eligible = new Map<string, { readPath: string; kind: SyncContentKind }>();
   let ignored = 0;
 
   for (const rawPath of paths) {
@@ -71,7 +108,10 @@ export async function reconcileVaultState(
         `Two live vault files map to ${classified.collisionKey}.`,
       );
     }
-    eligible.set(classified.collisionKey, rawPath);
+    eligible.set(classified.collisionKey, {
+      readPath: rawPath,
+      kind: classified.kind,
+    });
   }
 
   const mappingsByCollision = new Map<string, LocalFileMapping>();
@@ -82,10 +122,19 @@ export async function reconcileVaultState(
   let unchanged = 0;
   let updated = 0;
   let skipped = 0;
+  let binaryExcluded = 0;
   const unmatchedVault: EligibleVaultFile[] = [];
 
-  for (const [collisionKey, readPath] of eligible) {
-    const content = normalizeContent(await vault.readText(readPath));
+  for (const [collisionKey, { readPath, kind }] of eligible) {
+    const read = await readEligibleContent(vault, readPath, kind);
+    if (read === 'too-large') {
+      // Over the per-file cap: dropped from the mappings match set below so it is
+      // never observed/enqueued, and never counted as a deletion either.
+      binaryExcluded += 1;
+      mappingsByCollision.delete(collisionKey);
+      continue;
+    }
+    const { content } = read;
     const mapping = mappingsByCollision.get(collisionKey);
     if (mapping === undefined) {
       unmatchedVault.push({ collisionKey, content, readPath });
@@ -112,6 +161,7 @@ export async function reconcileVaultState(
 
   return {
     attachmentsExcluded,
+    binaryExcluded,
     completed: true,
     created,
     deleted,

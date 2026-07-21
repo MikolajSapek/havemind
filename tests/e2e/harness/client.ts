@@ -62,7 +62,7 @@ interface PushRecord {
 class InMemoryVault implements VaultSnapshotPort {
   readonly files = new Map<string, string>();
 
-  async listMarkdownPaths(): Promise<readonly string[]> {
+  async listSyncablePaths(): Promise<readonly string[]> {
     return [...this.files.keys()];
   }
 
@@ -74,9 +74,16 @@ class InMemoryVault implements VaultSnapshotPort {
     return content;
   }
 
+  async readBinary(): Promise<Uint8Array> {
+    // This harness (`fault-matrix.test.ts`) only ever models markdown notes;
+    // no path it tracks classifies as binary, so this is never invoked for a
+    // real file. Kept only to satisfy the VaultSnapshotPort interface.
+    return new Uint8Array(0);
+  }
+
   async listAllPaths(): Promise<readonly string[]> {
     // The e2e harness only ever models markdown notes, so every tracked path
-    // is markdown; this mirrors listMarkdownPaths for this fixture.
+    // is markdown; this mirrors listSyncablePaths for this fixture.
     return [...this.files.keys()];
   }
 }

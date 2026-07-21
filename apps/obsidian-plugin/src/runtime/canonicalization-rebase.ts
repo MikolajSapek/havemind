@@ -71,6 +71,7 @@ interface StoredMapping {
   readonly collisionKey: string;
   readonly content: string;
   readonly contentHash: string;
+  readonly contentKind?: string;
   readonly fileId: string;
   readonly path: string;
 }
@@ -94,6 +95,9 @@ function readMapping(entry: unknown): StoredMapping | null {
     collisionKey: entry.collisionKey,
     content: entry.content,
     contentHash: entry.contentHash,
+    ...(typeof entry.contentKind === 'string'
+      ? { contentKind: entry.contentKind }
+      : {}),
     fileId: entry.fileId,
     path: entry.path,
   };
@@ -121,6 +125,10 @@ export async function rebaseCanonicalizedHashes(
 
   // fileId → on-disk path, so a base hash keyed only by fileId can be resolved.
   const pathByFileId = new Map<string, string>();
+  // Binary attachments (F9) are hashed over RAW bytes, which are
+  // canonicalisation-independent, so they must NOT be rebased — recomputing them
+  // via the markdown `canonicalize`/`hash` path would corrupt their byte hash.
+  const binaryFileIds = new Set<string>();
 
   // --- Producer mappings: content + contentHash ---
   const producer = data[deps.keys.producerKey];
@@ -134,6 +142,11 @@ export async function rebaseCanonicalizedHashes(
         continue;
       }
       pathByFileId.set(mapping.fileId, mapping.path);
+      if (mapping.contentKind === 'binary') {
+        binaryFileIds.add(mapping.fileId);
+        nextMappings.push(entry);
+        continue;
+      }
       if (!deps.vault.exists(mapping.path)) {
         missingFiles += 1;
         nextMappings.push(entry);
@@ -162,6 +175,12 @@ export async function rebaseCanonicalizedHashes(
     }
     const nextBaseHashes: Record<string, unknown> = {};
     for (const [fileId, hash] of Object.entries(persist.baseHashes)) {
+      // A binary attachment's base hash is over raw bytes (F9) — leave it exactly
+      // as stored, never recompute it through the markdown canonicalise path.
+      if (binaryFileIds.has(fileId)) {
+        nextBaseHashes[fileId] = hash;
+        continue;
+      }
       const path = pathByFileId.get(fileId);
       if (typeof hash !== 'string' || path === undefined || !deps.vault.exists(path)) {
         if (typeof hash === 'string' && (path === undefined || !deps.vault.exists(path))) {

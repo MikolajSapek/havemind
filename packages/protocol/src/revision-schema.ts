@@ -155,12 +155,37 @@ const sha256HexField = z.string().regex(/^[0-9a-f]{64}$/u);
  * are hashed and shipped verbatim, keeping the binary path cleanly separate from
  * `canonicalizeMarkdown`.
  */
+/**
+ * Linear, non-backtracking check that `value` is canonical standard base64 with
+ * padding (accepting the empty string). This accepts EXACTLY the language the
+ * previous regex did — the wire contract is unchanged — but without the regex's
+ * fatal flaw: `(?:[A-Za-z0-9+/]{4})*` overflows V8's regex stack on multi-MB
+ * inputs (RangeError above ~3 MB), which made a real binary attachment (F9)
+ * impossible to validate at the 25 MB cap. This O(n) scan has no such limit.
+ */
+export function isCanonicalBase64(value: string): boolean {
+  const length = value.length;
+  if (length % 4 !== 0) return false;
+  let bodyEnd = length;
+  if (length > 0 && value.charCodeAt(length - 1) === 0x3d) {
+    bodyEnd = value.charCodeAt(length - 2) === 0x3d ? length - 2 : length - 1;
+  }
+  for (let index = 0; index < bodyEnd; index += 1) {
+    const code = value.charCodeAt(index);
+    const isBase64Char =
+      (code >= 0x41 && code <= 0x5a) || // A-Z
+      (code >= 0x61 && code <= 0x7a) || // a-z
+      (code >= 0x30 && code <= 0x39) || // 0-9
+      code === 0x2b || // +
+      code === 0x2f; // /
+    if (!isBase64Char) return false;
+  }
+  return true;
+}
+
 const base64ContentSchema = z
   .string()
-  .regex(
-    /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u,
-    { message: 'Binary content must be standard base64.' },
-  );
+  .refine(isCanonicalBase64, { message: 'Binary content must be standard base64.' });
 
 const contentRevisionPayloadSchema = z
   .object({

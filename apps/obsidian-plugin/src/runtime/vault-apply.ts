@@ -13,8 +13,10 @@
  * calls `applyRemote`; `recordConflict` handles that separate case.
  */
 
-import { canonicalizeMarkdown } from '@havemind/protocol';
+import { canonicalizeMarkdown, hashBlob } from '@havemind/protocol';
 import type { DecodedRevisionPayload } from '@havemind/sync-core';
+
+import { bytesToBase64, pathExtension } from '../obsidian/vault-adapter';
 
 import type {
   OpenBuffer,
@@ -30,12 +32,18 @@ export interface VaultFilePort {
   fileIdAtPath(path: string): string | null;
   /** The current on-disk content at `path`, or null if no file exists there. */
   readByPath(path: string): Promise<string | null>;
+  /** The current on-disk RAW bytes at `path`, or null if no file exists (F9). */
+  readBinaryByPath(path: string): Promise<Uint8Array | null>;
   /** Create or overwrite the live file at a vault-relative path. */
   writeByPath(path: string, content: string): Promise<void>;
+  /** Create or overwrite the live binary file at a vault-relative path (F9). */
+  writeBinaryByPath(path: string, bytes: Uint8Array): Promise<void>;
   /** Delete the live file at a vault-relative path. */
   deleteByPath(path: string): Promise<void>;
   /** Write a conflict artifact at an explicit vault-relative path. */
   writeConflictArtifact(path: string, content: string): Promise<void>;
+  /** Write a binary conflict artifact at an explicit vault-relative path (F9). */
+  writeBinaryConflictArtifact(path: string, bytes: Uint8Array): Promise<void>;
   /** Durably record that `fileId` now owns `path` (for in-place updates). */
   recordPathOwner(fileId: string, path: string): Promise<void>;
   /** Durably forget the owner of `path` (after a delete or rename move). */
@@ -168,6 +176,16 @@ export class VaultApplyAdapter implements VaultApplyPort {
         });
       }
       return 'applied';
+    }
+
+    // Binary attachments (F9) are whole-file byte replaces: a separate path that
+    // compares/hashes RAW bytes (never `canonicalizeMarkdown`, which is
+    // markdown-only) and writes through the byte vault API. It preserves every
+    // data-safety invariant of the markdown path below — divergent on-disk bytes
+    // become a conflict artifact (with the original extension), never an
+    // overwrite; the base advances only on a clean apply or convergence.
+    if (decoded.kind === 'binary') {
+      return this.applyRemoteBinary(event, decoded, fileId);
     }
 
     const text = decoded.content ?? '';
@@ -365,17 +383,140 @@ export class VaultApplyAdapter implements VaultApplyPort {
     return parents.includes(localHead);
   }
 
+  /**
+   * Applies a whole-file binary revision (F9). Structurally mirrors the markdown
+   * `applyRemote` above but operates on RAW bytes: comparison and base hashing
+   * use `hashBlob`/byte-equality (never `canonicalizeMarkdown`), writes go
+   * through the byte vault API, and any conflict artifact keeps the original
+   * file extension. Every data-safety invariant is preserved — diverged on-disk
+   * bytes become a conflict artifact, never an overwrite (rule 3); the base
+   * advances only on a clean apply or convergence, never on a divergence.
+   */
+  private async applyRemoteBinary(
+    event: RemoteEvent,
+    decoded: DecodedRevisionPayload,
+    fileId: string,
+  ): Promise<RemoteApplyOutcome> {
+    const bytes = decoded.binaryContent ?? new Uint8Array(0);
+    const extension = pathExtension(decoded.path) || 'bin';
+    const incomingHash = await hashBlob(bytes);
+    // Producer-mapping content for a binary file is base64 of the raw bytes —
+    // the same form the observer stores, so a reflected vault event dedupes.
+    const incomingBase64 = bytesToBase64(bytes);
+    const conflictPath = this.conflictPath(event, extension);
+
+    if (
+      decoded.operation === 'rename' &&
+      decoded.previousPath !== null &&
+      this.files.fileIdAtPath(decoded.previousPath) === fileId
+    ) {
+      const previousOnDisk = await this.files.readBinaryByPath(decoded.previousPath);
+      if (previousOnDisk !== null) {
+        const base = this.files.baseHashFor(fileId);
+        const previousHash = await hashBlob(previousOnDisk);
+        if (base === null || previousHash !== base) {
+          await this.files.writeBinaryConflictArtifact(conflictPath, bytes);
+          return 'conflict';
+        }
+      }
+      await this.files.deleteByPath(decoded.previousPath);
+      await this.files.forgetPath(decoded.previousPath);
+    }
+
+    const onDisk = await this.files.readBinaryByPath(decoded.path);
+
+    const owner = this.files.fileIdAtPath(decoded.path);
+    if (owner !== null && owner !== fileId) {
+      if (onDisk !== null && bytesEqual(onDisk, bytes)) {
+        await this.producerSync?.onRemoteDelete({ fileId: owner, path: decoded.path });
+        await this.files.forgetBaseHash(owner);
+        await this.files.recordPathOwner(fileId, decoded.path);
+        await this.files.recordBaseHash(fileId, incomingHash);
+        await this.producerSync?.onRemoteWrite({
+          fileId,
+          path: decoded.path,
+          content: incomingBase64,
+          contentHash: incomingHash,
+          revisionId: event.revision.revisionId,
+        });
+        return 'noop';
+      }
+      await this.files.writeBinaryConflictArtifact(conflictPath, bytes);
+      return 'conflict';
+    }
+
+    if (onDisk !== null) {
+      if (bytesEqual(onDisk, bytes)) {
+        await this.files.recordBaseHash(fileId, incomingHash);
+        await this.files.recordPathOwner(fileId, decoded.path);
+        await this.producerSync?.onRemoteWrite({
+          fileId,
+          path: decoded.path,
+          content: incomingBase64,
+          contentHash: incomingHash,
+          revisionId: event.revision.revisionId,
+        });
+        return 'noop';
+      }
+      const base = this.files.baseHashFor(fileId);
+      const onDiskHash = await hashBlob(onDisk);
+      if (base === null || onDiskHash !== base) {
+        await this.files.writeBinaryConflictArtifact(conflictPath, bytes);
+        return 'conflict';
+      }
+      if (!(await this.isCausalFastForward(fileId, event))) {
+        await this.files.writeBinaryConflictArtifact(conflictPath, bytes);
+        return 'conflict';
+      }
+    }
+
+    await this.producerSync?.onRemoteWrite({
+      fileId,
+      path: decoded.path,
+      content: incomingBase64,
+      contentHash: incomingHash,
+      revisionId: event.revision.revisionId,
+    });
+    await this.files.writeBinaryByPath(decoded.path, bytes);
+    await this.files.recordPathOwner(fileId, decoded.path);
+    await this.files.recordBaseHash(fileId, incomingHash);
+    this.onRemoteApplied?.({
+      revisionId: event.revision.revisionId,
+      fileId,
+      path: decoded.path,
+      operation: decoded.operation,
+    });
+    return 'applied';
+  }
+
   async recordConflict(event: RemoteEvent): Promise<void> {
     const decoded = await this.resolveRevision(event);
+    if (decoded.kind === 'binary') {
+      const bytes = decoded.binaryContent ?? new Uint8Array(0);
+      await this.files.writeBinaryConflictArtifact(
+        this.conflictPath(event, pathExtension(decoded.path) || 'bin'),
+        bytes,
+      );
+      return;
+    }
     await this.files.writeConflictArtifact(
       this.conflictPath(event),
       decoded.content ?? '',
     );
   }
 
-  private conflictPath(event: RemoteEvent): string {
-    return `${this.conflictFolder}/${event.revision.fileId}-${event.revision.revisionId}.md`;
+  private conflictPath(event: RemoteEvent, extension = 'md'): string {
+    return `${this.conflictFolder}/${event.revision.fileId}-${event.revision.revisionId}.${extension}`;
   }
+}
+
+/** Byte-exact equality for two binary buffers (F9). */
+function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.byteLength !== b.byteLength) return false;
+  for (let index = 0; index < a.byteLength; index += 1) {
+    if (a[index] !== b[index]) return false;
+  }
+  return true;
 }
 
 /**

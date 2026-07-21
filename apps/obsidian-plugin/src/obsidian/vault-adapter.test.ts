@@ -1,7 +1,11 @@
+import { hashBlob } from '@havemind/protocol';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  MAX_BINARY_FILE_BYTES,
+  SYNCABLE_BINARY_EXTENSIONS,
   VaultChangeObserver,
+  bytesToBase64,
   classifyVaultPath,
   type LocalChangeCommit,
   type LocalChangeRepository,
@@ -53,10 +57,11 @@ class MemoryRepository implements LocalChangeRepository {
 
 class MemoryVault implements VaultSnapshotPort {
   readonly contents = new Map<string, string>();
+  readonly binaryContents = new Map<string, Uint8Array>();
   readonly reads: string[] = [];
 
-  async listMarkdownPaths(): Promise<readonly string[]> {
-    return [...this.contents.keys()];
+  async listSyncablePaths(): Promise<readonly string[]> {
+    return [...this.contents.keys(), ...this.binaryContents.keys()];
   }
 
   async readText(path: string): Promise<string> {
@@ -66,28 +71,67 @@ class MemoryVault implements VaultSnapshotPort {
     return content;
   }
 
+  async readBinary(path: string): Promise<Uint8Array> {
+    this.reads.push(path);
+    const bytes = this.binaryContents.get(path);
+    if (bytes === undefined) throw new Error(`Missing test file: ${path}`);
+    return bytes;
+  }
+
   async listAllPaths(): Promise<readonly string[]> {
-    return [...this.contents.keys()];
+    return [...this.contents.keys(), ...this.binaryContents.keys()];
   }
 }
 
 describe('vault path eligibility', () => {
-  it('accepts canonical Markdown paths and ignores reserved, unsafe, and non-Markdown paths', () => {
+  it('accepts canonical Markdown paths and ignores reserved, unsafe, and non-syncable paths', () => {
     expect(classifyVaultPath('Notes/Cafe\u0301.md')).toEqual({
       canonicalPath: 'Notes/Café.md',
       collisionKey: 'notes/café.md',
       eligible: true,
+      kind: 'markdown',
     });
 
     for (const path of [
       '.obsidian/plugins/example/data.json',
       '.trash/Deleted.md',
       'Havemind Conflicts/Plan.md',
-      'image.png',
       '../escape.md',
+      'notes/archive.zip',
     ]) {
       expect(classifyVaultPath(path)).toEqual({ eligible: false });
     }
+  });
+
+  it('accepts an allowlisted binary attachment path (F9)', () => {
+    expect(classifyVaultPath('image.png')).toEqual({
+      canonicalPath: 'image.png',
+      collisionKey: 'image.png',
+      eligible: true,
+      kind: 'binary',
+    });
+  });
+
+  it.each(SYNCABLE_BINARY_EXTENSIONS)(
+    'classifies every allowlisted binary extension (.%s) as kind binary',
+    (extension) => {
+      expect(classifyVaultPath(`Attachments/asset.${extension}`)).toEqual({
+        canonicalPath: `Attachments/asset.${extension}`,
+        collisionKey: `attachments/asset.${extension}`,
+        eligible: true,
+        kind: 'binary',
+      });
+    },
+  );
+
+  it('excludes a binary attachment under the reserved Havemind Conflicts directory', () => {
+    expect(classifyVaultPath('Havemind Conflicts/x.png')).toEqual({
+      eligible: false,
+    });
+  });
+
+  it('excludes a binary attachment under a dotpath directory', () => {
+    expect(classifyVaultPath('.hidden/x.png')).toEqual({ eligible: false });
   });
 });
 
@@ -333,6 +377,75 @@ describe('VaultChangeObserver', () => {
     expect(result?.fileId).toBe('adopted-remote-file');
     expect(result?.fileId).not.toBe(FILE_ID); // never a freshly minted id
     expect(result?.kind).toBe('update');
+  });
+});
+
+describe('VaultChangeObserver binary attachments (F9)', () => {
+  it('reads raw bytes, base64-encodes them, and hashes the RAW bytes for a binary create', async () => {
+    const vault = new MemoryVault();
+    const bytes = new Uint8Array([0x00, 0x01, 0xff, 0x89, 0x50, 0x4e, 0x47, 0x00]);
+    vault.binaryContents.set('image.png', bytes);
+    const repository = new MemoryRepository();
+    const observer = createObserver(vault, repository);
+
+    const created = await observer.observeCreate('image.png');
+
+    const expectedContent = bytesToBase64(bytes);
+    const expectedHash = await hashBlob(bytes);
+    expect(created).toMatchObject({
+      content: expectedContent,
+      contentHash: expectedHash,
+      contentKind: 'binary',
+      fileId: FILE_ID,
+      kind: 'create',
+      path: 'image.png',
+    });
+    expect(repository.mappings.get(FILE_ID)).toMatchObject({
+      content: expectedContent,
+      contentHash: expectedHash,
+      contentKind: 'binary',
+      path: 'image.png',
+    });
+  });
+
+  it('produces an update with the new raw-byte hash on a binary modify, and dedupes identical bytes', async () => {
+    const vault = new MemoryVault();
+    const originalBytes = new Uint8Array([0x01, 0x02, 0x03]);
+    vault.binaryContents.set('image.png', originalBytes);
+    const repository = new MemoryRepository();
+    const observer = createObserver(vault, repository);
+
+    await observer.observeCreate('image.png');
+
+    const changedBytes = new Uint8Array([0x04, 0x05, 0x06, 0x07]);
+    vault.binaryContents.set('image.png', changedBytes);
+    const updated = await observer.observeModify('image.png');
+
+    const expectedHash = await hashBlob(changedBytes);
+    expect(updated).toMatchObject({
+      content: bytesToBase64(changedBytes),
+      contentHash: expectedHash,
+      contentKind: 'binary',
+      kind: 'update',
+      path: 'image.png',
+    });
+
+    // An identical-bytes modify must dedupe to null (same hash as the mapping).
+    const identical = await observer.observeModify('image.png');
+    expect(identical).toBeNull();
+  });
+
+  it('excludes a binary attachment over MAX_BINARY_FILE_BYTES from create (no commit)', async () => {
+    const vault = new MemoryVault();
+    const oversized = new Uint8Array(MAX_BINARY_FILE_BYTES + 1);
+    vault.binaryContents.set('image.png', oversized);
+    const repository = new MemoryRepository();
+    const observer = createObserver(vault, repository);
+
+    const created = await observer.observeCreate('image.png');
+
+    expect(created).toBeNull();
+    expect(repository.commits).toHaveLength(0);
   });
 });
 

@@ -220,7 +220,7 @@ describe('rebaseCanonicalizedHashes', () => {
       },
     };
     const snapshot: VaultSnapshotPort = {
-      async listMarkdownPaths() {
+      async listSyncablePaths() {
         return [path];
       },
       async listAllPaths() {
@@ -228,6 +228,9 @@ describe('rebaseCanonicalizedHashes', () => {
       },
       async readText(readPath) {
         return vault.read(readPath);
+      },
+      async readBinary() {
+        return new Uint8Array(0);
       },
     };
     const observer = new VaultChangeObserver({
@@ -245,5 +248,81 @@ describe('rebaseCanonicalizedHashes', () => {
     expect(reconciled.updated).toBe(0);
     expect(reconciled.created).toBe(0);
     expect(enqueued).toEqual([]);
+  });
+
+  it('leaves a binary attachment mapping and its base hash unchanged while rebasing a sibling markdown entry (F9)', async () => {
+    // Binary attachments are hashed over RAW bytes, which are
+    // canonicalisation-independent — rebasing them through the markdown
+    // canonicalize/hash path would corrupt the byte hash. Only the markdown
+    // sibling should be touched.
+    const markdownPath = 'Notes/Plan.md';
+    const markdownFileId = 'file-md';
+    const markdownOnDisk = 'Body line'; // no trailing newline: OLD hash differs from NEW
+    const markdownOldHash = await sha256Hex(markdownOnDisk);
+
+    const binaryPath = 'Images/pic.png';
+    const binaryFileId = 'file-binary';
+    const binaryContent = 'YmFzZTY0Ynl0ZXM='; // arbitrary base64 of raw bytes
+    const binaryContentHash = 'raw-byte-hash-unchanged';
+
+    const port = dataPort({
+      [PRODUCER_KEY]: {
+        mappings: [
+          {
+            collisionKey: markdownPath.toLowerCase(),
+            content: markdownOnDisk,
+            contentHash: markdownOldHash,
+            fileId: markdownFileId,
+            path: markdownPath,
+          },
+          {
+            collisionKey: binaryPath.toLowerCase(),
+            content: binaryContent,
+            contentHash: binaryContentHash,
+            contentKind: 'binary',
+            fileId: binaryFileId,
+            path: binaryPath,
+          },
+        ],
+        heads: {},
+      },
+      [PERSIST_KEY]: {
+        baseHashes: {
+          [markdownFileId]: markdownOldHash,
+          [binaryFileId]: binaryContentHash,
+        },
+      },
+    });
+    const vault = new FakeVault(
+      new Map([
+        [markdownPath, markdownOnDisk],
+        [binaryPath, binaryContent],
+      ]),
+    );
+
+    const result = await rebaseCanonicalizedHashes({
+      data: port,
+      vault,
+      hash: (content) => hashPlaintext(content),
+      canonicalize: canonicalizeMarkdown,
+      keys: keys(),
+    });
+
+    expect(result.mappingsRebased).toBe(1);
+    expect(result.baseHashesRebased).toBe(1);
+
+    const saved = port.current();
+    const producer = saved[PRODUCER_KEY] as { mappings: LocalFileMapping[] };
+    const binaryMapping = producer.mappings.find((m) => m.fileId === binaryFileId);
+    expect(binaryMapping?.content).toBe(binaryContent);
+    expect(binaryMapping?.contentHash).toBe(binaryContentHash);
+
+    const markdownMapping = producer.mappings.find((m) => m.fileId === markdownFileId);
+    expect(markdownMapping?.content).toBe('Body line\n');
+    expect(markdownMapping?.contentHash).not.toBe(markdownOldHash);
+
+    const persist = saved[PERSIST_KEY] as { baseHashes: Record<string, string> };
+    expect(persist.baseHashes[binaryFileId]).toBe(binaryContentHash);
+    expect(persist.baseHashes[markdownFileId]).not.toBe(markdownOldHash);
   });
 });

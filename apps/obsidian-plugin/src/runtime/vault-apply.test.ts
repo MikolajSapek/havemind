@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
+import { hashBlob } from '@havemind/protocol';
+
 import { VaultApplyAdapter, type VaultFilePort } from './vault-apply';
 import type { DecodedRevisionPayload } from '@havemind/sync-core';
 import type { OpenBuffer, RemoteEvent } from '../sync/sync-runner';
@@ -24,14 +26,37 @@ function content(path: string, text: string): DecodedRevisionPayload {
   return { operation: 'create', path, previousPath: null, content: text };
 }
 
+/** Builds a binary (F9) decoded payload carrying raw bytes, never text. */
+function binaryContent(
+  path: string,
+  bytes: Uint8Array,
+  operation: DecodedRevisionPayload['operation'] = 'create',
+  previousPath: string | null = null,
+): DecodedRevisionPayload {
+  return {
+    operation,
+    path,
+    previousPath,
+    kind: 'binary',
+    content: null,
+    binaryContent: bytes,
+  };
+}
+
 class FakeFiles implements VaultFilePort {
   writes: Array<{ path: string; content: string }> = [];
   deletes: string[] = [];
   conflicts: Array<{ path: string; content: string }> = [];
+  /** Binary writes recorded by `writeBinaryByPath` (F9). */
+  binaryWrites: Array<{ path: string; bytes: Uint8Array }> = [];
+  /** Binary conflict artifacts recorded by `writeBinaryConflictArtifact` (F9). */
+  binaryConflicts: Array<{ path: string; bytes: Uint8Array }> = [];
   buffers = new Map<string, readonly OpenBuffer[]>();
   owners = new Map<string, string>();
   /** Current on-disk content per path (absent → no file on disk). */
   onDisk = new Map<string, string>();
+  /** Current on-disk RAW bytes per path (absent → no binary file on disk, F9). */
+  binaryOnDisk = new Map<string, Uint8Array>();
   /** Recorded last-synced base content hash per fileId. */
   baseHashes = new Map<string, string>();
 
@@ -47,18 +72,32 @@ class FakeFiles implements VaultFilePort {
     return this.onDisk.get(path) ?? null;
   }
 
+  async readBinaryByPath(path: string): Promise<Uint8Array | null> {
+    return this.binaryOnDisk.get(path) ?? null;
+  }
+
   async writeByPath(path: string, text: string): Promise<void> {
     this.writes.push({ path, content: text });
     this.onDisk.set(path, text);
   }
 
+  async writeBinaryByPath(path: string, bytes: Uint8Array): Promise<void> {
+    this.binaryWrites.push({ path, bytes });
+    this.binaryOnDisk.set(path, bytes);
+  }
+
   async deleteByPath(path: string): Promise<void> {
     this.deletes.push(path);
     this.onDisk.delete(path);
+    this.binaryOnDisk.delete(path);
   }
 
   async writeConflictArtifact(path: string, text: string): Promise<void> {
     this.conflicts.push({ path, content: text });
+  }
+
+  async writeBinaryConflictArtifact(path: string, bytes: Uint8Array): Promise<void> {
+    this.binaryConflicts.push({ path, bytes });
   }
 
   async recordPathOwner(fileId: string, path: string): Promise<void> {
@@ -712,6 +751,70 @@ describe('VaultApplyAdapter', () => {
       files.owners.set('Notes/a.md', 'remote-file');
       await adapter.applyRemote(event('rev-3', 'remote-file'));
       expect(deletes).toEqual([{ fileId: 'remote-file', path: 'Notes/a.md' }]);
+    });
+  });
+
+  describe('binary attachments (F9)', () => {
+    it('materializes a binary create byte-identical on disk, including 0x00/0xFF/0x80', async () => {
+      const bytes = new Uint8Array([0x00, 0xff, 0x80, 1, 2, 3]);
+      const { adapter, files } = build(() =>
+        binaryContent('Attachments/img.png', bytes),
+      );
+
+      const outcome = await adapter.applyRemote(event('rev-1', 'file-1'));
+
+      expect(outcome).toBe('applied');
+      expect(files.binaryWrites).toHaveLength(1);
+      expect(files.binaryWrites[0]?.path).toBe('Attachments/img.png');
+      // Byte-exact: every byte, including the boundary/high values, round-trips
+      // unchanged (never canonicalised — that would corrupt a binary file).
+      expect(files.binaryWrites[0]?.bytes).toEqual(bytes);
+      expect(files.conflicts).toEqual([]);
+      expect(files.writes).toEqual([]);
+      // The base is hashed over the RAW bytes via `hashBlob`, never `hashContent`.
+      expect(files.baseHashes.get('file-1')).toBe(await hashBlob(bytes));
+    });
+
+    it('routes a diverged on-disk binary to a conflict artifact and never overwrites the live file', async () => {
+      // The exact binary analogue of the markdown on-disk overwrite guard: the
+      // live file's bytes diverged from the last synced base and differ from
+      // the incoming bytes too, so both must survive via a conflict artifact.
+      const incoming = new Uint8Array([9, 9, 9]);
+      const onDiskBytes = new Uint8Array([1, 2, 3]);
+      const baseBytes = new Uint8Array([5, 5, 5]);
+      const { adapter, files } = build(() =>
+        binaryContent('Attachments/img.png', incoming),
+      );
+      files.owners.set('Attachments/img.png', 'file-1');
+      files.binaryOnDisk.set('Attachments/img.png', onDiskBytes);
+      files.baseHashes.set('file-1', await hashBlob(baseBytes));
+
+      const outcome = await adapter.applyRemote(event('rev-9', 'file-1'));
+
+      expect(outcome).toBe('conflict');
+      expect(files.binaryWrites).toEqual([]);
+      expect(files.binaryConflicts).toEqual([
+        { path: 'Havemind Conflicts/file-1-rev-9.png', bytes: incoming },
+      ]);
+      // The live, diverged file is never touched.
+      expect(files.binaryOnDisk.get('Attachments/img.png')).toEqual(onDiskBytes);
+    });
+
+    it('skips a destructive binary write when on-disk bytes already equal the incoming bytes (convergence)', async () => {
+      const bytes = new Uint8Array([1, 2, 3]);
+      const { adapter, files } = build(() =>
+        binaryContent('Attachments/img.png', bytes),
+      );
+      files.owners.set('Attachments/img.png', 'file-1');
+      files.binaryOnDisk.set('Attachments/img.png', new Uint8Array(bytes));
+
+      const outcome = await adapter.applyRemote(event('rev-4', 'file-1'));
+
+      expect(outcome).toBe('noop');
+      expect(files.binaryWrites).toEqual([]);
+      expect(files.binaryConflicts).toEqual([]);
+      // The base still advances so a later clean revision applies in place.
+      expect(files.baseHashes.get('file-1')).toBe(await hashBlob(bytes));
     });
   });
 });

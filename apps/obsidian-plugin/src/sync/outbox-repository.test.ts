@@ -415,4 +415,70 @@ describe('OutboxLocalChangeRepository', () => {
       expect(store.state.heads[REMOTE_FILE]).toBeUndefined();
     });
   });
+
+  describe('binary attachments (F9)', () => {
+    it('commits a binary change and enqueues an envelope carrying the raw bytes', async () => {
+      const { repo, enqueued } = makeRepo();
+      const bytes = new Uint8Array([0x00, 0xff, 0x80, 1, 2, 3]);
+      const base64 = Buffer.from(bytes).toString('base64');
+
+      await repo.commitLocalChange({
+        operation: makeOperation({
+          content: base64,
+          contentHash: 'blob-hash-1',
+          contentKind: 'binary',
+          path: 'Attachments/img.png',
+        }),
+        removeFileId: null,
+        upsertMapping: {
+          collisionKey: 'attachments/img.png',
+          content: base64,
+          contentHash: 'blob-hash-1',
+          contentKind: 'binary',
+          fileId: FILE_ID,
+          path: 'Attachments/img.png',
+        },
+      });
+
+      expect(enqueued).toHaveLength(1);
+      const decoded = decodeRevisionPayload(decode(enqueued[0] as OutboxEnvelope));
+      expect(decoded.kind).toBe('binary');
+      expect(decoded.content).toBeNull();
+      // The exact raw bytes round-trip through the envelope — never markdown
+      // `content`, which would be canonicalised and corrupt binary data.
+      expect(decoded.binaryContent).toEqual(bytes);
+    });
+
+    it('does not throw RevisionPayloadTooLargeError for a large binary within the file cap (raised ceiling)', async () => {
+      // A 20MB attachment (within MAX_BINARY_FILE_BYTES = 25MB, base64 ≈ 27MB)
+      // would be rejected outright by the markdown default ceiling (512KB); a
+      // binary change uses MAX_BINARY_PAYLOAD_BYTES (40MB) instead, so the
+      // largest attachments the eligibility gate admits are never rejected here.
+      const { repo, enqueued } = makeRepo();
+      const bytes = new Uint8Array(20 * 1024 * 1024);
+      const base64 = Buffer.from(bytes).toString('base64');
+
+      await expect(
+        repo.commitLocalChange({
+          operation: makeOperation({
+            content: base64,
+            contentHash: 'blob-hash-big',
+            contentKind: 'binary',
+            path: 'Attachments/big.png',
+          }),
+          removeFileId: null,
+          upsertMapping: {
+            collisionKey: 'attachments/big.png',
+            content: base64,
+            contentHash: 'blob-hash-big',
+            contentKind: 'binary',
+            fileId: FILE_ID,
+            path: 'Attachments/big.png',
+          },
+        }),
+      ).resolves.not.toBeNull();
+
+      expect(enqueued).toHaveLength(1);
+    });
+  });
 });

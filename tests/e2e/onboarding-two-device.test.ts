@@ -290,6 +290,11 @@ function memoryPersist(): {
  */
 class DeviceRuntime {
   readonly files = new Map<string, string>();
+  /** Raw bytes for binary attachments (F9) — a separate store from `files`
+   * (markdown text), shared by both the push-side snapshot port and the
+   * apply-side file port so a binary write on either side is visible to the
+   * other. */
+  readonly binaryFiles = new Map<string, Uint8Array>();
   private readonly state: DurableSyncState;
   private readonly runner: SyncRunner;
   private readonly observer: VaultChangeObserver;
@@ -332,6 +337,33 @@ class DeviceRuntime {
       resolveRevision: resolvers.resolveRevision,
       // AUD-03: base hash over the SAME canonical form the producer uses.
       hashContent: async (content) => sha256Hex(canonicalizeMarkdown(content)),
+      // Bridges every remote-apply write into the push producer's own mapping
+      // (the re-entrancy guard `RemoteApplyProducerSync` documents). Without
+      // this, a LOCAL edit to a path this device only ever received from the
+      // peer finds no producer mapping and mints a fresh, unrelated fileId —
+      // exactly the scenario the binary concurrent-edit test below exercises
+      // (both devices editing the SAME received attachment independently).
+      producerSync: {
+        onRemoteWrite: async (input) => {
+          await this.producer.adoptRemoteMapping(
+            {
+              collisionKey: input.path.normalize('NFC').toLowerCase(),
+              content: input.content,
+              contentHash: input.contentHash,
+              fileId: input.fileId,
+              path: input.path,
+            },
+            input.revisionId,
+          );
+        },
+        onRemoteDelete: async (input) => {
+          await this.producer.forgetRemoteMapping(
+            input.path.normalize('NFC').toLowerCase(),
+            input.fileId,
+          );
+        },
+        localHeadFor: (fileId) => this.producer.headFor(fileId),
+      },
     });
 
     this.runner = new SyncRunner({
@@ -374,6 +406,16 @@ class DeviceRuntime {
     return this.files.get(path);
   }
 
+  /** The current raw bytes of a binary attachment (F9), or undefined. */
+  readBinary(path: string): Uint8Array | undefined {
+    return this.binaryFiles.get(path);
+  }
+
+  /** Every binary path currently present (attachments plus conflict artifacts). */
+  binaryPaths(): string[] {
+    return [...this.binaryFiles.keys()].sort();
+  }
+
   async outboxSize(): Promise<number> {
     return (await this.state.listOutbox()).length;
   }
@@ -401,27 +443,46 @@ class DeviceRuntime {
     }
   }
 
+  /** A local binary-attachment edit (F9), driven exactly like `edit()`: a
+   * per-path create/modify event through the same real observer, which
+   * classifies the path as binary by extension (`classifyVaultPath`) and
+   * reads it back through `readBinary`. */
+  async editBinary(path: string, bytes: Uint8Array): Promise<void> {
+    const existed = this.binaryFiles.has(path);
+    this.binaryFiles.set(path, bytes);
+    if (existed) {
+      await this.observer.observeModify(path);
+    } else {
+      await this.observer.observeCreate(path);
+    }
+  }
+
   async sync(): Promise<SyncCycleResult> {
     return this.runner.trigger();
   }
 
   private snapshotPort(): VaultSnapshotPort {
     const files = this.files;
+    const binaryFiles = this.binaryFiles;
     return {
-      async listMarkdownPaths() {
-        return [...files.keys()];
+      async listSyncablePaths() {
+        return [...files.keys(), ...binaryFiles.keys()];
       },
       async readText(path) {
         return files.get(path) ?? '';
       },
+      async readBinary(path) {
+        return binaryFiles.get(path) ?? new Uint8Array(0);
+      },
       async listAllPaths() {
-        return [...files.keys()];
+        return [...files.keys(), ...binaryFiles.keys()];
       },
     };
   }
 
   private buildFilePort(): VaultFilePort {
     const files = this.files;
+    const binaryFiles = this.binaryFiles;
     const state = this.state;
     return {
       openBufferStates(): readonly OpenBuffer[] {
@@ -431,17 +492,27 @@ class DeviceRuntime {
       async readByPath(path) {
         return files.get(path) ?? null;
       },
+      async readBinaryByPath(path) {
+        return binaryFiles.get(path) ?? null;
+      },
       baseHashFor: (fileId) => state.baseHashFor(fileId),
       recordBaseHash: (fileId, hash) => state.recordBaseHash(fileId, hash),
       forgetBaseHash: (fileId) => state.forgetBaseHash(fileId),
       async writeByPath(path, content) {
         files.set(path, content);
       },
+      async writeBinaryByPath(path, bytes) {
+        binaryFiles.set(path, bytes);
+      },
       async deleteByPath(path) {
         files.delete(path);
+        binaryFiles.delete(path);
       },
       async writeConflictArtifact(path, content) {
         files.set(path, content);
+      },
+      async writeBinaryConflictArtifact(path, bytes) {
+        binaryFiles.set(path, bytes);
       },
       recordPathOwner: (fileId, path) => state.recordPathOwner(fileId, path),
       forgetPath: (path) => state.forgetPath(path),
@@ -467,6 +538,90 @@ async function driveInviteeToConnected(
     }
   }
   return state;
+}
+
+/**
+ * Runs the full real onboarding dance (invitation → redeem → approve →
+ * connect) and returns two connected, real `DeviceRuntime`s sharing the same
+ * opaque server — the same setup as steps 1–6 of the primary onboarding test
+ * below, extracted so the binary attachment test does not have to re-drive
+ * the connection handshake inline.
+ */
+async function connectTwoDevices(
+  server: TwoDeviceServer,
+): Promise<{ owner: DeviceRuntime; invitee: DeviceRuntime }> {
+  const ownerRequestUrl = injectRequestUrl(server.app);
+
+  const invitation = await createVaultInvitation({
+    requestUrl: ownerRequestUrl,
+    apiBaseUrl: SERVER_ORIGIN,
+    serverOrigin: SERVER_ORIGIN,
+    vaultId: server.owner.vaultId,
+    getAccessToken: async () => server.owner.accessToken,
+    intendedRole: 'editor',
+    intendedMemberDisplayName: 'Magda',
+  });
+
+  const secrets = new MemorySecrets();
+  const controller = new OnboardingController({
+    clock: { now: () => Date.now() },
+    remoteApi: new RequestUrlOnboardingApi({
+      requestUrl: injectRequestUrl(server.app),
+    }),
+    secrets,
+    store: new PluginDataOnboardingStore({ persist: memoryPersist() }),
+  });
+
+  controller.beginFromPastedEnvelope(invitation.envelope);
+  await controller.loadInvitationReview();
+  const pendingState = await controller.confirmInvitation('Magda device');
+  if (pendingState.phase !== 'pending-approval') {
+    throw new Error('invitee did not reach pending-approval');
+  }
+
+  await approveRedeemedDevice({
+    requestUrl: ownerRequestUrl,
+    apiBaseUrl: SERVER_ORIGIN,
+    vaultId: server.owner.vaultId,
+    invitationId: invitation.invitationId,
+    verificationPhrase: pendingState.verificationPhrase,
+    getAccessToken: async () => server.owner.accessToken,
+  });
+
+  const connected = await driveInviteeToConnected(controller);
+  if (connected.phase !== 'connected') {
+    throw new Error(`invitee stuck in phase ${connected.phase}`);
+  }
+
+  const inviteeAccess = new RefreshTokenAccessProvider({
+    requestUrl: injectRequestUrl(server.app),
+    apiBaseUrl: connected.apiBaseUrl,
+    getRefreshToken: () => secrets.getRefreshToken(),
+    saveRefreshToken: (value) => secrets.saveRefreshToken(value),
+    generateRotationId: () => brandedToken('hm_ri_'),
+    generateSuccessorToken: () => brandedToken('hm_rt_'),
+  });
+  const invitee = new DeviceRuntime({
+    app: server.app,
+    apiBaseUrl: connected.apiBaseUrl,
+    vaultId: connected.vaultId,
+    memberId: connected.memberId,
+    deviceId: connected.deviceId,
+    getAuthToken: () => inviteeAccess.getAccessToken(),
+  });
+  // First connected cycle establishes Synced state (mirrors the primary test).
+  await invitee.sync();
+
+  const owner = new DeviceRuntime({
+    app: server.app,
+    apiBaseUrl: SERVER_ORIGIN,
+    vaultId: server.owner.vaultId,
+    memberId: server.owner.membershipId,
+    deviceId: server.owner.deviceId,
+    getAuthToken: async () => server.owner.accessToken,
+  });
+
+  return { owner, invitee };
 }
 
 describe('two-device onboarding + sync (Magda) against a real opaque server', () => {
@@ -592,6 +747,76 @@ describe('two-device onboarding + sync (Magda) against a real opaque server', ()
       expect(invitee.read('from-alice.md')).toBe('hello from A\n');
 
       expect(server.revisionCount()).toBe(2);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('binary attachment (.png) syncs byte-identical; a concurrent edit produces a binary conflict artifact without overwriting the live file (F9)', async () => {
+    const server = await TwoDeviceServer.create();
+    try {
+      const { owner, invitee } = await connectTwoDevices(server);
+      const path = 'assets/photo.png';
+
+      // A PNG-shaped byte sequence deliberately including 0x00 and 0xFF (never
+      // valid UTF-8 text on its own), so a byte-for-byte survival proves the
+      // sync path is genuinely binary-safe (F9) rather than accidentally
+      // surviving as a lucky ASCII string.
+      const pngV1 = new Uint8Array([
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0xff, 0x10, 0x20,
+        0x00, 0xff, 0xfe, 0x01,
+      ]);
+
+      // 1. Owner creates the PNG and syncs it to the invitee.
+      await owner.editBinary(path, pngV1);
+      expect((await owner.sync()).status).toBe('synced');
+      expect((await invitee.sync()).status).toBe('synced');
+
+      // BYTE-IDENTICAL assertion (F9): every byte, including 0x00 and 0xFF,
+      // must survive the round trip through the opaque server unchanged.
+      const materialized = invitee.readBinary(path);
+      expect(materialized).toEqual(pngV1);
+      expect(server.revisionCount()).toBe(1);
+
+      // 2. Concurrent binary edit: owner and invitee each edit the SAME
+      // attachment independently, neither having seen the other's edit.
+      const pngOwnerV2 = new Uint8Array([...pngV1, 0x00, 0xff]);
+      const pngInviteeV2 = new Uint8Array([0xff, 0x00, ...pngV1]);
+
+      await owner.editBinary(path, pngOwnerV2);
+      await invitee.editBinary(path, pngInviteeV2);
+
+      // Owner pushes first; the server accepts it as the new head.
+      expect((await owner.sync()).status).toBe('synced');
+      // Invitee pushes its own concurrent edit — DAG-CAS accepts a second,
+      // divergent branch at write time — and in the same cycle pulls owner's
+      // edit. The on-disk file (invitee's own edit) diverges from BOTH the
+      // incoming bytes and the recorded base, so the apply side must divert
+      // to a conflict artifact rather than silently overwrite (rule 3); the
+      // runner surfaces that as a 'conflict' cycle status, not an error.
+      expect((await invitee.sync()).status).toBe('conflict');
+      // A further cycle is idempotent — no new conflict, no overwrite. (No
+      // new remote event remains to reapply, so this settles back to synced.)
+      expect((await invitee.sync()).status).toBe('synced');
+      expect(server.revisionCount()).toBe(3);
+
+      // The live file must still be the invitee's OWN edit — never silently
+      // overwritten by the peer's concurrent edit.
+      expect(invitee.readBinary(path)).toEqual(pngInviteeV2);
+
+      // A binary conflict artifact appears under `Havemind Conflicts/`,
+      // keeping the original `.png` extension, and carries the peer's
+      // (owner's) incoming bytes — so both edits survive.
+      const conflictArtifacts = invitee
+        .binaryPaths()
+        .filter((candidate) => candidate.startsWith(`${CONFLICT_FOLDER}/`));
+      expect(conflictArtifacts).toHaveLength(1);
+      expect(conflictArtifacts[0]).toMatch(/\.png$/u);
+      const [conflictPath] = conflictArtifacts;
+      if (conflictPath === undefined) {
+        throw new Error('expected a binary conflict artifact path');
+      }
+      expect(invitee.readBinary(conflictPath)).toEqual(pngOwnerV2);
     } finally {
       await server.close();
     }

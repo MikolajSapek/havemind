@@ -174,11 +174,14 @@ function makeHarness() {
     generateOperationId: () => `op-${mintedFileIds}-${outbox.length}`,
     repository,
     vault: {
-      async listMarkdownPaths() {
+      async listSyncablePaths() {
         return [...vault.contents.keys()];
       },
       async readText(path) {
         return vault.contents.get(path) ?? '';
+      },
+      async readBinary() {
+        return new Uint8Array(0);
       },
       async listAllPaths() {
         return [...vault.contents.keys()];
