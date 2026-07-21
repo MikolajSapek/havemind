@@ -21,7 +21,12 @@ const SHA256_HEX_PATTERN = /^[0-9a-f]{64}$/u;
 const BASE64_PATTERN = /^[A-Za-z0-9+/]*={0,2}$/u;
 
 const DEFAULT_MAX_BATCH_SIZE = 64;
-const DEFAULT_MAX_PAYLOAD_BYTES = 512 * 1024;
+// F9 binary attachments raise this from 512 KiB to 36 MiB: a 25 MB raw file
+// inflates to ~33.4 MB as base64 inside the revision payload, so 36 MiB covers
+// the inflation plus JSON envelope overhead. The server still never inspects
+// payload contents (see revisionInputSchema above) — only the byte ceiling
+// changes.
+export const DEFAULT_MAX_PAYLOAD_BYTES = 36 * 1024 * 1024;
 const DEFAULT_PULL_LIMIT = 100;
 const MAX_PULL_LIMIT = 1_000;
 

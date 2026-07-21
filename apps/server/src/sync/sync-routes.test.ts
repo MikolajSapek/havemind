@@ -18,6 +18,7 @@ import { parseServerConfig } from '../config.js';
 import { openDatabase } from '../db.js';
 import { runMigrations } from '../migrations.js';
 import { RevisionRepository } from '../revision-repository.js';
+import { DEFAULT_MAX_PAYLOAD_BYTES } from './sync-routes.js';
 
 const TEST_ENV = {
   HAVEMIND_API_BASE_URL: 'https://sync.example.test/api/v1',
@@ -168,6 +169,7 @@ function createApp(
      * is what the blob-GET rate-limit exemption is implemented against.
      */
     useFixedClientKey?: boolean;
+    maxPayloadBytes?: number;
   },
 ): ReturnType<typeof buildApp> {
   const config = parseServerConfig(TEST_ENV);
@@ -181,6 +183,9 @@ function createApp(
       sync: {
         blobStore: fixture.blobStore,
         database: fixture.database,
+        ...(options?.maxPayloadBytes === undefined
+          ? {}
+          : { maxPayloadBytes: options.maxPayloadBytes }),
         revisions: fixture.revisions,
       },
     },
@@ -337,6 +342,62 @@ describe('sync push/pull routes', () => {
 
     expect(pushed.statusCode).toBe(422);
     expect(pushed.json()).toEqual({ error: { code: 'INVALID_BATCH' } });
+  });
+
+  // F9 binary attachments: base64-inflated payloads (25 MB raw -> ~33.4 MB on
+  // the wire) must fit under the raised default, while the ceiling itself
+  // must still reject anything larger with the pre-existing error shape.
+  it('accepts a payload above the old 512 KB default limit', async () => {
+    const fixture = makeFixture();
+    const app = createApp(fixture);
+    const oversizedForOldLimit = 600 * 1024; // > 512 KiB, well under the new default
+
+    const pushed = await push(app, fixture.accessTokenA, VAULT_A, [
+      revisionInput(REVISION_1, [], 'k1', 'x'.repeat(oversizedForOldLimit)),
+    ]);
+
+    expect(pushed.statusCode).toBe(200);
+    const body = pushed.json() as { results: Array<{ status: string }> };
+    expect(body.results[0]?.status).toBe('accepted');
+  });
+
+  it('rejects a payload over the configured maxPayloadBytes limit with 422', async () => {
+    const fixture = makeFixture();
+    // A small override keeps the base64-inflated wire size well under the
+    // Fastify body limit, so this isolates the application-level
+    // parseBatch() ceiling check from the transport-level body limit tested
+    // separately below.
+    const smallMaxPayloadBytes = 1024 * 1024;
+    const app = createApp(fixture, { maxPayloadBytes: smallMaxPayloadBytes });
+
+    const pushed = await push(app, fixture.accessTokenA, VAULT_A, [
+      revisionInput(REVISION_1, [], 'k1', 'x'.repeat(smallMaxPayloadBytes + 1)),
+    ]);
+
+    expect(pushed.statusCode).toBe(422);
+    expect(pushed.json()).toEqual({ error: { code: 'INVALID_BATCH' } });
+  });
+
+  it('rejects a payload above the new default payload limit at the transport layer', async () => {
+    // With the real (unoverridden) defaults, a decoded payload at the new
+    // DEFAULT_MAX_PAYLOAD_BYTES ceiling base64-inflates to a wire size that
+    // exceeds the Fastify body limit first. This is accepted, pre-existing
+    // behaviour (see app.test.ts "rejects JSON bodies above the configured
+    // limit") — the transport layer's 413 is as valid a rejection as the
+    // application layer's 422, per the two limits' documented headroom.
+    const fixture = makeFixture();
+    const app = createApp(fixture);
+
+    const pushed = await push(app, fixture.accessTokenA, VAULT_A, [
+      revisionInput(
+        REVISION_1,
+        [],
+        'k1',
+        'x'.repeat(DEFAULT_MAX_PAYLOAD_BYTES + 1),
+      ),
+    ]);
+
+    expect(pushed.statusCode).toBe(413);
   });
 
   it('replays an identical revision id with identical bytes as the original result', async () => {

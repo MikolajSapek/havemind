@@ -60,6 +60,20 @@ describe('server configuration', () => {
     expect(() => parseServerConfig(environment)).toThrow(ConfigValidationError);
   });
 
+  it('round-trips a body limit override that covers base64-inflated attachments', () => {
+    // F9 binary attachments: a 25 MB raw file inflates to ~33.4 MB as base64,
+    // so the body limit must be settable comfortably above the old 1 MB
+    // default without hitting the bounds validator.
+    const override = 40 * 1024 * 1024;
+
+    const config = parseServerConfig({
+      ...TEST_ENV,
+      HAVEMIND_BODY_LIMIT_BYTES: String(override),
+    });
+
+    expect(config.bodyLimitBytes).toBe(override);
+  });
+
   it('requires an explicit opt-in for a non-loopback listener', () => {
     expect(() =>
       parseServerConfig({

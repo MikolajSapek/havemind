@@ -1,7 +1,12 @@
-export const DEFAULT_BODY_LIMIT_BYTES = 1024 * 1024;
+// F9 binary attachments: DEFAULT_MAX_PAYLOAD_BYTES in sync-routes.ts is 36 MiB
+// (a 25 MB raw file inflates to ~33.4 MB as base64). The Fastify body limit
+// must sit above that plus JSON envelope/batch overhead, so the default is
+// raised to 40 MiB; MAX_BODY_LIMIT_BYTES is extended to keep env-var override
+// headroom above the new default.
+export const DEFAULT_BODY_LIMIT_BYTES = 40 * 1024 * 1024;
 
 const MIN_BODY_LIMIT_BYTES = 1024;
-const MAX_BODY_LIMIT_BYTES = 16 * 1024 * 1024;
+const MAX_BODY_LIMIT_BYTES = 64 * 1024 * 1024;
 const DEFAULT_HOST = '127.0.0.1';
 const DEFAULT_PORT = 8787;
 const DEFAULT_SERVER_NAME = 'Havemind';
