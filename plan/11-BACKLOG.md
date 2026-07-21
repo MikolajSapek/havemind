@@ -359,7 +359,17 @@ Naprawione w tej pętli commituje się osobno; poniżej to, co świadomie odło�
     dokładnie 120, zero skip/double-apply) + row 8 (idempotencja retry rotacji refresh-tokena
     po zgubionej odpowiedzi; generation +1 nie +2; reuse → 401). Harness fix: InvitationService
     był niepodpięty do buildApp (pre-auth routes 404-owały w e2e).
-- [ ] **AUD-08** `serwer,plugin` Catch-up dużego backlogu może łapać 429 w trakcie drainu
+- [x] **AUD-08** `serwer,plugin` Catch-up dużego backlogu może łapać 429 w trakcie drainu
+  - Naprawione: `c1f7f74` — uwierzytelnione, zweryfikowane sesją blob GET nie konsumują bucketa
+    (null-key bypass w limiterze; reszta ruchu bez zmian, blobBelongsToVault dalej strzeże odczytów).
+- [x] **F9-cząstka: cleanup-stale CLI** `serwer` — `5ae748a`: `havemind.js cleanup-stale`
+  (--dry-run, --pending-older-than-hours, RESTRICT-safe, approved nigdy nie ruszane).
+- [x] **F9-cząstka: Rejoin (backend + moduły)** `serwer,plugin` — `d0c9b12`: rejoin_grants
+  (migracja 004), grant jednorazowy 15 min związany z (membershipId, deviceId), redeem flat-401,
+  RejoinController + rejoin-roster. Wiring UI w main.ts — osobny commit (w toku).
+- [ ] **AUD-09** `serwer,bezpieczeństwo` `/auth/rejoin` poza scope limitera auth-routes
+  - Brute force niewykonalny (wymaga żywego granta + dokładnego wiązania UUID), ale limiter to
+    rozsądny hardening. Dodać przy najbliższej rundzie serwera.
   - Znalezisko z AUD-06: drain >100 rewizji = 1 blob-fetch per rewizja; przy limicie 120/60s
     per urządzenie (po AUD-05) legalny catch-up po dłuższym offline może dostawać 429 w seriach.
     Klient klasyfikuje 429 jako transient i backoffuje — samo-leczy się po oknie 60s, bez utraty;

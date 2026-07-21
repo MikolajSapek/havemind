@@ -18,12 +18,18 @@ import {
   type ActivityLogEntry,
 } from './runtime/activity-log';
 import {
-  buildRosterView,
   RosterStore,
   type MemberRole,
   type RosterMember,
-  type RosterView,
 } from './runtime/roster';
+import {
+  buildRejoinRosterView,
+  type RejoinRosterView,
+} from './runtime/rejoin-roster';
+import {
+  REJOIN_POLL_INTERVAL_MS,
+  type RejoinController,
+} from './runtime/rejoin';
 import {
   buildConnectionPanel,
   formatStatusBar,
@@ -33,8 +39,10 @@ import {
 } from './runtime/status';
 import {
   approvePendingDeviceForOwner,
+  buildRejoinControllerForInvitee,
   connectFromInput,
   createInvitationForOwner,
+  requestRejoinGrantForOwner,
   startHavemindConnection,
   type ConnectionHandle,
 } from './runtime/obsidian-adapters';
@@ -65,13 +73,34 @@ function formatActivityTime(timestamp: number): string {
   return `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
 }
 
+/** Owner actions attached to each rejoin-aware roster row. */
+interface RejoinRosterActions {
+  /** Membership ids the owner has already asked to rejoin (awaiting reconnect). */
+  readonly waiting: ReadonlySet<string>;
+  /** Owner clicked Rejoin on a disconnected contact — issue the grant. */
+  readonly onRejoin?: (membershipId: string) => void;
+  /** Owner asserts a connected contact fell off, arming its Rejoin affordance. */
+  readonly onMarkDisconnected?: (membershipId: string) => void;
+}
+
 /**
- * Renders the "Connected" presence roster: one row per persistent member with a
- * green dot + a "connected" text label (never colour alone) + the member's
- * stable colour. Presence is CONNECTION STATE — a member stays connected until
- * an explicit teardown, never derived from activity.
+ * Renders the "Connected" presence roster with the F9 rejoin affordance. Each
+ * row pairs the member's stable colour dot with a text status label (never
+ * colour alone): a green dot + "connected" for a live member, or a muted dot +
+ * "disconnected" + a Rejoin button for a known-dead contact. Presence is
+ * CONNECTION STATE — a member stays connected until an explicit teardown, never
+ * derived from activity.
+ *
+ * Pilot heuristic (documented choice): no server-side liveness signal reaches
+ * the owner's client yet, so "disconnected" is owner-asserted — the owner marks
+ * a contact's row disconnected, which arms its Rejoin button. Clicking Rejoin
+ * re-admits that exact contact without re-running pairing.
  */
-function renderRosterList(content: HTMLElement, roster: RosterView): void {
+function renderRejoinRoster(
+  content: HTMLElement,
+  roster: RejoinRosterView,
+  actions: RejoinRosterActions,
+): void {
   content.createEl('h4', { text: 'Connected' });
   if (roster.empty) {
     content.createDiv({
@@ -82,19 +111,32 @@ function renderRosterList(content: HTMLElement, roster: RosterView): void {
   for (const row of roster.rows) {
     const item = content.createDiv({ text: '' });
     item.addClass('havemind-roster-row');
-    // Green connected dot, coloured by the member's stable token — paired with
-    // the "connected" text label so colour is never the only signal.
+    // Colour dot coloured by the member's stable token — paired with the text
+    // status label below so colour is never the only signal.
     const dot = item.createEl('span');
     dot.addClass('havemind-roster-dot');
     dot.style.setProperty('color', `var(${row.colorToken})`);
-    setIcon(dot, 'circle');
+    setIcon(dot, row.connected ? 'circle' : 'circle-off');
     const name = row.self ? `${row.displayName} (you)` : row.displayName;
     item.createEl('span', {
-      text: ` ${name} · ${row.role} · connected`,
+      text: ` ${name} · ${row.role} · ${row.statusLabel}`,
     });
-    // FUTURE (seam, not built now): when a known contact's connection is torn
-    // down (revoke) their row should offer a "Rejoin" button that re-admits
-    // them without re-running the full pairing flow. Do not implement here.
+
+    if (row.rejoinable && actions.onRejoin) {
+      if (actions.waiting.has(row.membershipId)) {
+        const status = item.createDiv({
+          text: `Waiting for ${row.displayName} to reconnect…`,
+        });
+        status.addClass('havemind-rejoin-waiting');
+      } else {
+        const rejoin = item.createEl('button', { text: 'Rejoin' });
+        rejoin.onClickEvent(() => actions.onRejoin?.(row.membershipId));
+      }
+    } else if (row.connected && !row.self && actions.onMarkDisconnected) {
+      // Owner-asserted disconnect: clicking arms this contact's Rejoin button.
+      const mark = item.createEl('button', { text: 'Mark disconnected' });
+      mark.onClickEvent(() => actions.onMarkDisconnected?.(row.membershipId));
+    }
   }
 }
 
@@ -244,11 +286,19 @@ export interface OnboardingViewOptions {
   /** Live connection indicator model; defaults to the disconnected panel. */
   readonly panelProvider?: () => ConnectionPanelView;
   /**
-   * Presence roster (who is connected). Rendered in the owner composer and in
-   * the connected panel so both the owner and the invitee see a clear
-   * "Connected" list. Presence is persistent connection state, never activity.
+   * Presence roster (who is connected) with the F9 rejoin affordance. Rendered
+   * in the owner composer and in the connected panel so both the owner and the
+   * invitee see a clear "Connected" list. Presence is persistent connection
+   * state, never activity; a known-dead contact is drawn as disconnected with a
+   * Rejoin button.
    */
-  readonly rosterProvider?: () => RosterView;
+  readonly rejoinRosterProvider?: () => RejoinRosterView;
+  /** Membership ids the owner has asked to rejoin (awaiting reconnect). */
+  readonly rejoinWaitingProvider?: () => ReadonlySet<string>;
+  /** Owner clicked Rejoin on a disconnected contact — issue the rejoin grant. */
+  readonly onRejoin?: (membershipId: string) => void;
+  /** Owner marks a connected contact disconnected, arming its Rejoin button. */
+  readonly onMarkDisconnected?: (membershipId: string) => void;
   /**
    * Runs the connect flow for the pasted input (invitation envelope `v1.…` or
    * owner pairing token `hm_pt_…`) against the given server URL, reporting
@@ -393,12 +443,25 @@ export class HavemindOnboardingView extends ItemView {
   private renderConnected(content: HTMLElement): void {
     // Presence roster makes "connected" unambiguous for the invitee (and owner):
     // once approval succeeds the panel clearly lists who is connected.
-    const roster = this.options.rosterProvider?.();
+    const roster = this.options.rejoinRosterProvider?.();
     if (roster !== undefined) {
-      renderRosterList(content, roster);
+      this.renderRoster(content, roster);
     }
     const disconnect = content.createEl('button', { text: 'Disconnect' });
     disconnect.onClickEvent(() => this.options.onDisconnect?.());
+  }
+
+  /** Renders the rejoin-aware roster with its owner actions from the options. */
+  private renderRoster(content: HTMLElement, roster: RejoinRosterView): void {
+    renderRejoinRoster(content, roster, {
+      waiting: this.options.rejoinWaitingProvider?.() ?? new Set<string>(),
+      ...(this.options.onRejoin === undefined
+        ? {}
+        : { onRejoin: this.options.onRejoin }),
+      ...(this.options.onMarkDisconnected === undefined
+        ? {}
+        : { onMarkDisconnected: this.options.onMarkDisconnected }),
+    });
   }
 
   /**
@@ -497,11 +560,11 @@ export class HavemindOnboardingView extends ItemView {
     this.renderCreateSection(content, model);
 
     // The persistent "Connected" roster — who is already a member of this vault.
-    const roster = this.options.rosterProvider?.();
+    const roster = this.options.rejoinRosterProvider?.();
     if (roster !== undefined && !roster.empty) {
       const rosterDivider = content.createEl('hr');
       rosterDivider.addClass('havemind-divider');
-      renderRosterList(content, roster);
+      this.renderRoster(content, roster);
     }
 
     const divider = content.createEl('hr');
@@ -704,6 +767,23 @@ export default class HavemindPlugin extends Plugin {
    * data.json (endpoint-free). Never derived from sync activity.
    */
   private rosterMembers: RosterMember[] = [];
+  /**
+   * F9 Rejoin (owner side). Membership ids the owner has asserted are dead
+   * (pilot heuristic — no server liveness signal yet, see renderRejoinRoster):
+   * their roster rows draw as disconnected and offer Rejoin.
+   */
+  private deadMembershipIds: string[] = [];
+  /** Membership ids the owner has issued a rejoin grant for (awaiting reconnect). */
+  private rejoinWaiting = new Set<string>();
+  /**
+   * F9 Rejoin (invitee side). The live controller driving terminal-auth →
+   * syncing while this device polls for the owner's grant, plus the interval id
+   * so unload tears the poll down. Null when no rejoin is armed.
+   */
+  private rejoinController: RejoinController | null = null;
+  private rejoinPollTimer: ReturnType<typeof globalThis.setInterval> | null = null;
+  /** Guards the post-rejoin restart so it fires exactly once (no double-start). */
+  private rejoinRestarted = false;
 
   override onload(): void {
     // Wire the Activity view to the live feed: the log snapshot is mapped through
@@ -730,7 +810,13 @@ export default class HavemindPlugin extends Plugin {
         guestWaitingProvider: () => this.awaitingApproval,
         guestInvalidProvider: () => this.guestInvitationInvalid,
         panelProvider: () => this.connectionPanel(),
-        rosterProvider: () => buildRosterView(this.rosterMembers),
+        rejoinRosterProvider: () => this.rejoinRosterView(),
+        rejoinWaitingProvider: () => this.rejoinWaiting,
+        onRejoin: (membershipId) => {
+          void this.requestRejoin(membershipId);
+        },
+        onMarkDisconnected: (membershipId) =>
+          this.markMemberDisconnected(membershipId),
         onConnect: (input, serverUrl, report) => {
           void this.connectFromInput(input, serverUrl, report);
         },
@@ -803,6 +889,8 @@ export default class HavemindPlugin extends Plugin {
     // Mark unloaded BEFORE anything else so an in-flight `startConnection` await
     // that resolves after this point stops its handle instead of assigning it.
     this.unloaded = true;
+    // Cancel any in-flight invitee rejoin poll so it never fires after unload.
+    this.disarmRejoin();
     this.connection?.stop();
     this.connection = null;
     this.activityLogUnsubscribe?.();
@@ -1117,9 +1205,119 @@ export default class HavemindPlugin extends Plugin {
     }
     if (status === 'reconnect-required') {
       this.connectionError = 'The server refused the session — reconnect.';
+      // Terminal auth failure: arm the invitee rejoin poll so this device
+      // re-admits itself once the owner clicks Rejoin — no re-pairing needed.
+      void this.armRejoin();
     }
     this.setStatus(view);
     this.onboardingView?.refresh();
+  }
+
+  /** The rejoin-aware roster projection over the persistent members. */
+  private rejoinRosterView(): RejoinRosterView {
+    return buildRejoinRosterView(this.rosterMembers, this.deadMembershipIds);
+  }
+
+  /**
+   * Owner action (pilot heuristic): assert a connected contact has fallen off so
+   * their row offers Rejoin. No server liveness signal reaches the owner yet, so
+   * "disconnected" is owner-driven — see renderRejoinRoster.
+   */
+  private markMemberDisconnected(membershipId: string): void {
+    if (!this.deadMembershipIds.includes(membershipId)) {
+      this.deadMembershipIds = [...this.deadMembershipIds, membershipId];
+    }
+    this.onboardingView?.refresh();
+  }
+
+  /**
+   * Owner action: issue a rejoin grant for a known-dead contact via the existing
+   * authenticated transport, then show "waiting for <name> to reconnect" until
+   * the roster refreshes. Nothing secret is sent or shown.
+   */
+  private async requestRejoin(membershipId: string): Promise<void> {
+    try {
+      const waiting = await requestRejoinGrantForOwner(this, { membershipId });
+      if (waiting === null) {
+        new Notice('Havemind: connect as the vault owner before rejoining a member.');
+        return;
+      }
+      this.rejoinWaiting = new Set([...this.rejoinWaiting, membershipId]);
+      this.onboardingView?.refresh();
+    } catch (error) {
+      new Notice(
+        `Havemind: could not request rejoin — ${
+          error instanceof Error ? error.message : 'unexpected error'
+        }`,
+      );
+    }
+  }
+
+  /**
+   * Invitee side: arm the rejoin poll after a terminal auth failure. Idempotent
+   * — a second terminal status while a poll is already armed is a no-op, so the
+   * poll is never doubled. Builds the controller from this device's persisted
+   * (membershipId, deviceId); if none is stored there is nothing to rejoin with.
+   */
+  private async armRejoin(): Promise<void> {
+    if (this.rejoinController !== null) return;
+    const controller = await buildRejoinControllerForInvitee(this);
+    // The build awaits plugin data; guard against unload racing it and against a
+    // second arm having won while we awaited.
+    if (controller === null || this.unloaded || this.rejoinController !== null) {
+      return;
+    }
+    this.rejoinController = controller;
+    this.rejoinRestarted = false;
+    // registerInterval so unload tears the poll down; the panel polls redemption
+    // every REJOIN_POLL_INTERVAL_MS until the owner's grant lands.
+    const timer = globalThis.setInterval(() => {
+      void this.pollRejoinOnce();
+    }, REJOIN_POLL_INTERVAL_MS);
+    // `registerInterval` clears the timer on unload; the Obsidian runtime hands
+    // a numeric id while Node's types surface a Timeout object — cast the id at
+    // this single boundary rather than reshaping the platform declaration.
+    this.registerInterval(timer as unknown as number);
+    this.rejoinPollTimer = timer;
+  }
+
+  /**
+   * One rejoin poll tick. Presents the persisted binding; on the first
+   * 'syncing' result it disarms and restarts the connection exactly once (the
+   * `rejoinRestarted` guard plus the controller's own idempotency prevent a
+   * double-start). If unload raced the in-flight attempt, it cancels cleanly.
+   */
+  private async pollRejoinOnce(): Promise<void> {
+    const controller = this.rejoinController;
+    if (controller === null || this.rejoinRestarted || this.unloaded) return;
+    const result = await controller.attempt();
+    if (this.unloaded || this.rejoinRestarted) return;
+    if (typeof result === 'object' && result.status === 'syncing') {
+      this.rejoinRestarted = true;
+      this.disarmRejoin();
+      await this.restartConnectionAfterRejoin();
+    }
+  }
+
+  /** Tears the invitee rejoin poll down (idempotent). */
+  private disarmRejoin(): void {
+    if (this.rejoinPollTimer !== null) {
+      globalThis.clearInterval(this.rejoinPollTimer);
+      this.rejoinPollTimer = null;
+    }
+    this.rejoinController = null;
+  }
+
+  /**
+   * Restarts the connection after a successful rejoin. The fresh refresh token
+   * is already persisted, so startConnection resumes sync under the SAME
+   * membership. Follows the established invariant: stop-previous → await →
+   * guard-against-unload → assign (the guard lives inside startConnection).
+   */
+  private async restartConnectionAfterRejoin(): Promise<void> {
+    this.connection?.stop();
+    this.connection = null;
+    await this.startConnection();
   }
 
   private connectionPanel(): ConnectionPanelView {

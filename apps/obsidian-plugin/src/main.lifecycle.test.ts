@@ -6,6 +6,7 @@ import HavemindPlugin, {
   HAVEMIND_ONBOARDING_VIEW,
 } from './main';
 import { buildConnectionPanel } from './runtime/status';
+import { buildRejoinRosterView } from './runtime/rejoin-roster';
 import {
   App,
   type MockElement,
@@ -934,6 +935,108 @@ describe('plugin lifecycle', () => {
     expect(
       kids.some(({ text }) => text === 'Paste an invitation or pairing token first.'),
     ).toBe(true);
+  });
+
+  it('draws a connected member with a green dot and a dead one with Rejoin', async () => {
+    const view = new HavemindOnboardingView(new WorkspaceLeaf(), {
+      panelProvider: () =>
+        buildConnectionPanel({ status: 'synced', serverName: 'sap.ts.net' }),
+      rejoinRosterProvider: () =>
+        buildRejoinRosterView(
+          [
+            { membershipId: 'm-owner', displayName: 'You', role: 'owner', self: true },
+            { membershipId: 'm-magda', displayName: 'Magda', role: 'editor', self: false },
+          ],
+          ['m-magda'],
+        ),
+      rejoinWaitingProvider: () => new Set<string>(),
+      onRejoin: () => undefined,
+      onMarkDisconnected: () => undefined,
+    });
+    await view.onOpen();
+
+    const content = (view.containerEl as unknown as MockElement).children[1];
+    const all = flatten(content as MockElement);
+    // The owner is connected (green dot + "connected" label, never colour alone).
+    expect(
+      all.some(({ text }) => text === ' You (you) · owner · connected'),
+    ).toBe(true);
+    // The known-dead contact is disconnected and offers a Rejoin button.
+    expect(
+      all.some(({ text }) => text === ' Magda · editor · disconnected'),
+    ).toBe(true);
+    expect(all.some(({ text }) => text === 'Rejoin')).toBe(true);
+    // A connected member never offers Rejoin.
+    expect(all.filter(({ text }) => text === 'Rejoin')).toHaveLength(1);
+  });
+
+  it('forwards the membership id when Rejoin is clicked on a dead contact', async () => {
+    const rejoined: string[] = [];
+    const view = new HavemindOnboardingView(new WorkspaceLeaf(), {
+      panelProvider: () =>
+        buildConnectionPanel({ status: 'synced', serverName: 'sap.ts.net' }),
+      rejoinRosterProvider: () =>
+        buildRejoinRosterView(
+          [{ membershipId: 'm-magda', displayName: 'Magda', role: 'editor', self: false }],
+          ['m-magda'],
+        ),
+      rejoinWaitingProvider: () => new Set<string>(),
+      onRejoin: (membershipId) => rejoined.push(membershipId),
+    });
+    await view.onOpen();
+
+    const content = (view.containerEl as unknown as MockElement).children[1];
+    flatten(content as MockElement)
+      .find(({ text }) => text === 'Rejoin')
+      ?.triggerClick();
+
+    expect(rejoined).toEqual(['m-magda']);
+  });
+
+  it('shows "waiting to reconnect" instead of Rejoin once the grant is requested', async () => {
+    const view = new HavemindOnboardingView(new WorkspaceLeaf(), {
+      panelProvider: () =>
+        buildConnectionPanel({ status: 'synced', serverName: 'sap.ts.net' }),
+      rejoinRosterProvider: () =>
+        buildRejoinRosterView(
+          [{ membershipId: 'm-magda', displayName: 'Magda', role: 'editor', self: false }],
+          ['m-magda'],
+        ),
+      rejoinWaitingProvider: () => new Set<string>(['m-magda']),
+      onRejoin: () => undefined,
+    });
+    await view.onOpen();
+
+    const content = (view.containerEl as unknown as MockElement).children[1];
+    const all = flatten(content as MockElement);
+    expect(
+      all.some(({ text }) => text === 'Waiting for Magda to reconnect…'),
+    ).toBe(true);
+    expect(all.some(({ text }) => text === 'Rejoin')).toBe(false);
+  });
+
+  it('offers "Mark disconnected" on a connected non-self member and forwards its id', async () => {
+    const marked: string[] = [];
+    const view = new HavemindOnboardingView(new WorkspaceLeaf(), {
+      panelProvider: () =>
+        buildConnectionPanel({ status: 'synced', serverName: 'sap.ts.net' }),
+      rejoinRosterProvider: () =>
+        buildRejoinRosterView([
+          { membershipId: 'm-owner', displayName: 'You', role: 'owner', self: true },
+          { membershipId: 'm-magda', displayName: 'Magda', role: 'editor', self: false },
+        ]),
+      rejoinWaitingProvider: () => new Set<string>(),
+      onRejoin: () => undefined,
+      onMarkDisconnected: (membershipId) => marked.push(membershipId),
+    });
+    await view.onOpen();
+
+    const content = (view.containerEl as unknown as MockElement).children[1];
+    const all = flatten(content as MockElement);
+    // Everyone is connected, so no Rejoin yet — only the owner-assert affordance.
+    expect(all.some(({ text }) => text === 'Rejoin')).toBe(false);
+    all.find(({ text }) => text === 'Mark disconnected')?.triggerClick();
+    expect(marked).toEqual(['m-magda']);
   });
 
   it('removes registered resources and detached views during unload', async () => {

@@ -6,6 +6,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const adapterMocks = vi.hoisted(() => ({
   startHavemindConnection: vi.fn(),
   connectFromInput: vi.fn(),
+  requestRejoinGrantForOwner: vi.fn(),
+  buildRejoinControllerForInvitee: vi.fn(),
 }));
 
 vi.mock('./runtime/obsidian-adapters', async (importOriginal) => {
@@ -14,6 +16,8 @@ vi.mock('./runtime/obsidian-adapters', async (importOriginal) => {
     ...actual,
     startHavemindConnection: adapterMocks.startHavemindConnection,
     connectFromInput: adapterMocks.connectFromInput,
+    requestRejoinGrantForOwner: adapterMocks.requestRejoinGrantForOwner,
+    buildRejoinControllerForInvitee: adapterMocks.buildRejoinControllerForInvitee,
   };
 });
 
@@ -57,6 +61,8 @@ describe('startConnection lifecycle safety', () => {
     resetObsidianMock();
     adapterMocks.startHavemindConnection.mockReset();
     adapterMocks.connectFromInput.mockReset();
+    adapterMocks.requestRejoinGrantForOwner.mockReset();
+    adapterMocks.buildRejoinControllerForInvitee.mockReset();
   });
 
   it('stops (never leaves live) a connection handle that resolves after onunload', async () => {
@@ -140,6 +146,8 @@ describe('connectFromInput lifecycle safety', () => {
     resetObsidianMock();
     adapterMocks.startHavemindConnection.mockReset();
     adapterMocks.connectFromInput.mockReset();
+    adapterMocks.requestRejoinGrantForOwner.mockReset();
+    adapterMocks.buildRejoinControllerForInvitee.mockReset();
   });
 
   it('stops (never leaves live) a connectFromInput handle that resolves after onunload', async () => {
@@ -179,5 +187,138 @@ describe('connectFromInput lifecycle safety', () => {
     expect(handle.stop).toHaveBeenCalledTimes(1);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((plugin as any).connection).toBeNull();
+  });
+});
+
+/** Flush the microtask queue so a `void this.armRejoin()` settles before asserting. */
+function flushMicrotasks(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+const STATUS_VIEW = { text: 'Havemind: Reconnect required', tooltip: '' };
+
+describe('F9 rejoin wiring', () => {
+  beforeEach(() => {
+    resetObsidianMock();
+    adapterMocks.startHavemindConnection.mockReset();
+    adapterMocks.connectFromInput.mockReset();
+    adapterMocks.requestRejoinGrantForOwner.mockReset();
+    adapterMocks.buildRejoinControllerForInvitee.mockReset();
+  });
+
+  it('owner requestRejoin calls the grant adapter and records the waiting contact', async () => {
+    const plugin = newPlugin();
+    adapterMocks.requestRejoinGrantForOwner.mockResolvedValue({
+      status: 'waiting',
+      membershipId: 'm-magda',
+      boundDeviceId: 'd-magda',
+    });
+
+    await (plugin as unknown as {
+      requestRejoin: (id: string) => Promise<void>;
+    }).requestRejoin('m-magda');
+
+    expect(adapterMocks.requestRejoinGrantForOwner).toHaveBeenCalledWith(plugin, {
+      membershipId: 'm-magda',
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((plugin as any).rejoinWaiting.has('m-magda')).toBe(true);
+  });
+
+  it('does not record waiting when the owner is not connected (adapter returns null)', async () => {
+    const plugin = newPlugin();
+    adapterMocks.requestRejoinGrantForOwner.mockResolvedValue(null);
+
+    await (plugin as unknown as {
+      requestRejoin: (id: string) => Promise<void>;
+    }).requestRejoin('m-magda');
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((plugin as any).rejoinWaiting.has('m-magda')).toBe(false);
+  });
+
+  it('arms the invitee poll on terminal auth and restarts the connection exactly once', async () => {
+    const plugin = newPlugin();
+    const attempt = vi
+      .fn()
+      .mockResolvedValueOnce('terminal-auth')
+      .mockResolvedValueOnce({ status: 'syncing', membershipId: 'm', vaultId: 'v' });
+    const controller = { attempt, getState: () => 'terminal-auth' };
+    adapterMocks.buildRejoinControllerForInvitee.mockResolvedValue(controller);
+    adapterMocks.startHavemindConnection.mockResolvedValue(fakeHandle('resumed'));
+
+    // A terminal auth failure arms the rejoin poll from the persisted binding.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (plugin as any).handleStatus('reconnect-required', STATUS_VIEW);
+    await flushMicrotasks();
+    expect(adapterMocks.buildRejoinControllerForInvitee).toHaveBeenCalledTimes(1);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((plugin as any).rejoinController).toBe(controller);
+
+    // A second terminal status while armed is idempotent — no second controller.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (plugin as any).handleStatus('reconnect-required', STATUS_VIEW);
+    await flushMicrotasks();
+    expect(adapterMocks.buildRejoinControllerForInvitee).toHaveBeenCalledTimes(1);
+
+    // First poll: no grant yet — stays armed, no restart.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (plugin as any).pollRejoinOnce();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((plugin as any).rejoinController).toBe(controller);
+    expect(adapterMocks.startHavemindConnection).not.toHaveBeenCalled();
+
+    // Second poll: syncing — disarm and restart the connection once.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (plugin as any).pollRejoinOnce();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((plugin as any).rejoinController).toBeNull();
+    expect(adapterMocks.startHavemindConnection).toHaveBeenCalledTimes(1);
+
+    // A stray late poll must never start a second connection.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (plugin as any).pollRejoinOnce();
+    expect(adapterMocks.startHavemindConnection).toHaveBeenCalledTimes(1);
+
+    plugin.unload();
+  });
+
+  it('does not arm when no persisted rejoin identity exists', async () => {
+    const plugin = newPlugin();
+    adapterMocks.buildRejoinControllerForInvitee.mockResolvedValue(null);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (plugin as any).handleStatus('reconnect-required', STATUS_VIEW);
+    await flushMicrotasks();
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((plugin as any).rejoinController).toBeNull();
+  });
+
+  it('cancels the rejoin restart cleanly when unload races an in-flight poll', async () => {
+    const plugin = newPlugin();
+    let resolveAttempt!: (value: unknown) => void;
+    const attempt = vi.fn(
+      () => new Promise((resolve) => {
+        resolveAttempt = resolve;
+      }),
+    );
+    const controller = { attempt, getState: () => 'terminal-auth' };
+    adapterMocks.buildRejoinControllerForInvitee.mockResolvedValue(controller);
+    adapterMocks.startHavemindConnection.mockResolvedValue(fakeHandle('resumed'));
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (plugin as any).handleStatus('reconnect-required', STATUS_VIEW);
+    await flushMicrotasks();
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const poll = (plugin as any).pollRejoinOnce() as Promise<void>;
+    // The plugin unloads while the redemption attempt is still in flight.
+    plugin.unload();
+    // Only now does the attempt resolve with a success that must be ignored.
+    resolveAttempt({ status: 'syncing', membershipId: 'm', vaultId: 'v' });
+    await poll;
+
+    expect(adapterMocks.startHavemindConnection).not.toHaveBeenCalled();
   });
 });

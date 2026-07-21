@@ -313,6 +313,16 @@ export class Plugin {
 
   onunload(): void {}
 
+  /**
+   * Mirrors Obsidian's `registerInterval`: records the timer id so it is cleared
+   * when the plugin unloads, and returns it unchanged so callers can clear it
+   * early. Lets the invitee rejoin poll be armed and torn down in headless tests.
+   */
+  registerInterval(id: number): number {
+    this.cleanup.push(() => globalThis.clearInterval(id));
+    return id;
+  }
+
   registerEditorExtension(extension: EditorExtension): void {
     registrationState.editorExtensions.push(extension);
     this.cleanup.push(() => {
