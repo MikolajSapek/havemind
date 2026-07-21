@@ -422,3 +422,107 @@ describe('approve', () => {
     expect(result.stderr).toContain('approve failed');
   });
 });
+
+describe('cleanup-stale', () => {
+  it('requires HAVEMIND_DATA_DIR', () => {
+    const result = runCli(['cleanup-stale'], { env: baseEnv() });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain('HAVEMIND_DATA_DIR');
+  });
+
+  it('rejects a non-numeric --pending-older-than-hours', () => {
+    const dataDir = makeDataDir();
+    const result = runCli(
+      ['cleanup-stale', '--pending-older-than-hours', 'abc'],
+      { env: baseEnv({ HAVEMIND_DATA_DIR: dataDir }) },
+    );
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain('cleanup-stale failed');
+  });
+
+  it('reports zero removals on a freshly-seeded database', () => {
+    const dataDir = makeDataDir();
+    const { env } = seedOwnerWithDevice(dataDir);
+    const result = runCli(['cleanup-stale'], { env });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('0 invitation(s) removed');
+    expect(result.stdout).toContain('0 pending device(s) removed');
+  });
+
+  it('removes a stale, unapproved invitation while leaving the approved device untouched', () => {
+    const dataDir = makeDataDir();
+    const { env } = seedPendingDevice(dataDir);
+
+    // Age the pending device beyond the default 24h threshold and expire its
+    // invitation directly on disk, mirroring what accumulates during a pilot.
+    const database = openDatabase(join(dataDir, 'havemind.db'));
+    const longAgo = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+    database
+      .prepare(
+        `UPDATE devices SET created_at = ? WHERE status = 'pending'`,
+      )
+      .run(longAgo);
+    database
+      .prepare(`UPDATE invitations SET expires_at = ?`)
+      .run(longAgo);
+    database.close();
+
+    const result = runCli(['cleanup-stale'], { env });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('1 invitation(s) removed');
+    expect(result.stdout).toContain('1 pending device(s) removed');
+
+    const after = openDatabase(join(dataDir, 'havemind.db'));
+    const approvedDevice = after
+      .prepare(`SELECT status FROM devices WHERE status = 'approved'`)
+      .get() as { status: string } | undefined;
+    after.close();
+    expect(approvedDevice?.status).toBe('approved');
+  });
+
+  it('dry-run reports counts without deleting', () => {
+    const dataDir = makeDataDir();
+    const { env } = seedPendingDevice(dataDir);
+    const database = openDatabase(join(dataDir, 'havemind.db'));
+    const longAgo = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+    database
+      .prepare(`UPDATE devices SET created_at = ? WHERE status = 'pending'`)
+      .run(longAgo);
+    database.exec('PRAGMA optimize;');
+    database.close();
+
+    const result = runCli(['cleanup-stale', '--dry-run'], { env });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('[dry-run]');
+    expect(result.stdout).toContain('1 pending device(s) would be removed');
+
+    const after = openDatabase(join(dataDir, 'havemind.db'));
+    const stillPending = after
+      .prepare(`SELECT COUNT(*) AS count FROM devices WHERE status = 'pending'`)
+      .get() as { count: number };
+    after.close();
+    expect(stillPending.count).toBe(1);
+  });
+
+  it('honours a custom --pending-older-than-hours threshold', () => {
+    const dataDir = makeDataDir();
+    const { env } = seedPendingDevice(dataDir);
+    const database = openDatabase(join(dataDir, 'havemind.db'));
+    // 3h old: untouched by the default 24h threshold, but caught by a 2h one.
+    const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
+    database
+      .prepare(`UPDATE devices SET created_at = ? WHERE status = 'pending'`)
+      .run(threeHoursAgo);
+    database.close();
+
+    const untouched = runCli(['cleanup-stale', '--dry-run'], { env });
+    expect(untouched.stdout).toContain('0 pending device(s) would be removed');
+
+    const result = runCli(
+      ['cleanup-stale', '--pending-older-than-hours', '2'],
+      { env },
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('1 pending device(s) removed');
+  });
+});

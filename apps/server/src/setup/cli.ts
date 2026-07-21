@@ -16,6 +16,11 @@ import type { ServerEnvironment } from '../config.js';
 import { DB_FILENAME, openDatabase } from '../db.js';
 import { runMigrations } from '../migrations.js';
 import {
+  DEFAULT_PENDING_OLDER_THAN_HOURS,
+  formatCleanupSummary,
+  runStaleCleanup,
+} from './cleanup-stale.js';
+import {
   formatDoctorReport,
   runDoctor,
   type DoctorOutputMode,
@@ -71,6 +76,9 @@ const USAGE = [
   '    --pin <pin>]                        approve one with the PIN read from',
   '                                        the joining device.',
   '  generate-db-key                       Print a fresh 256-bit database key.',
+  '  cleanup-stale [--dry-run]              Delete expired/consumed invitations',
+  '    [--pending-older-than-hours <n>]     and pending devices older than the',
+  '                                        threshold (default 24h).',
   '  doctor [--json]                       Run secret-free diagnostics.',
 ].join('\n');
 
@@ -556,6 +564,60 @@ function runRotatePairing(dependencies: CliDependencies): CliResult {
   }
 }
 
+function parsePendingOlderThanHours(raw: string | undefined): number {
+  if (raw === undefined) {
+    return DEFAULT_PENDING_OLDER_THAN_HOURS;
+  }
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw new RangeError(
+      `--pending-older-than-hours must be a non-negative number, received: ${raw}`,
+    );
+  }
+  return parsed;
+}
+
+function runCleanupStale(
+  dependencies: CliDependencies,
+  parsed: ParsedFlags,
+): CliResult {
+  const databaseFile = resolveDatabaseFile(dependencies.env);
+  if (databaseFile === null) {
+    return {
+      exitCode: 1,
+      stderr:
+        'cleanup-stale requires HAVEMIND_DATA_DIR to point at the server data directory.\n',
+      stdout: '',
+    };
+  }
+  let pendingOlderThanHours: number;
+  try {
+    pendingOlderThanHours = parsePendingOlderThanHours(
+      parsed.flags.get('pending-older-than-hours'),
+    );
+  } catch (error) {
+    return {
+      exitCode: 1,
+      stderr: `cleanup-stale failed: ${(error as Error).message}\n`,
+      stdout: '',
+    };
+  }
+  const dryRun = parsed.booleans.has('dry-run');
+  const openSession =
+    dependencies.openInvitationSession ?? defaultOpenInvitationSession;
+  const session = openSession(databaseFile);
+  try {
+    const result = runStaleCleanup(session.database, {
+      dryRun,
+      pendingOlderThanHours,
+    });
+    const stdout = `${dryRun ? '[dry-run] ' : ''}${formatCleanupSummary(result, dryRun)}\n`;
+    return { exitCode: 0, stderr: '', stdout };
+  } finally {
+    session.close();
+  }
+}
+
 export function runCli(
   argv: readonly string[],
   dependencies: CliDependencies,
@@ -573,6 +635,8 @@ export function runCli(
       return runApprove(dependencies, parsed);
     case 'generate-db-key':
       return runGenerateDbKey(dependencies);
+    case 'cleanup-stale':
+      return runCleanupStale(dependencies, parsed);
     case 'doctor':
       return runDoctorCommand(dependencies, parsed);
     case undefined:
