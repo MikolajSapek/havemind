@@ -367,9 +367,19 @@ Naprawione w tej pętli commituje się osobno; poniżej to, co świadomie odło�
 - [x] **F9-cząstka: Rejoin (backend + moduły)** `serwer,plugin` — `d0c9b12`: rejoin_grants
   (migracja 004), grant jednorazowy 15 min związany z (membershipId, deviceId), redeem flat-401,
   RejoinController + rejoin-roster. Wiring UI w main.ts — osobny commit (w toku).
-- [ ] **AUD-09** `serwer,bezpieczeństwo` `/auth/rejoin` poza scope limitera auth-routes
-  - Brute force niewykonalny (wymaga żywego granta + dokładnego wiązania UUID), ale limiter to
-    rozsądny hardening. Dodać przy najbliższej rundzie serwera.
+- [x] **AUD-09** `serwer,bezpieczeństwo` `/auth/rejoin` poza scope limitera auth-routes
+  - Naprawione: `b47ee60` — limiter IP-keyed (reuse createRateLimiter) na POST /auth/rejoin.
+- [x] **AUD-03** `plugin` Kanonikalizacja hash-side + settling + jednorazowy rebase
+  - `37e609d` — trailing newline + BOM tylko przy hashowaniu (pliki na dysku nietknięte),
+    debounce modify 1500 ms, rebase base-hashy przy starcie (marker wersji, dokładnie raz).
+    Wymóg wdrożeniowy: oba pluginy podmienione w tym samym oknie; serwer bez zmian.
+- [x] **F9: załączniki binarne** `protocol,sync-core,plugin,serwer`
+  - `acbf46e` (wire format: kind:'binary', base64, raw-byte hash, wstecznie zgodne) +
+    `b7c663a` (limity serwera 36 MiB payload / 40 MiB body) + `6959e90` (plugin: allowlist
+    png/jpg/jpeg/gif/webp/svg/pdf, cap 25 MB, whole-file replace, konflikt-kopia z rozszerzeniem,
+    rebase pomija binaria; fix crashera regex base64 >3 MB → skan O(n)).
+  - Wymóg wdrożeniowy: najpierw serwer (limity), potem OBA pluginy razem — stary plugin nie
+    dekoduje kind:'binary'. Restore dla binariów: markdown-only (udokumentowane).
   - Znalezisko z AUD-06: drain >100 rewizji = 1 blob-fetch per rewizja; przy limicie 120/60s
     per urządzenie (po AUD-05) legalny catch-up po dłuższym offline może dostawać 429 w seriach.
     Klient klasyfikuje 429 jako transient i backoffuje — samo-leczy się po oknie 60s, bez utraty;
