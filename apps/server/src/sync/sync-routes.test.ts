@@ -157,12 +157,26 @@ function makeFixture(): Fixture {
   };
 }
 
-function createApp(fixture: Fixture): ReturnType<typeof buildApp> {
+function createApp(
+  fixture: Fixture,
+  options?: {
+    rateLimit?: { maxRequests: number; windowMs: number };
+    /**
+     * Test fixtures default to a single fixed rate-limit bucket for
+     * simplicity. Pass `false` to exercise the real default `clientKey`
+     * (device-keyed for authenticated requests, IP-keyed otherwise), which
+     * is what the blob-GET rate-limit exemption is implemented against.
+     */
+    useFixedClientKey?: boolean;
+  },
+): ReturnType<typeof buildApp> {
   const config = parseServerConfig(TEST_ENV);
+  const useFixedClientKey = options?.useFixedClientKey ?? true;
   const app = buildApp({
     auth: {
-      clientKey: () => 'fixed-test-client',
+      ...(useFixedClientKey ? { clientKey: () => 'fixed-test-client' } : {}),
       database: fixture.database,
+      ...(options?.rateLimit === undefined ? {} : { rateLimit: options.rateLimit }),
       sessions: fixture.sessions,
       sync: {
         blobStore: fixture.blobStore,
@@ -632,5 +646,90 @@ describe('sync push/pull routes', () => {
 
     expect(crossVault.statusCode).toBe(404);
     expect(crossVault.json()).toEqual({ error: { code: 'NOT_FOUND' } });
+  });
+
+  describe('AUD-08 blob-GET rate-limit exemption', () => {
+    it('does not 429 an authenticated device fetching more blobs than the rate limit allows', async () => {
+      const fixture = makeFixture();
+      const app = createApp(fixture, {
+        rateLimit: { maxRequests: 2, windowMs: 60_000 },
+        useFixedClientKey: false,
+      });
+
+      const pushed = await push(app, fixture.accessTokenA, VAULT_A, [
+        revisionInput(REVISION_1, [], 'k1', 'opaque-1'),
+      ]);
+      const blobHash = (
+        pushed.json() as { results: Array<{ receipt: { blobHash: string } }> }
+      ).results[0]?.receipt.blobHash;
+      expect(blobHash).toBeDefined();
+
+      // Three blob GETs from the same authenticated device, one more than the
+      // configured maxRequests of 2 — none should be rate limited because a
+      // blob GET with a valid session never consumes the bucket.
+      const responses = await Promise.all(
+        Array.from({ length: 3 }, async () =>
+          app.inject({
+            headers: { authorization: `Bearer ${fixture.accessTokenA}` },
+            method: 'GET',
+            url: `/vaults/${VAULT_A}/blobs/${blobHash}`,
+          }),
+        ),
+      );
+
+      for (const response of responses) {
+        expect(response.statusCode).toBe(200);
+      }
+    });
+
+    it('still rate limits unauthenticated blob GETs', async () => {
+      const fixture = makeFixture();
+      const app = createApp(fixture, {
+        rateLimit: { maxRequests: 1, windowMs: 60_000 },
+        useFixedClientKey: false,
+      });
+
+      const pushed = await push(app, fixture.accessTokenA, VAULT_A, [
+        revisionInput(REVISION_1, [], 'k1', 'opaque-1'),
+      ]);
+      const blobHash = (
+        pushed.json() as { results: Array<{ receipt: { blobHash: string } }> }
+      ).results[0]?.receipt.blobHash;
+
+      const first = await app.inject({
+        method: 'GET',
+        url: `/vaults/${VAULT_A}/blobs/${blobHash}`,
+      });
+      const second = await app.inject({
+        headers: { authorization: 'Bearer not-a-real-token' },
+        method: 'GET',
+        url: `/vaults/${VAULT_A}/blobs/${blobHash}`,
+      });
+
+      expect(first.statusCode).toBe(401);
+      expect(second.statusCode).toBe(429);
+    });
+
+    it('still rate limits authenticated non-blob traffic at the configured threshold', async () => {
+      const fixture = makeFixture();
+      const app = createApp(fixture, {
+        rateLimit: { maxRequests: 1, windowMs: 60_000 },
+        useFixedClientKey: false,
+      });
+
+      const first = await app.inject({
+        headers: { authorization: `Bearer ${fixture.accessTokenA}` },
+        method: 'GET',
+        url: `/vaults/${VAULT_A}/events`,
+      });
+      const second = await app.inject({
+        headers: { authorization: `Bearer ${fixture.accessTokenA}` },
+        method: 'GET',
+        url: `/vaults/${VAULT_A}/events`,
+      });
+
+      expect(first.statusCode).toBe(200);
+      expect(second.statusCode).toBe(429);
+    });
   });
 });

@@ -48,7 +48,12 @@ export interface AuthRoutesDeps {
   readonly sessions: SessionRepository;
   readonly now?: () => Date;
   readonly rateLimit?: AuthRateLimitConfig;
-  readonly clientKey?: (request: FastifyRequest) => string;
+  /**
+   * Returning `null` marks the request as exempt from the rate limiter
+   * entirely (see {@link defaultClientKey}); returning a string keys it into
+   * that bucket as usual.
+   */
+  readonly clientKey?: (request: FastifyRequest) => string | null;
   readonly sync?: SyncRoutesDeps;
   readonly invitations?: InvitationService;
 }
@@ -108,12 +113,17 @@ function hasImpersonationHeader(
 function createRateLimiter(
   config: AuthRateLimitConfig,
   now: () => Date,
-  clientKey: (request: FastifyRequest) => string,
+  clientKey: (request: FastifyRequest) => string | null,
 ): (request: FastifyRequest, reply: FastifyReply) => void {
   const windows = new Map<string, { count: number; resetAt: number }>();
 
   return (request, reply): void => {
     const key = clientKey(request);
+    if (key === null) {
+      // Exempt: an authenticated, session-verified blob GET. It never
+      // consumes a bucket slot — see `defaultClientKey` for why.
+      return;
+    }
     const nowMs = now().getTime();
     const existing = windows.get(key);
     const window =
@@ -129,6 +139,22 @@ function createRateLimiter(
   };
 }
 
+/** The blob-download route, as Fastify reports it via `request.routeOptions.url`. */
+const BLOB_GET_ROUTE_PATTERN = '/vaults/:vaultId/blobs/:blobHash';
+
+/**
+ * True for a `GET` on the blob-download route. Draining a large pull backlog
+ * fetches one blob per applied revision (see `sync-runner.ts`), so this is
+ * the only per-revision amplifier in the auth/sync surface — everything else
+ * is at most one request per sync cycle.
+ */
+function isBlobGetRoute(request: FastifyRequest): boolean {
+  return (
+    request.method === 'GET' &&
+    request.routeOptions?.url === BLOB_GET_ROUTE_PATTERN
+  );
+}
+
 /**
  * Keys an authenticated device's requests by its own device identity rather
  * than by IP: behind Tailscale serve (`trustProxy: false`) every request
@@ -137,17 +163,30 @@ function createRateLimiter(
  * traffic 429 every other device. Falls back to IP for requests that carry
  * no valid session — pairing/approval endpoints never send a bearer token,
  * so they keep the IP-keyed brute-force protection unchanged.
+ *
+ * A `GET` on the blob route from a session-verified caller returns `null`
+ * (rate-limit exempt) instead of a key: `blobBelongsToVault` still guards
+ * which bytes an authenticated member may read, so this is not an open
+ * relay, and it is the only way to drain a large (>100-revision) catch-up
+ * backlog — one blob fetch per applied revision — without the per-device
+ * bucket 429ing mid-drain (AUD-08).
  */
 function defaultClientKey(
   sessions: SessionRepository,
-): (request: FastifyRequest) => string {
+): (request: FastifyRequest) => string | null {
   return (request) => {
     const token = extractBearerToken(request.headers.authorization);
     if (token === null) {
       return request.ip;
     }
     const session = sessions.lookupAccess(token);
-    return session === null ? request.ip : `device:${session.deviceId}`;
+    if (session === null) {
+      return request.ip;
+    }
+    if (isBlobGetRoute(request)) {
+      return null;
+    }
+    return `device:${session.deviceId}`;
   };
 }
 
