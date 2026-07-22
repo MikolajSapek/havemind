@@ -154,6 +154,19 @@ export interface VaultChangeObserverOptions {
   vault: VaultSnapshotPort;
 }
 
+/**
+ * The single canonical wire-path transform: Windows backslash separators →
+ * forward slashes, then NFC. This is the exact form Obsidian indexes files
+ * under (`getAbstractFileByPath`), the form the wire contract mandates, and the
+ * form every stored `mapping.path` / `collisionKey` is derived from. Every
+ * producer-side path comparison and disk read MUST run through this so a
+ * backslash-delivered path (a Windows event, a folder-rename prefix, a plugin
+ * quirk) is self-consistent with stored mappings and resolves on disk.
+ */
+export function normalizeWirePath(path: string): string {
+  return path.replace(/\\/gu, '/').normalize('NFC');
+}
+
 export function classifyVaultPath(path: string): VaultPathClassification {
   // Producer boundary: normalise Windows backslash separators to the forward
   // slashes the wire contract mandates BEFORE any classification. Obsidian's
@@ -162,10 +175,11 @@ export function classifyVaultPath(path: string): VaultPathClassification {
   // eligible here and then throw inside `canonicalizeVaultPath` at envelope-build
   // time — a throw that kills the entire push cycle and latches the device
   // "Offline" forever (the Windows field bug). Normalising first keeps the wire
-  // path forward-slash and self-consistent with the peer's collision key, while
-  // the on-disk read still uses the caller's original path. Backslash is not a
-  // legal wire path character regardless, so this can never mask a real edit.
-  const canonicalPath = path.replace(/\\/gu, '/').normalize('NFC');
+  // path forward-slash and self-consistent with the peer's collision key. The
+  // on-disk read (see `resolveReadPath`) tries this canonical form FIRST and
+  // only falls back to the caller's original path, so a backslash path resolves
+  // against Obsidian's forward-slash index instead of silently reading ''.
+  const canonicalPath = normalizeWirePath(path);
   const kind = eligibleKind(canonicalPath);
   if (kind === null) {
     return { eligible: false };
@@ -307,16 +321,45 @@ export class VaultChangeObserver {
   }
 
   /**
+   * Resolves the on-disk path to read from, canonical-first (FINDING 3). The
+   * canonical (forward-slash, NFC) form matches Obsidian's own path index, so it
+   * is tried first; the caller's original path is a belt-and-braces fallback for
+   * an exotic filesystem where only the raw form resolves. Returns `null` when
+   * NEITHER variant exists on disk — a genuine miss. Reading via the original
+   * (possibly backslash) path alone would miss on real Obsidian and either drop a
+   * live edit or read '' and push a phantom empty file over the peer's copy.
+   */
+  private async resolveReadPath(
+    canonicalPath: string,
+    originalPath: string,
+  ): Promise<string | null> {
+    if (await this.options.vault.exists(canonicalPath)) return canonicalPath;
+    if (
+      originalPath !== canonicalPath &&
+      (await this.options.vault.exists(originalPath))
+    ) {
+      return originalPath;
+    }
+    return null;
+  }
+
+  /**
    * Reads a file's content and content hash according to its sync kind: markdown
    * is canonicalised text hashed with SHA-256; a binary attachment is read as raw
    * bytes, carried as base64 in `content`, and hashed over the RAW bytes
-   * (`hashBlob`) — never a canonicalised form (F9). Returns `null` for a binary
-   * file over {@link MAX_BINARY_FILE_BYTES}: it is excluded, not an error.
+   * (`hashBlob`) — never a canonicalised form (F9). The read uses the canonical
+   * path first, falling back to the original (FINDING 3). Returns `null` when the
+   * file resolves at neither path (a genuine miss — never push a phantom '') or
+   * when a binary file is over {@link MAX_BINARY_FILE_BYTES} (excluded, not an
+   * error).
    */
   private async readContentForKind(
-    readPath: string,
+    canonicalPath: string,
+    originalPath: string,
     kind: SyncContentKind,
   ): Promise<{ content: string; contentHash: string } | null> {
+    const readPath = await this.resolveReadPath(canonicalPath, originalPath);
+    if (readPath === null) return null;
     if (kind === 'binary') {
       const bytes = await this.options.vault.readBinary(readPath);
       if (bytes.byteLength > MAX_BINARY_FILE_BYTES) return null;
@@ -330,7 +373,11 @@ export class VaultChangeObserver {
     readPath: string,
     classified: EligibleClassification,
   ): Promise<LocalChangeOperation | null> {
-    const read = await this.readContentForKind(readPath, classified.kind);
+    const read = await this.readContentForKind(
+      classified.canonicalPath,
+      readPath,
+      classified.kind,
+    );
     if (read === null) return null;
     const { content, contentHash } = read;
     const fileId = this.options.generateFileId();
@@ -371,10 +418,13 @@ export class VaultChangeObserver {
     if (mapping === undefined) {
       // A settled modify can arrive after the same path was renamed away or
       // deleted (the debounce cancel is the primary guard; this is the cheap
-      // safety net). With no mapping AND no file on disk, a create here would
-      // read '' for the missing path and push a phantom empty file — never do
-      // that. A genuinely new, unmapped file that IS on disk still creates.
-      if (!(await this.options.vault.exists(path))) return null;
+      // safety net). `commitCreate` reads canonical-first and returns null when
+      // the file resolves at NEITHER the canonical nor the original path, so a
+      // vacated path never pushes a phantom empty create — while a genuinely
+      // new, unmapped file that IS on disk (at its canonical path) still creates.
+      // Resolving via `readContentForKind` (not a raw `exists(path)` on the
+      // possibly-backslash original) is what stops a real Windows edit being
+      // silently dropped (FINDING 3).
       return this.commitCreate(path, classified);
     }
 
@@ -386,7 +436,11 @@ export class VaultChangeObserver {
     classified: EligibleClassification,
     mapping: LocalFileMapping,
   ): Promise<LocalChangeOperation | null> {
-    const read = await this.readContentForKind(readPath, classified.kind);
+    const read = await this.readContentForKind(
+      classified.canonicalPath,
+      readPath,
+      classified.kind,
+    );
     if (read === null) return null;
     const { content, contentHash } = read;
     if (contentHash === mapping.contentHash) return null;
@@ -451,7 +505,11 @@ export class VaultChangeObserver {
       );
     }
 
-    const read = await this.readContentForKind(nextPath, to.kind);
+    const read = await this.readContentForKind(
+      to.canonicalPath,
+      nextPath,
+      to.kind,
+    );
     if (read === null) return null;
     const { content, contentHash } = read;
     const operation = this.buildOperation({
@@ -493,8 +551,12 @@ export class VaultChangeObserver {
     previousFolderPath: string,
     nextFolderPath: string,
   ): Promise<LocalChangeOperation[]> {
-    const fromPrefix = previousFolderPath.normalize('NFC');
-    const toPrefix = nextFolderPath.normalize('NFC');
+    // FINDING 2: normalise backslash→slash (+ NFC), the SAME transform every
+    // stored `mapping.path` went through. A backslash-delivered folder prefix
+    // that only gets NFC'd never matches a forward-slash mapping.path, so every
+    // child is silently skipped and left forked at its old path.
+    const fromPrefix = normalizeWirePath(previousFolderPath);
+    const toPrefix = normalizeWirePath(nextFolderPath);
     const results: LocalChangeOperation[] = [];
     // A snapshot taken up-front; per-child renames below mutate the underlying
     // store, but each child has a distinct path so iterating the snapshot never
@@ -511,7 +573,10 @@ export class VaultChangeObserver {
   private async handleFolderDelete(
     folderPath: string,
   ): Promise<LocalChangeOperation[]> {
-    const prefix = folderPath.normalize('NFC');
+    // FINDING 2: same backslash→slash (+ NFC) normalisation as the folder rename
+    // so a backslash-delivered delete prefix matches the stored forward-slash
+    // mapping.path instead of silently skipping every child.
+    const prefix = normalizeWirePath(folderPath);
     const results: LocalChangeOperation[] = [];
     for (const mapping of await this.options.repository.listMappings()) {
       if (pathUnderFolder(mapping.path, prefix) === null) continue;

@@ -848,6 +848,17 @@ export default class HavemindPlugin extends Plugin {
   /** Guards the post-rejoin restart so it fires exactly once (no double-start). */
   private rejoinRestarted = false;
   /**
+   * Monotonic counter bumped each time a live connection is (re-)established
+   * (`startConnection`/`connectFromInput` assign a handle). The invitee rejoin
+   * poll captures it when it arms; a poll tick that sees the counter has advanced
+   * knows the connection was rebuilt since it armed (Retry now, a fresh user
+   * connect, a rejoin restart) and must not tear that healthy connection down —
+   * see `pollRejoinOnce` (FINDING 1b).
+   */
+  private connectGeneration = 0;
+  /** `connectGeneration` captured when the rejoin poll armed; null when disarmed. */
+  private rejoinArmedGeneration: number | null = null;
+  /**
    * Guards a user-initiated "Retry now" so a rapid double-click never spawns a
    * second connection build while the first is still in flight — two live
    * handles could otherwise be created (one would leak). Cleared once the retry
@@ -1119,6 +1130,10 @@ export default class HavemindPlugin extends Plugin {
       return;
     }
     this.connection = handle;
+    // A live connection was (re-)established: advance the generation so any armed
+    // rejoin poll that captured an earlier value no-ops instead of tearing this
+    // one down (FINDING 1b).
+    this.connectGeneration += 1;
     this.adoptSelfMembership(this.connection);
   }
 
@@ -1264,6 +1279,8 @@ export default class HavemindPlugin extends Plugin {
       this.awaitingApproval = null;
       this.guestInvitationInvalid = false;
       this.connection = handle;
+      // A live connection was (re-)established — advance the generation (FINDING 1b).
+      this.connectGeneration += 1;
       // Record this device's own membership as a persistent roster member so the
       // invitee's UI clearly shows it is connected.
       this.adoptSelfMembership(handle);
@@ -1356,6 +1373,9 @@ export default class HavemindPlugin extends Plugin {
     }
     this.rejoinController = controller;
     this.rejoinRestarted = false;
+    // Snapshot the connect generation so a poll tick can tell whether the
+    // connection has been rebuilt since (FINDING 1b).
+    this.rejoinArmedGeneration = this.connectGeneration;
     // registerInterval so unload tears the poll down; the panel polls redemption
     // every REJOIN_POLL_INTERVAL_MS until the owner's grant lands.
     const timer = globalThis.setInterval(() => {
@@ -1377,6 +1397,18 @@ export default class HavemindPlugin extends Plugin {
   private async pollRejoinOnce(): Promise<void> {
     const controller = this.rejoinController;
     if (controller === null || this.rejoinRestarted || this.unloaded) return;
+    // FINDING 1b: if the connection was re-established since this poll armed
+    // (Retry now, a fresh user connect, a rejoin restart — anything that assigns
+    // a new handle bumps `connectGeneration`), this poll is stale. Presenting the
+    // binding now would drive a 'syncing' result that stops + restarts the
+    // healthy connection. Disarm and bail instead of thrashing it.
+    if (
+      this.rejoinArmedGeneration !== null &&
+      this.connectGeneration !== this.rejoinArmedGeneration
+    ) {
+      this.disarmRejoin();
+      return;
+    }
     const result = await controller.attempt();
     if (this.unloaded || this.rejoinRestarted) return;
     if (typeof result === 'object' && result.status === 'syncing') {
@@ -1410,6 +1442,7 @@ export default class HavemindPlugin extends Plugin {
       this.rejoinPollTimer = null;
     }
     this.rejoinController = null;
+    this.rejoinArmedGeneration = null;
   }
 
   /**
@@ -1437,14 +1470,20 @@ export default class HavemindPlugin extends Plugin {
    *
    * Terminal reconnect-required (auth-dead) choice: restart FIRST. The persisted
    * refresh token may still work, so a plain restart is the option that cannot
-   * make things worse. This deliberately leaves any armed invitee rejoin poll
-   * untouched — if the restart lands back in reconnect-required, that existing
-   * poll (armed by handleStatus) takes over as the fallback.
+   * make things worse.
+   *
+   * FINDING 1a: disarm any armed invitee rejoin poll BEFORE restarting. Leaving
+   * it armed lets a stale 30 s tick fire against the connection this retry just
+   * rebuilt — attempt() → 'syncing' → stop + restart — thrashing a healthy
+   * connection up to 30 s after the user fixed it. The fallback is not lost: if
+   * the restart lands back in reconnect-required, `handleStatus` re-arms the poll
+   * from scratch.
    */
   private async retryConnection(): Promise<void> {
     if (this.retryInFlight) return;
     this.retryInFlight = true;
     try {
+      this.disarmRejoin();
       this.connection?.stop();
       this.connection = null;
       await this.startConnection();

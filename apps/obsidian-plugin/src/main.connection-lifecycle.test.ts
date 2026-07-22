@@ -313,7 +313,7 @@ describe('Retry now (user-initiated reconnect)', () => {
     expect((plugin as any).connection).toBeNull();
   });
 
-  it('restarts on a terminal reconnect-required state while leaving the rejoin poll armed', async () => {
+  it('restarts on a terminal reconnect-required state and DISARMS the rejoin poll (FINDING 1)', async () => {
     const plugin = newPlugin();
     const controller = { attempt: vi.fn(), getState: () => 'terminal-auth' };
     adapterMocks.buildRejoinControllerForInvitee.mockResolvedValue(controller);
@@ -332,10 +332,84 @@ describe('Retry now (user-initiated reconnect)', () => {
 
     // A restart was attempted …
     expect(adapterMocks.startHavemindConnection).toHaveBeenCalledTimes(1);
-    // … and the rejoin poll is preserved as the fallback if the restart lands
-    // back in reconnect-required.
+    // … and the stale rejoin poll is DISARMED, so a later poll tick can never
+    // tear down the healthy connection this retry just built. If the restart
+    // lands back in reconnect-required, handleStatus re-arms the poll fresh.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((plugin as any).rejoinController).toBeNull();
+    plugin.unload();
+  });
+
+  it('disarms the rejoin poll on retry so a later poll tick never tears down the retry-built connection (FINDING 1a)', async () => {
+    const plugin = newPlugin();
+    // A poll that, left armed, would reach 'syncing' and tear down + restart the
+    // connection — exactly the thrash this fix prevents.
+    const attempt = vi
+      .fn()
+      .mockResolvedValue({ status: 'syncing', membershipId: 'm', vaultId: 'v' });
+    const controller = { attempt, getState: () => 'terminal-auth' };
+    adapterMocks.buildRejoinControllerForInvitee.mockResolvedValue(controller);
+    const resumed = fakeHandle('resumed');
+    adapterMocks.startHavemindConnection.mockResolvedValue(resumed);
+
+    // reconnect-required arms the invitee rejoin poll.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (plugin as any).handleStatus('reconnect-required', STATUS_VIEW);
+    await flushMicrotasks();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((plugin as any).rejoinController).toBe(controller);
+
+    // The user clicks Retry now and the connection comes back healthy.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (plugin as any).retryConnection();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((plugin as any).connection).toBe(resumed);
+
+    // The stale 30 s poll fires afterwards. It must NOT touch the healthy
+    // retry-built handle: no attempt(), no stop(), no second startConnection.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (plugin as any).pollRejoinOnce();
+
+    expect(attempt).not.toHaveBeenCalled();
+    expect(resumed.stop).not.toHaveBeenCalled();
+    expect(adapterMocks.startHavemindConnection).toHaveBeenCalledTimes(1);
+    plugin.unload();
+  });
+
+  it('no-ops a poll tick when the connection was re-established since the poll armed (FINDING 1b, generation guard)', async () => {
+    const plugin = newPlugin();
+    const attempt = vi
+      .fn()
+      .mockResolvedValue({ status: 'syncing', membershipId: 'm', vaultId: 'v' });
+    const controller = { attempt, getState: () => 'terminal-auth' };
+    adapterMocks.buildRejoinControllerForInvitee.mockResolvedValue(controller);
+    const resumed = fakeHandle('resumed');
+    adapterMocks.startHavemindConnection.mockResolvedValue(resumed);
+
+    // Arm the poll at the current connect generation.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (plugin as any).handleStatus('reconnect-required', STATUS_VIEW);
+    await flushMicrotasks();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((plugin as any).rejoinController).toBe(controller);
+
+    // A connection is re-established by SOME path that does not itself disarm the
+    // poll (here a bare startConnection). The generation counter advances.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (plugin as any).startConnection();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((plugin as any).connection).toBe(resumed);
+
+    // The armed poll now ticks. The generation guard detects the connection was
+    // re-established since arming and no-ops (never calls attempt / tears down),
+    // then disarms.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (plugin as any).pollRejoinOnce();
+
+    expect(attempt).not.toHaveBeenCalled();
+    expect(resumed.stop).not.toHaveBeenCalled();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((plugin as any).rejoinController).toBeNull();
     plugin.unload();
   });
 });

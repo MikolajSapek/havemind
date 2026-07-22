@@ -46,15 +46,32 @@ class MemoryStore {
   }
 }
 
+/**
+ * The forward-slash / NFC key form Obsidian indexes files under. The test vault
+ * stores content under this normalised key — exactly like the real vault — so a
+ * lookup with a raw backslash path MISSES, faithfully reproducing what
+ * `getAbstractFileByPath` does on real Obsidian. (The previous fixture keyed on
+ * the exact raw string, so a backslash read "worked" — a false green that hid
+ * the silent-drop / phantom-empty bug this suite is meant to catch.)
+ */
+function normaliseKey(path: string): string {
+  return path.replace(/\\/gu, '/').normalize('NFC');
+}
+
 class MemoryVault implements VaultSnapshotPort {
   readonly contents = new Map<string, string>();
+  /** Store content under the normalised (forward-slash) key, like Obsidian. */
+  set(path: string, content: string): void {
+    this.contents.set(normaliseKey(path), content);
+  }
   async listSyncablePaths(): Promise<readonly string[]> {
     return [...this.contents.keys()];
   }
   async readText(path: string): Promise<string> {
-    const content = this.contents.get(path);
-    if (content === undefined) throw new Error(`Missing test file: ${path}`);
-    return content;
+    // Resolve by the EXACT path given — no normalisation. A raw backslash path
+    // is not an index key, so it misses and reads '' just as the real snapshot
+    // adapter does (`getAbstractFileByPath(path) === null ? '' : …`).
+    return this.contents.get(path) ?? '';
   }
   async readBinary(): Promise<Uint8Array> {
     throw new Error('not used');
@@ -112,12 +129,12 @@ describe('push producer wire-format (Windows)', () => {
   it('ships a CRLF-authored two-line modify as LF content with a matching contentHash and no throw', async () => {
     // The exact field reproduction: empty create synced, then two typed lines.
     const vault = new MemoryVault();
-    vault.contents.set('Notes/Plan.md', '');
+    vault.set('Notes/Plan.md', '');
     const { observer, enqueued } = createProducer(vault);
 
     await observer.observeCreate('Notes/Plan.md');
     // Windows editor writes CRLF line endings.
-    vault.contents.set('Notes/Plan.md', 'line one\r\nline two\r\n');
+    vault.set('Notes/Plan.md', 'line one\r\nline two\r\n');
     const modified = await observer.observeModify('Notes/Plan.md');
 
     expect(modified).not.toBeNull();
@@ -138,7 +155,7 @@ describe('push producer wire-format (Windows)', () => {
 
   it('does not re-push when a CRLF file is re-observed with byte-identical content (no spurious revision)', async () => {
     const vault = new MemoryVault();
-    vault.contents.set('Notes/Plan.md', 'line one\r\nline two\r\n');
+    vault.set('Notes/Plan.md', 'line one\r\nline two\r\n');
     const { observer, enqueued } = createProducer(vault);
 
     await observer.observeCreate('Notes/Plan.md');
@@ -154,7 +171,7 @@ describe('push producer wire-format (Windows)', () => {
     // (forward-slash only) must be satisfied by normalisation — never by an
     // envelope-build throw that kills the whole push cycle and latches Offline.
     const vault = new MemoryVault();
-    vault.contents.set('Notes\\Sub\\Deep.md', 'line one\r\nline two\r\n');
+    vault.set('Notes\\Sub\\Deep.md', 'line one\r\nline two\r\n');
     const { observer, enqueued } = createProducer(vault);
 
     const created = await observer.observeCreate('Notes\\Sub\\Deep.md');
@@ -169,6 +186,35 @@ describe('push producer wire-format (Windows)', () => {
     });
   });
 
+  it('ships a backslash-pathed modify by reading the REAL content at the normalised path (FINDING 3)', async () => {
+    // The live modify event arrives with a Windows backslash separator, but the
+    // content lives under the forward-slash key Obsidian indexes it by. The
+    // observer must read via the NORMALISED path (canonical-first) — reading via
+    // the raw backslash path alone MISSES on real Obsidian and would either push
+    // an empty '' body (blanking the peer's copy) or drop the edit entirely.
+    const vault = new MemoryVault();
+    vault.set('Notes/File.md', 'first\n');
+    const { observer, enqueued } = createProducer(vault);
+
+    // Create via the normal forward-slash path so a mapping exists.
+    await observer.observeCreate('Notes/File.md');
+    // The content is updated in place (still at the forward-slash key).
+    vault.set('Notes/File.md', 'first\nsecond\n');
+    // …but the modify event is delivered with a backslash separator.
+    const modified = await observer.observeModify('Notes\\File.md');
+
+    expect(modified).not.toBeNull();
+    expect(enqueued).toHaveLength(2);
+    const payload = decodePayload(enqueued[1] as OutboxEnvelope);
+    expect(payload).toMatchObject({
+      operation: 'update',
+      path: 'Notes/File.md',
+      content: 'first\nsecond\n',
+    });
+    // The shipped body is the real content — never an empty '' from a missed read.
+    expect(payload.content).toBe('first\nsecond\n');
+  });
+
   it('reconciles a mix of good, backslash-pathed and poison files without wedging the scan', async () => {
     // The whole-vault reconcile enumeration is a producer entry point too. A
     // single poison file (here: one over the payload ceiling) must be isolated
@@ -178,9 +224,9 @@ describe('push producer wire-format (Windows)', () => {
     // real outbox repository, so it cannot go false-green against a reimplemented
     // producer.
     const vault = new MemoryVault();
-    vault.contents.set('Notes/A.md', 'line one\r\nline two\r\n');
-    vault.contents.set('Notes\\B.md', 'body\r\n');
-    vault.contents.set('Big.md', 'x'.repeat(4000)); // over the 400-byte ceiling
+    vault.set('Notes/A.md', 'line one\r\nline two\r\n');
+    vault.set('Notes\\B.md', 'body\r\n');
+    vault.set('Big.md', 'x'.repeat(4000)); // over the 400-byte ceiling
     const { observer, repository, enqueued } = createProducer(vault, 400);
 
     const result = await reconcileVaultState({ observer, repository, vault });

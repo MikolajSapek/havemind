@@ -599,6 +599,50 @@ describe('VaultChangeObserver folder events (AUD-04)', () => {
     // Notes/Subtle is a sibling, not a child — it must be untouched.
     expect(repository.mappings.get('file-y')?.path).toBe('Notes/Subtle/y.md');
   });
+
+  it('re-paths children when a folder rename is delivered with backslash separators (FINDING 2)', async () => {
+    // A folder move on Windows can arrive with a backslash-separated prefix,
+    // while every stored mapping.path is backslash-normalised to forward slashes.
+    // Without normalising the prefix, pathUnderFolder never matches and every
+    // child is silently skipped.
+    const vault = new MemoryVault();
+    vault.contents.set('Archive/Sub/a.md', 'A');
+    const repository = new MemoryRepository([
+      {
+        collisionKey: 'notes/sub/a.md',
+        content: 'A',
+        contentHash: 'hash-a',
+        fileId: 'file-a',
+        path: 'Notes/Sub/a.md',
+      },
+    ]);
+    const observer = createObserver(vault, repository);
+
+    const ops = await observer.observeFolderRename('Notes\\Sub', 'Archive\\Sub');
+
+    expect(ops.map((op) => op.kind)).toEqual(['rename']);
+    // The child is re-pathed to a forward-slash wire path (never a backslash one).
+    expect(repository.mappings.get('file-a')?.path).toBe('Archive/Sub/a.md');
+  });
+
+  it('tombstones children when a folder delete is delivered with backslash separators (FINDING 2)', async () => {
+    const vault = new MemoryVault();
+    const repository = new MemoryRepository([
+      {
+        collisionKey: 'notes/sub/a.md',
+        content: 'A',
+        contentHash: 'hash-a',
+        fileId: 'file-a',
+        path: 'Notes/Sub/a.md',
+      },
+    ]);
+    const observer = createObserver(vault, repository);
+
+    const ops = await observer.observeFolderDelete('Notes\\Sub');
+
+    expect(ops.map((op) => op.kind)).toEqual(['delete']);
+    expect(repository.mappings.has('file-a')).toBe(false);
+  });
 });
 
 function createObserver(
