@@ -48,8 +48,28 @@ class FakeVault {
     this.entries.set(path, { kind: 'file', content });
   }
 
+  seedFolder(path: string): void {
+    this.entries.set(path, { kind: 'folder' });
+  }
+
   seedBinaryFile(path: string, data: ArrayBuffer): void {
     this.entries.set(path, { kind: 'file', binaryContent: data });
+  }
+
+  /**
+   * FIDELITY: real Obsidian's `vault.create`/`createBinary`/`createFolder` THROW
+   * when the immediate parent folder does not exist (it is not auto-created).
+   * The old double silently accepted nested paths, which is exactly why 931
+   * tests never caught the 5-day field outage — the missing-parent-folder throw
+   * could not be reproduced. Model the throw so the RED test can exist.
+   */
+  private assertParentFolderExists(path: string): void {
+    const separatorIndex = path.lastIndexOf('/');
+    if (separatorIndex === -1) return;
+    const parent = path.slice(0, separatorIndex);
+    if (this.entries.get(parent)?.kind !== 'folder') {
+      throw new Error(`Folder does not exist: ${parent}`);
+    }
   }
 
   getAbstractFileByPath(path: string): AbstractFileLike | null {
@@ -66,6 +86,7 @@ class FakeVault {
   }
 
   async createFolder(path: string): Promise<void> {
+    this.assertParentFolderExists(path);
     this.entries.set(path, { kind: 'folder' });
   }
 
@@ -73,6 +94,7 @@ class FakeVault {
     if (this.entries.has(path)) {
       throw new Error(`already exists: ${path}`);
     }
+    this.assertParentFolderExists(path);
     this.entries.set(path, { kind: 'file', content: data });
     const file = new this.TFileClass();
     file.path = path;
@@ -91,6 +113,7 @@ class FakeVault {
     if (this.entries.has(path)) {
       throw new Error(`already exists: ${path}`);
     }
+    this.assertParentFolderExists(path);
     this.entries.set(path, { kind: 'file', binaryContent: data });
     const file = new this.TFileClass();
     file.path = path;
@@ -474,5 +497,120 @@ describe('createVaultFilePort binary attachments (F9)', () => {
 
     const stored = vault.binaryContentAt('Havemind Conflicts/file-1-rev-1.png');
     expect(new Uint8Array(stored as ArrayBuffer)).toEqual(next);
+  });
+});
+
+describe('createVaultFilePort ensures parent folders on create-materialization', () => {
+  it('regression (5-day field outage): creating a file in a not-yet-existing folder makes the folder first instead of throwing', async () => {
+    // A freshly onboarded vault pulls a remote create for `Notatki/Start.md`
+    // but has no `Notatki` folder. Real Obsidian's `vault.create` THROWS when
+    // the parent folder is missing (the fidelity-fixed FakeVault now models
+    // that throw), and that throw bubbled to the pull cycle — which has no
+    // permanent-error classification on the apply path — so the cursor never
+    // advanced and sync wedged on 'Offline — will retry' forever. The port must
+    // materialize the parent folder first.
+    const { createVaultFilePort } = await import('./obsidian-adapters');
+    const { TFile, TFolder } = await import('obsidian');
+    const vault = new FakeVault(TFile, TFolder);
+    const port = createVaultFilePort({
+      vault: vault as never,
+      state: noopState as never,
+    });
+
+    await port.writeByPath('Notatki/Start pilotażu.md', 'S\n');
+
+    expect(vault.contentAt('Notatki/Start pilotażu.md')).toBe('S\n');
+    expect(vault.getAbstractFileByPath('Notatki')).toBeInstanceOf(TFolder);
+  });
+
+  it('creates a DEEP nested folder hierarchy level by level for A/B/C/x.md', async () => {
+    const { createVaultFilePort } = await import('./obsidian-adapters');
+    const { TFile, TFolder } = await import('obsidian');
+    const vault = new FakeVault(TFile, TFolder);
+    const port = createVaultFilePort({
+      vault: vault as never,
+      state: noopState as never,
+    });
+
+    await port.writeByPath('A/B/C/x.md', 'X\n');
+
+    expect(vault.contentAt('A/B/C/x.md')).toBe('X\n');
+    expect(vault.getAbstractFileByPath('A')).toBeInstanceOf(TFolder);
+    expect(vault.getAbstractFileByPath('A/B')).toBeInstanceOf(TFolder);
+    expect(vault.getAbstractFileByPath('A/B/C')).toBeInstanceOf(TFolder);
+  });
+
+  it('creates the parent folder for a binary create into a missing folder (F9)', async () => {
+    const { createVaultFilePort } = await import('./obsidian-adapters');
+    const { TFile, TFolder } = await import('obsidian');
+    const vault = new FakeVault(TFile, TFolder);
+    const port = createVaultFilePort({
+      vault: vault as never,
+      state: noopState as never,
+    });
+
+    const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+    await port.writeBinaryByPath('assets/img/photo.png', bytes);
+
+    expect(await port.readBinaryByPath('assets/img/photo.png')).toEqual(bytes);
+    expect(vault.getAbstractFileByPath('assets')).toBeInstanceOf(TFolder);
+    expect(vault.getAbstractFileByPath('assets/img')).toBeInstanceOf(TFolder);
+  });
+
+  it('reuses an existing ancestor folder and never re-creates it', async () => {
+    const { createVaultFilePort } = await import('./obsidian-adapters');
+    const { TFile, TFolder } = await import('obsidian');
+    const vault = new FakeVault(TFile, TFolder);
+    vault.seedFolder('Notatki');
+    vault.seedFile('Notatki/existing.md', 'E\n');
+    const port = createVaultFilePort({
+      vault: vault as never,
+      state: noopState as never,
+    });
+
+    await port.writeByPath('Notatki/new.md', 'N\n');
+
+    expect(vault.contentAt('Notatki/new.md')).toBe('N\n');
+    // The pre-existing sibling is untouched.
+    expect(vault.contentAt('Notatki/existing.md')).toBe('E\n');
+  });
+
+  it('an overwrite/modify of an existing file needs no folder work', async () => {
+    const { createVaultFilePort } = await import('./obsidian-adapters');
+    const { TFile, TFolder } = await import('obsidian');
+    const vault = new FakeVault(TFile, TFolder);
+    vault.seedFolder('Notatki');
+    vault.seedFile('Notatki/note.md', 'OLD\n');
+    const port = createVaultFilePort({
+      vault: vault as never,
+      state: noopState as never,
+    });
+
+    await port.writeByPath('Notatki/note.md', 'NEW\n');
+
+    expect(vault.contentAt('Notatki/note.md')).toBe('NEW\n');
+  });
+
+  it('throws ParentFolderOccupiedError (a per-item failure) when a FILE occupies an ancestor path', async () => {
+    // A file literally named `Notatki` (no extension) occupies the path where a
+    // folder is needed for `Notatki/Start.md`. The hierarchy cannot be created,
+    // so the port throws the typed permanent error the apply side diverts to a
+    // conflict artifact — never a silent overwrite of the occupying file, and
+    // never a cycle-killing throw.
+    const { createVaultFilePort } = await import('./obsidian-adapters');
+    const { ParentFolderOccupiedError } = await import('./vault-apply');
+    const { TFile, TFolder } = await import('obsidian');
+    const vault = new FakeVault(TFile, TFolder);
+    vault.seedFile('Notatki'); // a FILE occupying the would-be folder path
+    const port = createVaultFilePort({
+      vault: vault as never,
+      state: noopState as never,
+    });
+
+    await expect(
+      port.writeByPath('Notatki/Start.md', 'S\n'),
+    ).rejects.toBeInstanceOf(ParentFolderOccupiedError);
+    // The occupying file is left untouched.
+    expect(vault.getAbstractFileByPath('Notatki')).toBeInstanceOf(TFile);
   });
 });

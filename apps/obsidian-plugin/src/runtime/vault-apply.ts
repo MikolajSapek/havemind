@@ -29,6 +29,26 @@ import type {
   VaultApplyPort,
 } from '../sync/sync-runner';
 
+/**
+ * Thrown by a `VaultFilePort` create-materialization when an ancestor of the
+ * target path is occupied by a FILE (not a folder), so the parent-folder
+ * hierarchy cannot be created. It is a PERMANENT, per-item failure (retrying
+ * will never succeed), so the apply side catches it and diverts the incoming
+ * content to a conflict artifact rather than letting it bubble to the sync
+ * cycle — a bubble there is misread as 'offline' and wedges the whole pull loop
+ * in infinite backoff (the same class of field outage this file guards against
+ * for the conflict-folder writer). A transient write error (disk full, IO)
+ * still throws normally so the cycle retries it.
+ */
+export class ParentFolderOccupiedError extends Error {
+  readonly occupiedPath: string;
+  constructor(occupiedPath: string) {
+    super(`Cannot create parent folder: path occupied by a file: ${occupiedPath}`);
+    this.name = 'ParentFolderOccupiedError';
+    this.occupiedPath = occupiedPath;
+  }
+}
+
 export interface VaultFilePort {
   /** Open editor buffer states for the file, or an empty list if none open. */
   openBufferStates(fileId: string): readonly OpenBuffer[];
@@ -346,7 +366,21 @@ export class VaultApplyAdapter implements VaultApplyPort {
       contentKind: 'markdown',
       revisionId: event.revision.revisionId,
     });
-    await this.files.writeByPath(decoded.path, text);
+    try {
+      await this.files.writeByPath(decoded.path, text);
+    } catch (error) {
+      if (error instanceof ParentFolderOccupiedError) {
+        // A file occupies an ancestor of the target path, so the parent-folder
+        // hierarchy cannot be created. Roll back the pre-write producer
+        // adoption and preserve the incoming content in a conflict artifact.
+        // Per-item: this single revision is diverted and the pull cycle
+        // continues to the next event — never a cycle-killing throw.
+        await this.producerSync?.onRemoteDelete({ fileId, path: decoded.path });
+        await this.files.writeConflictArtifact(this.conflictPath(event), text);
+        return 'conflict';
+      }
+      throw error;
+    }
     await this.files.recordPathOwner(fileId, decoded.path);
     await this.files.recordBaseHash(fileId, contentHash);
     this.onRemoteApplied?.({
@@ -493,7 +527,18 @@ export class VaultApplyAdapter implements VaultApplyPort {
       contentKind: 'binary',
       revisionId: event.revision.revisionId,
     });
-    await this.files.writeBinaryByPath(decoded.path, bytes);
+    try {
+      await this.files.writeBinaryByPath(decoded.path, bytes);
+    } catch (error) {
+      if (error instanceof ParentFolderOccupiedError) {
+        // Same per-item divertion as the markdown path, over raw bytes and
+        // preserving the original extension. Never a cycle-killing throw.
+        await this.producerSync?.onRemoteDelete({ fileId, path: decoded.path });
+        await this.files.writeBinaryConflictArtifact(conflictPath, bytes);
+        return 'conflict';
+      }
+      throw error;
+    }
     await this.files.recordPathOwner(fileId, decoded.path);
     await this.files.recordBaseHash(fileId, incomingHash);
     this.onRemoteApplied?.({

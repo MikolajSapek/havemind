@@ -63,6 +63,7 @@ import {
   type RequestUrlFn,
 } from './sync-transport';
 import {
+  ParentFolderOccupiedError,
   VaultApplyAdapter,
   type RemoteApplyProducerSync,
   type VaultFilePort,
@@ -356,6 +357,47 @@ function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   ) as ArrayBuffer;
 }
 
+/**
+ * Ensures every ANCESTOR folder of `path` exists before a create-materialization
+ * write, walking from the shallowest segment down and creating each missing
+ * level with `vault.createFolder` (level by level — Obsidian's `createFolder`
+ * does not reliably create nested paths in one call). This is the fix for the
+ * 5-day field outage: a freshly onboarded vault that pulls a remote create for
+ * `Notatki/Start.md` has no `Notatki` folder, and Obsidian's `vault.create`
+ * THROWS when the parent folder is missing — that throw bubbled to the pull
+ * cycle, which has no permanent-error classification on the apply path, so the
+ * cursor never advanced and sync wedged on 'Offline — will retry' forever.
+ *
+ * Reuses the TFolder-instanceof discipline from `ensureWritableConflictFolder`:
+ * `getAbstractFileByPath` returning non-null does NOT prove a folder. If an
+ * ancestor path is occupied by a FILE, the hierarchy cannot be created, so this
+ * throws {@link ParentFolderOccupiedError} — a PERMANENT per-item failure the
+ * apply side diverts to a conflict artifact, so a single occupied path never
+ * wedges the whole cycle. An overwrite/modify of an EXISTING file needs no
+ * folder work and never calls this.
+ */
+async function ensureParentFolders(
+  vault: Pick<Vault, 'getAbstractFileByPath' | 'createFolder'>,
+  path: string,
+): Promise<void> {
+  const separatorIndex = path.lastIndexOf('/');
+  if (separatorIndex === -1) return; // root-level file: no parent to create
+  const segments = path.slice(0, separatorIndex).split('/');
+  let prefix = '';
+  for (const segment of segments) {
+    prefix = prefix === '' ? segment : `${prefix}/${segment}`;
+    const existing = vault.getAbstractFileByPath(prefix);
+    if (existing === null) {
+      await vault.createFolder(prefix);
+      continue;
+    }
+    if (existing instanceof TFolder) {
+      continue;
+    }
+    throw new ParentFolderOccupiedError(prefix);
+  }
+}
+
 export function createVaultFilePort(options: VaultFilePortOptions): VaultFilePort {
   const { vault, state } = options;
   return {
@@ -396,6 +438,10 @@ export function createVaultFilePort(options: VaultFilePortOptions): VaultFilePor
     async writeByPath(path, content) {
       const existing = vault.getAbstractFileByPath(path);
       if (existing === null) {
+        // A create must first materialize the parent-folder hierarchy — a
+        // remote note in a folder this device has never seen (`Notatki/x.md`)
+        // would otherwise make `vault.create` throw and wedge the pull cycle.
+        await ensureParentFolders(vault, path);
         await vault.create(path, content);
         return;
       }
@@ -405,6 +451,9 @@ export function createVaultFilePort(options: VaultFilePortOptions): VaultFilePor
       const existing = vault.getAbstractFileByPath(path);
       const data = toArrayBuffer(bytes);
       if (existing === null) {
+        // Same parent-folder materialization as the markdown create (F9): a
+        // binary attachment in a not-yet-seen folder must not wedge the cycle.
+        await ensureParentFolders(vault, path);
         await vault.createBinary(path, data);
         return;
       }

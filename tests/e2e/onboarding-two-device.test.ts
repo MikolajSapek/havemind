@@ -48,6 +48,9 @@ import { RevisionRepository } from '../../apps/server/src/revision-repository.js
 
 import { canonicalizeMarkdown } from '@havemind/protocol';
 
+import { TFile, TFolder } from 'obsidian';
+
+import { createVaultFilePort } from '../../apps/obsidian-plugin/src/runtime/obsidian-adapters.js';
 import { OnboardingController } from '../../apps/obsidian-plugin/src/onboarding/controller.js';
 import type {
   OnboardingSecretsPort,
@@ -74,7 +77,6 @@ import {
 import { reconcileVaultState } from '../../apps/obsidian-plugin/src/sync/reconciliation.js';
 import {
   SyncRunner,
-  type OpenBuffer,
   type SyncCycleResult,
 } from '../../apps/obsidian-plugin/src/sync/sync-runner.js';
 
@@ -295,6 +297,12 @@ class DeviceRuntime {
    * apply-side file port so a binary write on either side is visible to the
    * other. */
   readonly binaryFiles = new Map<string, Uint8Array>();
+  /** Folders that exist in this device's vault. The real `createVaultFilePort`
+   * materializes parent folders before a create; modelling folders here (and
+   * throwing on a create into a missing folder, exactly like real Obsidian)
+   * is what makes the fresh-device subfolder catch-up a genuine end-to-end
+   * regression test rather than a flat-map no-op. */
+  readonly folders = new Set<string>();
   private readonly state: DurableSyncState;
   private readonly runner: SyncRunner;
   private readonly observer: VaultChangeObserver;
@@ -487,42 +495,86 @@ class DeviceRuntime {
   }
 
   private buildFilePort(): VaultFilePort {
+    // Drive the REAL production port (`createVaultFilePort`) over a folder-aware
+    // in-memory Obsidian Vault double, rather than a hand-rolled reimplementation
+    // of the port. This exercises the actual parent-folder materialization logic
+    // end-to-end and removes a divergent second implementation of the same
+    // contract. The double THROWS on a create into a missing folder, exactly
+    // like real Obsidian — so a fresh device catching up over a subfoldered
+    // backlog is a genuine regression test for the 5-day field outage.
     const files = this.files;
     const binaryFiles = this.binaryFiles;
-    const state = this.state;
-    return {
-      openBufferStates(): readonly OpenBuffer[] {
-        return [];
-      },
-      fileIdAtPath: (path) => state.fileIdAtPath(path),
-      async readByPath(path) {
-        return files.get(path) ?? null;
-      },
-      async readBinaryByPath(path) {
-        return binaryFiles.get(path) ?? null;
-      },
-      baseHashFor: (fileId) => state.baseHashFor(fileId),
-      recordBaseHash: (fileId, hash) => state.recordBaseHash(fileId, hash),
-      forgetBaseHash: (fileId) => state.forgetBaseHash(fileId),
-      async writeByPath(path, content) {
-        files.set(path, content);
-      },
-      async writeBinaryByPath(path, bytes) {
-        binaryFiles.set(path, bytes);
-      },
-      async deleteByPath(path) {
-        files.delete(path);
-        binaryFiles.delete(path);
-      },
-      async writeConflictArtifact(path, content) {
-        files.set(path, content);
-      },
-      async writeBinaryConflictArtifact(path, bytes) {
-        binaryFiles.set(path, bytes);
-      },
-      recordPathOwner: (fileId, path) => state.recordPathOwner(fileId, path),
-      forgetPath: (path) => state.forgetPath(path),
+    const folders = this.folders;
+    const assertParentFolderExists = (path: string): void => {
+      const separatorIndex = path.lastIndexOf('/');
+      if (separatorIndex === -1) return;
+      const parent = path.slice(0, separatorIndex);
+      if (!folders.has(parent)) {
+        throw new Error(`Folder does not exist: ${parent}`);
+      }
     };
+    const fileAt = (path: string): TFile => {
+      const file = new TFile();
+      file.path = path;
+      return file;
+    };
+    const vault = {
+      getAbstractFileByPath(path: string): TFile | TFolder | null {
+        if (folders.has(path)) {
+          const folder = new TFolder();
+          folder.path = path;
+          return folder;
+        }
+        if (files.has(path) || binaryFiles.has(path)) {
+          return fileAt(path);
+        }
+        return null;
+      },
+      async read(file: { path: string }): Promise<string> {
+        return files.get(file.path) ?? '';
+      },
+      async readBinary(file: { path: string }): Promise<ArrayBuffer> {
+        const bytes = binaryFiles.get(file.path) ?? new Uint8Array(0);
+        return bytes.buffer.slice(
+          bytes.byteOffset,
+          bytes.byteOffset + bytes.byteLength,
+        ) as ArrayBuffer;
+      },
+      async create(path: string, content: string): Promise<{ path: string }> {
+        assertParentFolderExists(path);
+        files.set(path, content);
+        return fileAt(path);
+      },
+      async createBinary(
+        path: string,
+        data: ArrayBuffer,
+      ): Promise<{ path: string }> {
+        assertParentFolderExists(path);
+        binaryFiles.set(path, new Uint8Array(data));
+        return fileAt(path);
+      },
+      async modify(file: { path: string }, content: string): Promise<void> {
+        files.set(file.path, content);
+      },
+      async modifyBinary(
+        file: { path: string },
+        data: ArrayBuffer,
+      ): Promise<void> {
+        binaryFiles.set(file.path, new Uint8Array(data));
+      },
+      async delete(file: { path: string }): Promise<void> {
+        files.delete(file.path);
+        binaryFiles.delete(file.path);
+      },
+      async createFolder(path: string): Promise<void> {
+        assertParentFolderExists(path);
+        folders.add(path);
+      },
+    };
+    return createVaultFilePort({
+      vault: vault as unknown as never,
+      state: this.state,
+    });
   }
 }
 
@@ -823,6 +875,34 @@ describe('two-device onboarding + sync (Magda) against a real opaque server', ()
         throw new Error('expected a binary conflict artifact path');
       }
       expect(invitee.readBinary(conflictPath)).toEqual(pngOwnerV2);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('a freshly onboarded device catches up over a backlog that includes files in not-yet-existing subfolders (5-day field outage repro)', async () => {
+    const server = await TwoDeviceServer.create();
+    try {
+      const { owner, invitee } = await connectTwoDevices(server);
+
+      // Owner authors a backlog: a root note AND notes nested in folders the
+      // freshly onboarded invitee has never seen (the exact live scenario —
+      // event 5 was `Notatki/Start pilotażu.md` into a vault with no `Notatki`).
+      await owner.edit('Root.md', 'root\n');
+      await owner.edit('Notatki/Start pilotażu.md', 'start\n');
+      await owner.edit('Projekty/Havemind/Plan.md', 'plan\n');
+      expect((await owner.sync()).status).toBe('synced');
+
+      // The fresh invitee pulls the whole backlog in one cycle. Before the fix,
+      // the first subfoldered create threw (missing parent folder), that throw
+      // bubbled to the pull cycle — misclassified as 'offline' — and the cursor
+      // stayed pinned: 'Offline — will retry' forever. It must now materialize
+      // every file, creating each missing folder first.
+      const catchUp = await invitee.sync();
+      expect(catchUp.status).toBe('synced');
+      expect(invitee.read('Root.md')).toBe('root\n');
+      expect(invitee.read('Notatki/Start pilotażu.md')).toBe('start\n');
+      expect(invitee.read('Projekty/Havemind/Plan.md')).toBe('plan\n');
     } finally {
       await server.close();
     }

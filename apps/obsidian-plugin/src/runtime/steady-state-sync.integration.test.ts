@@ -78,8 +78,21 @@ class InMemoryVault {
     if (this.contents.has(path)) {
       throw new Error(`File already exists: ${path}`);
     }
+    // FIDELITY: real Obsidian throws when the immediate parent folder is
+    // missing (it does not auto-create it). Modelling that throw is what makes
+    // the missing-parent-folder field outage reproducible here.
+    this.assertParentFolderExists(path);
     this.contents.set(path, content);
     this.onEvent('create', path);
+  }
+
+  private assertParentFolderExists(path: string): void {
+    const separatorIndex = path.lastIndexOf('/');
+    if (separatorIndex === -1) return;
+    const parent = path.slice(0, separatorIndex);
+    if (!this.folders.has(parent)) {
+      throw new Error(`Folder does not exist: ${parent}`);
+    }
   }
 
   async modify(file: { path: string }, content: string): Promise<void> {
@@ -93,6 +106,7 @@ class InMemoryVault {
   }
 
   async createFolder(path: string): Promise<void> {
+    this.assertParentFolderExists(path);
     this.folders.add(path);
   }
 
@@ -259,12 +273,24 @@ function makeHarness() {
     resolved.set(revisionId, payload);
   }
 
-  /** Simulate the local user authoring a note (fires a create event). */
+  /** Simulate the local user authoring a note (fires a create event). A real
+   * local author already has the containing folder (they created the note in
+   * it), so seed the parent-folder chain first — the double now throws on a
+   * create into a missing folder, exactly like real Obsidian. */
   async function userCreate(
     path: string,
     content: string,
     fileId: string,
   ): Promise<void> {
+    const separatorIndex = path.lastIndexOf('/');
+    if (separatorIndex !== -1) {
+      const segments = path.slice(0, separatorIndex).split('/');
+      let prefix = '';
+      for (const segment of segments) {
+        prefix = prefix === '' ? segment : `${prefix}/${segment}`;
+        if (!vault.folders.has(prefix)) await vault.createFolder(prefix);
+      }
+    }
     fileIdQueue.push(fileId);
     await vault.create(path, content);
     await drainEvents();
@@ -416,5 +442,90 @@ describe('two-person steady-state sync (integration)', () => {
     // runner would misread as offline and wedge the whole pull loop).
     await expect(port.writeConflictArtifact(path, 'C2\n')).resolves.toBeUndefined();
     expect(h.vault.contents.get(path)).toBe('C2\n');
+  });
+
+  it('(e) a remote create into a not-yet-existing folder materializes the folder and applies (5-day field outage repro)', async () => {
+    // The exact field scenario: a freshly onboarded vault with no `Notatki`
+    // folder pulls a remote create for `Notatki/Start pilotażu.md`. Before the
+    // fix `vault.create` threw (missing parent), that throw bubbled to the pull
+    // cycle, the cursor never advanced, and sync wedged on 'Offline' for 5 days.
+    const h = makeHarness();
+    h.setRemote('r1', {
+      operation: 'create',
+      path: 'Notatki/Start pilotażu.md',
+      previousPath: null,
+      content: 'S\n',
+    });
+
+    const outcome = await h.adapter.applyRemote(h.remoteEvent('r1', REMOTE_FILE));
+    await h.drainEvents();
+
+    expect(outcome).toBe('applied');
+    expect(h.vault.contents.get('Notatki/Start pilotażu.md')).toBe('S\n');
+    expect(h.vault.folders.has('Notatki')).toBe(true);
+  });
+
+  it('(e) a backlog of root + deeply-subfoldered creates all apply in sequence (the wedge is gone)', async () => {
+    const h = makeHarness();
+    const backlog: ReadonlyArray<readonly [string, string, string]> = [
+      ['rr', 'file-root', 'Root.md'],
+      ['rn', 'file-notatki', 'Notatki/Start.md'],
+      ['rd', 'file-deep', 'Projekty/Havemind/Plan.md'],
+    ];
+    const outcomes: string[] = [];
+    for (const [rev, file, path] of backlog) {
+      h.setRemote(rev, {
+        operation: 'create',
+        path,
+        previousPath: null,
+        content: `${path}\n`,
+      });
+      outcomes.push(await h.adapter.applyRemote(h.remoteEvent(rev, file)));
+      await h.drainEvents();
+    }
+
+    expect(outcomes).toEqual(['applied', 'applied', 'applied']);
+    expect(h.vault.contents.get('Notatki/Start.md')).toBe('Notatki/Start.md\n');
+    expect(h.vault.contents.get('Projekty/Havemind/Plan.md')).toBe(
+      'Projekty/Havemind/Plan.md\n',
+    );
+    expect(h.vault.folders.has('Projekty')).toBe(true);
+    expect(h.vault.folders.has('Projekty/Havemind')).toBe(true);
+  });
+
+  it('(e) an ancestor occupied by a FILE diverts that item to a conflict artifact; the next event still applies', async () => {
+    const h = makeHarness();
+    // A note literally named `Notatki` (no extension) occupies the would-be
+    // folder path for the incoming `Notatki/Start.md`.
+    await h.userCreate('Notatki', 'I AM A FILE\n', FILE_A);
+
+    h.setRemote('r1', {
+      operation: 'create',
+      path: 'Notatki/Start.md',
+      previousPath: null,
+      content: 'S\n',
+    });
+    const blocked = await h.adapter.applyRemote(h.remoteEvent('r1', REMOTE_FILE));
+    await h.drainEvents();
+
+    // Per-item: diverted to a conflict artifact, the occupying file untouched.
+    expect(blocked).toBe('conflict');
+    expect(h.vault.contents.get('Notatki')).toBe('I AM A FILE\n');
+    expect(h.vault.contents.get(`Havemind Conflicts/${REMOTE_FILE}-r1.md`)).toBe(
+      'S\n',
+    );
+
+    // The cycle continues: a following, unrelated event still applies cleanly.
+    h.setRemote('r2', {
+      operation: 'create',
+      path: 'Other.md',
+      previousPath: null,
+      content: 'O\n',
+    });
+    const next = await h.adapter.applyRemote(h.remoteEvent('r2', 'file-other'));
+    await h.drainEvents();
+
+    expect(next).toBe('applied');
+    expect(h.vault.contents.get('Other.md')).toBe('O\n');
   });
 });
