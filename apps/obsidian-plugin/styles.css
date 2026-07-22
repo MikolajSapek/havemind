@@ -87,6 +87,30 @@
   font-weight: var(--font-semibold);
 }
 
+/*
+ * Panel title with the "hive mind" hexagon motif: the glyph is accent-tinted
+ * and placed before the title text (via flex order) so it reinforces the
+ * Havemind identity without ever being the only signal. Semantic vars only —
+ * no colour-scheme change.
+ */
+.havemind-view-title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--size-4-1);
+}
+
+.havemind-title-icon {
+  order: -1;
+  display: inline-flex;
+  color: var(--text-accent);
+}
+
+.havemind-title-icon .svg-icon {
+  width: var(--icon-s);
+  height: var(--icon-s);
+  color: inherit;
+}
+
 .havemind-view h4 {
   margin: 0;
   color: var(--text-muted);

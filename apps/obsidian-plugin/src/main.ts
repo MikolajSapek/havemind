@@ -73,6 +73,21 @@ function formatActivityTime(timestamp: number): string {
   return `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
 }
 
+/**
+ * Renders a panel's `h3` title with a small leading hexagon glyph — the
+ * "hive mind" motif that gives every Havemind surface a shared identity. The
+ * title text stays on the `h3` itself; the hexagon is an accent-tinted child
+ * placed before the text via CSS (order), so it never becomes the only signal
+ * and never changes the heading's text content.
+ */
+function renderViewTitle(content: HTMLElement, text: string): void {
+  const heading = content.createEl('h3', { text });
+  heading.addClass('havemind-view-title');
+  const icon = heading.createEl('span');
+  icon.addClass('havemind-title-icon');
+  setIcon(icon, 'hexagon');
+}
+
 /** Owner actions attached to each rejoin-aware roster row. */
 interface RejoinRosterActions {
   /** Membership ids the owner has already asked to rejoin (awaiting reconnect). */
@@ -163,7 +178,7 @@ class HavemindActivityView extends ItemView {
   }
 
   override getIcon(): string {
-    return 'users-round';
+    return 'hexagon';
   }
 
   override getViewType(): string {
@@ -185,7 +200,7 @@ class HavemindActivityView extends ItemView {
 
     content.empty();
     content.addClass('havemind-view');
-    content.createEl('h3', { text: 'Havemind activity' });
+    renderViewTitle(content, 'Havemind activity');
 
     const model = buildActivityViewModel(this.options.feedProvider?.() ?? [], {
       formatTimestamp: formatActivityTime,
@@ -414,7 +429,7 @@ export class HavemindOnboardingView extends ItemView {
       return;
     }
 
-    content.createEl('h3', { text: 'Connect to Havemind' });
+    renderViewTitle(content, 'Connect to Havemind');
 
     const panel =
       this.options.panelProvider?.() ??
@@ -483,7 +498,7 @@ export class HavemindOnboardingView extends ItemView {
     content: HTMLElement,
     model: GuestWaitingViewModel,
   ): void {
-    content.createEl('h3', { text: 'Connecting to Havemind' });
+    renderViewTitle(content, 'Connecting to Havemind');
     // Icon + label + colour (never colour alone), matching the panel convention.
     const row = content.createDiv({ text: '' });
     row.addClass('havemind-status');
@@ -510,7 +525,7 @@ export class HavemindOnboardingView extends ItemView {
    * the paste form to try a fresh invite — never offline, never a blank form.
    */
   private renderGuestInvalid(content: HTMLElement): void {
-    content.createEl('h3', { text: 'Connect to Havemind' });
+    renderViewTitle(content, 'Connect to Havemind');
     const row = content.createDiv({ text: '' });
     row.addClass('havemind-status');
     row.style.setProperty('color', 'var(--text-error)');
@@ -568,7 +583,7 @@ export class HavemindOnboardingView extends ItemView {
     content: HTMLElement,
     model: CreateConnectionViewModel,
   ): void {
-    content.createEl('h3', { text: 'Creating connection' });
+    renderViewTitle(content, 'Creating connection');
     if (model.notice) this.renderNotice(content, model.notice, model.noticeKind);
 
     this.renderCreateSection(content, model);
@@ -881,7 +896,7 @@ export default class HavemindPlugin extends Plugin {
       callback: () => this.openCreateConnectionView(),
     });
 
-    this.addRibbonIcon('users-round', 'Open Havemind activity', () => {
+    this.addRibbonIcon('hexagon', 'Open Havemind activity', () => {
       void this.openActivityView();
     });
 

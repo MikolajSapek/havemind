@@ -122,7 +122,7 @@ describe('plugin lifecycle', () => {
     const view = creator?.(new WorkspaceLeaf());
     expect(view?.getViewType()).toBe(HAVEMIND_ACTIVITY_VIEW);
     expect(view?.getDisplayText()).toBe('Havemind activity');
-    expect(view?.getIcon()).toBe('users-round');
+    expect(view?.getIcon()).toBe('hexagon');
 
     await view?.onOpen();
     const container = view?.containerEl as unknown as MockElement;
