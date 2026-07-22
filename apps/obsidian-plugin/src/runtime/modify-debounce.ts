@@ -74,6 +74,22 @@ export class ModifyDebouncer {
     this.pending.set(path, handle);
   }
 
+  /**
+   * Cancels the pending settle for a single `path`, if any. Called when a
+   * rename or delete for that path fires: those events carry their own content
+   * (or tombstone) immediately, so a later settled modify for the same path
+   * would resolve against a file that has moved or gone — reading '' for the
+   * missing path and pushing a phantom empty create. A no-op when nothing is
+   * pending for `path`.
+   */
+  cancel(path: string): void {
+    const existing = this.pending.get(path);
+    if (existing !== undefined) {
+      this.timer.clear(existing);
+      this.pending.delete(path);
+    }
+  }
+
   /** Cancels every pending settle. Called on producer teardown/unload. */
   dispose(): void {
     for (const handle of this.pending.values()) {

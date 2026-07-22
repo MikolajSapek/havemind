@@ -2,9 +2,14 @@ import { describe, expect, it } from 'vitest';
 
 import type { LocalFileMapping } from '../obsidian/vault-adapter';
 import {
+  OutboxLocalChangeRepository,
+  type ProducerStorePort,
+} from '../sync/outbox-repository';
+import {
   createRemoteApplyProducerSync,
   type AdoptableProducer,
 } from './remote-apply-coordinator';
+import { parseProducerState } from './obsidian-adapters';
 
 class FakeProducer implements AdoptableProducer {
   adopted: Array<{ mapping: LocalFileMapping; head: string }> = [];
@@ -94,5 +99,54 @@ describe('createRemoteApplyProducerSync', () => {
     });
 
     expect(producer.adopted).toEqual([]);
+  });
+
+  it('records contentKind binary for a received binary write', async () => {
+    const producer = new FakeProducer();
+    const sync = createRemoteApplyProducerSync(() => producer);
+
+    await sync.onRemoteWrite({
+      fileId: 'bin',
+      path: 'Images/pic.png',
+      content: 'YmFzZTY0Ynl0ZXM=',
+      contentHash: 'raw-byte-hash',
+      revisionId: 'r-bin',
+      contentKind: 'binary',
+    });
+
+    expect(producer.adopted[0]?.mapping.contentKind).toBe('binary');
+  });
+
+  it('a received binary survives a producer save/load round-trip as contentKind binary', async () => {
+    const blob: Record<string, unknown> = {};
+    const store: ProducerStorePort = {
+      async load() {
+        return parseProducerState(blob.pushProducer);
+      },
+      async save(next) {
+        blob.pushProducer = next;
+      },
+    };
+    const repository = new OutboxLocalChangeRepository({
+      identity: { vaultId: 'v', memberId: 'm', deviceId: 'd' },
+      store,
+      enqueue: async () => undefined,
+      generateRevisionId: () => 'rev',
+    });
+    const sync = createRemoteApplyProducerSync(() => repository);
+
+    await sync.onRemoteWrite({
+      fileId: 'bin',
+      path: 'Images/pic.png',
+      content: 'YmFzZTY0Ynl0ZXM=',
+      contentHash: 'raw-byte-hash',
+      revisionId: 'r-bin',
+      contentKind: 'binary',
+    });
+
+    // Read the persisted state back through the same parse the producer uses.
+    const reloaded = parseProducerState(blob.pushProducer);
+    const mapping = reloaded.mappings.find((m) => m.fileId === 'bin');
+    expect(mapping?.contentKind).toBe('binary');
   });
 });

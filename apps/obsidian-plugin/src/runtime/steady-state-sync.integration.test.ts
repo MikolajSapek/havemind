@@ -186,6 +186,9 @@ function makeHarness() {
       async listAllPaths() {
         return [...vault.contents.keys()];
       },
+      async exists(path) {
+        return vault.contents.has(path);
+      },
     },
   });
 

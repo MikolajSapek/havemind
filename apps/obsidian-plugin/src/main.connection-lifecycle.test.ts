@@ -188,6 +188,44 @@ describe('connectFromInput lifecycle safety', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((plugin as any).connection).toBeNull();
   });
+
+  it('does not clobber a connection assigned while connectFromInput was in flight (FIX 3)', async () => {
+    // A handle assigned meanwhile (e.g. by the rejoin restart's startConnection)
+    // must win: the late connectFromInput handle stops itself and never
+    // overwrites the live connection — matching startConnection's invariant.
+    const plugin = newPlugin();
+    const lateHandle = fakeHandle('late');
+    let resolveConnect!: (h: FakeHandle) => void;
+    adapterMocks.connectFromInput.mockReturnValue(
+      new Promise<FakeHandle>((resolve) => {
+        resolveConnect = resolve;
+      }),
+    );
+
+    const pending = (
+      plugin as unknown as {
+        connectFromInput: (
+          input: string,
+          serverUrl: string,
+          report: (message: string) => void,
+        ) => Promise<void>;
+      }
+    ).connectFromInput('invitation-envelope', 'https://sapserver.example', () => {});
+
+    // A concurrent connection is established (and assigned) while the paste flow
+    // is still awaiting.
+    const existing = fakeHandle('existing');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (plugin as any).connection = existing;
+
+    resolveConnect(lateHandle);
+    await pending;
+
+    expect(lateHandle.stop).toHaveBeenCalledTimes(1);
+    expect(existing.stop).not.toHaveBeenCalled();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((plugin as any).connection).toBe(existing);
+  });
 });
 
 /** Flush the microtask queue so a `void this.armRejoin()` settles before asserting. */
@@ -281,6 +319,35 @@ describe('F9 rejoin wiring', () => {
     expect(adapterMocks.startHavemindConnection).toHaveBeenCalledTimes(1);
 
     plugin.unload();
+  });
+
+  it('surfaces a failed rejoin and disarms the poll instead of spinning silently (FIX 4)', async () => {
+    // rejoin-failed is a terminal, unrecoverable redemption outcome. The 30 s
+    // poll must stop (no silent forever-spin) and the failure must reach the
+    // user via status + Notice, leaving a manual reconnect as the retry path.
+    const plugin = newPlugin();
+    const attempt = vi.fn().mockResolvedValue('rejoin-failed');
+    const controller = { attempt, getState: () => 'terminal-auth' };
+    adapterMocks.buildRejoinControllerForInvitee.mockResolvedValue(controller);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (plugin as any).handleStatus('reconnect-required', STATUS_VIEW);
+    await flushMicrotasks();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((plugin as any).rejoinController).toBe(controller);
+
+    // The poll ticks and the controller reports a terminal failure.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (plugin as any).pollRejoinOnce();
+
+    // The interval is disarmed …
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((plugin as any).rejoinController).toBeNull();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((plugin as any).rejoinPollTimer).toBeNull();
+    // … and the failure is surfaced to the user (not swallowed).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((plugin as any).connectionError).toContain('Rejoin');
   });
 
   it('does not arm when no persisted rejoin identity exists', async () => {

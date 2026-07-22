@@ -102,4 +102,36 @@ describe('ModifyDebouncer', () => {
   it('defaults the settle window to 1500 ms', () => {
     expect(MODIFY_SETTLE_MS).toBe(1500);
   });
+
+  it('cancels the pending settle for a single path without disturbing others', () => {
+    // A rename/delete of a path must cancel that path's in-flight modify so a
+    // stale settled modify never fires after the file has moved or gone.
+    const timer = new FakeTimer();
+    const settled: string[] = [];
+    const debouncer = new ModifyDebouncer({
+      onSettled: (path) => settled.push(path),
+      delayMs: MODIFY_SETTLE_MS,
+      timer,
+    });
+
+    debouncer.trigger('A.md');
+    debouncer.trigger('B.md');
+    debouncer.cancel('A.md');
+    timer.advance(MODIFY_SETTLE_MS);
+
+    expect(settled).toEqual(['B.md']);
+  });
+
+  it('cancel is a no-op for a path with no pending settle', () => {
+    const timer = new FakeTimer();
+    const settled: string[] = [];
+    const debouncer = new ModifyDebouncer({
+      onSettled: (path) => settled.push(path),
+      timer,
+    });
+
+    expect(() => debouncer.cancel('none.md')).not.toThrow();
+    timer.advance(MODIFY_SETTLE_MS);
+    expect(settled).toEqual([]);
+  });
 });

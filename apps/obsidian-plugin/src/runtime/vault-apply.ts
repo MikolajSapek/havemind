@@ -16,7 +16,11 @@
 import { canonicalizeMarkdown, hashBlob } from '@havemind/protocol';
 import type { DecodedRevisionPayload } from '@havemind/sync-core';
 
-import { bytesToBase64, pathExtension } from '../obsidian/vault-adapter';
+import {
+  bytesToBase64,
+  pathExtension,
+  type SyncContentKind,
+} from '../obsidian/vault-adapter';
 
 import type {
   OpenBuffer,
@@ -75,13 +79,19 @@ export interface RemoteAppliedEvent {
  */
 export interface RemoteApplyProducerSync {
   /** Adopt `fileId`/`content` for `path`, parenting future local edits on
-   * `revisionId`. `contentHash` is the SHA-256 hex of the note text. */
+   * `revisionId`. `contentHash` is the SHA-256 hex of the note text for
+   * markdown, or the raw-byte hash for a binary attachment. `contentKind`
+   * carries the decoded payload's kind so the adopted producer mapping keeps
+   * the binary/markdown discriminator — without it a RECEIVED binary would be
+   * persisted as markdown and later corrupted by the canonicalization rebase.
+   * Absent means markdown (legacy callers unchanged). */
   onRemoteWrite(input: {
     readonly fileId: string;
     readonly path: string;
     readonly content: string;
     readonly contentHash: string;
     readonly revisionId: string;
+    readonly contentKind?: SyncContentKind;
   }): Promise<void>;
   /** Forget the producer mapping+head for a remotely deleted `path`/`fileId`. */
   onRemoteDelete(input: {
@@ -251,6 +261,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
           path: decoded.path,
           content: text,
           contentHash,
+          contentKind: 'markdown',
           revisionId: event.revision.revisionId,
         });
         return 'noop';
@@ -289,6 +300,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
           path: decoded.path,
           content: text,
           contentHash,
+          contentKind: 'markdown',
           revisionId: event.revision.revisionId,
         });
         return 'noop';
@@ -331,6 +343,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
       path: decoded.path,
       content: text,
       contentHash,
+      contentKind: 'markdown',
       revisionId: event.revision.revisionId,
     });
     await this.files.writeByPath(decoded.path, text);
@@ -437,6 +450,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
           path: decoded.path,
           content: incomingBase64,
           contentHash: incomingHash,
+          contentKind: 'binary',
           revisionId: event.revision.revisionId,
         });
         return 'noop';
@@ -454,6 +468,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
           path: decoded.path,
           content: incomingBase64,
           contentHash: incomingHash,
+          contentKind: 'binary',
           revisionId: event.revision.revisionId,
         });
         return 'noop';
@@ -475,6 +490,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
       path: decoded.path,
       content: incomingBase64,
       contentHash: incomingHash,
+      contentKind: 'binary',
       revisionId: event.revision.revisionId,
     });
     await this.files.writeBinaryByPath(decoded.path, bytes);

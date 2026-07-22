@@ -108,6 +108,14 @@ export interface VaultSnapshotPort {
   /** Raw bytes of a binary attachment at `path` (F9). */
   readBinary(path: string): Promise<Uint8Array>;
   /**
+   * Whether a file currently exists on disk at `path`. `readText` cannot tell a
+   * missing file from an empty one (it returns '' for both), so a settled modify
+   * arriving after a rename/delete would otherwise read '' and push a phantom
+   * empty create. This lets the observer distinguish the two and skip a create
+   * for a file that is no longer there.
+   */
+  exists(path: string): Promise<boolean>;
+  /**
    * Every file in the vault, of any type. Used only to count non-syncable
    * attachments that `listSyncablePaths` never surfaces, so the pilot's sync
    * scope stays observable instead of a silent gap. Never read/enqueued.
@@ -351,6 +359,12 @@ export class VaultChangeObserver {
 
     const mapping = await this.findMapping(classified.collisionKey);
     if (mapping === undefined) {
+      // A settled modify can arrive after the same path was renamed away or
+      // deleted (the debounce cancel is the primary guard; this is the cheap
+      // safety net). With no mapping AND no file on disk, a create here would
+      // read '' for the missing path and push a phantom empty file — never do
+      // that. A genuinely new, unmapped file that IS on disk still creates.
+      if (!(await this.options.vault.exists(path))) return null;
       return this.commitCreate(path, classified);
     }
 

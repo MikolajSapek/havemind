@@ -14,6 +14,11 @@ import {
   type VaultSnapshotPort,
 } from '../obsidian/vault-adapter';
 import { reconcileVaultState } from '../sync/reconciliation';
+import {
+  OutboxLocalChangeRepository,
+  type ProducerStorePort,
+} from '../sync/outbox-repository';
+import { parseProducerState } from './obsidian-adapters';
 
 const PERSIST_KEY = 'syncState';
 const PRODUCER_KEY = 'pushProducer';
@@ -232,6 +237,9 @@ describe('rebaseCanonicalizedHashes', () => {
       async readBinary() {
         return new Uint8Array(0);
       },
+      async exists(readPath) {
+        return vault.exists(readPath);
+      },
     };
     const observer = new VaultChangeObserver({
       clock: () => 0,
@@ -324,5 +332,126 @@ describe('rebaseCanonicalizedHashes', () => {
     const persist = saved[PERSIST_KEY] as { baseHashes: Record<string, string> };
     expect(persist.baseHashes[binaryFileId]).toBe(binaryContentHash);
     expect(persist.baseHashes[markdownFileId]).not.toBe(markdownOldHash);
+  });
+
+  it('preserves a binary contentKind through the production load/save round-trip so the rebase never corrupts its byte hash (BLOCKER)', async () => {
+    // Reproduce the real bug: every producer persistence op does
+    // load(parseProducerState) → save. If parseProducerState drops contentKind,
+    // one later edit to ANY file wipes the discriminator from the binary mapping,
+    // and the rebase then markdown-canonicalises the binary's base64 → corrupt
+    // hash → false conflict on the next binary sync.
+    const binaryPath = 'Images/pic.png';
+    const binaryFileId = 'file-binary';
+    const binaryBase64 = 'YmFzZTY0Ynl0ZXM=';
+    const rawHash = 'raw-byte-hash-must-not-change';
+
+    // A store shaped exactly like the production one (obsidian-adapters.ts):
+    // load routes through parseProducerState, which is the strip point.
+    const blob: Record<string, unknown> = {};
+    const store: ProducerStorePort = {
+      async load() {
+        return parseProducerState(blob[PRODUCER_KEY]);
+      },
+      async save(next) {
+        blob[PRODUCER_KEY] = next;
+      },
+    };
+    const repository = new OutboxLocalChangeRepository({
+      identity: { vaultId: 'v', memberId: 'm', deviceId: 'd' },
+      store,
+      enqueue: async () => undefined,
+      generateRevisionId: () => 'rev',
+    });
+
+    // Receive a binary attachment via the production apply-side adopt path.
+    await repository.adoptRemoteMapping(
+      {
+        collisionKey: binaryPath.toLowerCase(),
+        content: binaryBase64,
+        contentHash: rawHash,
+        contentKind: 'binary',
+        fileId: binaryFileId,
+        path: binaryPath,
+      },
+      'rev-bin',
+    );
+    // A later, unrelated persistence op reloads via parseProducerState (strip),
+    // then saves — this is the single edit that historically wiped contentKind.
+    await repository.adoptRemoteMapping(
+      {
+        collisionKey: 'notes/other.md',
+        content: 'Other\n',
+        contentHash: 'md-hash',
+        fileId: 'file-md',
+        path: 'Notes/Other.md',
+      },
+      'rev-md',
+    );
+
+    blob[PERSIST_KEY] = { baseHashes: { [binaryFileId]: rawHash } };
+    const port = dataPort(blob);
+    const result = await rebaseCanonicalizedHashes({
+      data: port,
+      vault: new FakeVault(new Map([[binaryPath, binaryBase64]])),
+      hash: (content) => hashPlaintext(content),
+      canonicalize: canonicalizeMarkdown,
+      keys: keys(),
+    });
+
+    const saved = port.current();
+    const producer = saved[PRODUCER_KEY] as { mappings: LocalFileMapping[] };
+    const binaryMapping = producer.mappings.find((m) => m.fileId === binaryFileId);
+    // The discriminator survived the round-trip …
+    expect(binaryMapping?.contentKind).toBe('binary');
+    // … so its raw-byte content/hash were left untouched by the rebase.
+    expect(binaryMapping?.content).toBe(binaryBase64);
+    expect(binaryMapping?.contentHash).toBe(rawHash);
+    const persist = saved[PERSIST_KEY] as { baseHashes: Record<string, string> };
+    expect(persist.baseHashes[binaryFileId]).toBe(rawHash);
+    expect(result.mappingsRebased).toBe(0);
+  });
+
+  it('never markdown-rebases a legacy kind-less mapping whose path is a binary attachment (belt-and-braces)', async () => {
+    // Defence in depth: even a mapping persisted before the contentKind fix (no
+    // discriminator at all) must be recognised as binary by its extension and
+    // skipped, never recomputed through the markdown canonicalise path.
+    const binaryPath = 'Images/legacy.png';
+    const binaryFileId = 'file-legacy';
+    const binaryBase64 = 'YmFzZTY0Ynl0ZXM=';
+    const rawHash = 'legacy-raw-byte-hash';
+    const port = dataPort({
+      [PRODUCER_KEY]: {
+        mappings: [
+          {
+            collisionKey: binaryPath.toLowerCase(),
+            content: binaryBase64,
+            contentHash: rawHash,
+            // NOTE: no contentKind — the legacy shape.
+            fileId: binaryFileId,
+            path: binaryPath,
+          },
+        ],
+        heads: {},
+      },
+      [PERSIST_KEY]: { baseHashes: { [binaryFileId]: rawHash } },
+    });
+    const vault = new FakeVault(new Map([[binaryPath, binaryBase64]]));
+
+    const result = await rebaseCanonicalizedHashes({
+      data: port,
+      vault,
+      hash: (content) => hashPlaintext(content),
+      canonicalize: canonicalizeMarkdown,
+      keys: keys(),
+    });
+
+    const saved = port.current();
+    const producer = saved[PRODUCER_KEY] as { mappings: LocalFileMapping[] };
+    expect(producer.mappings[0]?.contentHash).toBe(rawHash);
+    expect(producer.mappings[0]?.content).toBe(binaryBase64);
+    const persist = saved[PERSIST_KEY] as { baseHashes: Record<string, string> };
+    expect(persist.baseHashes[binaryFileId]).toBe(rawHash);
+    expect(result.mappingsRebased).toBe(0);
+    expect(result.baseHashesRebased).toBe(0);
   });
 });

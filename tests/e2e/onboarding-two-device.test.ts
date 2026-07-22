@@ -350,6 +350,9 @@ class DeviceRuntime {
               collisionKey: input.path.normalize('NFC').toLowerCase(),
               content: input.content,
               contentHash: input.contentHash,
+              ...(input.contentKind === undefined
+                ? {}
+                : { contentKind: input.contentKind }),
               fileId: input.fileId,
               path: input.path,
             },
@@ -476,6 +479,9 @@ class DeviceRuntime {
       },
       async listAllPaths() {
         return [...files.keys(), ...binaryFiles.keys()];
+      },
+      async exists(path) {
+        return files.has(path) || binaryFiles.has(path);
       },
     };
   }

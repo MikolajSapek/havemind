@@ -1209,7 +1209,13 @@ export default class HavemindPlugin extends Plugin {
       // resolved handle now would leave it LIVE forever (leaked vault listeners
       // + sync loop). Mirrors the `startConnection` unload guard (FIX 1) — stop
       // this handle and never assign.
-      if (this.unloaded) {
+      //
+      // FIX 3: also yield to a connection assigned MEANWHILE (e.g. the rejoin
+      // restart's startConnection completing during this ~1h approval poll).
+      // Without the `connection !== null` arm this late handle would clobber and
+      // orphan that live connection. Same stop-the-newcomer, keep-the-existing
+      // invariant startConnection enforces.
+      if (this.unloaded || this.connection !== null) {
         handle.stop();
         return;
       }
@@ -1338,6 +1344,23 @@ export default class HavemindPlugin extends Plugin {
       this.rejoinRestarted = true;
       this.disarmRejoin();
       await this.restartConnectionAfterRejoin();
+      return;
+    }
+    // FIX 4: 'rejoin-failed' is terminal and unrecoverable by polling (the
+    // server returned a 200 the controller could not use). Leaving the 30 s
+    // poll armed spins forever in silence, so disarm it and surface the failure
+    // to the user. The manual retry path: a later terminal-auth status (the user
+    // reconnecting) re-arms the poll from scratch, since disarmRejoin cleared
+    // `rejoinController`.
+    if (result === 'rejoin-failed') {
+      this.disarmRejoin();
+      this.connectionError =
+        'Rejoin failed — the server rejected the automatic rejoin. Reconnect manually to resume syncing.';
+      this.setStatus(formatStatusBar({ status: 'reconnect-required' }));
+      new Notice(
+        'Havemind: rejoin failed. Reconnect manually to resume syncing.',
+      );
+      this.onboardingView?.refresh();
     }
   }
 

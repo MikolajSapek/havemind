@@ -944,6 +944,9 @@ function startPushProducer(
       // excludes, so that exclusion stays visible.
       return vault.getFiles().map((file) => file.path);
     },
+    async exists(path) {
+      return vault.getAbstractFileByPath(path) !== null;
+    },
   };
 
   const observer = new VaultChangeObserver({
@@ -1024,9 +1027,20 @@ function startPushProducer(
   const disposeListeners = registerVaultChangeListeners(vault, {
     onCreate: (path) => observed(observer.observeCreate(path)),
     onModify: (path) => modifyDebouncer.trigger(path),
-    onDelete: (path) => observed(observer.observeDelete(path)),
-    onRename: (oldPath, newPath) =>
-      observed(observer.observeRename(oldPath, newPath)),
+    onDelete: (path) => {
+      // Cancel any pending settled modify for this path first: the delete
+      // tombstone already carries the outcome, and a later modify would find no
+      // mapping and push a phantom empty create for the vacated path.
+      modifyDebouncer.cancel(path);
+      observed(observer.observeDelete(path));
+    },
+    onRename: (oldPath, newPath) => {
+      // The rename commit carries the file's content to the new path; cancel the
+      // OLD path's pending modify so a stale settle never fires against a path
+      // that has moved (which would resurrect it as a phantom empty create).
+      modifyDebouncer.cancel(oldPath);
+      observed(observer.observeRename(oldPath, newPath));
+    },
     onFolderRename: (oldPath, newPath) =>
       observedMany(observer.observeFolderRename(oldPath, newPath)),
     onFolderDelete: (folderPath) =>
@@ -1122,7 +1136,7 @@ export function registerVaultChangeListeners(
   };
 }
 
-function parseProducerState(raw: unknown): ProducerState {
+export function parseProducerState(raw: unknown): ProducerState {
   if (!isRecord(raw) || !Array.isArray(raw.mappings) || !isRecord(raw.heads)) {
     return { mappings: [], heads: {} };
   }
@@ -1140,6 +1154,16 @@ function parseProducerState(raw: unknown): ProducerState {
         collisionKey: entry.collisionKey,
         content: entry.content,
         contentHash: entry.contentHash,
+        // Preserve the binary/markdown discriminator across every load→save
+        // cycle. Dropping it here silently converts a persisted binary mapping
+        // to markdown, so the startup rebase then canonicalises its base64 over
+        // the markdown path and corrupts the raw-byte hash → a false conflict on
+        // the next binary sync (BLOCKER). Validate as an optional
+        // 'markdown'|'binary'; anything else (absent/legacy) defaults to
+        // markdown by omission, keeping legacy mappings unchanged.
+        ...(entry.contentKind === 'binary' || entry.contentKind === 'markdown'
+          ? { contentKind: entry.contentKind }
+          : {}),
         fileId: entry.fileId,
         path: entry.path,
       });

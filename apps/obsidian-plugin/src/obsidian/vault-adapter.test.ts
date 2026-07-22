@@ -13,6 +13,10 @@ import {
   type LocalVaultError,
   type VaultSnapshotPort,
 } from './vault-adapter';
+import {
+  ModifyDebouncer,
+  type DebounceTimer,
+} from '../runtime/modify-debounce';
 
 const FILE_ID = '29ab3ae1-067c-46e9-81e8-04845d622ac5';
 const OPERATION_ID = '9e53d494-3945-4c3f-a637-1d73a28ad8ef';
@@ -80,6 +84,10 @@ class MemoryVault implements VaultSnapshotPort {
 
   async listAllPaths(): Promise<readonly string[]> {
     return [...this.contents.keys(), ...this.binaryContents.keys()];
+  }
+
+  async exists(path: string): Promise<boolean> {
+    return this.contents.has(path) || this.binaryContents.has(path);
   }
 }
 
@@ -619,3 +627,152 @@ function mapping(
     path,
   };
 }
+
+/**
+ * A vault whose `readText` returns '' for a missing path — exactly how the real
+ * Obsidian snapshot adapter behaves (`file === null ? '' : …`). This is what
+ * turns a stale settled modify into a phantom EMPTY create, so it is the fixture
+ * that reproduces AUD phantom-create bug faithfully.
+ */
+class PhantomVault implements VaultSnapshotPort {
+  readonly files = new Map<string, string>();
+  async listSyncablePaths(): Promise<readonly string[]> {
+    return [...this.files.keys()];
+  }
+  async listAllPaths(): Promise<readonly string[]> {
+    return [...this.files.keys()];
+  }
+  async readText(path: string): Promise<string> {
+    return this.files.get(path) ?? '';
+  }
+  async readBinary(): Promise<Uint8Array> {
+    return new Uint8Array(0);
+  }
+  async exists(path: string): Promise<boolean> {
+    return this.files.has(path);
+  }
+}
+
+/** Deterministic fake timer mirroring the debouncer test's clock. */
+class TestTimer implements DebounceTimer {
+  private seq = 0;
+  private now = 0;
+  private readonly tasks = new Map<number, { at: number; cb: () => void }>();
+  set(callback: () => void, ms: number): number {
+    const handle = (this.seq += 1);
+    this.tasks.set(handle, { at: this.now + ms, cb: callback });
+    return handle;
+  }
+  clear(handle: number): void {
+    this.tasks.delete(handle);
+  }
+  advance(ms: number): void {
+    this.now += ms;
+    for (const [handle, task] of [...this.tasks]) {
+      if (task.at <= this.now) {
+        this.tasks.delete(handle);
+        task.cb();
+      }
+    }
+  }
+}
+
+/** Flush the observer's async queue so a fired settle settles before asserting. */
+function flush(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+describe('settled modify vs rename/delete of the same path (phantom-create guard)', () => {
+  it('does not phantom-create the old path when a rename fires within the settle window', async () => {
+    // Arrange: an existing, mapped note, wired exactly as production wires the
+    // debounced modify → observer.observeModify seam.
+    const vault = new PhantomVault();
+    vault.files.set('Notes/A.md', 'Body\n');
+    const repo = new MemoryRepository();
+    const observer = createObserver(vault, repo);
+    await observer.observeCreate('Notes/A.md');
+
+    const timer = new TestTimer();
+    const debouncer = new ModifyDebouncer({
+      onSettled: (path) => {
+        void observer.observeModify(path);
+      },
+      delayMs: 1500,
+      timer,
+    });
+
+    // Act: the user edits (modify), then renames the file within the window.
+    vault.files.set('Notes/A.md', 'Body edited\n');
+    debouncer.trigger('Notes/A.md');
+    timer.advance(500);
+    // The production onRename handler fires the rename immediately AND cancels
+    // the pending modify for the old path.
+    vault.files.set('Notes/B.md', 'Body edited\n');
+    vault.files.delete('Notes/A.md');
+    await observer.observeRename('Notes/A.md', 'Notes/B.md');
+    debouncer.cancel('Notes/A.md');
+    // The settle window now elapses.
+    timer.advance(2000);
+    await flush();
+
+    // Assert: exactly one create (the setup) and one rename — no phantom create
+    // for the vacated old path.
+    const kinds = repo.commits.map((commit) => commit.operation.kind);
+    expect(kinds).toEqual(['create', 'rename']);
+    expect(
+      repo.commits.filter(
+        (commit) =>
+          commit.operation.kind === 'create' && commit.operation.path === 'Notes/A.md',
+      ),
+    ).toHaveLength(1);
+    // The edited content landed at the new path.
+    const renamed = [...repo.mappings.values()].find((m) => m.path === 'Notes/B.md');
+    expect(renamed?.content).toBe('Body edited\n');
+  });
+
+  it('does not phantom-create the old path when a delete fires within the settle window', async () => {
+    const vault = new PhantomVault();
+    vault.files.set('Notes/A.md', 'Body\n');
+    const repo = new MemoryRepository();
+    const observer = createObserver(vault, repo);
+    await observer.observeCreate('Notes/A.md');
+
+    const timer = new TestTimer();
+    const debouncer = new ModifyDebouncer({
+      onSettled: (path) => {
+        void observer.observeModify(path);
+      },
+      delayMs: 1500,
+      timer,
+    });
+
+    // Act: edit then delete within the window.
+    vault.files.set('Notes/A.md', 'Body edited\n');
+    debouncer.trigger('Notes/A.md');
+    timer.advance(500);
+    vault.files.delete('Notes/A.md');
+    await observer.observeDelete('Notes/A.md');
+    debouncer.cancel('Notes/A.md');
+    timer.advance(2000);
+    await flush();
+
+    // Assert: create (setup) then delete only — the deleted note never resurrects
+    // as a phantom empty create.
+    const kinds = repo.commits.map((commit) => commit.operation.kind);
+    expect(kinds).toEqual(['create', 'delete']);
+  });
+
+  it('a settled modify for a path no longer on disk never becomes a phantom create (safety net)', async () => {
+    // Belt-and-braces: even without the debounce cancel, an observeModify for a
+    // path that is neither mapped nor on disk must resolve to nothing — never a
+    // fresh fileId + empty create pushed to the peer.
+    const vault = new PhantomVault(); // 'Notes/Gone.md' is absent
+    const repo = new MemoryRepository();
+    const observer = createObserver(vault, repo);
+
+    const op = await observer.observeModify('Notes/Gone.md');
+
+    expect(op).toBeNull();
+    expect(repo.commits).toEqual([]);
+  });
+});

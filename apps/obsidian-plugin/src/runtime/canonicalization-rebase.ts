@@ -24,8 +24,27 @@
  * This is hash-side only — no user file is ever rewritten by the rebase.
  */
 
+import { pathExtension, SYNCABLE_BINARY_EXTENSIONS } from '../obsidian/vault-adapter';
+
 /** The current rebase schema version; bump only if the canonical form changes. */
 export const CANONICALIZATION_REBASE_VERSION = 1;
+
+/** Allowlisted binary extensions (F9), lowercased, no dot — for the fallback below. */
+const BINARY_EXTENSION_SET: ReadonlySet<string> = new Set(SYNCABLE_BINARY_EXTENSIONS);
+
+/**
+ * Whether a stored mapping refers to a binary attachment (F9). Prefers the
+ * durable `contentKind` discriminator, but ALSO treats any path with an
+ * allowlisted binary extension as binary — so even a legacy, kind-less mapping
+ * (persisted before the discriminator was durable) is never markdown-rebased
+ * and its raw-byte hash never corrupted. Belt-and-braces for the BLOCKER.
+ */
+function mappingIsBinary(mapping: StoredMapping): boolean {
+  return (
+    mapping.contentKind === 'binary' ||
+    BINARY_EXTENSION_SET.has(pathExtension(mapping.path))
+  );
+}
 
 /** Read-only vault access the rebase needs. `read` returns raw on-disk bytes. */
 export interface RebaseVaultPort {
@@ -142,7 +161,7 @@ export async function rebaseCanonicalizedHashes(
         continue;
       }
       pathByFileId.set(mapping.fileId, mapping.path);
-      if (mapping.contentKind === 'binary') {
+      if (mappingIsBinary(mapping)) {
         binaryFileIds.add(mapping.fileId);
         nextMappings.push(entry);
         continue;

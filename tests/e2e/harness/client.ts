@@ -86,6 +86,10 @@ class InMemoryVault implements VaultSnapshotPort {
     // is markdown; this mirrors listSyncablePaths for this fixture.
     return [...this.files.keys()];
   }
+
+  async exists(path: string): Promise<boolean> {
+    return this.files.has(path);
+  }
 }
 
 /** In-memory local-change repository; drains committed operations. */

@@ -48,6 +48,10 @@ class ReconciliationVault implements VaultSnapshotPort {
   async listAllPaths(): Promise<readonly string[]> {
     return [...this.contents.keys(), ...this.binaryContents.keys()];
   }
+
+  async exists(path: string): Promise<boolean> {
+    return this.contents.has(path) || this.binaryContents.has(path);
+  }
 }
 
 class ReconciliationRepository implements LocalChangeRepository {

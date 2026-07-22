@@ -44,7 +44,7 @@ export function createRemoteApplyProducerSync(
   getProducer: () => AdoptableProducer | null,
 ): RemoteApplyProducerSync {
   return {
-    async onRemoteWrite({ fileId, path, content, contentHash, revisionId }) {
+    async onRemoteWrite({ fileId, path, content, contentHash, revisionId, contentKind }) {
       const producer = getProducer();
       if (producer === null) return;
       const classified = classifyVaultPath(path);
@@ -53,6 +53,11 @@ export function createRemoteApplyProducerSync(
         collisionKey: classified.collisionKey,
         content,
         contentHash,
+        // Carry the binary discriminator into the durable producer mapping so a
+        // RECEIVED binary is persisted (and rebased) as binary, never markdown.
+        // Absent/markdown is omitted — an absent contentKind already means
+        // markdown, keeping the mapping shape unchanged for text notes.
+        ...(contentKind === 'binary' ? { contentKind: 'binary' } : {}),
         fileId,
         path: classified.canonicalPath,
       };
