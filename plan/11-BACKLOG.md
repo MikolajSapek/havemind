@@ -392,6 +392,53 @@ Naprawione w tej pętli commituje się osobno; poniżej to, co świadomie odło�
     reserved root `Havemind Conflicts/` → takie notatki się NIE synchronizują (under-sync, bezpieczne
     kierunkowo). LOW/usability — tylko nota w dokumentacji dla usera.
 
+- [ ] **AUD-10** `serwer` Drobiazgi z audytu pre-pilotażowego (2026-07-22, żadne nie blokuje)
+  - (a) `/owner/rejoin-grants` bez limitera (celowe, self-flagged w kodzie) — dodać przy
+    najbliższej rundzie serwera; (b) `blobByteHash` w payloadzie binarnym to martwe metadane
+    (zewnętrzny content-addressed hash domyka integralność) — wpiąć jako cross-check
+    defense-in-depth albo poprawić doc-comment; (c) brak capu na współbieżne pushe-in-flight
+    (~100-150 MiB transient/request przy ceilingu) — nieistotne w modelu zaufania 2 osób,
+    istotne przy poszerzeniu granicy zaufania; (d) `#resolveBoundDevice` bierze najnowsze
+    approved urządzenie — rewizja przed multi-device.
+
+## MERGE-3WAY (decyzja usera 2026-07-22: wzorem jest Obsidian Sync / obsidian-livesync)
+
+Research: `docs/research-conflicts.md`. Kolejność wykonania PO fixie kaskady konfliktów.
+
+- [x] **MRG-01** `plugin,sync-core` Automatyczny merge trójstronny ze wspólnym przodkiem
+  - `0f32f65` — diff3 w sync-core (LCS, zero zależności), ancestor = trwały baseContents
+    (hash-weryfikowany, zero zmian serwera), nakładka/przyległość → konserwatywny fallback.
+  - Na dywergencji: 3-way diff liniowy (ancestor z historii rewizji, local, remote);
+    hunki nienakładające się → merge w miejscu, bez kopii; nakładka → dzisiejszy fallback
+    (kopia-konflikt). Detekcja nakładki KONSERWATYWNA (proza ≠ kod; wątpliwość → kopia,
+    nigdy zlepek — udokumentowany failure mode silent-merge Obsidian Sync).
+  - Zero-silent-overwrite pozostaje twardym prawem; merge to rozszerzenie ścieżki
+    convergence, nie osłabienie konfliktu.
+- [x] **MRG-02** `plugin` Czytelne nazwy kopii konfliktów — `0f32f65`
+  - `<notatka> (conflict <autor> <YYYY-MM-DD HHmm>).md`; mapa revisionId→path chroni przed
+    duplikatami przy re-dostarczeniu.
+  - `nazwa notatki (conflict, <urządzenie/autor>, <timestamp>).md` zamiast `<uuid>-<uuid>.md`.
+- [x] **MRG-03** `plugin` Modal rozwiązywania konfliktów w aplikacji — `0f32f65`
+  - Sekcja Conflicts w panelu + modal (diff kolorowy, Keep mine/theirs/both, dwustopniowe
+    potwierdzenie); legacy UUID z podpowiedzią manualną.
+  - Wzór: ConflictResolveModal z obsidian-livesync — diff side-by-side/inline tylko dla
+    realnie nakładających się hunków, wybór strony lub scalanie, bez wychodzenia z Obsidiana.
+- [x] **MRG-05** `plugin` Sweep auto-naprawy istniejących konfliktów — `9fa4305`
+  - Przy starcie pluginu i po każdym pojawieniu się kopii: dla każdej kopii w
+    `Havemind Conflicts/` spróbuj merge trójstronny (ancestor z historii, aktualna notatka,
+    treść kopii); hunki nienakładające się → scal do notatki + usuń kopię (Notice);
+    nakładka → zostaw do modala (MRG-03). Idempotentne, per-item, nigdy nie gubi treści.
+- [x] **SND-01** `plugin` Widoczność kolejki wysyłki — `9fa4305` (+ `4a59817` failed-to-queue)
+  - Panel: „N changes waiting to send" (outbox niepusty >30 s) + sekcja „N failed to send"
+    (kwarantanna) z Retry/Discard per wpis; Notice przy pierwszym wejściu do kwarantanny.
+- [x] **SND-02** `audyt` Adversarialny audyt pełnej ścieżki wysyłki — wykonany 2026-07-22
+  - Znalazł 2 MAJOR (keepTheirs na znikniętej kopii = utrata danych; ciche połknięcia błędów
+    pre-enqueue) + 2 MINOR — wszystkie naprawione w `4a59817`. Ścieżka wysyłki bez cichych
+    punktów utraty.
+- [x] **MRG-04** `docs` CRDT świadomie odrzucone na tym etapie (docs/research-conflicts.md) (koszt trwałego stanu per plik,
+  brak pokrycia binariów/rename, "not production-ready" nawet u dużych) — rewizja dopiero
+  gdyby pojawiła się potrzeba realnej równoczesnej edycji na żywo.
+
 ## GITLAB-IMPORT
 
 - Labels: `fundament`, `serwer`, `plugin`, `sapserver`, `bezpieczeństwo`, `decyzja-usera`.
