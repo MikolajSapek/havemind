@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { Writable } from 'node:stream';
 
 import type Database from 'better-sqlite3';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { buildApp } from '../app.js';
 import { parseServerConfig } from '../config.js';
@@ -444,5 +444,56 @@ describe('deny-by-default auth-routes', () => {
 
     expect(first.statusCode).toBe(401);
     expect(second.statusCode).toBe(429);
+  });
+
+  it('resolves the session at most once per authenticated request through the limited scope', async () => {
+    const fixture = makeFixture();
+    const lookupAccess = vi.spyOn(fixture.sessions, 'lookupAccess');
+    const app = createApp(fixture, { useFixedClientKey: false });
+
+    const response = await app.inject({
+      headers: { authorization: `Bearer ${fixture.accessTokenA}` },
+      method: 'GET',
+      url: `/vaults/${VAULT_A}/members`,
+    });
+
+    expect(response.statusCode).toBe(200);
+    // The onRequest rate limiter and the preHandler auth guard both sit in
+    // front of this route; without the shared stash each would repeat the
+    // 4-table `lookupAccess` join for the same token.
+    expect(lookupAccess).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not call lookupAccess for an unauthenticated request', async () => {
+    const fixture = makeFixture();
+    const lookupAccess = vi.spyOn(fixture.sessions, 'lookupAccess');
+    const app = createApp(fixture, { useFixedClientKey: false });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/vaults/${VAULT_A}/members`,
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(lookupAccess).not.toHaveBeenCalled();
+  });
+
+  it('still authenticates correctly on a route outside the rate limiter scope', async () => {
+    // A custom `clientKey` (as used by most fixtures here) never populates
+    // the stash, so the preHandler must fall back to its own lookup — this
+    // is the same fallback a route registered outside the limited scope
+    // would hit. Exactly one lookup still happens, just from the preHandler.
+    const fixture = makeFixture();
+    const lookupAccess = vi.spyOn(fixture.sessions, 'lookupAccess');
+    const app = createApp(fixture);
+
+    const response = await app.inject({
+      headers: { authorization: `Bearer ${fixture.accessTokenA}` },
+      method: 'GET',
+      url: `/vaults/${VAULT_A}/members`,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(lookupAccess).toHaveBeenCalledTimes(1);
   });
 });

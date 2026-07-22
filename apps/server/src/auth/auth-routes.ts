@@ -61,6 +61,17 @@ export interface AuthRoutesDeps {
 declare module 'fastify' {
   interface FastifyRequest {
     authSession?: AccessSession;
+    /**
+     * Set by the rate limiter's `clientKey` when it already resolved the
+     * bearer token this request carries (see {@link defaultClientKey}), so
+     * the auth `preHandler` can reuse that lookup instead of hitting
+     * `lookupAccess`'s 4-table join a second time. `undefined` means no
+     * lookup has happened yet for this request (custom `clientKey`, or a
+     * route the limiter never ran on) and the preHandler must do its own;
+     * `null` means the lookup ran and found no valid session. Set fresh on
+     * every request object, so it never survives across requests.
+     */
+    resolvedAccessSession?: AccessSession | null;
   }
 }
 
@@ -180,6 +191,9 @@ function defaultClientKey(
       return request.ip;
     }
     const session = sessions.lookupAccess(token);
+    // Stashed so the auth preHandler that runs immediately after this
+    // limiter can reuse the lookup instead of repeating the 4-table join.
+    request.resolvedAccessSession = session;
     if (session === null) {
       return request.ip;
     }
@@ -273,7 +287,14 @@ export function registerAuthRoutes(
       if (token === null) {
         return sendError(reply, 401, 'UNAUTHENTICATED');
       }
-      const session = deps.sessions.lookupAccess(token);
+      // Reuse the rate limiter's lookup when it already resolved this
+      // request's token (see `resolvedAccessSession`'s doc comment); fall
+      // back to a fresh lookup for a custom `clientKey` that skips the
+      // stash, or for any route the limiter hook didn't run on.
+      const session =
+        request.resolvedAccessSession !== undefined
+          ? request.resolvedAccessSession
+          : deps.sessions.lookupAccess(token);
       if (session === null) {
         return sendError(reply, 401, 'UNAUTHENTICATED');
       }
