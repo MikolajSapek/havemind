@@ -127,6 +127,13 @@
   font-size: var(--font-ui-smaller);
 }
 
+/* "Retry now" affordance in the status section — a little breathing room below
+   the status detail so it reads as the way forward out of an offline/terminal
+   state rather than crowding the label. */
+.havemind-retry {
+  margin-top: var(--size-4-2);
+}
+
 /* Quiet one-line placeholder for empty rosters / empty feeds. */
 .havemind-empty {
   color: var(--text-faint);

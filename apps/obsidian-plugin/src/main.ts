@@ -333,6 +333,12 @@ export interface OnboardingViewOptions {
   ) => void;
   /** Stop the live sync loop so the paste form returns. */
   readonly onDisconnect?: () => void;
+  /**
+   * Force an immediate reconnect from a non-synced backoff/terminal state
+   * (offline or reconnect-required), instead of waiting out the sync runner's
+   * backoff. Rendered as the "Retry now" button in the status section.
+   */
+  readonly onRetry?: () => void;
   /** Copy the rendered invitation envelope to the clipboard (never logged). */
   readonly onCopyInvitation?: (envelope: string) => void;
   /** Mint an invitation for the given role and intended-member name. */
@@ -462,6 +468,22 @@ export class HavemindOnboardingView extends ItemView {
     row.createEl('span', { text: ` ${panel.label}` });
     const detail = content.createDiv({ text: panel.detail });
     detail.addClass('havemind-status-detail');
+
+    // A "Retry now" affordance for the non-synced backoff/terminal states
+    // (offline waiting on the sync runner's backoff, or a terminal
+    // reconnect-required). It lets the user force an immediate reconnect rather
+    // than waiting the backoff out. Never shown while synced/syncing (nothing to
+    // retry) or conflict/disconnected (retry cannot help those). Lives in the
+    // panel, not the status bar, since setText clobbers status-bar children.
+    if (
+      this.options.onRetry !== undefined &&
+      (panel.status === 'offline' || panel.status === 'reconnect-required')
+    ) {
+      const retry = content.createEl('button', { text: 'Retry now' });
+      retry.addClass('mod-cta');
+      retry.addClass('havemind-retry');
+      retry.onClickEvent(() => this.options.onRetry?.());
+    }
   }
 
   private renderConnected(content: HTMLElement): void {
@@ -825,6 +847,13 @@ export default class HavemindPlugin extends Plugin {
   private rejoinPollTimer: ReturnType<typeof globalThis.setInterval> | null = null;
   /** Guards the post-rejoin restart so it fires exactly once (no double-start). */
   private rejoinRestarted = false;
+  /**
+   * Guards a user-initiated "Retry now" so a rapid double-click never spawns a
+   * second connection build while the first is still in flight — two live
+   * handles could otherwise be created (one would leak). Cleared once the retry
+   * settles.
+   */
+  private retryInFlight = false;
 
   override onload(): void {
     // Wire the Activity view to the live feed: the log snapshot is mapped through
@@ -862,6 +891,9 @@ export default class HavemindPlugin extends Plugin {
           void this.connectFromInput(input, serverUrl, report);
         },
         onDisconnect: () => this.disconnect(),
+        onRetry: () => {
+          void this.retryConnection();
+        },
         onCopyInvitation: (envelope) => {
           // Move the secret into the clipboard; never log the envelope.
           void copyTextToClipboard(envelope, browserClipboardCopyDeps());
@@ -902,6 +934,13 @@ export default class HavemindPlugin extends Plugin {
 
     this.statusItem = this.addStatusBarItem();
     this.statusItem.addClass('havemind-status-bar');
+    // The status bar is text-only (setText clobbers children), so the Retry
+    // button lives in the panel. Clicking the status bar item opens that panel —
+    // the one place the button and full status detail render. The click listener
+    // sits on the element itself, so subsequent setStatus text updates keep it.
+    this.statusItem.onClickEvent(() => {
+      void this.openView(HAVEMIND_ONBOARDING_VIEW);
+    });
     this.setStatus(formatStatusBar({ status: 'disconnected' }));
 
     this.addSettingTab(new HavemindSettingTab(this.app, this));
@@ -1383,6 +1422,35 @@ export default class HavemindPlugin extends Plugin {
     this.connection?.stop();
     this.connection = null;
     await this.startConnection();
+  }
+
+  /**
+   * User-initiated "Retry now": force an immediate reconnect from a non-synced
+   * backoff/terminal state instead of waiting out the sync runner's backoff.
+   * Reuses the SAME startConnection code path as the layout-ready autostart
+   * (stop-previous → await → guard-against-unload/clobber → assign, the guard
+   * lives inside startConnection) rather than inventing a parallel connect.
+   *
+   * Idempotent under a rapid double-click: the `retryInFlight` guard makes the
+   * second click a no-op while the first build is still awaiting, so two live
+   * handles can never be created.
+   *
+   * Terminal reconnect-required (auth-dead) choice: restart FIRST. The persisted
+   * refresh token may still work, so a plain restart is the option that cannot
+   * make things worse. This deliberately leaves any armed invitee rejoin poll
+   * untouched — if the restart lands back in reconnect-required, that existing
+   * poll (armed by handleStatus) takes over as the fallback.
+   */
+  private async retryConnection(): Promise<void> {
+    if (this.retryInFlight) return;
+    this.retryInFlight = true;
+    try {
+      this.connection?.stop();
+      this.connection = null;
+      await this.startConnection();
+    } finally {
+      this.retryInFlight = false;
+    }
   }
 
   private connectionPanel(): ConnectionPanelView {

@@ -920,6 +920,88 @@ describe('plugin lifecycle', () => {
     expect(disconnected).toBe(1);
   });
 
+  it('renders a "Retry now" button in the status section when offline', async () => {
+    const view = new HavemindOnboardingView(new WorkspaceLeaf(), {
+      panelProvider: () =>
+        buildConnectionPanel({ status: 'offline', serverName: 'sap.ts.net' }),
+      onRetry: () => undefined,
+      onDisconnect: () => undefined,
+    });
+    await view.onOpen();
+
+    const content = (view.containerEl as unknown as MockElement).children[1];
+    const all = flatten(content as MockElement);
+    const retry = all.find(({ text }) => text === 'Retry now');
+    expect(retry).toBeDefined();
+    // English, and the primary-action treatment so it reads as the way forward.
+    expect(retry?.classes).toContain('mod-cta');
+  });
+
+  it('renders "Retry now" for a terminal reconnect-required state', async () => {
+    const view = new HavemindOnboardingView(new WorkspaceLeaf(), {
+      panelProvider: () =>
+        buildConnectionPanel({ status: 'reconnect-required', serverName: 'sap' }),
+      onRetry: () => undefined,
+      onConnect: () => undefined,
+    });
+    await view.onOpen();
+
+    const content = (view.containerEl as unknown as MockElement).children[1];
+    const all = flatten(content as MockElement);
+    expect(all.some(({ text }) => text === 'Retry now')).toBe(true);
+  });
+
+  it.each(['synced', 'syncing'] as const)(
+    'never renders "Retry now" while %s',
+    async (status) => {
+      const view = new HavemindOnboardingView(new WorkspaceLeaf(), {
+        panelProvider: () =>
+          buildConnectionPanel({ status, serverName: 'sap.ts.net' }),
+        onRetry: () => undefined,
+        onDisconnect: () => undefined,
+      });
+      await view.onOpen();
+
+      const content = (view.containerEl as unknown as MockElement).children[1];
+      const all = flatten(content as MockElement);
+      expect(all.some(({ text }) => text === 'Retry now')).toBe(false);
+    },
+  );
+
+  it('forwards a click on "Retry now" to the onRetry action exactly once', async () => {
+    let retried = 0;
+    const view = new HavemindOnboardingView(new WorkspaceLeaf(), {
+      panelProvider: () =>
+        buildConnectionPanel({ status: 'offline', serverName: 'sap.ts.net' }),
+      onRetry: () => {
+        retried += 1;
+      },
+      onDisconnect: () => undefined,
+    });
+    await view.onOpen();
+
+    const content = (view.containerEl as unknown as MockElement).children[1];
+    flatten(content as MockElement)
+      .find(({ text }) => text === 'Retry now')
+      ?.triggerClick();
+
+    expect(retried).toBe(1);
+  });
+
+  it('opens the onboarding panel when the status bar item is clicked', async () => {
+    const app = new App();
+    const plugin = new HavemindPlugin(app, manifest);
+    await plugin.onload();
+
+    const status = registrationState.statusItems[0];
+    await status?.triggerClick();
+
+    expect(app.workspace.rightLeaf?.states).toEqual([
+      { active: true, type: HAVEMIND_ONBOARDING_VIEW },
+    ]);
+    expect(app.workspace.revealedLeaves).toEqual([app.workspace.rightLeaf]);
+  });
+
   it('guards the Connect form against empty input', async () => {
     const captured: string[] = [];
     const view = new HavemindOnboardingView(new WorkspaceLeaf(), {

@@ -235,6 +235,111 @@ function flushMicrotasks(): Promise<void> {
 
 const STATUS_VIEW = { text: 'Havemind: Reconnect required', tooltip: '' };
 
+describe('Retry now (user-initiated reconnect)', () => {
+  beforeEach(() => {
+    resetObsidianMock();
+    adapterMocks.startHavemindConnection.mockReset();
+    adapterMocks.connectFromInput.mockReset();
+    adapterMocks.requestRejoinGrantForOwner.mockReset();
+    adapterMocks.buildRejoinControllerForInvitee.mockReset();
+  });
+
+  it('stops the current handle and restarts through the shared startConnection path', async () => {
+    const plugin = newPlugin();
+    const stale = fakeHandle('stale');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (plugin as any).connection = stale;
+    const fresh = fakeHandle('fresh');
+    adapterMocks.startHavemindConnection.mockResolvedValue(fresh);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (plugin as any).retryConnection();
+
+    expect(stale.stop).toHaveBeenCalledTimes(1);
+    expect(adapterMocks.startHavemindConnection).toHaveBeenCalledTimes(1);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((plugin as any).connection).toBe(fresh);
+    plugin.unload();
+  });
+
+  it('is idempotent under a rapid double-click: exactly one live handle', async () => {
+    const plugin = newPlugin();
+    const stale = fakeHandle('stale');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (plugin as any).connection = stale;
+    const fresh = fakeHandle('fresh');
+    let resolveConnect!: (h: FakeHandle) => void;
+    adapterMocks.startHavemindConnection.mockReturnValue(
+      new Promise<FakeHandle>((resolve) => {
+        resolveConnect = resolve;
+      }),
+    );
+
+    // Two clicks land before the first build resolves; the second must be a
+    // no-op so no second build (and thus no second live handle) is ever created.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const first = (plugin as any).retryConnection() as Promise<void>;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const second = (plugin as any).retryConnection() as Promise<void>;
+    resolveConnect(fresh);
+    await Promise.all([first, second]);
+
+    expect(stale.stop).toHaveBeenCalledTimes(1);
+    expect(adapterMocks.startHavemindConnection).toHaveBeenCalledTimes(1);
+    expect(fresh.stop).not.toHaveBeenCalled();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((plugin as any).connection).toBe(fresh);
+    plugin.unload();
+  });
+
+  it('respects the unload guard: a retry resolving after unload leaves no live handle', async () => {
+    const plugin = newPlugin();
+    const handle = fakeHandle('late');
+    let resolveConnect!: (h: FakeHandle) => void;
+    adapterMocks.startHavemindConnection.mockReturnValue(
+      new Promise<FakeHandle>((resolve) => {
+        resolveConnect = resolve;
+      }),
+    );
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const pending = (plugin as any).retryConnection() as Promise<void>;
+    plugin.unload();
+    resolveConnect(handle);
+    await pending;
+
+    expect(handle.stop).toHaveBeenCalledTimes(1);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((plugin as any).connection).toBeNull();
+  });
+
+  it('restarts on a terminal reconnect-required state while leaving the rejoin poll armed', async () => {
+    const plugin = newPlugin();
+    const controller = { attempt: vi.fn(), getState: () => 'terminal-auth' };
+    adapterMocks.buildRejoinControllerForInvitee.mockResolvedValue(controller);
+    adapterMocks.startHavemindConnection.mockResolvedValue(fakeHandle('resumed'));
+
+    // A terminal auth failure arms the invitee rejoin poll.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (plugin as any).handleStatus('reconnect-required', STATUS_VIEW);
+    await flushMicrotasks();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((plugin as any).rejoinController).toBe(controller);
+
+    // The user clicks Retry now: restart FIRST (persisted creds may still work).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (plugin as any).retryConnection();
+
+    // A restart was attempted …
+    expect(adapterMocks.startHavemindConnection).toHaveBeenCalledTimes(1);
+    // … and the rejoin poll is preserved as the fallback if the restart lands
+    // back in reconnect-required.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((plugin as any).rejoinController).toBe(controller);
+    plugin.unload();
+  });
+});
+
 describe('F9 rejoin wiring', () => {
   beforeEach(() => {
     resetObsidianMock();
