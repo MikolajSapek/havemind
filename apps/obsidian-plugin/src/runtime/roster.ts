@@ -70,6 +70,17 @@ export function upsertRosterMember(
 }
 
 /**
+ * Immutably remove a member by `membershipId`. Returns a new array; never
+ * mutates the input. A membership id that is not present is a harmless no-op.
+ */
+export function removeRosterMember(
+  roster: readonly RosterMember[],
+  membershipId: string,
+): RosterMember[] {
+  return roster.filter((entry) => entry.membershipId !== membershipId);
+}
+
+/**
  * Builds the "Connected" roster view. Rows are ordered owner-first, then by
  * display name, so the list is stable as it grows. Every row carries the
  * connected state + label + colour token together.
@@ -168,6 +179,20 @@ export class RosterStore {
     const data = await this.persist.load();
     const base = isRecord(data) ? data : {};
     const next = upsertRosterMember(parseRoster(data), member);
+    await this.persist.save({ ...base, [ROSTER_KEY]: next });
+    return next;
+  }
+
+  /**
+   * Removes a member (idempotent by membershipId) and persists the roster.
+   * Used when the owner permanently removes a member from the vault; the server
+   * revocation is append-only, and here the owner's local presence list simply
+   * drops the departed member.
+   */
+  async removeMember(membershipId: string): Promise<RosterMember[]> {
+    const data = await this.persist.load();
+    const base = isRecord(data) ? data : {};
+    const next = removeRosterMember(parseRoster(data), membershipId);
     await this.persist.save({ ...base, [ROSTER_KEY]: next });
     return next;
   }

@@ -416,6 +416,35 @@ describe('SessionRepository', () => {
     );
   });
 
+  it('exposes an in-transaction device-revocation primitive', () => {
+    const outside = makeFixture();
+    // The primitive refuses to run outside a write transaction so a partial
+    // revocation can never become durable (mirrors the other …InCurrentTransaction
+    // methods).
+    expectSessionCode(
+      () =>
+        outside.repository.revokeDeviceInCurrentTransaction(outside.deviceId),
+      'INVALID_INPUT',
+    );
+
+    const inside = makeFixture();
+    const run = inside.database.transaction(() => {
+      inside.repository.revokeDeviceInCurrentTransaction(inside.deviceId);
+    });
+    run.immediate();
+    expect(inside.repository.lookupAccess(inside.accessToken)).toBeNull();
+    expect(
+      inside.database
+        .prepare('SELECT status FROM devices WHERE id = ?')
+        .get(inside.deviceId),
+    ).toEqual({ status: 'revoked' });
+    expect(
+      inside.database
+        .prepare('SELECT status FROM refresh_token_families WHERE id = ?')
+        .get(inside.familyId),
+    ).toEqual({ status: 'revoked' });
+  });
+
   it('validates token inputs, TTL, and the clock with secret-free errors', () => {
     const fixture = makeFixture();
     const successor = createRefreshSuccessor();

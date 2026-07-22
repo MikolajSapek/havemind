@@ -7,6 +7,7 @@ const adapterMocks = vi.hoisted(() => ({
   startHavemindConnection: vi.fn(),
   connectFromInput: vi.fn(),
   requestRejoinGrantForOwner: vi.fn(),
+  revokeMembershipForOwner: vi.fn(),
   buildRejoinControllerForInvitee: vi.fn(),
 }));
 
@@ -17,6 +18,7 @@ vi.mock('./runtime/obsidian-adapters', async (importOriginal) => {
     startHavemindConnection: adapterMocks.startHavemindConnection,
     connectFromInput: adapterMocks.connectFromInput,
     requestRejoinGrantForOwner: adapterMocks.requestRejoinGrantForOwner,
+    revokeMembershipForOwner: adapterMocks.revokeMembershipForOwner,
     buildRejoinControllerForInvitee: adapterMocks.buildRejoinControllerForInvitee,
   };
 });
@@ -420,6 +422,7 @@ describe('F9 rejoin wiring', () => {
     adapterMocks.startHavemindConnection.mockReset();
     adapterMocks.connectFromInput.mockReset();
     adapterMocks.requestRejoinGrantForOwner.mockReset();
+    adapterMocks.revokeMembershipForOwner.mockReset();
     adapterMocks.buildRejoinControllerForInvitee.mockReset();
   });
 
@@ -452,6 +455,86 @@ describe('F9 rejoin wiring', () => {
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((plugin as any).rejoinWaiting.has('m-magda')).toBe(false);
+  });
+
+  it('owner removeMember revokes via the adapter and drops the member from the roster', async () => {
+    const plugin = newPlugin();
+    // An in-memory data.json so the roster store can persist and re-read.
+    let store: Record<string, unknown> = {};
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (plugin as any).loadData = async () => store;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (plugin as any).saveData = async (data: Record<string, unknown>) => {
+      store = data;
+    };
+    // Seed the persistent roster with the owner (self) and Magda.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (plugin as any).recordRosterMember({
+      membershipId: 'm-owner',
+      displayName: 'You',
+      role: 'owner',
+      self: true,
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (plugin as any).recordRosterMember({
+      membershipId: 'm-magda',
+      displayName: 'Magda',
+      role: 'editor',
+      self: false,
+    });
+    // The owner had marked Magda disconnected before removing her.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (plugin as any).deadMembershipIds = ['m-magda'];
+
+    adapterMocks.revokeMembershipForOwner.mockResolvedValue({
+      status: 'removed',
+      membershipId: 'm-magda',
+    });
+
+    await (plugin as unknown as {
+      removeMember: (id: string) => Promise<void>;
+    }).removeMember('m-magda');
+
+    expect(adapterMocks.revokeMembershipForOwner).toHaveBeenCalledWith(plugin, {
+      membershipId: 'm-magda',
+    });
+    // Magda disappears from the roster; the owner self row remains.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const members = (plugin as any).rosterMembers as Array<{ membershipId: string }>;
+    expect(members.map((m) => m.membershipId)).toEqual(['m-owner']);
+    // The dead-marker is cleared too, so no stale Rejoin affordance lingers.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((plugin as any).deadMembershipIds).not.toContain('m-magda');
+    // Removal is a control-plane action — it records nothing in the activity feed.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((plugin as any).activityLog.snapshot()).toHaveLength(0);
+  });
+
+  it('does not touch the roster when the owner is not connected (adapter returns null)', async () => {
+    const plugin = newPlugin();
+    let store: Record<string, unknown> = {};
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (plugin as any).loadData = async () => store;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (plugin as any).saveData = async (data: Record<string, unknown>) => {
+      store = data;
+    };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (plugin as any).recordRosterMember({
+      membershipId: 'm-magda',
+      displayName: 'Magda',
+      role: 'editor',
+      self: false,
+    });
+    adapterMocks.revokeMembershipForOwner.mockResolvedValue(null);
+
+    await (plugin as unknown as {
+      removeMember: (id: string) => Promise<void>;
+    }).removeMember('m-magda');
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const members = (plugin as any).rosterMembers as Array<{ membershipId: string }>;
+    expect(members.map((m) => m.membershipId)).toEqual(['m-magda']);
   });
 
   it('arms the invitee poll on terminal auth and restarts the connection exactly once', async () => {

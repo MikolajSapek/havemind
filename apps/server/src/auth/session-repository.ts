@@ -535,7 +535,6 @@ export class SessionRepository {
 
   public revokeDevice(deviceId: string): void {
     requireUuid(deviceId);
-    const now = readClock(this.#now).toISOString();
     const revoke = this.#database.transaction(() => {
       const device = this.#database
         .prepare('SELECT id FROM devices WHERE id = ?')
@@ -543,31 +542,49 @@ export class SessionRepository {
       if (device === undefined) {
         return false;
       }
-      this.#database
-        .prepare(
-          `UPDATE devices
-           SET status = 'revoked', revoked_at = COALESCE(revoked_at, ?)
-           WHERE id = ?`,
-        )
-        .run(now, deviceId);
-      this.#database
-        .prepare(
-          `UPDATE refresh_token_families
-           SET status = 'revoked', revoked_at = COALESCE(revoked_at, ?)
-           WHERE device_id = ?`,
-        )
-        .run(now, deviceId);
-      this.#database
-        .prepare(
-          `UPDATE access_tokens SET revoked_at = COALESCE(revoked_at, ?)
-           WHERE device_id = ?`,
-        )
-        .run(now, deviceId);
+      this.revokeDeviceInCurrentTransaction(deviceId);
       return true;
     });
     if (!revoke.immediate()) {
       throw new SessionRepositoryError('NOT_FOUND');
     }
+  }
+
+  /**
+   * Revokes a device and burns every session bound to it — the device row, all
+   * its refresh families, and all its access tokens — inside the caller's
+   * existing write transaction. This is the primitive membership revocation
+   * composes over, so flipping the membership row and killing each of the
+   * member's devices is one atomic write. Unavailable outside a transaction so
+   * a partial revocation can never become durable (mirrors the other
+   * `…InCurrentTransaction` methods).
+   */
+  public revokeDeviceInCurrentTransaction(deviceId: string): void {
+    if (!this.#database.inTransaction) {
+      throw new SessionRepositoryError('INVALID_INPUT');
+    }
+    requireUuid(deviceId);
+    const now = readClock(this.#now).toISOString();
+    this.#database
+      .prepare(
+        `UPDATE devices
+         SET status = 'revoked', revoked_at = COALESCE(revoked_at, ?)
+         WHERE id = ?`,
+      )
+      .run(now, deviceId);
+    this.#database
+      .prepare(
+        `UPDATE refresh_token_families
+         SET status = 'revoked', revoked_at = COALESCE(revoked_at, ?)
+         WHERE device_id = ?`,
+      )
+      .run(now, deviceId);
+    this.#database
+      .prepare(
+        `UPDATE access_tokens SET revoked_at = COALESCE(revoked_at, ?)
+         WHERE device_id = ?`,
+      )
+      .run(now, deviceId);
   }
 
   #rotateInTransaction(

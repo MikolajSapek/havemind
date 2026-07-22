@@ -1121,6 +1121,65 @@ describe('plugin lifecycle', () => {
     expect(marked).toEqual(['m-magda']);
   });
 
+  it('renders a Remove button on non-self members only, in any connection state', async () => {
+    const view = new HavemindOnboardingView(new WorkspaceLeaf(), {
+      panelProvider: () =>
+        buildConnectionPanel({ status: 'synced', serverName: 'sap.ts.net' }),
+      rejoinRosterProvider: () =>
+        buildRejoinRosterView([
+          { membershipId: 'm-owner', displayName: 'You', role: 'owner', self: true },
+          { membershipId: 'm-magda', displayName: 'Magda', role: 'editor', self: false },
+        ]),
+      rejoinWaitingProvider: () => new Set<string>(),
+      onRemove: () => undefined,
+    });
+    await view.onOpen();
+
+    const content = (view.containerEl as unknown as MockElement).children[1];
+    const all = flatten(content as MockElement);
+    // Exactly one Remove button — on the non-self member, never the owner self row.
+    // (Everyone is connected, so Remove is offered independent of the dead set.)
+    expect(all.filter(({ text }) => text === 'Remove')).toHaveLength(1);
+    // The destructive treatment, never the primary-action class.
+    const remove = all.find(({ text }) => text === 'Remove');
+    expect(remove?.classes).toContain('mod-warning');
+    expect(remove?.classes).not.toContain('mod-cta');
+  });
+
+  it('arms an inline two-step confirm before removing and forwards the id once', async () => {
+    const removed: string[] = [];
+    const view = new HavemindOnboardingView(new WorkspaceLeaf(), {
+      panelProvider: () =>
+        buildConnectionPanel({ status: 'synced', serverName: 'sap.ts.net' }),
+      rejoinRosterProvider: () =>
+        buildRejoinRosterView([
+          { membershipId: 'm-magda', displayName: 'Magda', role: 'editor', self: false },
+        ]),
+      rejoinWaitingProvider: () => new Set<string>(),
+      onRemove: (membershipId) => removed.push(membershipId),
+    });
+    await view.onOpen();
+
+    const content = (view.containerEl as unknown as MockElement).children[1];
+    const remove = flatten(content as MockElement).find(
+      ({ text }) => text === 'Remove',
+    );
+    expect(remove).toBeDefined();
+
+    // First click only arms the confirm step — nothing is removed yet.
+    remove?.triggerClick();
+    expect(removed).toEqual([]);
+    expect(remove?.text).toBe('Confirm remove');
+
+    // Second click executes the removal exactly once.
+    remove?.triggerClick();
+    expect(removed).toEqual(['m-magda']);
+
+    // A third stray click does not fire a second removal.
+    remove?.triggerClick();
+    expect(removed).toEqual(['m-magda']);
+  });
+
   it('removes registered resources and detached views during unload', async () => {
     const app = new App();
     const plugin = new HavemindPlugin(app, manifest);

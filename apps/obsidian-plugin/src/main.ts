@@ -43,6 +43,7 @@ import {
   connectFromInput,
   createInvitationForOwner,
   requestRejoinGrantForOwner,
+  revokeMembershipForOwner,
   startHavemindConnection,
   type ConnectionHandle,
 } from './runtime/obsidian-adapters';
@@ -96,6 +97,8 @@ interface RejoinRosterActions {
   readonly onRejoin?: (membershipId: string) => void;
   /** Owner asserts a connected contact fell off, arming its Rejoin affordance. */
   readonly onMarkDisconnected?: (membershipId: string) => void;
+  /** Owner permanently removes a member from the vault (destructive, two-step). */
+  readonly onRemove?: (membershipId: string) => void;
 }
 
 /**
@@ -155,6 +158,35 @@ function renderRejoinRoster(
       const mark = item.createEl('button', { text: 'Mark disconnected' });
       mark.addClass('havemind-roster-action');
       mark.onClickEvent(() => actions.onMarkDisconnected?.(row.membershipId));
+    }
+
+    // Remove is offered on every non-self member regardless of connection
+    // state. It is destructive (mod-warning, never mod-cta) and gated behind an
+    // inline two-step confirm: the first click arms "Confirm remove", the second
+    // click within the same render executes. No window.confirm — it blocks
+    // Electron and would freeze the pane.
+    if (row.removable && actions.onRemove) {
+      let armed = false;
+      let executed = false;
+      const remove = item.createEl('button', { text: 'Remove' });
+      remove.addClass('mod-warning');
+      remove.addClass('havemind-roster-action');
+      remove.onClickEvent(() => {
+        if (executed) {
+          return;
+        }
+        if (!armed) {
+          armed = true;
+          remove.setText('Confirm remove');
+          remove.addClass('havemind-roster-action-armed');
+          return;
+        }
+        // Fire exactly once: the success path re-renders the roster (dropping
+        // this row), but guard here too so a stray click before that re-render
+        // can never submit a second removal.
+        executed = true;
+        actions.onRemove?.(row.membershipId);
+      });
     }
   }
 }
@@ -321,6 +353,8 @@ export interface OnboardingViewOptions {
   readonly onRejoin?: (membershipId: string) => void;
   /** Owner marks a connected contact disconnected, arming its Rejoin button. */
   readonly onMarkDisconnected?: (membershipId: string) => void;
+  /** Owner permanently removes a member from the vault (two-step confirm in UI). */
+  readonly onRemove?: (membershipId: string) => void;
   /**
    * Runs the connect flow for the pasted input (invitation envelope `v1.…` or
    * owner pairing token `hm_pt_…`) against the given server URL, reporting
@@ -507,6 +541,9 @@ export class HavemindOnboardingView extends ItemView {
       ...(this.options.onMarkDisconnected === undefined
         ? {}
         : { onMarkDisconnected: this.options.onMarkDisconnected }),
+      ...(this.options.onRemove === undefined
+        ? {}
+        : { onRemove: this.options.onRemove }),
     });
   }
 
@@ -898,6 +935,9 @@ export default class HavemindPlugin extends Plugin {
         },
         onMarkDisconnected: (membershipId) =>
           this.markMemberDisconnected(membershipId),
+        onRemove: (membershipId) => {
+          void this.removeMember(membershipId);
+        },
         onConnect: (input, serverUrl, report) => {
           void this.connectFromInput(input, serverUrl, report);
         },
@@ -1351,6 +1391,47 @@ export default class HavemindPlugin extends Plugin {
     } catch (error) {
       new Notice(
         `Havemind: could not request rejoin — ${
+          error instanceof Error ? error.message : 'unexpected error'
+        }`,
+      );
+    }
+  }
+
+  /**
+   * Owner action: permanently remove a member from the vault. Revokes the
+   * membership server-side (append-only — the member's past revisions and
+   * attribution survive; their sessions are burned and they are terminally
+   * locked out), then drops the member from the local roster and clears any
+   * dead/waiting markers so no stale Rejoin affordance lingers. This is a
+   * control-plane action and records nothing in the Activity feed. On success a
+   * confirmation Notice names the removed member.
+   */
+  private async removeMember(membershipId: string): Promise<void> {
+    const member = this.rosterMembers.find(
+      (entry) => entry.membershipId === membershipId,
+    );
+    const displayName = member?.displayName ?? 'member';
+    try {
+      const removed = await revokeMembershipForOwner(this, { membershipId });
+      if (removed === null) {
+        new Notice(
+          'Havemind: connect as the vault owner before removing a member.',
+        );
+        return;
+      }
+      this.rosterMembers = await this.rosterStore().removeMember(membershipId);
+      this.deadMembershipIds = this.deadMembershipIds.filter(
+        (id) => id !== membershipId,
+      );
+      this.rejoinWaiting = new Set(
+        [...this.rejoinWaiting].filter((id) => id !== membershipId),
+      );
+      new Notice(`Removed ${displayName} from the vault.`);
+      this.onboardingView?.refresh();
+      this.activityView?.refresh();
+    } catch (error) {
+      new Notice(
+        `Havemind: could not remove member — ${
           error instanceof Error ? error.message : 'unexpected error'
         }`,
       );

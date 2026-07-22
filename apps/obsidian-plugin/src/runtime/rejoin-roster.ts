@@ -33,6 +33,13 @@ export interface RejoinRosterRowView {
    * A connected member and the owner's own row are never rejoinable.
    */
   readonly rejoinable: boolean;
+  /**
+   * True for every non-self member: the owner may permanently remove them from
+   * the vault. Unlike `rejoinable`, this is independent of connection state — a
+   * member can be removed whether connected or disconnected. The owner's own row
+   * is never removable.
+   */
+  readonly removable: boolean;
   readonly colorToken: string;
   readonly self: boolean;
 }
@@ -69,6 +76,9 @@ export function buildRejoinRosterView(
         displayName: member.displayName,
         membershipId: member.membershipId,
         rejoinable: isDead,
+        // Removal is state-independent: every non-self member can be removed,
+        // connected or not. The owner's own row is never removable.
+        removable: !member.self,
         role: member.role,
         self: member.self,
         statusLabel: isDead ? 'disconnected' : 'connected',

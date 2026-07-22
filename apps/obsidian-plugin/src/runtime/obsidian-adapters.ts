@@ -88,6 +88,7 @@ import {
   requestRejoinGrant,
   type RejoinGrantWaiting,
 } from './rejoin';
+import { revokeMembership, type MembershipRemoved } from './remove-member';
 import {
   buildConnectionResolvers,
   isConnectedOnboardingState,
@@ -1488,6 +1489,45 @@ export async function requestRejoinGrantForOwner(
   });
 
   return requestRejoinGrant({
+    apiBaseUrl: connected.apiBaseUrl,
+    requestUrl: createRequestUrlFn(),
+    getAccessToken: () => accessProvider.getAccessToken(),
+    membershipId: options.membershipId,
+  });
+}
+
+/**
+ * Owner action: permanently remove a member from the connected vault via the
+ * authenticated transport. Returns `null` when this device is not connected as
+ * the vault owner (nothing to authenticate with); otherwise resolves once the
+ * server has revoked the membership. Nothing secret is sent or logged.
+ */
+export async function revokeMembershipForOwner(
+  plugin: Plugin,
+  options: { membershipId: string },
+): Promise<MembershipRemoved | null> {
+  const connected = await resolveConnectedVault(plugin);
+  if (connected === null) {
+    return null;
+  }
+
+  const clientInstanceId = await ensureClientInstanceId(
+    createClientInstanceRepo(plugin),
+  );
+  const secrets = new ObsidianOnboardingSecrets({
+    clientInstanceId,
+    secretStorage: plugin.app.secretStorage,
+  });
+  const accessProvider = new RefreshTokenAccessProvider({
+    requestUrl: createRequestUrlFn(),
+    apiBaseUrl: connected.apiBaseUrl,
+    getRefreshToken: () => secrets.getRefreshToken(),
+    saveRefreshToken: (value) => secrets.saveRefreshToken(value),
+    generateRotationId: generateRotationIdValue,
+    generateSuccessorToken: generateRefreshTokenValue,
+  });
+
+  return revokeMembership({
     apiBaseUrl: connected.apiBaseUrl,
     requestUrl: createRequestUrlFn(),
     getAccessToken: () => accessProvider.getAccessToken(),

@@ -12,6 +12,7 @@ import Fastify, { LogController, type FastifyInstance } from 'fastify';
 
 import { registerAuthRoutes, type AuthRoutesDeps } from './auth/auth-routes.js';
 import { registerRejoinRoutes } from './auth/rejoin-routes.js';
+import { registerRevokeRoutes } from './auth/revoke-routes.js';
 import type { ServerConfig } from './config.js';
 
 const LOGGER_REDACTION_PATHS = [
@@ -100,6 +101,14 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
       ...(options.auth.rateLimit === undefined
         ? {}
         : { rateLimit: options.auth.rateLimit }),
+    });
+    // F9 remove-member surface: another self-contained encapsulated plugin
+    // registered alongside (not inside) auth-routes, so the owner permanently
+    // revoking a member's connection needs no change to the auth-routes module.
+    registerRevokeRoutes(app, {
+      database: options.auth.database,
+      sessions: options.auth.sessions,
+      ...(options.auth.now === undefined ? {} : { now: options.auth.now }),
     });
   }
 

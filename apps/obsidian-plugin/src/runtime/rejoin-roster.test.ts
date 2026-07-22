@@ -74,4 +74,24 @@ describe('buildRejoinRosterView', () => {
   it('is empty for an empty roster', () => {
     expect(buildRejoinRosterView([]).empty).toBe(true);
   });
+
+  it('marks every non-self member removable and never the owner self row', () => {
+    const view = buildRejoinRosterView([owner, magda]);
+    const ownerRow = view.rows.find((row) => row.membershipId === 'm-owner');
+    const magdaRow = view.rows.find((row) => row.membershipId === 'm-magda');
+    expect(ownerRow?.removable).toBe(false);
+    expect(magdaRow?.removable).toBe(true);
+  });
+
+  it('keeps a member removable whether it is connected or disconnected', () => {
+    const connected = buildRejoinRosterView([owner, magda]);
+    const disconnected = buildRejoinRosterView([owner, magda], ['m-magda']);
+    expect(
+      connected.rows.find((row) => row.membershipId === 'm-magda')?.removable,
+    ).toBe(true);
+    expect(
+      disconnected.rows.find((row) => row.membershipId === 'm-magda')
+        ?.removable,
+    ).toBe(true);
+  });
 });

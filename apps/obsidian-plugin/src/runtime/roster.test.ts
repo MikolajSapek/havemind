@@ -4,6 +4,7 @@ import { authorColorToken } from './author-colors';
 import {
   buildRosterView,
   parseRoster,
+  removeRosterMember,
   RosterStore,
   upsertRosterMember,
   type RosterMember,
@@ -146,5 +147,42 @@ describe('RosterStore', () => {
       [],
     );
     expect(parseRoster(null)).toEqual([]);
+  });
+
+  it('removes a member from the persisted roster and returns the survivors', async () => {
+    const { port, data } = fakePersist();
+    const store = new RosterStore({ persist: port });
+    await store.recordMember(owner());
+    await store.recordMember(magda());
+
+    const remaining = await store.removeMember('m-magda');
+    expect(remaining.map((m) => m.membershipId)).toEqual(['m-owner']);
+    // The persisted roster no longer contains the removed member.
+    const reread = await store.readMembers();
+    expect(reread.map((m) => m.membershipId)).toEqual(['m-owner']);
+    expect(data()).toHaveProperty('approvedMembersRoster');
+  });
+
+  it('preserves other plugin-data keys when removing a member', async () => {
+    const { port, data } = fakePersist({ syncState: { version: 1 } });
+    const store = new RosterStore({ persist: port });
+    await store.recordMember(magda());
+    await store.removeMember('m-magda');
+    expect(data().syncState).toEqual({ version: 1 });
+  });
+});
+
+describe('removeRosterMember', () => {
+  it('drops the member by membershipId without mutating the input', () => {
+    const input = [owner(), magda()];
+    const next = removeRosterMember(input, 'm-magda');
+    expect(next.map((m) => m.membershipId)).toEqual(['m-owner']);
+    // The original array is untouched (immutability).
+    expect(input.map((m) => m.membershipId)).toEqual(['m-owner', 'm-magda']);
+  });
+
+  it('is a no-op when the member is not present', () => {
+    const next = removeRosterMember([owner()], 'm-unknown');
+    expect(next.map((m) => m.membershipId)).toEqual(['m-owner']);
   });
 });
