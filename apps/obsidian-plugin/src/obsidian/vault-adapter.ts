@@ -155,7 +155,17 @@ export interface VaultChangeObserverOptions {
 }
 
 export function classifyVaultPath(path: string): VaultPathClassification {
-  const canonicalPath = path.normalize('NFC');
+  // Producer boundary: normalise Windows backslash separators to the forward
+  // slashes the wire contract mandates BEFORE any classification. Obsidian's
+  // vault API normally yields forward slashes, but a backslash path (from a
+  // Windows path join, a plugin, or an OS quirk) would otherwise be classified
+  // eligible here and then throw inside `canonicalizeVaultPath` at envelope-build
+  // time — a throw that kills the entire push cycle and latches the device
+  // "Offline" forever (the Windows field bug). Normalising first keeps the wire
+  // path forward-slash and self-consistent with the peer's collision key, while
+  // the on-disk read still uses the caller's original path. Backslash is not a
+  // legal wire path character regardless, so this can never mask a real edit.
+  const canonicalPath = path.replace(/\\/gu, '/').normalize('NFC');
   const kind = eligibleKind(canonicalPath);
   if (kind === null) {
     return { eligible: false };
