@@ -197,7 +197,7 @@ describe('runStaleCleanup', () => {
   });
 
   it('removes only expired and consumed invitations, leaving the fresh one', () => {
-    const result = runStaleCleanup(database);
+    const result = runStaleCleanup(database, { now: () => NOW });
 
     expect(invitationExists(database, context.expiredInvitationId)).toBe(
       false,
@@ -216,7 +216,7 @@ describe('runStaleCleanup', () => {
   });
 
   it('removes the old pending device but leaves the fresh pending device', () => {
-    const result = runStaleCleanup(database);
+    const result = runStaleCleanup(database, { now: () => NOW });
 
     expect(deviceExists(database, context.stalePendingDeviceId)).toBe(false);
     expect(deviceExists(database, context.freshPendingDeviceId)).toBe(true);
@@ -224,14 +224,17 @@ describe('runStaleCleanup', () => {
   });
 
   it('never touches the approved device', () => {
-    runStaleCleanup(database);
+    runStaleCleanup(database, { now: () => NOW });
 
     expect(deviceExists(database, context.approvedDeviceId)).toBe(true);
   });
 
   it('respects a custom --pending-older-than-hours threshold', () => {
     // With a 72h threshold, the "old" pending device (48h) is not old enough.
-    const result = runStaleCleanup(database, { pendingOlderThanHours: 72 });
+    const result = runStaleCleanup(database, {
+      now: () => NOW,
+      pendingOlderThanHours: 72,
+    });
 
     expect(deviceExists(database, context.stalePendingDeviceId)).toBe(true);
     expect(result.pendingDevicesRemoved).toBe(0);
@@ -244,7 +247,7 @@ describe('runStaleCleanup', () => {
       .prepare('UPDATE invitations SET inviter_device_id = ? WHERE id = ?')
       .run(context.stalePendingDeviceId, context.freshInvitationId);
 
-    const result = runStaleCleanup(database);
+    const result = runStaleCleanup(database, { now: () => NOW });
 
     expect(deviceExists(database, context.stalePendingDeviceId)).toBe(true);
     expect(result.pendingDevicesRemoved).toBe(0);
@@ -252,7 +255,7 @@ describe('runStaleCleanup', () => {
   });
 
   it('dry-run reports counts without deleting anything', () => {
-    const result = runStaleCleanup(database, { dryRun: true });
+    const result = runStaleCleanup(database, { dryRun: true, now: () => NOW });
 
     expect(result.invitationsRemoved).toBe(3);
     expect(result.pendingDevicesRemoved).toBe(1);
@@ -264,7 +267,7 @@ describe('runStaleCleanup', () => {
 
   it('rejects a negative pendingOlderThanHours', () => {
     expect(() =>
-      runStaleCleanup(database, { pendingOlderThanHours: -1 }),
+      runStaleCleanup(database, { now: () => NOW, pendingOlderThanHours: -1 }),
     ).toThrow(RangeError);
   });
 });

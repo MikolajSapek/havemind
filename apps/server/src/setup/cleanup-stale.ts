@@ -26,6 +26,7 @@ import type Database from 'better-sqlite3';
 export interface CleanupStaleOptions {
   readonly pendingOlderThanHours?: number;
   readonly dryRun?: boolean;
+  readonly now?: () => Date;
 }
 
 export interface CleanupStaleResult {
@@ -112,9 +113,11 @@ export function runStaleCleanup(
     );
   }
   const dryRun = options.dryRun ?? false;
-  const nowIso = new Date().toISOString();
+  const now = options.now ?? (() => new Date());
+  const nowMs = now().getTime();
+  const nowIso = new Date(nowMs).toISOString();
   const thresholdIso = new Date(
-    Date.now() - pendingOlderThanHours * 60 * 60 * 1000,
+    nowMs - pendingOlderThanHours * 60 * 60 * 1000,
   ).toISOString();
 
   const sweep = database.transaction((): CleanupStaleResult => {
