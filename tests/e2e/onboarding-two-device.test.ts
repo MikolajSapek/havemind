@@ -64,6 +64,10 @@ import { RefreshTokenAccessProvider } from '../../apps/obsidian-plugin/src/runti
 import { RequestUrlTransport, type RequestUrlFn } from '../../apps/obsidian-plugin/src/runtime/sync-transport.js';
 import { DurableSyncState } from '../../apps/obsidian-plugin/src/runtime/sync-state.js';
 import { VaultApplyAdapter, type VaultFilePort } from '../../apps/obsidian-plugin/src/runtime/vault-apply.js';
+import {
+  applyLocalMaterialization,
+  forgetLocalMaterialization,
+} from '../../apps/obsidian-plugin/src/runtime/local-base-lifecycle.js';
 import { buildConnectionResolvers } from '../../apps/obsidian-plugin/src/runtime/connection.js';
 import {
   OutboxLocalChangeRepository,
@@ -303,6 +307,14 @@ class DeviceRuntime {
    * is what makes the fresh-device subfolder catch-up a genuine end-to-end
    * regression test rather than a flat-map no-op. */
   readonly folders = new Set<string>();
+  /** Reflected vault mutations (path + create/modify) queued by the apply-side
+   * writes, exactly as real Obsidian fires `vault.on('create'|'modify')` after
+   * a `vault.create`/`vault.modify`. Drained back through the SAME
+   * `VaultChangeObserver` the production plugin wires (obsidian-adapters
+   * `vault.on(...)` → `observeCreate`/`observeModify`), so a remote-apply write
+   * is re-observed just like on a live device. Without this the harness never
+   * exercised the re-entrancy guard on the receive side. */
+  private readonly reflected: Array<{ path: string; kind: 'create' | 'modify' }> = [];
   private readonly state: DurableSyncState;
   private readonly runner: SyncRunner;
   private readonly observer: VaultChangeObserver;
@@ -403,6 +415,13 @@ class DeviceRuntime {
       store,
       enqueue: (envelope) => this.state.enqueue(envelope),
       generateRevisionId: () => randomUUID(),
+      // Seed the SHARED apply-store ownership+base for every file this device
+      // authors/pushes, exactly as the production `startPushProducer` wiring
+      // does (obsidian-adapters). Without it a locally-authored file's base is
+      // never seeded, so a concurrent peer edit to it can't be classified —
+      // the very case the divergence regression below exercises.
+      onLocalMaterialized: (m) => applyLocalMaterialization(this.state, m),
+      onLocalForgotten: (f) => forgetLocalMaterialization(this.state, f),
     });
     this.observer = new VaultChangeObserver({
       clock: () => 0,
@@ -469,7 +488,24 @@ class DeviceRuntime {
   }
 
   async sync(): Promise<SyncCycleResult> {
-    return this.runner.trigger();
+    const result = await this.runner.trigger();
+    // Real Obsidian fires vault events for the writes the apply side just made;
+    // the production plugin routes them back through the SAME observer
+    // (obsidian-adapters `vault.on('create'|'modify')`). Replay them here so the
+    // re-entrancy guard is exercised on the receive side exactly as in the field.
+    await this.drainReflected();
+    return result;
+  }
+
+  private async drainReflected(): Promise<void> {
+    const events = this.reflected.splice(0);
+    for (const event of events) {
+      if (event.kind === 'create') {
+        await this.observer.observeCreate(event.path);
+      } else {
+        await this.observer.observeModify(event.path);
+      }
+    }
   }
 
   private snapshotPort(): VaultSnapshotPort {
@@ -540,27 +576,31 @@ class DeviceRuntime {
           bytes.byteOffset + bytes.byteLength,
         ) as ArrayBuffer;
       },
-      async create(path: string, content: string): Promise<{ path: string }> {
+      create: async (path: string, content: string): Promise<{ path: string }> => {
         assertParentFolderExists(path);
         files.set(path, content);
+        this.reflected.push({ path, kind: 'create' });
         return fileAt(path);
       },
-      async createBinary(
+      createBinary: async (
         path: string,
         data: ArrayBuffer,
-      ): Promise<{ path: string }> {
+      ): Promise<{ path: string }> => {
         assertParentFolderExists(path);
         binaryFiles.set(path, new Uint8Array(data));
+        this.reflected.push({ path, kind: 'create' });
         return fileAt(path);
       },
-      async modify(file: { path: string }, content: string): Promise<void> {
+      modify: async (file: { path: string }, content: string): Promise<void> => {
         files.set(file.path, content);
+        this.reflected.push({ path: file.path, kind: 'modify' });
       },
-      async modifyBinary(
+      modifyBinary: async (
         file: { path: string },
         data: ArrayBuffer,
-      ): Promise<void> {
+      ): Promise<void> => {
         binaryFiles.set(file.path, new Uint8Array(data));
+        this.reflected.push({ path: file.path, kind: 'modify' });
       },
       async delete(file: { path: string }): Promise<void> {
         files.delete(file.path);
@@ -875,6 +915,115 @@ describe('two-device onboarding + sync (Magda) against a real opaque server', ()
         throw new Error('expected a binary conflict artifact path');
       }
       expect(invitee.readBinary(conflictPath)).toEqual(pngOwnerV2);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('BUG A repro: create empty note then push N successive updates — receiver materializes create AND applies every update in place, zero conflict artifacts', async () => {
+    const server = await TwoDeviceServer.create();
+    try {
+      const { owner, invitee } = await connectTwoDevices(server);
+      const path = 'Live typing.md';
+
+      // Receiver (M, owner) is long-lived: it already authored a backlog the
+      // fresh invitee caught up over (the field's 70-event catch-up + rebase).
+      for (let i = 0; i < 5; i += 1) {
+        await owner.edit(`Backlog ${i}.md`, `backlog ${i}\n`);
+      }
+      expect((await owner.sync()).status).toBe('synced');
+      expect((await invitee.sync()).status).toBe('synced');
+
+      // Writer (W, invitee) creates an EMPTY note (title only, no body), then
+      // types content in bursts — each burst a separate update revision. W
+      // pushes the whole burst series BEFORE M's next poll, so M pulls the
+      // create + every update in ONE cycle (M polls on an interval while W
+      // types) — the exact live topology.
+      await invitee.edit(path, '');
+      expect((await invitee.sync()).status).toBe('synced');
+
+      const bursts = ['a', 'ab', 'abc', 'abcd', 'abcde'];
+      for (const content of bursts) {
+        await invitee.edit(path, content);
+        expect((await invitee.sync()).status).toBe('synced');
+      }
+
+      // Receiver (M, owner) pulls the create + all updates in one batch. The
+      // create materializes a 0-byte file; every update must then apply IN
+      // PLACE, converging to the last version — never divert to a conflict.
+      expect((await owner.sync()).status).toBe('synced');
+
+      // Final state: content converged, ZERO conflict artifacts.
+      expect(canonicalizeMarkdown(owner.read(path) ?? '')).toBe(
+        canonicalizeMarkdown('abcde'),
+      );
+      const conflictArtifacts = [...owner.files.keys()].filter((candidate) =>
+        candidate.startsWith(`${CONFLICT_FOLDER}/`),
+      );
+      expect(conflictArtifacts).toEqual([]);
+
+      // The receiver must NOT have re-pushed the peer's edits as its own (the
+      // re-entrancy guard): a reflected vault event that escaped dedup would
+      // enqueue a spurious revision. After a final settle cycle the outbox is
+      // empty and the server holds exactly the writer's 6 revisions + the
+      // owner's 5-note backlog — no reflected re-push.
+      expect((await owner.sync()).status).toBe('synced');
+      expect(await owner.outboxSize()).toBe(0);
+      expect(await invitee.outboxSize()).toBe(0);
+      expect(server.revisionCount()).toBe(11);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('a REAL concurrent divergence (receiver edited locally while the peer update was in flight) produces exactly ONE conflict artifact and never overwrites the local edit', async () => {
+    const server = await TwoDeviceServer.create();
+    try {
+      const { owner, invitee } = await connectTwoDevices(server);
+      const path = 'Shared note.md';
+
+      // Both devices converge on a shared note authored by the invitee.
+      await invitee.edit(path, 'base\n');
+      expect((await invitee.sync()).status).toBe('synced');
+      expect((await owner.sync()).status).toBe('synced');
+      expect(canonicalizeMarkdown(owner.read(path) ?? '')).toBe(
+        canonicalizeMarkdown('base\n'),
+      );
+
+      // Concurrent divergence: each device edits the SAME note independently,
+      // neither having seen the other's edit. The invitee pushes first.
+      await invitee.edit(path, 'invitee wins\n');
+      await owner.edit(path, 'owner LOCAL edit\n');
+      expect((await invitee.sync()).status).toBe('synced');
+
+      // Owner pushes its own divergent edit (a second DAG branch) and pulls the
+      // invitee's in the same cycle. The on-disk file (owner's own edit) differs
+      // from BOTH the incoming content and the recorded base, so the apply side
+      // must divert to a conflict artifact — never silently overwrite (rule 3).
+      const cycle = await owner.sync();
+      expect(cycle.status).toBe('conflict');
+
+      // The live file keeps the owner's OWN local edit — never overwritten.
+      expect(canonicalizeMarkdown(owner.read(path) ?? '')).toBe(
+        canonicalizeMarkdown('owner LOCAL edit\n'),
+      );
+      // Exactly ONE conflict artifact carrying the peer's incoming content.
+      const conflictArtifacts = [...owner.files.keys()].filter((candidate) =>
+        candidate.startsWith(`${CONFLICT_FOLDER}/`),
+      );
+      expect(conflictArtifacts).toHaveLength(1);
+      const [conflictPath] = conflictArtifacts;
+      if (conflictPath === undefined) throw new Error('expected a conflict artifact');
+      expect(canonicalizeMarkdown(owner.read(conflictPath) ?? '')).toBe(
+        canonicalizeMarkdown('invitee wins\n'),
+      );
+
+      // A further settle cycle is idempotent — no second conflict artifact.
+      await owner.sync();
+      const after = [...owner.files.keys()].filter((candidate) =>
+        candidate.startsWith(`${CONFLICT_FOLDER}/`),
+      );
+      expect(after).toHaveLength(1);
     } finally {
       await server.close();
     }
