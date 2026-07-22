@@ -103,9 +103,10 @@ function renderRejoinRoster(
 ): void {
   content.createEl('h4', { text: 'Connected' });
   if (roster.empty) {
-    content.createDiv({
+    const empty = content.createDiv({
       text: 'No members yet. Approved devices appear here as connected.',
     });
+    empty.addClass('havemind-empty');
     return;
   }
   for (const row of roster.rows) {
@@ -130,11 +131,14 @@ function renderRejoinRoster(
         status.addClass('havemind-rejoin-waiting');
       } else {
         const rejoin = item.createEl('button', { text: 'Rejoin' });
+        rejoin.addClass('mod-cta');
+        rejoin.addClass('havemind-roster-action');
         rejoin.onClickEvent(() => actions.onRejoin?.(row.membershipId));
       }
     } else if (row.connected && !row.self && actions.onMarkDisconnected) {
       // Owner-asserted disconnect: clicking arms this contact's Rejoin button.
       const mark = item.createEl('button', { text: 'Mark disconnected' });
+      mark.addClass('havemind-roster-action');
       mark.onClickEvent(() => actions.onMarkDisconnected?.(row.membershipId));
     }
   }
@@ -180,13 +184,15 @@ class HavemindActivityView extends ItemView {
     if (!content) return;
 
     content.empty();
+    content.addClass('havemind-view');
     content.createEl('h3', { text: 'Havemind activity' });
 
     const model = buildActivityViewModel(this.options.feedProvider?.() ?? [], {
       formatTimestamp: formatActivityTime,
     });
     if (model.empty) {
-      content.createDiv({ text: EMPTY_ACTIVITY_TEXT });
+      const empty = content.createDiv({ text: EMPTY_ACTIVITY_TEXT });
+      empty.addClass('havemind-empty');
       return;
     }
 
@@ -200,6 +206,7 @@ class HavemindActivityView extends ItemView {
       // unchanged; the time is appended after it.
       if (row.canRestore && this.options.onRestore) {
         const restore = entry.createEl('button', { text: 'Restore' });
+        restore.addClass('havemind-activity-action');
         restore.onClickEvent(() => this.options.onRestore?.(row.revisionId));
       }
       const time = entry.createEl('span', { text: ` ${row.timeLabel}` });
@@ -385,6 +392,7 @@ export class HavemindOnboardingView extends ItemView {
     // a re-render (create → approve, status change) never loses in-progress work.
     this.captureDrafts();
     content.empty();
+    content.addClass('havemind-view');
     this.liveInputs = {};
 
     const composer = this.options.composerProvider?.() ?? null;
@@ -437,7 +445,8 @@ export class HavemindOnboardingView extends ItemView {
     const icon = row.createEl('span');
     setIcon(icon, panel.icon);
     row.createEl('span', { text: ` ${panel.label}` });
-    content.createDiv({ text: panel.detail });
+    const detail = content.createDiv({ text: panel.detail });
+    detail.addClass('havemind-status-detail');
   }
 
   private renderConnected(content: HTMLElement): void {
@@ -481,14 +490,16 @@ export class HavemindOnboardingView extends ItemView {
     row.style.setProperty('color', 'var(--text-accent)');
     setIcon(row.createEl('span'), 'loader');
     row.createEl('span', { text: ' Waiting for the other device to approve…' });
-    content.createDiv({
-      text: 'Read this 6-digit code to the vault owner.',
-    });
+    content
+      .createDiv({ text: 'Read this 6-digit code to the vault owner.' })
+      .addClass('havemind-hint');
     const phrase = content.createDiv({ text: model.verificationPhrase });
     phrase.addClass('havemind-verification-phrase');
-    content.createDiv({
-      text: 'Keep Obsidian open — this resumes automatically once approved.',
-    });
+    content
+      .createDiv({
+        text: 'Keep Obsidian open — this resumes automatically once approved.',
+      })
+      .addClass('havemind-hint');
     const disconnect = content.createEl('button', { text: 'Cancel' });
     disconnect.onClickEvent(() => this.options.onDisconnect?.());
   }
@@ -505,9 +516,11 @@ export class HavemindOnboardingView extends ItemView {
     row.style.setProperty('color', 'var(--text-error)');
     setIcon(row.createEl('span'), 'alert-triangle');
     row.createEl('span', { text: ' This invitation is no longer valid' });
-    content.createDiv({
-      text: 'Ask the vault owner for a new invitation, then paste it below.',
-    });
+    content
+      .createDiv({
+        text: 'Ask the vault owner for a new invitation, then paste it below.',
+      })
+      .addClass('havemind-hint');
     this.renderForm(content);
   }
 
@@ -528,6 +541,7 @@ export class HavemindOnboardingView extends ItemView {
     this.liveInputs.token = tokenInput;
     this.liveInputs.server = serverInput;
     const status = content.createDiv({ text: '' });
+    status.addClass('havemind-form-status');
     const connect = content.createEl('button', { text: 'Connect' });
     connect.addClass('mod-cta');
     connect.onClickEvent(() => {
@@ -572,9 +586,11 @@ export class HavemindOnboardingView extends ItemView {
 
     content.createEl('h4', { text: 'Waiting for the other device' });
     if (model.pending.length === 0) {
-      content.createDiv({
-        text: 'No device is waiting yet. When the other device redeems the invite, it appears here to approve.',
-      });
+      content
+        .createDiv({
+          text: 'No device is waiting yet. When the other device redeems the invite, it appears here to approve.',
+        })
+        .addClass('havemind-empty');
       return;
     }
     for (const entry of model.pending) {
@@ -603,6 +619,7 @@ export class HavemindOnboardingView extends ItemView {
     this.liveInputs.name = nameInput;
 
     const status = content.createDiv({ text: '' });
+    status.addClass('havemind-form-status');
     const create = content.createEl('button', { text: 'Create invitation' });
     create.addClass('mod-cta');
     create.onClickEvent(() => {
@@ -620,18 +637,23 @@ export class HavemindOnboardingView extends ItemView {
     if (model.invitationExpired === true) {
       // No dead-end: an expired single-use invite can never be redeemed, so the
       // envelope is withheld and the owner is pointed back to Create invitation.
-      content.createDiv({
-        text: 'This invitation expired. Create a new one above to invite the other device.',
-      });
+      content
+        .createDiv({
+          text: 'This invitation expired. Create a new one above to invite the other device.',
+        })
+        .addClass('havemind-hint');
       const dismiss = content.createEl('button', { text: 'Done' });
       dismiss.onClickEvent(() => this.options.onDismissInvitation?.());
       return;
     }
 
-    content.createDiv({
-      text: 'Invite created — copy it and send it to the other device. Single-use, expires in 15 minutes.',
-    });
-    content.createEl('code', { text: envelope });
+    content
+      .createDiv({
+        text: 'Invite created — copy it and send it to the other device. Single-use, expires in 15 minutes.',
+      })
+      .addClass('havemind-hint');
+    const code = content.createEl('code', { text: envelope });
+    code.addClass('havemind-invite-envelope');
     // Readonly field so the owner can select the envelope by hand if the
     // clipboard copy is unavailable or denied.
     content.createEl('textarea', {
@@ -639,13 +661,16 @@ export class HavemindOnboardingView extends ItemView {
       cls: 'havemind-invite-copy-fallback',
     });
     const copyStatus = content.createDiv({ text: '' });
+    copyStatus.addClass('havemind-form-status');
     const copy = content.createEl('button', { text: 'Copy' });
     copy.addClass('mod-cta');
     copy.onClickEvent(() => {
       this.options.onCopyInvitation?.(envelope);
       copyStatus.setText('Copied to clipboard.');
     });
-    content.createDiv({ text: `Expires: ${model.invitation.expiresAt}` });
+    content
+      .createDiv({ text: `Expires: ${model.invitation.expiresAt}` })
+      .addClass('havemind-hint');
     // Done clears the envelope display so it is not a permanent dead-end.
     const dismiss = content.createEl('button', { text: 'Done' });
     dismiss.onClickEvent(() => this.options.onDismissInvitation?.());
@@ -663,7 +688,7 @@ export class HavemindOnboardingView extends ItemView {
     kind: 'info' | 'success' | undefined,
   ): void {
     if (kind !== 'success') {
-      content.createDiv({ text: notice });
+      content.createDiv({ text: notice }).addClass('havemind-hint');
       return;
     }
     const row = content.createDiv({ text: '' });
@@ -698,6 +723,7 @@ export class HavemindOnboardingView extends ItemView {
       attr: { inputmode: 'numeric', maxlength: '6', pattern: '[0-9]*' },
     });
     const status = row.createDiv({ text: '' });
+    status.addClass('havemind-form-status');
     const approve = row.createEl('button', { text: 'Approve' });
     approve.addClass('mod-cta');
     approve.onClickEvent(() => {
@@ -860,6 +886,7 @@ export default class HavemindPlugin extends Plugin {
     });
 
     this.statusItem = this.addStatusBarItem();
+    this.statusItem.addClass('havemind-status-bar');
     this.setStatus(formatStatusBar({ status: 'disconnected' }));
 
     this.addSettingTab(new HavemindSettingTab(this.app, this));
