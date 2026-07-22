@@ -479,6 +479,8 @@ describe('OutboxLocalChangeRepository', () => {
       ).resolves.not.toBeNull();
 
       expect(enqueued).toHaveLength(1);
-    });
+      // Encoding a 20MB attachment takes ~8s under machine load; the default
+      // 5s vitest timeout makes this test flaky. Perf headroom, not logic.
+    }, 20_000);
   });
 });
