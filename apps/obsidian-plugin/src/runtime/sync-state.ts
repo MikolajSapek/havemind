@@ -34,6 +34,20 @@ export interface OutboxEnvelope extends TransportEnvelope {
   readonly revisionId: string;
   readonly fileId: string;
   readonly contentHash: string;
+  /**
+   * Wall-clock time the entry was enqueued (SND-01). Stamped by `enqueue` when a
+   * caller omits it, so producers need not supply it. Drives the "N change(s)
+   * waiting to send" signal: an item queued longer than the staleness threshold
+   * means sends are stuck. A legacy blob without it parses to 0 (treated as old,
+   * which is correct for an item that has been sitting since before the upgrade).
+   */
+  readonly enqueuedAt?: number;
+}
+
+/** An outbox item paired with its enqueue time, for the send-queue view (SND-01). */
+export interface OutboxAge {
+  readonly revisionId: string;
+  readonly enqueuedAt: number;
 }
 
 /**
@@ -88,6 +102,14 @@ export interface PersistedSyncState {
    * of spawning duplicates.
    */
   readonly conflictArtifacts: Readonly<Record<string, string>>;
+  /**
+   * Durable revisionId→full-envelope map for quarantined sends (SND-01). When a
+   * push is dead-lettered its envelope is removed from the outbox; stashing it
+   * here lets the "Retry" affordance re-enqueue the exact same bytes through the
+   * normal outbox machinery. Cleared when the item is requeued or discarded. Not
+   * a parallel store — it lives in the same persisted blob as the quarantine.
+   */
+  readonly quarantinedEnvelopes: Readonly<Record<string, OutboxEnvelope>>;
 }
 
 /** Persistence boundary; wraps `Plugin.loadData`/`Plugin.saveData` in production. */
@@ -100,6 +122,8 @@ export interface DurableSyncStateOptions {
   readonly persist: SyncStatePersistPort;
   /** Upper bound on remembered authored ids; oldest are pruned first. */
   readonly maxLocallyAuthored?: number;
+  /** Wall clock for stamping outbox enqueue times (SND-01). Defaults to Date.now. */
+  readonly now?: () => number;
 }
 
 const DEFAULT_MAX_LOCALLY_AUTHORED = 10_000;
@@ -116,6 +140,7 @@ function emptyState(): PersistedSyncState {
     baseHashes: {},
     baseContents: {},
     conflictArtifacts: {},
+    quarantinedEnvelopes: {},
   };
 }
 
@@ -137,12 +162,14 @@ function base64ByteLength(base64: string): number {
 export class DurableSyncState implements SyncStatePort {
   private readonly persist: SyncStatePersistPort;
   private readonly maxLocallyAuthored: number;
+  private readonly now: () => number;
   private cache: PersistedSyncState | null = null;
 
   constructor(options: DurableSyncStateOptions) {
     this.persist = options.persist;
     this.maxLocallyAuthored =
       options.maxLocallyAuthored ?? DEFAULT_MAX_LOCALLY_AUTHORED;
+    this.now = options.now ?? (() => Date.now());
   }
 
   async loadCursor(): Promise<number> {
@@ -196,7 +223,15 @@ export class DurableSyncState implements SyncStatePort {
       ...state.quarantine.filter((item) => item.revisionId !== revisionId),
       entry,
     ];
-    await this.mutate({ ...state, outbox, quarantine });
+    // Stash the full envelope (SND-01) so a later "Retry" can re-enqueue the
+    // exact bytes; without it the dead-lettered payload is unrecoverable. Only
+    // stashed when the outbox actually held the item — a quarantine with no
+    // envelope simply carries no stash and its Retry is inert.
+    const quarantinedEnvelopes = { ...state.quarantinedEnvelopes };
+    if (failed !== undefined) {
+      quarantinedEnvelopes[revisionId] = failed;
+    }
+    await this.mutate({ ...state, outbox, quarantine, quarantinedEnvelopes });
   }
 
   async listQuarantine(): Promise<readonly QuarantinedRevision[]> {
@@ -306,11 +341,88 @@ export class DurableSyncState implements SyncStatePort {
 
   async enqueue(envelope: OutboxEnvelope): Promise<void> {
     const state = await this.ensureLoaded();
+    // Stamp the enqueue time when the caller omitted it, so the send-queue view
+    // (SND-01) can age items without producers having to supply a clock.
+    const stamped: OutboxEnvelope =
+      envelope.enqueuedAt === undefined
+        ? { ...envelope, enqueuedAt: this.now() }
+        : envelope;
     const outbox = [
       ...state.outbox.filter((entry) => entry.revisionId !== envelope.revisionId),
-      envelope,
+      stamped,
     ];
     await this.mutate({ ...state, outbox });
+  }
+
+  /**
+   * Outbox items paired with their enqueue time (SND-01), read synchronously
+   * against the warm cache. A missing `enqueuedAt` (legacy blob) is reported as
+   * 0 — "very old" — so a pre-upgrade item still counts as waiting. The runner
+   * always warms the cache before it pushes, so the panel's synchronous read
+   * finds a populated cache once connected; a cold cache reports no ages.
+   */
+  outboxAges(): readonly OutboxAge[] {
+    return (this.cache?.outbox ?? []).map((envelope) => ({
+      revisionId: envelope.revisionId,
+      enqueuedAt: envelope.enqueuedAt ?? 0,
+    }));
+  }
+
+  /** Synchronous quarantine snapshot against the warm cache (SND-01). */
+  quarantineSnapshot(): readonly QuarantinedRevision[] {
+    return this.cache?.quarantine ?? [];
+  }
+
+  /** The vault path a fileId currently owns (reverse of `fileIdAtPath`), or null. */
+  pathForFileId(fileId: string): string | null {
+    const owners = this.cache?.pathOwners ?? {};
+    for (const [path, owner] of Object.entries(owners)) {
+      if (owner === fileId) return path;
+    }
+    return null;
+  }
+
+  /**
+   * Retry a quarantined send (SND-01): re-enqueue its stashed envelope through
+   * the normal outbox machinery (fresh enqueue time), then drop it from the
+   * quarantine and the stash. A no-op when nothing is stashed for `revisionId`
+   * (already requeued or discarded), so a double click cannot double-enqueue.
+   */
+  async requeueQuarantined(revisionId: string): Promise<void> {
+    const state = await this.ensureLoaded();
+    const stashed = state.quarantinedEnvelopes[revisionId];
+    if (stashed === undefined) return;
+    const quarantinedEnvelopes = { ...state.quarantinedEnvelopes };
+    delete quarantinedEnvelopes[revisionId];
+    const outbox = [
+      ...state.outbox.filter((entry) => entry.revisionId !== revisionId),
+      { ...stashed, enqueuedAt: this.now() },
+    ];
+    const quarantine = state.quarantine.filter(
+      (item) => item.revisionId !== revisionId,
+    );
+    await this.mutate({ ...state, outbox, quarantine, quarantinedEnvelopes });
+  }
+
+  /**
+   * Permanently drop a quarantined send (SND-01): remove it from the quarantine
+   * and forget its stashed envelope. Idempotent — dropping an unknown id is a
+   * no-op.
+   */
+  async discardQuarantined(revisionId: string): Promise<void> {
+    const state = await this.ensureLoaded();
+    if (
+      !state.quarantine.some((item) => item.revisionId === revisionId) &&
+      state.quarantinedEnvelopes[revisionId] === undefined
+    ) {
+      return;
+    }
+    const quarantinedEnvelopes = { ...state.quarantinedEnvelopes };
+    delete quarantinedEnvelopes[revisionId];
+    const quarantine = state.quarantine.filter(
+      (item) => item.revisionId !== revisionId,
+    );
+    await this.mutate({ ...state, quarantine, quarantinedEnvelopes });
   }
 
   async getEnvelope(revisionId: string): Promise<TransportEnvelope | undefined> {
@@ -419,6 +531,9 @@ function parsePersistedState(raw: unknown): PersistedSyncState {
   const quarantine = parseQuarantine(raw.quarantine);
   if (quarantine === null) return emptyState();
 
+  const quarantinedEnvelopes = parseEnvelopeMap(raw.quarantinedEnvelopes);
+  if (quarantinedEnvelopes === null) return emptyState();
+
   return {
     version: 1,
     cursor: cursor as number,
@@ -430,7 +545,23 @@ function parsePersistedState(raw: unknown): PersistedSyncState {
     baseHashes,
     baseContents,
     conflictArtifacts,
+    quarantinedEnvelopes,
   };
+}
+
+/** Parses an untrusted revisionId→envelope map; undefined (legacy) degrades to {}. */
+function parseEnvelopeMap(
+  value: unknown,
+): Record<string, OutboxEnvelope> | null {
+  if (value === undefined) return {};
+  if (!isRecord(value)) return null;
+  const result: Record<string, OutboxEnvelope> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    const parsed = parseEnvelope(entry);
+    if (parsed === null) return null;
+    result[key] = parsed;
+  }
+  return result;
 }
 
 /** Parses an untrusted quarantine list; undefined (legacy blob) degrades to []. */
@@ -494,6 +625,11 @@ function parseEnvelope(value: unknown): OutboxEnvelope | null {
     idempotencyKey: value.idempotencyKey,
     payloadBase64: value.payloadBase64,
     header: value.header,
+    // Preserve the enqueue time across a restart (SND-01); a non-number degrades
+    // to "unstamped" so `outboxAges` treats it as old rather than throwing.
+    ...(typeof value.enqueuedAt === 'number'
+      ? { enqueuedAt: value.enqueuedAt }
+      : {}),
   };
 }
 

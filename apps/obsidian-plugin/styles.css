@@ -398,6 +398,45 @@
   margin-top: var(--size-4-2);
 }
 
+/* SND-01 send-queue visibility: a muted "waiting" line and a distinct
+   error-tinted "failed to send" section with per-item Retry/Discard rows. */
+.havemind-send-waiting {
+  margin-top: var(--size-4-1);
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+}
+
+.havemind-send-failed {
+  margin-top: var(--size-4-2);
+  color: var(--text-error);
+  font-weight: var(--font-bold);
+  font-size: var(--font-ui-small);
+}
+
+.havemind-send-failed-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--size-4-2);
+  margin-top: var(--size-4-1);
+  padding: var(--size-4-1) var(--size-4-2);
+  border-left: 3px solid var(--text-error);
+  background: var(--background-modifier-error-hover);
+}
+
+.havemind-send-file {
+  font-weight: var(--font-medium);
+}
+
+.havemind-send-reason {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.havemind-send-action {
+  margin-left: auto;
+}
+
 .havemind-conflict-action-armed {
   font-weight: var(--font-bold);
 }

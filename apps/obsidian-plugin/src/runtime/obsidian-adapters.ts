@@ -142,6 +142,13 @@ export interface RuntimeHooks {
    * note contents are never included.
    */
   readonly onRemoteActivity?: (entry: ActivityLogEntry) => void;
+  /**
+   * Called once each time the apply path writes a genuinely NEW conflict copy
+   * (MRG-05), so the plugin can schedule a debounced auto-repair sweep. Never
+   * fired for an idempotent rewrite of an existing copy, so a sweep can never
+   * be re-triggered by its own (or a retry's) copy write.
+   */
+  readonly onConflictWritten?: () => void;
 }
 
 /**
@@ -591,6 +598,11 @@ export function buildSyncController(
     // apply writes so the reflected vault event is deduped, never re-pushed,
     // re-attributed, or given a fresh fileId.
     ...(producerSync === undefined ? {} : { producerSync }),
+    // MRG-05: signal a debounced auto-repair sweep whenever a NEW conflict copy
+    // lands (never on an idempotent rewrite — no self-retrigger).
+    ...(hooks?.onConflictWritten === undefined
+      ? {}
+      : { onConflictWritten: hooks.onConflictWritten }),
   });
 
   // Late-bound so the runner can report every cycle — including the retries it
@@ -692,6 +704,13 @@ export interface ConnectionHandle {
    * server membership id is known yet (e.g. a not-yet-connected shell).
    */
   readonly selfMembership?: { readonly membershipId: string; readonly role: MemberRole };
+  /**
+   * The live durable sync state (SND-01 + MRG-05). The plugin reads outbox ages
+   * + quarantine for the send-queue panel and the persisted merge bases for the
+   * auto-repair sweep, and requeues/discards quarantined sends through it.
+   * Absent on the no-op handle (nothing connected).
+   */
+  readonly state?: DurableSyncState;
 }
 
 const NOOP_HANDLE: ConnectionHandle = { stop: () => undefined, serverName: '' };
@@ -898,6 +917,9 @@ async function startSyncLoop(
 
   return {
     ...(selfMembership === undefined ? {} : { selfMembership }),
+    // The live durable state, so the plugin can read the send-queue (SND-01) and
+    // drive the auto-repair sweep (MRG-05) off the same store the runner uses.
+    state,
     // Tearing the producer's vault listeners down on stop is critical: a re-pair
     // (or reconnect) calls stop() on the previous handle before starting a new
     // one, and without this the prior-session observer stays attached and keeps

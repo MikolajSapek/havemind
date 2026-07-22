@@ -10,7 +10,10 @@ import {
   type WorkspaceLeaf,
 } from 'obsidian';
 
+import { hashPlaintext } from '@havemind/protocol';
+
 import { isSafePassiveJoinProtocolData } from './onboarding/invite';
+import type { DurableSyncState } from './runtime/sync-state';
 import {
   computeLineDiff,
   createConflictResolver,
@@ -21,6 +24,12 @@ import {
   type DiffLine,
   type ResolveAction,
 } from './runtime/conflict-resolution';
+import {
+  buildSendQueueStatus,
+  selectNewlyQuarantined,
+  type SendQueueStatusView,
+} from './runtime/send-queue-status';
+import { sweepConflictCopies } from './runtime/conflict-sweep';
 import type { RevisionRecord } from './activity/activity';
 import { buildActivityViewModel } from './runtime/activity-render';
 import { restoreActivityEntry } from './runtime/activity-restore';
@@ -71,6 +80,9 @@ export const HAVEMIND_ONBOARDING_VIEW = 'havemind-onboarding';
 
 const EMPTY_ACTIVITY_TEXT =
   'Connect a disposable vault to begin the private pilot.';
+
+/** Debounce window for the MRG-05 auto-repair sweep — a burst becomes one pass. */
+const CONFLICT_SWEEP_DEBOUNCE_MS = 2000;
 
 function prefersReducedMotion(): boolean {
   return (
@@ -282,6 +294,60 @@ export function renderConflictSection(
     resolve.addClass('mod-cta');
     resolve.addClass('havemind-conflict-action');
     resolve.onClickEvent(() => actions.onResolve(copy.copyPath));
+  }
+}
+
+/** Actions wired to each failed-send row in the send-queue section (SND-01). */
+export interface SendQueueSectionActions {
+  /** Re-enqueue the quarantined send through the normal outbox machinery. */
+  readonly onRetry: (revisionId: string) => void;
+  /** Permanently drop the quarantined send (destructive → two-step confirm). */
+  readonly onDiscard: (revisionId: string) => void;
+}
+
+/**
+ * Renders the SND-01 send-queue visibility section: a muted "N change(s)
+ * waiting to send" line when items have been queued too long, and — when the
+ * quarantine is non-empty — a distinct "N change(s) failed to send" warning with
+ * one row per failed item (path + reason) offering Retry and a two-step Discard.
+ * Draws nothing when both signals are absent, so a healthy queue stays silent.
+ */
+export function renderSendQueueSection(
+  content: HTMLElement,
+  view: SendQueueStatusView,
+  actions: SendQueueSectionActions,
+): void {
+  if (view.waitingCount > 0) {
+    const waiting = content.createDiv({
+      text: `${view.waitingCount} change(s) waiting to send`,
+    });
+    waiting.addClass('havemind-send-waiting');
+  }
+
+  if (view.failed.length === 0) return;
+
+  const header = content.createDiv({
+    text: `${view.failed.length} change(s) failed to send`,
+  });
+  header.addClass('havemind-send-failed');
+
+  for (const row of view.failed) {
+    const item = content.createDiv({ text: '' });
+    item.addClass('havemind-send-failed-row');
+    item.createEl('span', { text: row.label }).addClass('havemind-send-file');
+    item
+      .createEl('span', { text: ` · ${row.reason}` })
+      .addClass('havemind-send-reason');
+    const retry = item.createEl('button', { text: 'Retry' });
+    retry.addClass('havemind-send-action');
+    retry.onClickEvent(() => actions.onRetry(row.revisionId));
+    armedButton(
+      item,
+      'Discard',
+      'Confirm discard',
+      'mod-warning',
+      () => actions.onDiscard(row.revisionId),
+    );
   }
 }
 
@@ -565,6 +631,16 @@ export interface OnboardingViewOptions {
   /** Open the resolve modal for the conflict copy at this vault path. */
   readonly onResolveConflict?: (copyPath: string) => void;
   /**
+   * SND-01 send-queue status. When it returns a view with a waiting count or
+   * any failed items the "waiting/failed to send" section is drawn beneath the
+   * status indicator; null (disconnected) or an all-clear view draws nothing.
+   */
+  readonly sendQueueProvider?: () => SendQueueStatusView | null;
+  /** Retry a quarantined send: re-enqueue it through the outbox machinery. */
+  readonly onRetrySend?: (revisionId: string) => void;
+  /** Discard a quarantined send permanently (panel confirms in two steps). */
+  readonly onDiscardSend?: (revisionId: string) => void;
+  /**
    * Presence roster (who is connected) with the F9 rejoin affordance. Rendered
    * in the owner composer and in the connected panel so both the owner and the
    * invitee see a clear "Connected" list. Presence is persistent connection
@@ -701,6 +777,8 @@ export class HavemindOnboardingView extends ItemView {
       buildConnectionPanel({ status: 'disconnected' });
     this.renderIndicator(content, panel);
 
+    this.renderSendQueue(content);
+
     this.renderConflicts(content);
 
     if (panel.showForm) {
@@ -758,6 +836,23 @@ export class HavemindOnboardingView extends ItemView {
     if (copies.length === 0 || onResolveConflict === undefined) return;
     renderConflictSection(content, copies, {
       onResolve: (copyPath) => onResolveConflict(copyPath),
+    });
+  }
+
+  /**
+   * Draws the SND-01 send-queue section (waiting + failed) beneath the status
+   * indicator. The provider reads the persisted sync state; a null return
+   * (disconnected) or an all-clear view renders nothing.
+   */
+  private renderSendQueue(content: HTMLElement): void {
+    const view = this.options.sendQueueProvider?.() ?? null;
+    if (view === null) return;
+    const onRetry = this.options.onRetrySend;
+    const onDiscard = this.options.onDiscardSend;
+    if (onRetry === undefined || onDiscard === undefined) return;
+    renderSendQueueSection(content, view, {
+      onRetry: (revisionId) => onRetry(revisionId),
+      onDiscard: (revisionId) => onDiscard(revisionId),
     });
   }
 
@@ -1149,6 +1244,24 @@ export default class HavemindPlugin extends Plugin {
    * port on first use so a headless test never needs a real vault.
    */
   private conflictResolver: ReturnType<typeof createConflictResolver> | null = null;
+  /**
+   * The live durable sync state (SND-01 + MRG-05), captured from the connection
+   * handle. Null when disconnected — the send-queue panel then renders nothing
+   * and the sweep is a no-op.
+   */
+  private syncState: DurableSyncState | null = null;
+  /**
+   * Quarantine revisionIds already announced with a Notice (SND-01). A Notice
+   * fires only the FIRST time an item enters quarantine, never on every retry.
+   */
+  private notifiedQuarantineIds = new Set<string>();
+  /**
+   * Debounce timer for the MRG-05 auto-repair sweep. A burst of new conflict
+   * copies coalesces into a single pass ~2s after the last write.
+   */
+  private conflictSweepTimer: ReturnType<typeof globalThis.setTimeout> | null = null;
+  /** Guards against overlapping sweep runs (a pass in flight when the next fires). */
+  private conflictSweepRunning = false;
 
   override onload(): void {
     // Wire the Activity view to the live feed: the log snapshot is mapped through
@@ -1178,6 +1291,13 @@ export default class HavemindPlugin extends Plugin {
         conflictsProvider: () => listConflictCopies(this.conflictPort()),
         onResolveConflict: (copyPath) => {
           void this.openConflictModal(copyPath);
+        },
+        sendQueueProvider: () => this.sendQueueView(),
+        onRetrySend: (revisionId) => {
+          void this.retrySend(revisionId);
+        },
+        onDiscardSend: (revisionId) => {
+          void this.discardSend(revisionId);
         },
         rejoinRosterProvider: () => this.rejoinRosterView(),
         rejoinWaitingProvider: () => this.rejoinWaiting,
@@ -1274,8 +1394,14 @@ export default class HavemindPlugin extends Plugin {
     this.unloaded = true;
     // Cancel any in-flight invitee rejoin poll so it never fires after unload.
     this.disarmRejoin();
+    // Cancel any pending auto-repair sweep so it never fires after unload.
+    if (this.conflictSweepTimer !== null) {
+      globalThis.clearTimeout(this.conflictSweepTimer);
+      this.conflictSweepTimer = null;
+    }
     this.connection?.stop();
     this.connection = null;
+    this.syncState = null;
     this.activityLogUnsubscribe?.();
     this.activityLogUnsubscribe = null;
     this.app.workspace.detachLeavesOfType(HAVEMIND_ACTIVITY_VIEW);
@@ -1421,23 +1547,33 @@ export default class HavemindPlugin extends Plugin {
       return;
     }
     this.connection = handle;
+    // Capture the live durable state for the send-queue panel + auto-repair sweep.
+    this.syncState = handle.state ?? null;
     // A live connection was (re-)established: advance the generation so any armed
     // rejoin poll that captured an earlier value no-ops instead of tearing this
     // one down (FINDING 1b).
     this.connectGeneration += 1;
     this.adoptSelfMembership(this.connection);
+    // MRG-05: on start (after the canonicalization rebase inside the handle
+    // build), sweep any pre-existing conflict copies that a persisted ancestor
+    // can now auto-merge. Scheduled (debounced) so it runs alongside — not
+    // ahead of — the first sync cycle.
+    this.scheduleConflictSweep();
   }
 
   /** Runtime hooks handed to the sync loop so live surfaces stay fed. */
   private activityHooks(): {
     onLocalActivity: (entry: ActivityLogEntry) => void;
     onRemoteActivity: (entry: ActivityLogEntry) => void;
+    onConflictWritten: () => void;
   } {
     return {
       onLocalActivity: (entry) => this.activityLog.record(entry),
       // FIX 1: a remote-applied revision reaches the Activity feed too, so
       // the other device's edits are no longer invisible.
       onRemoteActivity: (entry) => this.activityLog.record(entry),
+      // MRG-05: a new conflict copy schedules a debounced auto-repair sweep.
+      onConflictWritten: () => this.scheduleConflictSweep(),
     };
   }
 
@@ -1628,11 +1764,14 @@ export default class HavemindPlugin extends Plugin {
       this.awaitingApproval = null;
       this.guestInvitationInvalid = false;
       this.connection = handle;
+      this.syncState = handle.state ?? null;
       // A live connection was (re-)established — advance the generation (FINDING 1b).
       this.connectGeneration += 1;
       // Record this device's own membership as a persistent roster member so the
       // invitee's UI clearly shows it is connected.
       this.adoptSelfMembership(handle);
+      // MRG-05: sweep any pre-existing conflict copies now that a base is loaded.
+      this.scheduleConflictSweep();
     }
   }
 
@@ -1640,6 +1779,7 @@ export default class HavemindPlugin extends Plugin {
   private disconnect(): void {
     this.connection?.stop();
     this.connection = null;
+    this.syncState = null;
     this.connectionStatus = 'disconnected';
     this.lastSyncedAt = undefined;
     this.connectionError = undefined;
@@ -1662,7 +1802,119 @@ export default class HavemindPlugin extends Plugin {
       // re-admits itself once the owner clicks Rejoin — no re-pairing needed.
       void this.armRejoin();
     }
+    // SND-01: fire a Notice the first time each item enters quarantine (never on
+    // a retry). Runs on every status change — the point sends are dead-lettered.
+    this.checkQuarantineNotices();
     this.setStatus(view);
+    this.onboardingView?.refresh();
+  }
+
+  /**
+   * SND-01 send-queue view for the panel, or null when disconnected (no state).
+   * Reads outbox ages + quarantine straight from the persisted sync state and
+   * resolves each quarantined fileId back to a vault path where one is known.
+   */
+  private sendQueueView(): SendQueueStatusView | null {
+    const state = this.syncState;
+    if (state === null) return null;
+    return buildSendQueueStatus({
+      outbox: state.outboxAges(),
+      quarantine: state.quarantineSnapshot().map((item) => {
+        const path = state.pathForFileId(item.fileId);
+        return {
+          revisionId: item.revisionId,
+          fileId: item.fileId,
+          reason: item.reason,
+          ...(path === null ? {} : { path }),
+        };
+      }),
+      now: Date.now(),
+    });
+  }
+
+  /** Retry a quarantined send by re-enqueuing it through the outbox (SND-01). */
+  private async retrySend(revisionId: string): Promise<void> {
+    await this.syncState?.requeueQuarantined(revisionId);
+    this.onboardingView?.refresh();
+  }
+
+  /** Permanently discard a quarantined send (SND-01). */
+  private async discardSend(revisionId: string): Promise<void> {
+    await this.syncState?.discardQuarantined(revisionId);
+    this.onboardingView?.refresh();
+  }
+
+  /**
+   * SND-01: emit one Notice per item the FIRST time it enters quarantine. A
+   * retry that re-quarantines the same revision is silent — its id is already in
+   * `notifiedQuarantineIds`. Discarding then re-quarantining a NEW revision for
+   * the same file does notify, which is correct: it is a distinct failed send.
+   */
+  private checkQuarantineNotices(): void {
+    const state = this.syncState;
+    if (state === null) return;
+    const quarantine = state.quarantineSnapshot().map((item) => ({
+      revisionId: item.revisionId,
+      fileId: item.fileId,
+      reason: item.reason,
+      ...(state.pathForFileId(item.fileId) === null
+        ? {}
+        : { path: state.pathForFileId(item.fileId) as string }),
+    }));
+    const { fresh, next } = selectNewlyQuarantined(
+      this.notifiedQuarantineIds,
+      quarantine,
+    );
+    this.notifiedQuarantineIds = new Set(next);
+    for (const item of fresh) {
+      const label = item.path ?? item.fileId;
+      new Notice(
+        `A change to ${label} could not be sent — see the Havemind panel.`,
+      );
+    }
+  }
+
+  /**
+   * MRG-05: schedule a single debounced auto-repair sweep. A burst of new
+   * conflict copies (or a start-up call plus a runtime write) collapses into one
+   * pass ~2s after the last trigger. The sweep only writes notes (outside the
+   * reserved folder) and deletes resolved copies (inside it), and the trigger
+   * keys off NEW copy writes only, so a sweep never re-schedules itself.
+   */
+  private scheduleConflictSweep(): void {
+    if (this.conflictSweepTimer !== null) {
+      globalThis.clearTimeout(this.conflictSweepTimer);
+    }
+    this.conflictSweepTimer = globalThis.setTimeout(() => {
+      this.conflictSweepTimer = null;
+      void this.runConflictSweep();
+    }, CONFLICT_SWEEP_DEBOUNCE_MS);
+  }
+
+  /**
+   * Runs one auto-repair pass (MRG-05). Reuses the persisted merge ancestor +
+   * base hash from the sync state; a copy with no hash-verified ancestor is left
+   * untouched for the manual modal. A guard prevents overlapping runs. Refreshes
+   * the panel afterwards so a resolved conflict's row drops out.
+   */
+  private async runConflictSweep(): Promise<void> {
+    const state = this.syncState;
+    if (state === null || this.conflictSweepRunning) return;
+    this.conflictSweepRunning = true;
+    try {
+      await sweepConflictCopies({
+        port: this.conflictPort(),
+        fileIdAtPath: (path) => state.fileIdAtPath(path),
+        baseContentFor: (fileId) => state.baseContentFor(fileId),
+        baseHashFor: (fileId) => state.baseHashFor(fileId),
+        hashContent: (content) => hashPlaintext(content),
+        notify: (message) => {
+          new Notice(`Havemind: ${message}`);
+        },
+      });
+    } finally {
+      this.conflictSweepRunning = false;
+    }
     this.onboardingView?.refresh();
   }
 

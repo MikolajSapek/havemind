@@ -214,4 +214,62 @@ describe('DurableSyncState', () => {
     expect(outbox).toHaveLength(1);
     expect(outbox[0]?.contentHash).toBe('hash-2');
   });
+
+  describe('send-queue visibility (SND-01)', () => {
+    it('stamps and exposes outbox enqueue ages from an injected clock', async () => {
+      const clock = new DurableSyncState({ persist, now: () => 5_000 });
+      await clock.enqueue(envelope());
+      expect(clock.outboxAges()).toEqual([{ revisionId: 'rev-1', enqueuedAt: 5_000 }]);
+    });
+
+    it('preserves the enqueue age across a restart', async () => {
+      const clock = new DurableSyncState({ persist, now: () => 7_777 });
+      await clock.enqueue(envelope());
+      const reopened = new DurableSyncState({ persist });
+      await reopened.loadCursor(); // warm the cache
+      expect(reopened.outboxAges()).toEqual([{ revisionId: 'rev-1', enqueuedAt: 7_777 }]);
+    });
+
+    it('stashes the envelope on quarantine and requeues it on retry exactly once', async () => {
+      await state.enqueue(envelope());
+      await state.quarantineOutboxItem('rev-1', 'server-rejected');
+      expect(await state.listOutbox()).toEqual([]);
+
+      await state.requeueQuarantined('rev-1');
+      const outbox = await state.listOutbox();
+      expect(outbox).toHaveLength(1);
+      expect(outbox[0]?.revisionId).toBe('rev-1');
+      expect(await state.listQuarantine()).toEqual([]);
+
+      // A second retry is inert — the stash is gone, so no double-enqueue.
+      await state.requeueQuarantined('rev-1');
+      expect(await state.listOutbox()).toHaveLength(1);
+    });
+
+    it('discards a quarantined item permanently', async () => {
+      await state.enqueue(envelope());
+      await state.quarantineOutboxItem('rev-1', 'server-rejected');
+
+      await state.discardQuarantined('rev-1');
+      expect(await state.listQuarantine()).toEqual([]);
+
+      // Retry after discard is a no-op — nothing re-enters the outbox.
+      await state.requeueQuarantined('rev-1');
+      expect(await state.listOutbox()).toEqual([]);
+    });
+
+    it('keeps listQuarantine shape unchanged (no envelope leak into the row)', async () => {
+      await state.enqueue(envelope());
+      await state.quarantineOutboxItem('rev-1', 'server-rejected');
+      expect(await state.listQuarantine()).toEqual([
+        { revisionId: 'rev-1', fileId: 'file-1', reason: 'server-rejected' },
+      ]);
+    });
+
+    it('resolves a path back from a fileId owner', async () => {
+      await state.recordPathOwner('file-1', 'Notes/A.md');
+      expect(state.pathForFileId('file-1')).toBe('Notes/A.md');
+      expect(state.pathForFileId('unknown')).toBeNull();
+    });
+  });
 });

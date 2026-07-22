@@ -198,6 +198,13 @@ export interface VaultApplyAdapterOptions {
   readonly producerSync?: RemoteApplyProducerSync;
   /** Readable conflict-copy naming (MRG-02). Sensible defaults when omitted. */
   readonly conflictNaming?: ConflictNaming;
+  /**
+   * Fired once each time a genuinely NEW conflict copy is written to the reserved
+   * folder (MRG-05). Never fired when a re-delivered revision reuses its existing
+   * copy path (the cascade guard), so it can safely schedule an auto-repair sweep
+   * without a copy write re-triggering itself. Optional; unit tests omit it.
+   */
+  readonly onConflictWritten?: () => void;
 }
 
 export class VaultApplyAdapter implements VaultApplyPort {
@@ -212,6 +219,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
   private readonly now: () => Date;
   private readonly resolveAuthorName?: (event: RemoteEvent) => string | undefined;
   private readonly fallbackAuthorName: string;
+  private readonly onConflictWritten?: () => void;
 
   constructor(options: VaultApplyAdapterOptions) {
     this.files = options.files;
@@ -230,6 +238,9 @@ export class VaultApplyAdapter implements VaultApplyPort {
     }
     this.fallbackAuthorName =
       options.conflictNaming?.fallbackAuthorName ?? 'peer';
+    if (options.onConflictWritten !== undefined) {
+      this.onConflictWritten = options.onConflictWritten;
+    }
   }
 
   async openBuffers(fileId: string): Promise<readonly OpenBuffer[]> {
@@ -691,6 +702,10 @@ export class VaultApplyAdapter implements VaultApplyPort {
         event.revision.revisionId,
         target,
       );
+      // A genuinely new copy landed: signal the auto-repair sweep (MRG-05). A
+      // re-delivered revision reuses `existing` and never reaches here, so the
+      // sweep is never re-triggered by an idempotent rewrite of the same copy.
+      this.onConflictWritten?.();
     }
   }
 
