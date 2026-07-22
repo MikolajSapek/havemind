@@ -5,6 +5,7 @@ import { hashBlob } from '@havemind/protocol';
 import {
   ParentFolderOccupiedError,
   VaultApplyAdapter,
+  type RemoteAppliedEvent,
   type VaultFilePort,
 } from './vault-apply';
 import type { DecodedRevisionPayload } from '@havemind/sync-core';
@@ -1137,6 +1138,76 @@ describe('VaultApplyAdapter', () => {
           bytes,
         },
       ]);
+    });
+  });
+
+  describe('base-content lifecycle (F3) and convergent merge (F4)', () => {
+    it('forgets the base content on a remote delete (no data.json leak)', async () => {
+      const { adapter, files } = build(() => ({
+        operation: 'delete',
+        path: 'Notes/a.md',
+        previousPath: null,
+        content: null,
+      }));
+      files.owners.set('Notes/a.md', 'file-1');
+      files.baseHashes.set('file-1', await fakeHash('ANCESTOR\n'));
+      files.baseContents.set('file-1', 'ANCESTOR\n');
+
+      await adapter.applyRemote(event('rev-3', 'file-1'));
+
+      expect(files.deletes).toEqual(['Notes/a.md']);
+      expect(files.baseHashes.has('file-1')).toBe(false);
+      expect(files.baseContents.has('file-1')).toBe(false);
+    });
+
+    it('forgets the superseded owner base content on F3 adoption', async () => {
+      // Two devices independently minted a fileId for the same note. The incoming
+      // revision (file-1) is byte-identical to on-disk, so the old owner is
+      // superseded — its base hash AND base content must both be forgotten.
+      const { adapter, files } = build(() => content('Notes/a.md', 'SAME\n'));
+      files.owners.set('Notes/a.md', 'old-file');
+      files.onDisk.set('Notes/a.md', 'SAME\n');
+      files.baseHashes.set('old-file', await fakeHash('SAME\n'));
+      files.baseContents.set('old-file', 'SAME\n');
+
+      const outcome = await adapter.applyRemote(event('rev-9', 'file-1'));
+
+      expect(outcome).toBe('noop');
+      expect(files.baseHashes.has('old-file')).toBe(false);
+      expect(files.baseContents.has('old-file')).toBe(false);
+    });
+
+    it('short-circuits to noop when the merge result equals on-disk (no write, no activity, base advanced)', async () => {
+      // Remote revision equals the shared ancestor (no remote change); local has
+      // diverged. The three-way merge collapses to the local content == on-disk,
+      // so there is nothing to write and nothing to attribute to the peer.
+      const ancestor = 'A\nB\nC\n';
+      const local = 'A\nB2\nC\n';
+      const applied: RemoteAppliedEvent[] = [];
+      const files = new FakeFiles();
+      const adapter = new VaultApplyAdapter({
+        files,
+        conflictFolder: 'Havemind Conflicts',
+        resolveRevision: async () => content('Notes/a.md', ancestor),
+        hashContent: fakeHash,
+        onRemoteApplied: (e) => applied.push(e),
+      });
+      files.owners.set('Notes/a.md', 'file-1');
+      files.baseHashes.set('file-1', await fakeHash(ancestor));
+      files.baseContents.set('file-1', ancestor);
+      files.onDisk.set('Notes/a.md', local);
+
+      const outcome = await adapter.applyRemote(event('rev-9', 'file-1'));
+
+      expect(outcome).toBe('noop');
+      expect(files.writes).toEqual([]);
+      expect(files.conflicts).toEqual([]);
+      expect(applied).toEqual([]);
+      // The base still advances to the (already on-disk) merged state.
+      expect(files.baseHashes.get('file-1')).toBe(await fakeHash(local));
+      expect(files.baseContents.get('file-1')).toBe(local);
+      // The on-disk content is untouched.
+      expect(files.onDisk.get('Notes/a.md')).toBe(local);
     });
   });
 });

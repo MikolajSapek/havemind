@@ -1645,7 +1645,13 @@ export default class HavemindPlugin extends Plugin {
     }
     const resolver = this.conflictResolver;
     const run = (action: ResolveAction, modal: ConflictResolveModal): void => {
-      void resolver.resolve(copy, action).then(() => {
+      void resolver.resolve(copy, action).then((outcome) => {
+        // The auto-sweep may have resolved and deleted this copy while the modal
+        // was open. keepTheirs aborts as 'vanished' rather than blanking the
+        // already-merged note; tell the user and refresh the stale panel/modal.
+        if (outcome === 'vanished') {
+          new Notice('This conflict was already auto-resolved.');
+        }
         modal.close();
         this.onboardingView?.refresh();
       });

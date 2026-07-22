@@ -17,6 +17,8 @@ function fakePort(
     conflictFiles: ConflictVaultFile[];
     noteFiles: ConflictVaultFile[];
     contents: Record<string, string>;
+    /** Paths that report as present via `exists`. Defaults to the content keys. */
+    existingPaths: string[];
   }> = {},
 ): ConflictVaultPort & {
   reads: string[];
@@ -24,6 +26,7 @@ function fakePort(
   deletes: string[];
 } {
   const contents = overrides.contents ?? {};
+  const present = new Set(overrides.existingPaths ?? Object.keys(contents));
   const reads: string[] = [];
   const writes: Array<{ path: string; content: string }> = [];
   const deletes: string[] = [];
@@ -33,6 +36,7 @@ function fakePort(
     deletes,
     listConflictFiles: () => overrides.conflictFiles ?? [],
     listNoteFiles: () => overrides.noteFiles ?? [],
+    exists: async (path: string) => present.has(path),
     readText: async (path: string) => {
       reads.push(path);
       return contents[path] ?? '';
@@ -230,6 +234,46 @@ describe('createConflictResolver', () => {
     expect(result).toBe('resolved');
     expect(port.deletes).toEqual([]);
     expect(port.writes).toEqual([]);
+  });
+
+  it('keepTheirs aborts as "vanished" when the sweep already deleted the copy — never blanks the note', async () => {
+    // The copy is gone (the auto-sweep resolved and deleted it): `exists`
+    // reports absent, so keepTheirs must NOT read '' and overwrite the good,
+    // merged live note with an empty string (the data-loss bug).
+    const port = fakePort({ existingPaths: [] });
+    const resolver = createConflictResolver(port);
+
+    const result = await resolver.resolve(newCopy, 'keepTheirs');
+
+    expect(result).toBe('vanished');
+    expect(port.writes).toEqual([]);
+    expect(port.deletes).toEqual([]);
+  });
+
+  it('keepMine on a vanished copy is a graceful no-op (still resolved)', async () => {
+    const port = fakePort({ existingPaths: [] });
+    const resolver = createConflictResolver(port);
+
+    const result = await resolver.resolve(newCopy, 'keepMine');
+
+    expect(result).toBe('resolved');
+    expect(port.writes).toEqual([]);
+  });
+
+  it('keepTheirs writes a verifiably-empty copy that still exists', async () => {
+    // A genuinely empty copy (present on disk, empty content) is a legitimate
+    // "make the note empty" — it must still apply because the copy exists.
+    const port = fakePort({
+      contents: { [newCopy.copyPath]: '' },
+      existingPaths: [newCopy.copyPath],
+    });
+    const resolver = createConflictResolver(port);
+
+    const result = await resolver.resolve(newCopy, 'keepTheirs');
+
+    expect(result).toBe('resolved');
+    expect(port.writes).toEqual([{ path: 'Notatka.md', content: '' }]);
+    expect(port.deletes).toEqual([newCopy.copyPath]);
   });
 });
 

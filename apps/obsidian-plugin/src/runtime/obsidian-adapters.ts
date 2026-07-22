@@ -50,6 +50,7 @@ import {
   rebaseCanonicalizedHashes,
   type RebaseVaultPort,
 } from './canonicalization-rebase';
+import { CommitPathRecovery } from './commit-recovery';
 import { HavemindSyncController, type StatusListener } from './controller';
 import { ModifyDebouncer } from './modify-debounce';
 import { SyncScheduler, type SchedulerHooks } from './scheduler';
@@ -1045,10 +1046,19 @@ function startPushProducer(
       (error: unknown) => {
         // Surface an oversized note to the user instead of silently dropping it;
         // the change was never enqueued (the size guard rejected it), so nothing
-        // wedges the outbox. Other change errors stay non-fatal for the loop.
+        // wedges the outbox.
         if (error instanceof RevisionPayloadTooLargeError) {
           new Notice(`Havemind: ${error.message}`);
+          return;
         }
+        // SND-02 belt-and-braces: no commit-path rejection may drop silently.
+        // The path-aware modify-settle handler below does the bounded re-arm +
+        // durable failed-to-queue record; for the immediate create/rename/delete
+        // and reconcile chains (which have no debounce entry to re-arm) at least
+        // surface a Notice pointing at the panel rather than swallowing it.
+        new Notice(
+          'Havemind: a change could not be queued — see the Havemind panel.',
+        );
       },
     );
   };
@@ -1103,8 +1113,36 @@ function startPushProducer(
   // apply-then-formatter-rewrite burst hashes ONCE, after the file settles,
   // reading its final content. Create/rename/delete are ordering-sensitive and
   // fire immediately (never debounced).
+  // SND-02: a settle-time observeModify→commitLocalChange rejection used to be
+  // swallowed silently (the debouncer deletes the pending entry before firing,
+  // so nothing re-triggered). This path-aware handler gives every failing path
+  // one bounded re-arm; if the retry also fails the change is recorded durably
+  // as a failed-to-queue row in the send-queue panel — never silently dropped.
+  const commitPathRecovery = new CommitPathRecovery({
+    notify: (message) => new Notice(message),
+    rearm: (path) => modifyDebouncer.trigger(path),
+    recordFailedToQueue: (path) => state.recordFailedToQueue(path),
+  });
+  const observeSettledModify = (path: string): void => {
+    void observer.observeModify(path).then(
+      (op) => {
+        recordActivity(op);
+        commitPathRecovery.onCommitSuccess(path);
+        triggerSync();
+      },
+      (error: unknown) => {
+        // An oversized note is a permanent per-item rejection: surface it, but
+        // never re-arm (the retry can only fail the same way).
+        if (error instanceof RevisionPayloadTooLargeError) {
+          new Notice(`Havemind: ${error.message}`);
+          return;
+        }
+        void commitPathRecovery.onCommitFailure(path);
+      },
+    );
+  };
   const modifyDebouncer = new ModifyDebouncer({
-    onSettled: (path) => observed(observer.observeModify(path)),
+    onSettled: (path) => observeSettledModify(path),
   });
   const disposeListeners = registerVaultChangeListeners(vault, {
     onCreate: (path) => observed(observer.observeCreate(path)),

@@ -234,6 +234,32 @@ export class DurableSyncState implements SyncStatePort {
     await this.mutate({ ...state, outbox, quarantine, quarantinedEnvelopes });
   }
 
+  /**
+   * Record a durable "failed to queue" entry (SND-02): a local change whose
+   * commit-path enqueue permanently failed (e.g. a transient readText/saveData
+   * failure that survived a bounded re-arm), so it never reached the outbox and
+   * has no envelope to retry. It reuses the SND-01 quarantine machinery so the
+   * send-queue panel surfaces it alongside server-rejected sends with the same
+   * Retry/Discard affordances, under the distinguishable reason
+   * `failed-to-queue`. Keyed by a synthetic revisionId derived from the path so
+   * repeated failures for the same file coalesce into one row rather than
+   * flooding the panel. Nothing is ever silently dropped.
+   */
+  async recordFailedToQueue(path: string): Promise<void> {
+    const state = await this.ensureLoaded();
+    const revisionId = `failed-to-queue:${path}`;
+    const entry: QuarantinedRevision = {
+      revisionId,
+      fileId: path,
+      reason: 'failed-to-queue',
+    };
+    const quarantine = [
+      ...state.quarantine.filter((item) => item.revisionId !== revisionId),
+      entry,
+    ];
+    await this.mutate({ ...state, quarantine });
+  }
+
   async listQuarantine(): Promise<readonly QuarantinedRevision[]> {
     return (await this.ensureLoaded()).quarantine;
   }

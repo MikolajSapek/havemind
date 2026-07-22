@@ -258,6 +258,32 @@ describe('DurableSyncState', () => {
       expect(await state.listOutbox()).toEqual([]);
     });
 
+    it('records a durable failed-to-queue entry surfaced in the quarantine (SND-02)', async () => {
+      await state.recordFailedToQueue('Notes/A.md');
+
+      const quarantine = await state.listQuarantine();
+      expect(quarantine).toEqual([
+        {
+          revisionId: 'failed-to-queue:Notes/A.md',
+          fileId: 'Notes/A.md',
+          reason: 'failed-to-queue',
+        },
+      ]);
+      // Surfaces synchronously to the send-queue panel provider too.
+      expect(state.quarantineSnapshot()).toEqual(quarantine);
+
+      // Idempotent per path: a second failure for the same file does not add a
+      // duplicate row.
+      await state.recordFailedToQueue('Notes/A.md');
+      expect(await state.listQuarantine()).toHaveLength(1);
+
+      // Durable across a restart, and discardable via the shared SND-01 path.
+      const reopened = new DurableSyncState({ persist });
+      expect(await reopened.listQuarantine()).toHaveLength(1);
+      await reopened.discardQuarantined('failed-to-queue:Notes/A.md');
+      expect(await reopened.listQuarantine()).toEqual([]);
+    });
+
     it('keeps listQuarantine shape unchanged (no envelope leak into the row)', async () => {
       await state.enqueue(envelope());
       await state.quarantineOutboxItem('rev-1', 'server-rejected');

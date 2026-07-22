@@ -261,6 +261,10 @@ export class VaultApplyAdapter implements VaultApplyPort {
         await this.files.deleteByPath(decoded.path);
         await this.files.forgetPath(decoded.path);
         await this.files.forgetBaseHash(fileId);
+        // Forget the base CONTENT too (F3): the local-delete path already does
+        // this (`forgetLocalMaterialization`); omitting it here leaked one
+        // baseContents entry per remote delete, growing data.json unbounded.
+        await this.files.forgetBaseContent(fileId);
         this.onRemoteApplied?.({
           revisionId: event.revision.revisionId,
           fileId,
@@ -334,6 +338,9 @@ export class VaultApplyAdapter implements VaultApplyPort {
         // -key forget targeting the old owner.
         await this.producerSync?.onRemoteDelete({ fileId: owner, path: decoded.path });
         await this.files.forgetBaseHash(owner);
+        // Forget the superseded owner's base CONTENT too (F3): only its base hash
+        // was being cleared, leaking one baseContents entry per adoption.
+        await this.files.forgetBaseContent(owner);
         await this.files.recordPathOwner(fileId, decoded.path);
         await this.files.recordBaseHash(fileId, contentHash);
         // Adopt the remote fileId into the producer mapping too (no disk write
@@ -501,6 +508,17 @@ export class VaultApplyAdapter implements VaultApplyPort {
     }
     const merged = result.text;
     const mergedHash = await this.hashContent(merged);
+    // When the merge collapses to exactly the current on-disk content (e.g. the
+    // remote side carried no change relative to the ancestor), there is nothing
+    // new to write and nothing to attribute to the peer (F4). Treat it as a
+    // convergence: advance the base to the merged state, but skip the redundant
+    // write and the remote-applied activity entry.
+    if (merged === onDisk) {
+      await this.files.recordPathOwner(fileId, decoded.path);
+      await this.files.recordBaseHash(fileId, mergedHash);
+      await this.files.recordBaseContent(fileId, merged);
+      return 'noop';
+    }
     await this.files.writeByPath(decoded.path, merged);
     await this.files.recordPathOwner(fileId, decoded.path);
     await this.files.recordBaseHash(fileId, mergedHash);

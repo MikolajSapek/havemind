@@ -104,6 +104,8 @@ export interface ConflictVaultPort {
   listConflictFiles(): ConflictVaultFile[];
   /** Candidate target notes (everything outside the conflict folder). */
   listNoteFiles(): ConflictVaultFile[];
+  /** True when a file still exists at `path` (used to guard keepTheirs). */
+  exists(path: string): Promise<boolean>;
   readText(path: string): Promise<string>;
   writeText(path: string, content: string): Promise<void>;
   deleteFile(path: string): Promise<void>;
@@ -242,14 +244,21 @@ export function computeLineDiff(mine: string, theirs: string): DiffLine[] {
 
 export type ResolveAction = 'keepMine' | 'keepTheirs' | 'keepBoth';
 
+export type ResolveOutcome = 'resolved' | 'ignored' | 'vanished';
+
 export interface ConflictResolver {
   /**
-   * Runs a resolve action against the port. Returns `'resolved'` when it ran,
-   * or `'ignored'` when this copy was already being resolved — the guard makes
-   * a double click (or a stray second click before the list refreshes) safe:
-   * each destructive port op fires at most once per copy.
+   * Runs a resolve action against the port. Returns:
+   *  - `'resolved'` when it ran;
+   *  - `'ignored'` when this copy was already being resolved — the guard makes
+   *    a double click (or a stray second click before the list refreshes) safe:
+   *    each destructive port op fires at most once per copy;
+   *  - `'vanished'` when a keepTheirs was asked to apply a copy the auto-sweep
+   *    had already resolved and deleted. The copy no longer exists, so applying
+   *    it would read '' and blank the (already-merged) live note — DATA LOSS.
+   *    The caller surfaces a Notice ("already auto-resolved") and refreshes.
    */
-  resolve(copy: ConflictCopy, action: ResolveAction): Promise<'resolved' | 'ignored'>;
+  resolve(copy: ConflictCopy, action: ResolveAction): Promise<ResolveOutcome>;
 }
 
 export function createConflictResolver(port: ConflictVaultPort): ConflictResolver {
@@ -258,22 +267,33 @@ export function createConflictResolver(port: ConflictVaultPort): ConflictResolve
   const settled = new Set<string>();
 
   return {
-    async resolve(copy, action) {
+    async resolve(copy, action): Promise<ResolveOutcome> {
       if (settled.has(copy.copyPath)) return 'ignored';
       settled.add(copy.copyPath);
 
       switch (action) {
         case 'keepMine':
-          // Discard the copy; the live note is already what we want.
+          // Discard the copy; the live note is already what we want. If the
+          // sweep already deleted it, deleteFile is a graceful no-op.
           await port.deleteFile(copy.copyPath);
           break;
         case 'keepTheirs': {
           // Overwrite the note with the copy, then discard the copy. A missing
           // target cannot be written; guard rather than throwing mid-UI.
-          if (copy.targetPath !== null) {
-            const content = await port.readText(copy.copyPath);
-            await port.writeText(copy.targetPath, content);
+          if (copy.targetPath === null) {
+            await port.deleteFile(copy.copyPath);
+            break;
           }
+          // DATA-LOSS GUARD: the auto-sweep may have resolved and deleted this
+          // copy in the meantime. A vanished copy reads as '' and would blank
+          // the (already-merged) live note. Verify the copy still exists before
+          // reading/writing; if not, abort so the caller can tell the user it
+          // was already auto-resolved and refresh the stale panel/modal.
+          if (!(await port.exists(copy.copyPath))) {
+            return 'vanished';
+          }
+          const content = await port.readText(copy.copyPath);
+          await port.writeText(copy.targetPath, content);
           await port.deleteFile(copy.copyPath);
           break;
         }
@@ -307,6 +327,7 @@ export function createObsidianConflictPort(vault: Vault): ConflictVaultPort {
       allFiles().filter((file) => inReservedFolder(file.path)),
     listNoteFiles: () =>
       allFiles().filter((file) => !inReservedFolder(file.path)),
+    exists: async (path) => vault.getAbstractFileByPath(path) !== null,
     readText: async (path) => {
       const file = vault.getAbstractFileByPath(path);
       if (file === null) return '';

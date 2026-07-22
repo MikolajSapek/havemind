@@ -41,6 +41,10 @@ class FakeConflictVault implements ConflictVaultPort {
     return this.list(false);
   }
 
+  async exists(path: string): Promise<boolean> {
+    return this.files.has(path);
+  }
+
   async readText(path: string): Promise<string> {
     return this.files.get(path) ?? '';
   }
