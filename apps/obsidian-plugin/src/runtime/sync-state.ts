@@ -66,6 +66,28 @@ export interface PersistedSyncState {
    * (rule 3: zero silent overwrites).
    */
   readonly baseHashes: Readonly<Record<string, string>>;
+  /**
+   * Durable fileId→base CONTENT map: the exact canonical text of the last synced
+   * base (the same content `baseHashes` holds the hash of). It is the ANCESTOR
+   * the three-way merge (MRG-01) needs on a divergence — the last content both
+   * peers agreed on. The producer mapping's `content` cannot serve this role
+   * because a local edit overwrites it with the LOCAL version, so the agreed base
+   * is persisted here separately. Cost: one extra copy of each synced note's
+   * text; negligible for a two-person markdown vault and needs no server change
+   * (the alternative — fetching the base revision blob over the transport —
+   * would need the base revision id and a reconstruction pass). Only markdown
+   * bases are stored; a binary file never merges, so it records no base content.
+   */
+  readonly baseContents: Readonly<Record<string, string>>;
+  /**
+   * Durable revisionId→conflict-artifact-path map. A conflict copy's readable
+   * name (MRG-02) embeds a wall-clock timestamp, so a re-delivered revision would
+   * otherwise mint a fresh, differently-named copy on every retry — the exact
+   * conflict-cascade this guards against. Recording the path the first time a
+   * revision conflicts lets a re-delivery reuse it (idempotent overwrite) instead
+   * of spawning duplicates.
+   */
+  readonly conflictArtifacts: Readonly<Record<string, string>>;
 }
 
 /** Persistence boundary; wraps `Plugin.loadData`/`Plugin.saveData` in production. */
@@ -92,6 +114,8 @@ function emptyState(): PersistedSyncState {
     quarantine: [],
     pathOwners: {},
     baseHashes: {},
+    baseContents: {},
+    conflictArtifacts: {},
   };
 }
 
@@ -236,6 +260,50 @@ export class DurableSyncState implements SyncStatePort {
     await this.mutate({ ...state, baseHashes });
   }
 
+  /**
+   * The exact base CONTENT for a file (the merge ancestor, MRG-01), or null when
+   * none is recorded. Synchronous against the warmed cache, like `baseHashFor`.
+   */
+  baseContentFor(fileId: string): string | null {
+    return this.cache?.baseContents[fileId] ?? null;
+  }
+
+  async recordBaseContent(fileId: string, content: string): Promise<void> {
+    const state = await this.ensureLoaded();
+    await this.mutate({
+      ...state,
+      baseContents: { ...state.baseContents, [fileId]: content },
+    });
+  }
+
+  async forgetBaseContent(fileId: string): Promise<void> {
+    const state = await this.ensureLoaded();
+    if (!(fileId in state.baseContents)) return;
+    const baseContents = { ...state.baseContents };
+    delete baseContents[fileId];
+    await this.mutate({ ...state, baseContents });
+  }
+
+  /**
+   * The conflict-artifact path already written for `revisionId` (MRG-02
+   * cascade guard), or null if this revision has not conflicted before.
+   * Synchronous against the warmed cache.
+   */
+  conflictArtifactPathFor(revisionId: string): string | null {
+    return this.cache?.conflictArtifacts[revisionId] ?? null;
+  }
+
+  async recordConflictArtifactPath(
+    revisionId: string,
+    path: string,
+  ): Promise<void> {
+    const state = await this.ensureLoaded();
+    await this.mutate({
+      ...state,
+      conflictArtifacts: { ...state.conflictArtifacts, [revisionId]: path },
+    });
+  }
+
   async enqueue(envelope: OutboxEnvelope): Promise<void> {
     const state = await this.ensureLoaded();
     const outbox = [
@@ -342,6 +410,12 @@ function parsePersistedState(raw: unknown): PersistedSyncState {
   const baseHashes = parseStringMap(raw.baseHashes);
   if (baseHashes === null) return emptyState();
 
+  const baseContents = parseStringMap(raw.baseContents);
+  if (baseContents === null) return emptyState();
+
+  const conflictArtifacts = parseStringMap(raw.conflictArtifacts);
+  if (conflictArtifacts === null) return emptyState();
+
   const quarantine = parseQuarantine(raw.quarantine);
   if (quarantine === null) return emptyState();
 
@@ -354,6 +428,8 @@ function parsePersistedState(raw: unknown): PersistedSyncState {
     quarantine,
     pathOwners,
     baseHashes,
+    baseContents,
+    conflictArtifacts,
   };
 }
 

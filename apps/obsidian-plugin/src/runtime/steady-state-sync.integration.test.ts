@@ -237,6 +237,11 @@ function makeHarness() {
     },
     hashContent: realSha256,
     producerSync: createRemoteApplyProducerSync(() => repository),
+    // Deterministic readable-conflict naming (MRG-02) for exact assertions.
+    conflictNaming: {
+      now: () => new Date(2026, 6, 22, 21, 56),
+      resolveAuthorName: () => 'Peer',
+    },
   });
 
   async function drainEvents(): Promise<void> {
@@ -335,7 +340,7 @@ describe('two-person steady-state sync (integration)', () => {
     expect(outcome).toBe('applied');
     expect(h.vault.contents.get('Notes/note.md')).toBe('V2\n');
     // No conflict artifact, and the reflected vault event was NOT re-pushed.
-    expect(h.vault.contents.has(`Havemind Conflicts/${FILE_A}-r2.md`)).toBe(false);
+    expect(h.vault.contents.has('Havemind Conflicts/note (conflict Peer 2026-07-22 2156).md')).toBe(false);
     expect(h.outbox).toHaveLength(1);
   });
 
@@ -358,7 +363,7 @@ describe('two-person steady-state sync (integration)', () => {
     expect(outcome).toBe('conflict');
     // The local edit is preserved on disk; the peer edit lands in a conflict.
     expect(h.vault.contents.get('Notes/note.md')).toBe('LOCAL-EDIT\n');
-    expect(h.vault.contents.get(`Havemind Conflicts/${FILE_A}-r3.md`)).toBe(
+    expect(h.vault.contents.get('Havemind Conflicts/note (conflict Peer 2026-07-22 2156).md')).toBe(
       'PEER-EDIT\n',
     );
   });
@@ -394,7 +399,7 @@ describe('two-person steady-state sync (integration)', () => {
     // It must become a conflict artifact — never overwrite the local V2 edit.
     expect(outcome).toBe('conflict');
     expect(h.vault.contents.get('Notes/note.md')).toBe('V2\n');
-    expect(h.vault.contents.get(`Havemind Conflicts/${FILE_A}-r5.md`)).toBe(
+    expect(h.vault.contents.get('Havemind Conflicts/note (conflict Peer 2026-07-22 2156).md')).toBe(
       'PEER\n',
     );
   });
@@ -511,7 +516,7 @@ describe('two-person steady-state sync (integration)', () => {
     // Per-item: diverted to a conflict artifact, the occupying file untouched.
     expect(blocked).toBe('conflict');
     expect(h.vault.contents.get('Notatki')).toBe('I AM A FILE\n');
-    expect(h.vault.contents.get(`Havemind Conflicts/${REMOTE_FILE}-r1.md`)).toBe(
+    expect(h.vault.contents.get('Havemind Conflicts/Start (conflict Peer 2026-07-22 2156).md')).toBe(
       'S\n',
     );
 
@@ -527,5 +532,79 @@ describe('two-person steady-state sync (integration)', () => {
 
     expect(next).toBe('applied');
     expect(h.vault.contents.get('Other.md')).toBe('O\n');
+  });
+
+  it('(f) two devices with concurrent non-overlapping edits merge and converge (MRG-01)', async () => {
+    // Two real apply adapters + producers over two vaults, exchanging revisions
+    // through a hand-relayed wire, proving the merge round-trips to convergence
+    // with no conflict artifacts and no ping-pong.
+    const NOTE = 'Notes/note.md';
+    const BASE = 'L1\nL2\nL3\nL4\nL5\n';
+    const LOCAL_A = 'A1\nL2\nL3\nL4\nL5\n'; // A edits the first line
+    const REMOTE_B = 'L1\nL2\nL3\nL4\nB5\n'; // B edits the last line
+    const MERGED = 'A1\nL2\nL3\nL4\nB5\n'; // both edits combined
+
+    // Relayed revision ids must be valid UUIDs — an adopted remote revision id
+    // becomes the local head and is later validated as a revision parent.
+    const REV_BASE = '10000000-0000-4000-8000-000000000000';
+    const REV_B = '20000000-0000-4000-8000-000000000000';
+    const REV_A = '30000000-0000-4000-8000-000000000000';
+    const REV_BMERGE = '40000000-0000-4000-8000-000000000000';
+    const REV_AMERGE = '50000000-0000-4000-8000-000000000000';
+
+    const a = makeHarness();
+    const b = makeHarness();
+
+    const update = (content: string): DecodedRevisionPayload => ({
+      operation: 'update',
+      path: NOTE,
+      previousPath: null,
+      content,
+    });
+
+    // Both devices converge on the shared base BASE for FILE_A.
+    await a.userCreate(NOTE, BASE, FILE_A);
+    b.setRemote(REV_BASE, { ...update(BASE), operation: 'create' });
+    await b.adapter.applyRemote(b.remoteEvent(REV_BASE, FILE_A));
+    await b.drainEvents();
+    expect(b.state.baseHashFor(FILE_A)).toBe(await realSha256(BASE));
+
+    // Each device makes a concurrent, non-overlapping local edit and pushes it.
+    await a.vault.modify({ path: NOTE }, LOCAL_A);
+    await a.drainEvents();
+    await b.vault.modify({ path: NOTE }, REMOTE_B);
+    await b.drainEvents();
+
+    // A pulls B's concurrent revision (no causal parent) → three-way merge.
+    a.setRemote(REV_B, update(REMOTE_B));
+    const aOutcome = await a.adapter.applyRemote(a.remoteEvent(REV_B, FILE_A));
+    await a.drainEvents();
+    expect(aOutcome).toBe('applied');
+    expect(a.vault.contents.get(NOTE)).toBe(MERGED);
+
+    // B pulls A's concurrent revision → the same merged result.
+    b.setRemote(REV_A, update(LOCAL_A));
+    const bOutcome = await b.adapter.applyRemote(b.remoteEvent(REV_A, FILE_A));
+    await b.drainEvents();
+    expect(bOutcome).toBe('applied');
+    expect(b.vault.contents.get(NOTE)).toBe(MERGED);
+
+    // The merged revision each device pushes round-trips to the peer and
+    // converges as a no-op (content already equal) — never a conflict, never a
+    // ping-pong.
+    a.setRemote(REV_BMERGE, update(MERGED));
+    const aConverge = await a.adapter.applyRemote(a.remoteEvent(REV_BMERGE, FILE_A));
+    await a.drainEvents();
+    b.setRemote(REV_AMERGE, update(MERGED));
+    const bConverge = await b.adapter.applyRemote(b.remoteEvent(REV_AMERGE, FILE_A));
+    await b.drainEvents();
+
+    expect(aConverge).toBe('noop');
+    expect(bConverge).toBe('noop');
+    // Both vaults hold the merged content and neither wrote a conflict artifact.
+    expect(a.vault.contents.get(NOTE)).toBe(MERGED);
+    expect(b.vault.contents.get(NOTE)).toBe(MERGED);
+    expect([...a.vault.contents.keys()].some((p) => p.startsWith('Havemind Conflicts/'))).toBe(false);
+    expect([...b.vault.contents.keys()].some((p) => p.startsWith('Havemind Conflicts/'))).toBe(false);
   });
 });

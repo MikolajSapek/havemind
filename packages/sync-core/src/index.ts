@@ -1,4 +1,5 @@
 export * from './client-model.js';
+export * from './diff3.js';
 export * from './diff-recipe.js';
 export * from './merge.js';
 export * from './path-ownership.js';

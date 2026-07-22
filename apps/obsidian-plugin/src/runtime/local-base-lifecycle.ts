@@ -32,8 +32,10 @@ export interface LocalBaseLifecycleStore {
   baseHashFor(fileId: string): string | null;
   recordPathOwner(fileId: string, path: string): Promise<void>;
   recordBaseHash(fileId: string, hash: string): Promise<void>;
+  recordBaseContent(fileId: string, content: string): Promise<void>;
   forgetPath(path: string): Promise<void>;
   forgetBaseHash(fileId: string): Promise<void>;
+  forgetBaseContent(fileId: string): Promise<void>;
 }
 
 export interface LocalMaterializationInput {
@@ -41,6 +43,12 @@ export interface LocalMaterializationInput {
   readonly path: string;
   /** SHA-256 hex of the normalized note text. */
   readonly contentHash: string;
+  /**
+   * The canonical markdown text this device authored, or null for a binary file
+   * (which never merges and records no base content, MRG-01). Seeded as the
+   * merge ancestor alongside the base hash on first authorship.
+   */
+  readonly content: string | null;
   /** The prior path on a rename, so its stale ownership can be forgotten. */
   readonly previousPath: string | null;
 }
@@ -66,6 +74,10 @@ export async function applyLocalMaterialization(
   // Seed on first authorship only — never advance an existing base on a push.
   if (store.baseHashFor(input.fileId) === null) {
     await store.recordBaseHash(input.fileId, input.contentHash);
+    // Seed the merge ancestor too (markdown only; a binary file passes null).
+    if (input.content !== null) {
+      await store.recordBaseContent(input.fileId, input.content);
+    }
   }
 }
 
@@ -76,4 +88,5 @@ export async function forgetLocalMaterialization(
 ): Promise<void> {
   await store.forgetPath(input.path);
   await store.forgetBaseHash(input.fileId);
+  await store.forgetBaseContent(input.fileId);
 }

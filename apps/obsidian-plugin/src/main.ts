@@ -1,14 +1,26 @@
 import {
   ItemView,
+  Modal,
   Notice,
   Plugin,
   PluginSettingTab,
   Setting,
   setIcon,
+  type App,
   type WorkspaceLeaf,
 } from 'obsidian';
 
 import { isSafePassiveJoinProtocolData } from './onboarding/invite';
+import {
+  computeLineDiff,
+  createConflictResolver,
+  createObsidianConflictPort,
+  listConflictCopies,
+  type ConflictCopy,
+  type ConflictVaultPort,
+  type DiffLine,
+  type ResolveAction,
+} from './runtime/conflict-resolution';
 import type { RevisionRecord } from './activity/activity';
 import { buildActivityViewModel } from './runtime/activity-render';
 import { restoreActivityEntry } from './runtime/activity-restore';
@@ -191,6 +203,211 @@ function renderRejoinRoster(
   }
 }
 
+/**
+ * A destructive two-step confirm button, mirroring the Remove-button idiom: the
+ * first click arms the button (swapping its label to `confirmLabel`), the second
+ * click within the same render executes. `executed` guards a stray third click
+ * from re-firing after confirmation. No `window.confirm` — it blocks Electron.
+ */
+function armedButton(
+  parent: HTMLElement,
+  label: string,
+  confirmLabel: string,
+  cls: string,
+  onConfirm: () => void,
+): void {
+  let armed = false;
+  let executed = false;
+  const button = parent.createEl('button', { text: label });
+  button.addClass(cls);
+  button.onClickEvent(() => {
+    if (executed) return;
+    if (!armed) {
+      armed = true;
+      button.setText(confirmLabel);
+      button.addClass('havemind-conflict-action-armed');
+      return;
+    }
+    executed = true;
+    onConfirm();
+  });
+}
+
+/** Actions attached to each conflict-copy row in the panel section. */
+export interface ConflictSectionActions {
+  /** Open the resolve modal for the copy at this vault path. */
+  readonly onResolve: (copyPath: string) => void;
+}
+
+/**
+ * Renders the "Conflicts" panel section: a header (git-merge icon + count
+ * badge) and one row per conflict copy. The section is drawn only when copies
+ * exist, so the caller must skip it for an empty list. Each row shows the target
+ * note, author and timestamp — or the manual-resolution hint when the target is
+ * unknown — plus a Resolve button opening the diff modal.
+ */
+export function renderConflictSection(
+  content: HTMLElement,
+  copies: readonly ConflictCopy[],
+  actions: ConflictSectionActions,
+): void {
+  if (copies.length === 0) return;
+
+  const header = content.createDiv({ text: '' });
+  header.addClass('havemind-conflict-header');
+  const icon = header.createEl('span');
+  icon.addClass('havemind-conflict-icon');
+  setIcon(icon, 'git-merge');
+  header.createEl('span', { text: ' Conflicts' });
+  const badge = header.createEl('span', { text: `${copies.length}` });
+  badge.addClass('havemind-conflict-count');
+
+  for (const copy of copies) {
+    const row = content.createDiv({ text: '' });
+    row.addClass('havemind-conflict-row');
+
+    const name = copy.noteName ?? copy.copyName;
+    row.createEl('span', { text: name }).addClass('havemind-conflict-note');
+    if (copy.author !== null && copy.timestamp !== null) {
+      row.createEl('span', {
+        text: ` · ${copy.author} · ${copy.timestamp}`,
+      }).addClass('havemind-conflict-meta');
+    }
+    if (copy.manualHint !== null) {
+      const hint = row.createDiv({ text: copy.manualHint });
+      hint.addClass('havemind-conflict-hint');
+    }
+
+    const resolve = row.createEl('button', { text: 'Resolve' });
+    resolve.addClass('mod-cta');
+    resolve.addClass('havemind-conflict-action');
+    resolve.onClickEvent(() => actions.onResolve(copy.copyPath));
+  }
+}
+
+/** View model for the resolve modal — pure, built from a copy + optional diff. */
+export interface ConflictModalModel {
+  readonly title: string;
+  readonly author: string | null;
+  readonly timestamp: string | null;
+  readonly isBinary: boolean;
+  readonly targetKnown: boolean;
+  /** Line diff (note vs copy), or null for binary/unknown-target copies. */
+  readonly diff: readonly DiffLine[] | null;
+  readonly manualHint: string | null;
+}
+
+/** Builds the modal model from a conflict copy and its computed diff (if any). */
+export function buildConflictModalModel(
+  copy: ConflictCopy,
+  diff: readonly DiffLine[] | null,
+): ConflictModalModel {
+  return {
+    title: copy.noteName ?? copy.copyName,
+    author: copy.author,
+    timestamp: copy.timestamp,
+    isBinary: copy.isBinary,
+    targetKnown: copy.targetKnown,
+    diff,
+    manualHint: copy.manualHint,
+  };
+}
+
+/** Callbacks wired to the resolve modal's three buttons. */
+export interface ConflictModalActions {
+  /** Keep the live note, discard the copy (destructive → two-step confirm). */
+  readonly onKeepMine?: () => void;
+  /** Overwrite the note with the copy (destructive → two-step confirm). */
+  readonly onKeepTheirs?: () => void;
+  /** Leave both files in place and close the modal. */
+  readonly onKeepBoth: () => void;
+}
+
+/**
+ * Renders the resolve modal body: a heading, the manual hint (if any), the
+ * colour-coded line diff (added lines tinted with --text-success, removed with
+ * --text-error), and the three resolution buttons. "Keep theirs" is offered
+ * only when a text target is known — a missing target or a binary copy cannot be
+ * written from here, so those resolve by keeping mine or opening files manually.
+ */
+export function renderConflictModalBody(
+  container: HTMLElement,
+  model: ConflictModalModel,
+  actions: ConflictModalActions,
+): void {
+  container.addClass('havemind-conflict-modal');
+  renderViewTitle(container, `Resolve conflict — ${model.title}`);
+
+  if (model.author !== null && model.timestamp !== null) {
+    const meta = container.createDiv({
+      text: `Conflict from ${model.author} · ${model.timestamp}`,
+    });
+    meta.addClass('havemind-conflict-modal-meta');
+  }
+
+  if (model.manualHint !== null) {
+    const hint = container.createDiv({ text: model.manualHint });
+    hint.addClass('havemind-conflict-hint');
+  }
+
+  if (model.diff !== null) {
+    const diffBox = container.createDiv({ text: '' });
+    diffBox.addClass('havemind-conflict-diff');
+    for (const line of model.diff) {
+      const prefix =
+        line.type === 'added' ? '+ ' : line.type === 'removed' ? '- ' : '  ';
+      const row = diffBox.createDiv({ text: `${prefix}${line.text}` });
+      row.addClass('havemind-conflict-line');
+      row.addClass(`havemind-conflict-line-${line.type}`);
+    }
+  }
+
+  const buttons = container.createDiv({ text: '' });
+  buttons.addClass('havemind-conflict-buttons');
+
+  if (actions.onKeepMine) {
+    armedButton(
+      buttons,
+      'Keep mine',
+      'Confirm keep mine',
+      'mod-warning',
+      actions.onKeepMine,
+    );
+  }
+  if (actions.onKeepTheirs && model.targetKnown && !model.isBinary) {
+    armedButton(
+      buttons,
+      'Keep theirs',
+      'Confirm keep theirs',
+      'mod-warning',
+      actions.onKeepTheirs,
+    );
+  }
+  const keepBoth = buttons.createEl('button', { text: 'Keep both (close)' });
+  keepBoth.addClass('havemind-conflict-action');
+  keepBoth.onClickEvent(() => actions.onKeepBoth());
+}
+
+/** The in-app diff/merge modal for a single conflict copy (livesync-style). */
+export class ConflictResolveModal extends Modal {
+  private readonly model: ConflictModalModel;
+  private readonly actions: ConflictModalActions;
+
+  constructor(app: App, model: ConflictModalModel, actions: ConflictModalActions) {
+    super(app);
+    this.model = model;
+    this.actions = actions;
+  }
+
+  override onOpen(): void {
+    renderConflictModalBody(this.contentEl, this.model, this.actions);
+  }
+
+  override onClose(): void {
+    this.contentEl.empty();
+  }
+}
+
 /** Injected data + actions for the Activity surface (F5-01 feed + restore). */
 export interface ActivityViewOptions {
   readonly feedProvider?: () => readonly RevisionRecord[];
@@ -340,6 +557,14 @@ export interface OnboardingViewOptions {
   /** Live connection indicator model; defaults to the disconnected panel. */
   readonly panelProvider?: () => ConnectionPanelView;
   /**
+   * MRG-03 conflict copies awaiting resolution. When it returns a non-empty
+   * list the "Conflicts" section is drawn in the panel; an empty list (or an
+   * omitted provider) hides it entirely.
+   */
+  readonly conflictsProvider?: () => readonly ConflictCopy[];
+  /** Open the resolve modal for the conflict copy at this vault path. */
+  readonly onResolveConflict?: (copyPath: string) => void;
+  /**
    * Presence roster (who is connected) with the F9 rejoin affordance. Rendered
    * in the owner composer and in the connected panel so both the owner and the
    * invitee see a clear "Connected" list. Presence is persistent connection
@@ -476,6 +701,8 @@ export class HavemindOnboardingView extends ItemView {
       buildConnectionPanel({ status: 'disconnected' });
     this.renderIndicator(content, panel);
 
+    this.renderConflicts(content);
+
     if (panel.showForm) {
       this.renderForm(content);
     } else {
@@ -518,6 +745,20 @@ export class HavemindOnboardingView extends ItemView {
       retry.addClass('havemind-retry');
       retry.onClickEvent(() => this.options.onRetry?.());
     }
+  }
+
+  /**
+   * Draws the MRG-03 "Conflicts" section when copies exist. The provider reads
+   * the vault synchronously; an empty list renders nothing so the section
+   * appears only while there is something to resolve.
+   */
+  private renderConflicts(content: HTMLElement): void {
+    const copies = this.options.conflictsProvider?.() ?? [];
+    const onResolveConflict = this.options.onResolveConflict;
+    if (copies.length === 0 || onResolveConflict === undefined) return;
+    renderConflictSection(content, copies, {
+      onResolve: (copyPath) => onResolveConflict(copyPath),
+    });
   }
 
   private renderConnected(content: HTMLElement): void {
@@ -902,6 +1143,12 @@ export default class HavemindPlugin extends Plugin {
    * settles.
    */
   private retryInFlight = false;
+  /**
+   * MRG-03 conflict resolver. Its per-copy guard makes a double-clicked resolve
+   * fire each destructive vault op at most once. Lazily bound to the live vault
+   * port on first use so a headless test never needs a real vault.
+   */
+  private conflictResolver: ReturnType<typeof createConflictResolver> | null = null;
 
   override onload(): void {
     // Wire the Activity view to the live feed: the log snapshot is mapped through
@@ -928,6 +1175,10 @@ export default class HavemindPlugin extends Plugin {
         guestWaitingProvider: () => this.awaitingApproval,
         guestInvalidProvider: () => this.guestInvitationInvalid,
         panelProvider: () => this.connectionPanel(),
+        conflictsProvider: () => listConflictCopies(this.conflictPort()),
+        onResolveConflict: (copyPath) => {
+          void this.openConflictModal(copyPath);
+        },
         rejoinRosterProvider: () => this.rejoinRosterView(),
         rejoinWaitingProvider: () => this.rejoinWaiting,
         onRejoin: (membershipId) => {
@@ -1219,6 +1470,64 @@ export default class HavemindPlugin extends Plugin {
       return;
     }
     this.activityLog.record(entry);
+  }
+
+  /**
+   * The Obsidian-backed conflict vault port. `this.app.vault` is not modelled on
+   * the ambient `App`, so cast through a local shape rather than patching the
+   * shared interface (the port degrades to "no conflicts" for a stub vault).
+   */
+  private conflictPort(): ConflictVaultPort {
+    const app = this.app as unknown as { vault: Parameters<typeof createObsidianConflictPort>[0] };
+    return createObsidianConflictPort(app.vault);
+  }
+
+  /**
+   * Opens the MRG-03 resolve modal for a conflict copy: computes the note-vs-copy
+   * diff (text copies with a known target only), then wires the three actions to
+   * the shared resolver. After a resolve, the panel re-renders so the resolved
+   * row drops out and the section disappears once empty.
+   */
+  private async openConflictModal(
+    copyPath: string,
+  ): Promise<ConflictResolveModal | null> {
+    const port = this.conflictPort();
+    const copy = listConflictCopies(port).find((c) => c.copyPath === copyPath);
+    if (copy === undefined) return null;
+
+    let diff: DiffLine[] | null = null;
+    if (copy.targetKnown && !copy.isBinary && copy.targetPath !== null) {
+      const [mine, theirs] = await Promise.all([
+        port.readText(copy.targetPath),
+        port.readText(copy.copyPath),
+      ]);
+      diff = computeLineDiff(mine, theirs);
+    }
+
+    if (this.conflictResolver === null) {
+      this.conflictResolver = createConflictResolver(port);
+    }
+    const resolver = this.conflictResolver;
+    const run = (action: ResolveAction, modal: ConflictResolveModal): void => {
+      void resolver.resolve(copy, action).then(() => {
+        modal.close();
+        this.onboardingView?.refresh();
+      });
+    };
+
+    const modal: ConflictResolveModal = new ConflictResolveModal(
+      this.app,
+      buildConflictModalModel(copy, diff),
+      {
+        onKeepMine: () => run('keepMine', modal),
+        ...(copy.targetKnown && !copy.isBinary
+          ? { onKeepTheirs: () => run('keepTheirs', modal) }
+          : {}),
+        onKeepBoth: () => run('keepBoth', modal),
+      },
+    );
+    modal.open();
+    return modal;
   }
 
   /** Records the local member into the roster once the connection knows it. */

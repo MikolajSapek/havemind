@@ -14,7 +14,7 @@
  */
 
 import { canonicalizeMarkdown, hashBlob } from '@havemind/protocol';
-import type { DecodedRevisionPayload } from '@havemind/sync-core';
+import { mergeText, type DecodedRevisionPayload } from '@havemind/sync-core';
 
 import {
   bytesToBase64,
@@ -78,7 +78,48 @@ export interface VaultFilePort {
   recordBaseHash(fileId: string, hash: string): Promise<void>;
   /** Durably forget the base content hash for `fileId` (after a delete). */
   forgetBaseHash(fileId: string): Promise<void>;
+  /**
+   * The exact base CONTENT for `fileId` (the merge ancestor, MRG-01), or null.
+   * Markdown-only: a binary file never merges and records no base content.
+   */
+  baseContentFor(fileId: string): string | null;
+  /** Durably record the base CONTENT for `fileId` (paired with the base hash). */
+  recordBaseContent(fileId: string, content: string): Promise<void>;
+  /** Durably forget the base content for `fileId` (after a delete). */
+  forgetBaseContent(fileId: string): Promise<void>;
+  /** True when a file already exists at `path` (conflict-name collision probe). */
+  conflictArtifactExists(path: string): Promise<boolean>;
+  /**
+   * The conflict-artifact path already recorded for `revisionId`, or null. Lets a
+   * re-delivered revision reuse its existing copy instead of spawning a new
+   * timestamped duplicate (MRG-02 cascade guard).
+   */
+  conflictArtifactPathFor(revisionId: string): string | null;
+  /** Durably record the conflict-artifact path chosen for `revisionId`. */
+  recordConflictArtifactPath(revisionId: string, path: string): Promise<void>;
 }
+
+/**
+ * Naming inputs for a readable conflict copy (MRG-02). Injected so the timestamp
+ * is deterministic in tests and the author name can be resolved from the roster.
+ */
+export interface ConflictNaming {
+  /** Wall clock for the `YYYY-MM-DD HHmm` stamp; defaults to `new Date()`. */
+  readonly now?: () => Date;
+  /**
+   * Resolves the incoming revision's author to a short display name (roster
+   * `displayName` when known, else a short device label). When it returns
+   * undefined the fallback label is used. The revision itself carries no author
+   * id in the current transport, so production wiring supplies this from what
+   * the client already knows about the peer.
+   */
+  readonly resolveAuthorName?: (event: RemoteEvent) => string | undefined;
+  /** Label used when no author can be resolved. Defaults to `'peer'`. */
+  readonly fallbackAuthorName?: string;
+}
+
+/** Longest a note basename may be inside a conflict filename (keeps paths sane). */
+const MAX_CONFLICT_BASENAME_LENGTH = 60;
 
 /** The raw fields reported for a genuinely applied remote revision (FIX 1). */
 export interface RemoteAppliedEvent {
@@ -155,6 +196,8 @@ export interface VaultApplyAdapterOptions {
    * exercise the vault side omit it.
    */
   readonly producerSync?: RemoteApplyProducerSync;
+  /** Readable conflict-copy naming (MRG-02). Sensible defaults when omitted. */
+  readonly conflictNaming?: ConflictNaming;
 }
 
 export class VaultApplyAdapter implements VaultApplyPort {
@@ -166,6 +209,9 @@ export class VaultApplyAdapter implements VaultApplyPort {
   private readonly hashContent: (content: string) => Promise<string>;
   private readonly onRemoteApplied?: (event: RemoteAppliedEvent) => void;
   private readonly producerSync?: RemoteApplyProducerSync;
+  private readonly now: () => Date;
+  private readonly resolveAuthorName?: (event: RemoteEvent) => string | undefined;
+  private readonly fallbackAuthorName: string;
 
   constructor(options: VaultApplyAdapterOptions) {
     this.files = options.files;
@@ -178,6 +224,12 @@ export class VaultApplyAdapter implements VaultApplyPort {
     if (options.producerSync !== undefined) {
       this.producerSync = options.producerSync;
     }
+    this.now = options.conflictNaming?.now ?? (() => new Date());
+    if (options.conflictNaming?.resolveAuthorName !== undefined) {
+      this.resolveAuthorName = options.conflictNaming.resolveAuthorName;
+    }
+    this.fallbackAuthorName =
+      options.conflictNaming?.fallbackAuthorName ?? 'peer';
   }
 
   async openBuffers(fileId: string): Promise<readonly OpenBuffer[]> {
@@ -236,7 +288,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
         const base = this.files.baseHashFor(fileId);
         const previousHash = await this.hashContent(previousOnDisk);
         if (base === null || previousHash !== base) {
-          await this.files.writeConflictArtifact(this.conflictPath(event), text);
+          await this.writeConflict(event, decoded);
           return 'conflict';
         }
       }
@@ -288,8 +340,9 @@ export class VaultApplyAdapter implements VaultApplyPort {
       }
       // The path holds genuinely different content — a real divergence. Never
       // overwrite it and never claim ownership: preserve both via a conflict
-      // artifact (the F2 conflict path).
-      await this.files.writeConflictArtifact(this.conflictPath(event), text);
+      // artifact (the F2 conflict path). No shared ancestor exists across two
+      // independently-minted fileIds, so a three-way merge is not attempted here.
+      await this.writeConflict(event, decoded);
       return 'conflict';
     }
 
@@ -305,15 +358,18 @@ export class VaultApplyAdapter implements VaultApplyPort {
     //    concurrent divergence: divert to a conflict artifact so both survive.
     //    (A null base with divergent on-disk content is treated the same way —
     //    we cannot prove the local file is clean, so we never overwrite it.)
-    // This is the on-disk analogue of the open-buffer check; a full three-way
-    // text merge (@havemind/sync-core mergeSnapshots) would refine the conflict
-    // branch — see the seam noted below.
+    // This is the on-disk analogue of the open-buffer check. Before falling back
+    // to a conflict copy, an on-disk divergence FIRST attempts a line-level
+    // three-way merge (MRG-01, `tryMergeApply`): non-overlapping edits are
+    // combined in place and only a genuinely overlapping change becomes a
+    // conflict copy.
     if (onDisk !== null) {
       if (contentMatches(onDisk, text)) {
         // Both sides already hold the incoming content: advance the base and
         // skip the write entirely (test: on-disk == incoming → no write).
         const contentHash = await this.hashContent(text);
         await this.files.recordBaseHash(fileId, contentHash);
+        await this.files.recordBaseContent(fileId, text);
         await this.files.recordPathOwner(fileId, decoded.path);
         await this.producerSync?.onRemoteWrite({
           fileId,
@@ -327,28 +383,25 @@ export class VaultApplyAdapter implements VaultApplyPort {
       }
       const base = this.files.baseHashFor(fileId);
       const onDiskHash = await this.hashContent(onDisk);
-      if (base === null || onDiskHash !== base) {
-        // MERGE SEAM: the on-disk content diverged from the shared base and is
-        // not the incoming content. A future slice can run
-        // `mergeSnapshots(base, local, incoming)` here and only fall back to a
-        // conflict artifact on OVERLAPPING_EDITS. Until then we guarantee the
-        // hard rule: never a silent overwrite — preserve both versions.
-        await this.files.writeConflictArtifact(this.conflictPath(event), text);
-        return 'conflict';
-      }
-      // on-disk == base: the local file is unchanged since the last sync — but
-      // that alone does not prove the incoming revision is safe to apply. The
-      // 7b22b61 regression: a local push seeds the base to the just-authored
-      // content, so a CONCURRENT peer revision (built on an older head, never
-      // having seen ours) can have on-disk == base too, and would slip through
-      // here and silently overwrite. Causality (parentRevisionIds vs. this
-      // device's head) is the only thing that distinguishes a fast-forward
-      // (the peer built on our head → safe to apply) from a concurrent
-      // divergence (never a silent overwrite — rule 3). When causality cannot
-      // be established (no producer-sync head lookup, no known local head, or
-      // no parent list on the incoming revision) we fail SAFE to a conflict.
-      if (!(await this.isCausalFastForward(fileId, event))) {
-        await this.files.writeConflictArtifact(this.conflictPath(event), text);
+      // A divergence is either: on-disk drifted from the shared base, OR on-disk
+      // still equals the base but the incoming revision is not a provable causal
+      // fast-forward (the 7b22b61 concurrent-overwrite window). Both cases take
+      // the same path: try to merge, else preserve both in a conflict copy —
+      // never a silent overwrite (rule 3).
+      const diverged = base === null || onDiskHash !== base;
+      if (diverged || !(await this.isCausalFastForward(fileId, event))) {
+        const merged = await this.tryMergeApply(
+          event,
+          decoded,
+          fileId,
+          onDisk,
+          text,
+          base,
+        );
+        if (merged !== null) {
+          return merged;
+        }
+        await this.writeConflict(event, decoded);
         return 'conflict';
       }
     }
@@ -376,13 +429,71 @@ export class VaultApplyAdapter implements VaultApplyPort {
         // Per-item: this single revision is diverted and the pull cycle
         // continues to the next event — never a cycle-killing throw.
         await this.producerSync?.onRemoteDelete({ fileId, path: decoded.path });
-        await this.files.writeConflictArtifact(this.conflictPath(event), text);
+        await this.writeConflict(event, decoded);
         return 'conflict';
       }
       throw error;
     }
     await this.files.recordPathOwner(fileId, decoded.path);
     await this.files.recordBaseHash(fileId, contentHash);
+    // Persist the base CONTENT too so a later divergence has the ancestor the
+    // three-way merge needs (MRG-01).
+    await this.files.recordBaseContent(fileId, text);
+    this.onRemoteApplied?.({
+      revisionId: event.revision.revisionId,
+      fileId,
+      path: decoded.path,
+      operation: decoded.operation,
+    });
+    return 'applied';
+  }
+
+  /**
+   * Attempts a line-level three-way merge (MRG-01) of a diverged markdown file
+   * before any conflict copy. Returns `'applied'` when it merged and wrote the
+   * combined content in place, or `null` when no merge is possible (no shared
+   * base, the ancestor text is not locally persisted, the stored ancestor no
+   * longer matches the base hash, or the changes overlap) — the caller then
+   * writes a conflict copy.
+   *
+   * ANCESTOR is the locally-persisted base content; LOCAL is the current on-disk
+   * content; REMOTE is the incoming revision. A successful merge IS a
+   * convergence event, so the base advances to the merged state. The merged
+   * content is deliberately NOT adopted into the producer mapping: it is a NEW
+   * local revision this device authored, so letting the reflected vault write
+   * flow through the normal local-edit path pushes the merged result to the peer
+   * (who converges by content-equality — no ping-pong).
+   */
+  private async tryMergeApply(
+    event: RemoteEvent,
+    decoded: DecodedRevisionPayload,
+    fileId: string,
+    onDisk: string,
+    incoming: string,
+    base: string | null,
+  ): Promise<RemoteApplyOutcome | null> {
+    if (base === null) {
+      return null;
+    }
+    const ancestor = this.files.baseContentFor(fileId);
+    if (ancestor === null) {
+      return null;
+    }
+    // The stored ancestor must still correspond to the recorded base hash;
+    // anything else is inconsistent state, so fail SAFE to a conflict copy.
+    if ((await this.hashContent(ancestor)) !== base) {
+      return null;
+    }
+    const result = mergeText(ancestor, onDisk, incoming);
+    if (result.status !== 'merged') {
+      return null;
+    }
+    const merged = result.text;
+    const mergedHash = await this.hashContent(merged);
+    await this.files.writeByPath(decoded.path, merged);
+    await this.files.recordPathOwner(fileId, decoded.path);
+    await this.files.recordBaseHash(fileId, mergedHash);
+    await this.files.recordBaseContent(fileId, merged);
     this.onRemoteApplied?.({
       revisionId: event.revision.revisionId,
       fileId,
@@ -445,12 +556,10 @@ export class VaultApplyAdapter implements VaultApplyPort {
     fileId: string,
   ): Promise<RemoteApplyOutcome> {
     const bytes = decoded.binaryContent ?? new Uint8Array(0);
-    const extension = pathExtension(decoded.path) || 'bin';
     const incomingHash = await hashBlob(bytes);
     // Producer-mapping content for a binary file is base64 of the raw bytes —
     // the same form the observer stores, so a reflected vault event dedupes.
     const incomingBase64 = bytesToBase64(bytes);
-    const conflictPath = this.conflictPath(event, extension);
 
     if (
       decoded.operation === 'rename' &&
@@ -462,7 +571,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
         const base = this.files.baseHashFor(fileId);
         const previousHash = await hashBlob(previousOnDisk);
         if (base === null || previousHash !== base) {
-          await this.files.writeBinaryConflictArtifact(conflictPath, bytes);
+          await this.writeConflict(event, decoded);
           return 'conflict';
         }
       }
@@ -489,7 +598,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
         });
         return 'noop';
       }
-      await this.files.writeBinaryConflictArtifact(conflictPath, bytes);
+      await this.writeConflict(event, decoded);
       return 'conflict';
     }
 
@@ -510,11 +619,11 @@ export class VaultApplyAdapter implements VaultApplyPort {
       const base = this.files.baseHashFor(fileId);
       const onDiskHash = await hashBlob(onDisk);
       if (base === null || onDiskHash !== base) {
-        await this.files.writeBinaryConflictArtifact(conflictPath, bytes);
+        await this.writeConflict(event, decoded);
         return 'conflict';
       }
       if (!(await this.isCausalFastForward(fileId, event))) {
-        await this.files.writeBinaryConflictArtifact(conflictPath, bytes);
+        await this.writeConflict(event, decoded);
         return 'conflict';
       }
     }
@@ -534,7 +643,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
         // Same per-item divertion as the markdown path, over raw bytes and
         // preserving the original extension. Never a cycle-killing throw.
         await this.producerSync?.onRemoteDelete({ fileId, path: decoded.path });
-        await this.files.writeBinaryConflictArtifact(conflictPath, bytes);
+        await this.writeConflict(event, decoded);
         return 'conflict';
       }
       throw error;
@@ -552,23 +661,85 @@ export class VaultApplyAdapter implements VaultApplyPort {
 
   async recordConflict(event: RemoteEvent): Promise<void> {
     const decoded = await this.resolveRevision(event);
-    if (decoded.kind === 'binary') {
-      const bytes = decoded.binaryContent ?? new Uint8Array(0);
-      await this.files.writeBinaryConflictArtifact(
-        this.conflictPath(event, pathExtension(decoded.path) || 'bin'),
-        bytes,
-      );
-      return;
-    }
-    await this.files.writeConflictArtifact(
-      this.conflictPath(event),
-      decoded.content ?? '',
-    );
+    await this.writeConflict(event, decoded);
   }
 
-  private conflictPath(event: RemoteEvent, extension = 'md'): string {
-    return `${this.conflictFolder}/${event.revision.fileId}-${event.revision.revisionId}.${extension}`;
+  /**
+   * Writes the incoming revision to a readable conflict copy (MRG-02) under the
+   * reserved folder, preserving both sides. Idempotent per revision: a
+   * re-delivered revision reuses the path already recorded for it, so a retry can
+   * never spawn a fresh timestamped duplicate (the conflict-cascade guard).
+   * Markdown and binary are handled uniformly via the decoded payload's kind.
+   */
+  private async writeConflict(
+    event: RemoteEvent,
+    decoded: DecodedRevisionPayload,
+  ): Promise<void> {
+    const isBinary = decoded.kind === 'binary';
+    const existing = this.files.conflictArtifactPathFor(event.revision.revisionId);
+    const target = existing ?? (await this.buildConflictPath(event, decoded));
+    if (isBinary) {
+      await this.files.writeBinaryConflictArtifact(
+        target,
+        decoded.binaryContent ?? new Uint8Array(0),
+      );
+    } else {
+      await this.files.writeConflictArtifact(target, decoded.content ?? '');
+    }
+    if (existing === null) {
+      await this.files.recordConflictArtifactPath(
+        event.revision.revisionId,
+        target,
+      );
+    }
   }
+
+  /**
+   * Builds the readable conflict-copy path per the fixed naming contract:
+   * `<basename> (conflict <author> <YYYY-MM-DD HHmm>).<ext>` inside the reserved
+   * folder. Binary copies keep the source extension; markdown copies use `md`.
+   * A name collision appends ` 2`, ` 3`, … to the note basename.
+   */
+  private async buildConflictPath(
+    event: RemoteEvent,
+    decoded: DecodedRevisionPayload,
+  ): Promise<string> {
+    const isBinary = decoded.kind === 'binary';
+    const extension = isBinary ? pathExtension(decoded.path) || 'bin' : 'md';
+    const basename = noteBasename(decoded.path).slice(
+      0,
+      MAX_CONFLICT_BASENAME_LENGTH,
+    );
+    const author =
+      this.resolveAuthorName?.(event) ?? this.fallbackAuthorName;
+    const stamp = formatConflictTimestamp(this.now());
+    const suffix = ` (conflict ${author} ${stamp})`;
+
+    let candidate = `${this.conflictFolder}/${basename}${suffix}.${extension}`;
+    let counter = 2;
+    while (await this.files.conflictArtifactExists(candidate)) {
+      candidate = `${this.conflictFolder}/${basename} ${counter}${suffix}.${extension}`;
+      counter += 1;
+    }
+    return candidate;
+  }
+}
+
+/** The note basename (leaf, extension stripped) used in a conflict-copy name. */
+function noteBasename(path: string): string {
+  const slash = path.lastIndexOf('/');
+  const leaf = slash === -1 ? path : path.slice(slash + 1);
+  const dot = leaf.lastIndexOf('.');
+  return dot <= 0 ? leaf : leaf.slice(0, dot);
+}
+
+/** Formats a `Date` as the local-time `YYYY-MM-DD HHmm` conflict-name stamp. */
+function formatConflictTimestamp(date: Date): string {
+  const pad = (value: number): string => String(value).padStart(2, '0');
+  return (
+    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` +
+    ` ${pad(date.getHours())}${pad(date.getMinutes())}`
+  );
 }
 
 /** Byte-exact equality for two binary buffers (F9). */

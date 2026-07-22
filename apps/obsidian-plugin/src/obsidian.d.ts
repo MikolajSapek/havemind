@@ -45,6 +45,16 @@ declare module 'obsidian' {
     constructor(message: string, timeout?: number);
   }
 
+  export class Modal {
+    app: App;
+    contentEl: HTMLElement;
+    constructor(app: App);
+    open(): void;
+    close(): void;
+    onOpen(): void;
+    onClose(): void;
+  }
+
   export interface Vault {
     getAbstractFileByPath(path: string): TAbstractFile | null;
     getMarkdownFiles(): TFile[];

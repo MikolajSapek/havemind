@@ -2,7 +2,11 @@ import { describe, expect, it } from 'vitest';
 
 import { hashBlob } from '@havemind/protocol';
 
-import { VaultApplyAdapter, type VaultFilePort } from './vault-apply';
+import {
+  ParentFolderOccupiedError,
+  VaultApplyAdapter,
+  type VaultFilePort,
+} from './vault-apply';
 import type { DecodedRevisionPayload } from '@havemind/sync-core';
 import type { OpenBuffer, RemoteEvent } from '../sync/sync-runner';
 
@@ -59,6 +63,14 @@ class FakeFiles implements VaultFilePort {
   binaryOnDisk = new Map<string, Uint8Array>();
   /** Recorded last-synced base content hash per fileId. */
   baseHashes = new Map<string, string>();
+  /** Recorded last-synced base CONTENT per fileId (merge ancestor, MRG-01). */
+  baseContents = new Map<string, string>();
+  /** revisionId → conflict-artifact path (MRG-02 cascade guard). */
+  conflictArtifactPaths = new Map<string, string>();
+  /** Every path a conflict artifact has been written to (collision probe). */
+  writtenConflictPaths = new Set<string>();
+  /** Paths whose write throws ParentFolderOccupiedError (simulated occupancy). */
+  parentFolderOccupied = new Set<string>();
 
   openBufferStates(fileId: string): readonly OpenBuffer[] {
     return this.buffers.get(fileId) ?? [];
@@ -77,11 +89,17 @@ class FakeFiles implements VaultFilePort {
   }
 
   async writeByPath(path: string, text: string): Promise<void> {
+    if (this.parentFolderOccupied.has(path)) {
+      throw new ParentFolderOccupiedError(path);
+    }
     this.writes.push({ path, content: text });
     this.onDisk.set(path, text);
   }
 
   async writeBinaryByPath(path: string, bytes: Uint8Array): Promise<void> {
+    if (this.parentFolderOccupied.has(path)) {
+      throw new ParentFolderOccupiedError(path);
+    }
     this.binaryWrites.push({ path, bytes });
     this.binaryOnDisk.set(path, bytes);
   }
@@ -94,10 +112,36 @@ class FakeFiles implements VaultFilePort {
 
   async writeConflictArtifact(path: string, text: string): Promise<void> {
     this.conflicts.push({ path, content: text });
+    this.writtenConflictPaths.add(path);
   }
 
   async writeBinaryConflictArtifact(path: string, bytes: Uint8Array): Promise<void> {
     this.binaryConflicts.push({ path, bytes });
+    this.writtenConflictPaths.add(path);
+  }
+
+  baseContentFor(fileId: string): string | null {
+    return this.baseContents.get(fileId) ?? null;
+  }
+
+  async recordBaseContent(fileId: string, content: string): Promise<void> {
+    this.baseContents.set(fileId, content);
+  }
+
+  async forgetBaseContent(fileId: string): Promise<void> {
+    this.baseContents.delete(fileId);
+  }
+
+  async conflictArtifactExists(path: string): Promise<boolean> {
+    return this.writtenConflictPaths.has(path);
+  }
+
+  conflictArtifactPathFor(revisionId: string): string | null {
+    return this.conflictArtifactPaths.get(revisionId) ?? null;
+  }
+
+  async recordConflictArtifactPath(revisionId: string, path: string): Promise<void> {
+    this.conflictArtifactPaths.set(revisionId, path);
   }
 
   async recordPathOwner(fileId: string, path: string): Promise<void> {
@@ -136,6 +180,12 @@ function build(
     conflictFolder: 'Havemind Conflicts',
     resolveRevision: async (remote) => decoded(remote),
     hashContent: fakeHash,
+    // Deterministic readable-conflict naming (MRG-02): a fixed local-time clock
+    // and a resolved author so every conflict-copy path is exactly assertable.
+    conflictNaming: {
+      now: () => new Date(2026, 6, 22, 21, 56),
+      resolveAuthorName: () => 'Windows',
+    },
     // When a caller supplies a local head, expose it through the producer-sync
     // bridge so the adapter's causal apply-vs-conflict decision can run.
     ...(localHead === undefined
@@ -181,7 +231,7 @@ describe('VaultApplyAdapter', () => {
     await adapter.applyRemote(event('rev-9', 'file-1'));
     expect(files.writes).toEqual([]);
     expect(files.conflicts).toEqual([
-      { path: 'Havemind Conflicts/file-1-rev-9.md', content: 'C\n' },
+      { path: 'Havemind Conflicts/a (conflict Windows 2026-07-22 2156).md', content: 'C\n' },
     ]);
   });
 
@@ -276,7 +326,7 @@ describe('VaultApplyAdapter', () => {
     await adapter.recordConflict(event('rev-9', 'file-9'));
     expect(files.writes).toEqual([]);
     expect(files.conflicts).toEqual([
-      { path: 'Havemind Conflicts/file-9-rev-9.md', content: 'D\n' },
+      { path: 'Havemind Conflicts/a (conflict Windows 2026-07-22 2156).md', content: 'D\n' },
     ]);
   });
 
@@ -313,7 +363,7 @@ describe('VaultApplyAdapter', () => {
       expect(outcome).toBe('conflict');
       expect(files.writes).toEqual([]);
       expect(files.conflicts).toEqual([
-        { path: 'Havemind Conflicts/file-1-rev-9.md', content: 'OWNER-EDIT\n' },
+        { path: 'Havemind Conflicts/a (conflict Windows 2026-07-22 2156).md', content: 'OWNER-EDIT\n' },
       ]);
       // The guest's on-disk edit is untouched.
       expect(files.onDisk.get('Notes/a.md')).toBe('GUEST-EDIT\n');
@@ -500,7 +550,7 @@ describe('VaultApplyAdapter', () => {
       expect(outcome).toBe('conflict');
       expect(files.writes).toEqual([]);
       expect(files.conflicts).toEqual([
-        { path: 'Havemind Conflicts/file-1-RB.md', content: 'HB\n' },
+        { path: 'Havemind Conflicts/a (conflict Windows 2026-07-22 2156).md', content: 'HB\n' },
       ]);
       // The local edit is never silently overwritten (rule 3).
       expect(files.onDisk.get('Notes/a.md')).toBe('HA\n');
@@ -569,7 +619,7 @@ describe('VaultApplyAdapter', () => {
       expect(outcome).toBe('conflict');
       expect(files.writes).toEqual([]);
       expect(files.conflicts).toEqual([
-        { path: 'Havemind Conflicts/file-a-rev-a.md', content: 'A-EDIT\n' },
+        { path: 'Havemind Conflicts/Shared (conflict Windows 2026-07-22 2156).md', content: 'A-EDIT\n' },
       ]);
       // Neither the local content nor the foreign ownership is touched.
       expect(files.onDisk.get('Notes/Shared.md')).toBe('B-EDIT\n');
@@ -667,7 +717,7 @@ describe('VaultApplyAdapter', () => {
       expect(files.deletes).toEqual([]);
       expect(files.writes).toEqual([]);
       expect(files.conflicts).toEqual([
-        { path: 'Havemind Conflicts/file-1-rev-r.md', content: 'RENAMED\n' },
+        { path: 'Havemind Conflicts/b (conflict Windows 2026-07-22 2156).md', content: 'RENAMED\n' },
       ]);
       // The local edit at the old path is untouched.
       expect(files.onDisk.get('Notes/a.md')).toBe('LOCAL-EDIT\n');
@@ -794,7 +844,7 @@ describe('VaultApplyAdapter', () => {
       expect(outcome).toBe('conflict');
       expect(files.binaryWrites).toEqual([]);
       expect(files.binaryConflicts).toEqual([
-        { path: 'Havemind Conflicts/file-1-rev-9.png', bytes: incoming },
+        { path: 'Havemind Conflicts/img (conflict Windows 2026-07-22 2156).png', bytes: incoming },
       ]);
       // The live, diverged file is never touched.
       expect(files.binaryOnDisk.get('Attachments/img.png')).toEqual(onDiskBytes);
@@ -815,6 +865,278 @@ describe('VaultApplyAdapter', () => {
       expect(files.binaryConflicts).toEqual([]);
       // The base still advances so a later clean revision applies in place.
       expect(files.baseHashes.get('file-1')).toBe(await hashBlob(bytes));
+    });
+  });
+
+  describe('automatic three-way merge on divergence (MRG-01)', () => {
+    /** Seeds a shared markdown base (hash + ancestor content) for `file-1`. */
+    async function seedBase(files: FakeFiles, ancestor: string): Promise<void> {
+      files.owners.set('Notes/a.md', 'file-1');
+      files.baseHashes.set('file-1', await fakeHash(ancestor));
+      files.baseContents.set('file-1', ancestor);
+    }
+
+    it('merges non-overlapping edits in place, writes no conflict artifact', async () => {
+      const ancestor = 'A\nB\nC\nD\nE\n';
+      const { adapter, files } = build(() =>
+        content('Notes/a.md', 'A\nB\nC\nD\nE1\n'),
+      );
+      await seedBase(files, ancestor);
+      files.onDisk.set('Notes/a.md', 'A1\nB\nC\nD\nE\n');
+
+      const outcome = await adapter.applyRemote(event('rev-9', 'file-1'));
+
+      expect(outcome).toBe('applied');
+      expect(files.writes).toEqual([
+        { path: 'Notes/a.md', content: 'A1\nB\nC\nD\nE1\n' },
+      ]);
+      expect(files.conflicts).toEqual([]);
+      // A successful merge IS a convergence event: the base advances to it.
+      expect(files.baseHashes.get('file-1')).toBe(
+        await fakeHash('A1\nB\nC\nD\nE1\n'),
+      );
+      expect(files.baseContents.get('file-1')).toBe('A1\nB\nC\nD\nE1\n');
+    });
+
+    it('applies a remote edit over an unchanged local file via merge (local == ancestor)', async () => {
+      // On-disk still equals the base but the incoming revision is not a provable
+      // fast-forward (no local head). The merge collapses to the remote change
+      // since the local side is unchanged — a clean apply, not a conflict.
+      const ancestor = 'A\nB\nC\n';
+      const { adapter, files } = build(() => content('Notes/a.md', 'A\nB2\nC\n'));
+      await seedBase(files, ancestor);
+      files.onDisk.set('Notes/a.md', 'A\nB\nC\n');
+
+      const outcome = await adapter.applyRemote(event('RB', 'file-1', ['R0']));
+
+      expect(outcome).toBe('applied');
+      expect(files.writes).toEqual([{ path: 'Notes/a.md', content: 'A\nB2\nC\n' }]);
+      expect(files.conflicts).toEqual([]);
+    });
+
+    it('falls back to a conflict copy when the hunks genuinely overlap', async () => {
+      const ancestor = 'A\nB\nC\n';
+      const { adapter, files } = build(() => content('Notes/a.md', 'A\nB-theirs\nC\n'));
+      await seedBase(files, ancestor);
+      files.onDisk.set('Notes/a.md', 'A\nB-mine\nC\n');
+
+      const outcome = await adapter.applyRemote(event('rev-9', 'file-1'));
+
+      expect(outcome).toBe('conflict');
+      expect(files.writes).toEqual([]);
+      expect(files.conflicts).toEqual([
+        {
+          path: 'Havemind Conflicts/a (conflict Windows 2026-07-22 2156).md',
+          content: 'A\nB-theirs\nC\n',
+        },
+      ]);
+      // The local content is never touched (rule 3).
+      expect(files.onDisk.get('Notes/a.md')).toBe('A\nB-mine\nC\n');
+    });
+
+    it('falls back to a conflict copy when the ancestor content is not locally persisted', async () => {
+      // Base HASH is recorded but the base CONTENT is not, so no merge can run.
+      const { adapter, files } = build(() => content('Notes/a.md', 'REMOTE\n'));
+      files.owners.set('Notes/a.md', 'file-1');
+      files.onDisk.set('Notes/a.md', 'LOCAL\n');
+      files.baseHashes.set('file-1', await fakeHash('BASE\n'));
+
+      const outcome = await adapter.applyRemote(event('rev-9', 'file-1'));
+
+      expect(outcome).toBe('conflict');
+      expect(files.writes).toEqual([]);
+      expect(files.conflicts).toHaveLength(1);
+    });
+
+    it('never merges a binary divergence, even with a recorded base', async () => {
+      const incoming = new Uint8Array([9, 9, 9]);
+      const { adapter, files } = build(() =>
+        binaryContent('Attachments/img.png', incoming),
+      );
+      files.owners.set('Attachments/img.png', 'file-1');
+      files.binaryOnDisk.set('Attachments/img.png', new Uint8Array([1, 2, 3]));
+      files.baseHashes.set('file-1', await hashBlob(new Uint8Array([5, 5, 5])));
+      files.baseContents.set('file-1', 'irrelevant');
+
+      const outcome = await adapter.applyRemote(event('rev-9', 'file-1'));
+
+      expect(outcome).toBe('conflict');
+      expect(files.binaryWrites).toEqual([]);
+      expect(files.binaryConflicts).toEqual([
+        {
+          path: 'Havemind Conflicts/img (conflict Windows 2026-07-22 2156).png',
+          bytes: incoming,
+        },
+      ]);
+    });
+
+    it('falls back to a conflict when the stored ancestor no longer matches the base hash', async () => {
+      // Base hash points at one content, but the persisted ancestor is stale —
+      // inconsistent state, so no merge is attempted (fail safe).
+      const { adapter, files } = build(() => content('Notes/a.md', 'REMOTE\n'));
+      files.owners.set('Notes/a.md', 'file-1');
+      files.onDisk.set('Notes/a.md', 'LOCAL\n');
+      files.baseHashes.set('file-1', await fakeHash('TRUE-BASE\n'));
+      files.baseContents.set('file-1', 'STALE-BASE\n'); // hashes to a different value
+
+      const outcome = await adapter.applyRemote(event('rev-9', 'file-1'));
+
+      expect(outcome).toBe('conflict');
+      expect(files.writes).toEqual([]);
+      expect(files.conflicts).toHaveLength(1);
+    });
+
+    it('falls back to a conflict when there is no recorded base hash at all', async () => {
+      const { adapter, files } = build(() => content('Notes/a.md', 'REMOTE\n'));
+      files.owners.set('Notes/a.md', 'file-1');
+      files.onDisk.set('Notes/a.md', 'LOCAL\n');
+      files.baseContents.set('file-1', 'ANCESTOR\n'); // content present, base hash absent
+
+      const outcome = await adapter.applyRemote(event('rev-9', 'file-1'));
+
+      expect(outcome).toBe('conflict');
+      expect(files.conflicts).toHaveLength(1);
+    });
+  });
+
+  describe('readable conflict filenames and cascade safety (MRG-02)', () => {
+    it('reuses the same artifact path when the same revision is re-delivered', async () => {
+      const { adapter, files } = build(() => content('Notes/a.md', 'C\n'));
+      files.owners.set('Notes/a.md', 'other-file');
+
+      await adapter.applyRemote(event('rev-9', 'file-1'));
+      await adapter.applyRemote(event('rev-9', 'file-1'));
+
+      // Two writes, but to the SAME path — no timestamped cascade.
+      expect(files.conflicts).toHaveLength(2);
+      expect(files.conflicts[0]?.path).toBe(
+        'Havemind Conflicts/a (conflict Windows 2026-07-22 2156).md',
+      );
+      expect(files.conflicts[1]?.path).toBe(files.conflicts[0]?.path);
+      expect(files.writtenConflictPaths.size).toBe(1);
+    });
+
+    it('uses the fallback author label when no resolver is provided', async () => {
+      const files = new FakeFiles();
+      const adapter = new VaultApplyAdapter({
+        files,
+        conflictFolder: 'Havemind Conflicts',
+        resolveRevision: async () => content('Notes/a.md', 'C\n'),
+        hashContent: fakeHash,
+        conflictNaming: { now: () => new Date(2026, 6, 22, 21, 56) },
+      });
+      files.owners.set('Notes/a.md', 'other-file');
+
+      await adapter.applyRemote(event('rev-9', 'file-1'));
+
+      expect(files.conflicts[0]?.path).toBe(
+        'Havemind Conflicts/a (conflict peer 2026-07-22 2156).md',
+      );
+    });
+
+    it('appends a counter when two different revisions collide on the same name', async () => {
+      const { adapter, files } = build((remote) =>
+        content('Notes/a.md', `content-${remote.revision.revisionId}\n`),
+      );
+      files.owners.set('Notes/a.md', 'other-file');
+
+      await adapter.applyRemote(event('rev-1', 'file-1'));
+      await adapter.applyRemote(event('rev-2', 'file-2'));
+
+      expect(files.conflicts[0]?.path).toBe(
+        'Havemind Conflicts/a (conflict Windows 2026-07-22 2156).md',
+      );
+      expect(files.conflicts[1]?.path).toBe(
+        'Havemind Conflicts/a 2 (conflict Windows 2026-07-22 2156).md',
+      );
+    });
+
+    it('diverts a markdown create to a conflict copy when a parent folder is occupied', async () => {
+      const { adapter, files } = build(() => content('Notatki/Start.md', 'S\n'));
+      files.parentFolderOccupied.add('Notatki/Start.md');
+
+      const outcome = await adapter.applyRemote(event('rev-9', 'file-1'));
+
+      expect(outcome).toBe('conflict');
+      expect(files.writes).toEqual([]);
+      expect(files.conflicts).toEqual([
+        {
+          path: 'Havemind Conflicts/Start (conflict Windows 2026-07-22 2156).md',
+          content: 'S\n',
+        },
+      ]);
+    });
+
+    it('conflicts a binary revision whose on-disk bytes equal the base but is not a causal fast-forward', async () => {
+      const incoming = new Uint8Array([9, 9, 9]);
+      const baseBytes = new Uint8Array([5, 5, 5]);
+      // No local head supplied → causality cannot be proven, so a divergent
+      // binary revision fails safe to a conflict copy (never overwrites).
+      const { adapter, files } = build(() =>
+        binaryContent('Assets/pic.png', incoming),
+      );
+      files.owners.set('Assets/pic.png', 'file-1');
+      files.binaryOnDisk.set('Assets/pic.png', new Uint8Array(baseBytes));
+      files.baseHashes.set('file-1', await hashBlob(baseBytes));
+
+      const outcome = await adapter.applyRemote(
+        event('rev-9', 'file-1', ['R0']),
+      );
+
+      expect(outcome).toBe('conflict');
+      expect(files.binaryWrites).toEqual([]);
+      expect(files.binaryConflicts).toHaveLength(1);
+    });
+
+    it('adopts a foreign-owned binary path when the on-disk bytes are byte-identical', async () => {
+      const bytes = new Uint8Array([1, 2, 3]);
+      const { adapter, files } = build(() =>
+        binaryContent('Assets/pic.png', bytes),
+      );
+      files.owners.set('Assets/pic.png', 'device-b-random');
+      files.binaryOnDisk.set('Assets/pic.png', new Uint8Array(bytes));
+
+      const outcome = await adapter.applyRemote(event('rev-9', 'file-1'));
+
+      expect(outcome).toBe('noop');
+      expect(files.binaryWrites).toEqual([]);
+      expect(files.binaryConflicts).toEqual([]);
+      expect(files.owners.get('Assets/pic.png')).toBe('file-1');
+    });
+
+    it('conflicts a foreign-owned binary path that holds diverged bytes', async () => {
+      const incoming = new Uint8Array([9, 9, 9]);
+      const { adapter, files } = build(() =>
+        binaryContent('Assets/pic.png', incoming),
+      );
+      files.owners.set('Assets/pic.png', 'device-b-random');
+      files.binaryOnDisk.set('Assets/pic.png', new Uint8Array([1, 2, 3]));
+
+      const outcome = await adapter.applyRemote(event('rev-9', 'file-1'));
+
+      expect(outcome).toBe('conflict');
+      expect(files.binaryWrites).toEqual([]);
+      expect(files.binaryConflicts).toHaveLength(1);
+      expect(files.owners.get('Assets/pic.png')).toBe('device-b-random');
+    });
+
+    it('diverts a binary create to a conflict copy when a parent folder is occupied', async () => {
+      const bytes = new Uint8Array([1, 2, 3]);
+      const { adapter, files } = build(() =>
+        binaryContent('Assets/pic.png', bytes),
+      );
+      files.parentFolderOccupied.add('Assets/pic.png');
+
+      const outcome = await adapter.applyRemote(event('rev-9', 'file-1'));
+
+      expect(outcome).toBe('conflict');
+      expect(files.binaryWrites).toEqual([]);
+      expect(files.binaryConflicts).toEqual([
+        {
+          path: 'Havemind Conflicts/pic (conflict Windows 2026-07-22 2156).png',
+          bytes,
+        },
+      ]);
     });
   });
 });

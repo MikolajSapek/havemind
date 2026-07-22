@@ -338,3 +338,109 @@
 .havemind-status-bar {
   font-variant-numeric: tabular-nums;
 }
+
+/* =========================================================================
+   9. Conflict resolution (MRG-03)
+   The "Conflicts" panel section and the resolve modal. Copies live in the
+   reserved, sync-excluded folder; resolving them is a purely local action.
+   Colour comes only from semantic theme tokens (--text-success / --text-error
+   for added/removed diff lines), always paired with a +/- text prefix so the
+   diff never relies on colour alone.
+   ========================================================================= */
+.havemind-conflict-header {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-1);
+  margin-top: var(--size-4-3);
+  font-weight: var(--font-semibold);
+}
+
+.havemind-conflict-icon {
+  display: inline-flex;
+  color: var(--text-accent);
+}
+
+.havemind-conflict-count {
+  margin-left: var(--size-4-1);
+  padding: 0 var(--size-4-2);
+  border-radius: var(--radius-s);
+  background: var(--background-modifier-error);
+  color: var(--text-on-accent);
+  font-size: var(--font-ui-smaller);
+  font-variant-numeric: tabular-nums;
+}
+
+.havemind-conflict-row {
+  margin-top: var(--size-4-2);
+  padding: var(--size-4-2);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  background: var(--background-secondary);
+}
+
+.havemind-conflict-note {
+  font-weight: var(--font-medium);
+}
+
+.havemind-conflict-meta {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.havemind-conflict-hint {
+  margin-top: var(--size-4-1);
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  font-style: italic;
+}
+
+.havemind-conflict-action {
+  margin-top: var(--size-4-2);
+}
+
+.havemind-conflict-action-armed {
+  font-weight: var(--font-bold);
+}
+
+/* Resolve modal: heading, meta line, diff box, action row. */
+.havemind-conflict-modal-meta {
+  margin-bottom: var(--size-4-2);
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.havemind-conflict-diff {
+  margin: var(--size-4-2) 0;
+  max-height: 24rem;
+  overflow: auto;
+  padding: var(--size-4-2);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-primary);
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-smaller);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.havemind-conflict-line {
+  padding: 0 var(--size-4-1);
+}
+
+/* Added/removed tints stay low-opacity so text contrast is preserved. */
+.havemind-conflict-line-added {
+  background: hsla(var(--color-green-hsl), 0.15);
+  color: var(--text-success);
+}
+
+.havemind-conflict-line-removed {
+  background: hsla(var(--color-red-hsl), 0.15);
+  color: var(--text-error);
+}
+
+.havemind-conflict-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--size-4-2);
+  margin-top: var(--size-4-3);
+}

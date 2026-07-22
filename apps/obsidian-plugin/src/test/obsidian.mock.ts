@@ -62,6 +62,36 @@ export class Notice {
   }
 }
 
+/**
+ * Minimal stand-in for Obsidian's `Modal`. `open()` invokes `onOpen()` so a
+ * subclass that renders into `contentEl` can be exercised headlessly, and the
+ * `opened`/`closed` flags let tests assert the lifecycle.
+ */
+export class Modal {
+  readonly app: App;
+  readonly contentEl = createMockElement();
+  opened = false;
+  closed = false;
+
+  constructor(app: App) {
+    this.app = app;
+  }
+
+  open(): void {
+    this.opened = true;
+    this.onOpen();
+  }
+
+  close(): void {
+    this.closed = true;
+    this.onClose();
+  }
+
+  onOpen(): void {}
+
+  onClose(): void {}
+}
+
 /** Minimal stand-ins for the vault file classes used in `instanceof` checks. */
 export class TAbstractFile {
   path = '';

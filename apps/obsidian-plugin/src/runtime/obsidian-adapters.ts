@@ -435,6 +435,16 @@ export function createVaultFilePort(options: VaultFilePortOptions): VaultFilePor
     baseHashFor: (fileId) => state.baseHashFor(fileId),
     recordBaseHash: (fileId, hash) => state.recordBaseHash(fileId, hash),
     forgetBaseHash: (fileId) => state.forgetBaseHash(fileId),
+    baseContentFor: (fileId) => state.baseContentFor(fileId),
+    recordBaseContent: (fileId, content) => state.recordBaseContent(fileId, content),
+    forgetBaseContent: (fileId) => state.forgetBaseContent(fileId),
+    async conflictArtifactExists(path) {
+      return vault.getAbstractFileByPath(path) !== null;
+    },
+    conflictArtifactPathFor: (revisionId) =>
+      state.conflictArtifactPathFor(revisionId),
+    recordConflictArtifactPath: (revisionId, path) =>
+      state.recordConflictArtifactPath(revisionId, path),
     async writeByPath(path, content) {
       const existing = vault.getAbstractFileByPath(path);
       if (existing === null) {

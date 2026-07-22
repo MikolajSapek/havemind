@@ -76,6 +76,11 @@ export interface LocalMaterialization {
   readonly path: string;
   /** SHA-256 hex of the normalized note text (the apply-side base hash). */
   readonly contentHash: string;
+  /**
+   * The canonical markdown text (the merge ancestor to seed, MRG-01), or null for
+   * a binary file — which never merges and records no base content.
+   */
+  readonly content: string | null;
   /** The prior path on a rename, so its stale ownership can be forgotten. */
   readonly previousPath: string | null;
 }
@@ -253,6 +258,9 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
       fileId: operation.fileId,
       path: operation.path,
       contentHash: operation.contentHash,
+      // Seed the merge ancestor from the authored markdown text; a binary file
+      // (base64 in `content`) never merges, so it passes null.
+      content: operation.contentKind === 'binary' ? null : operation.content,
       previousPath: operation.previousPath,
     });
   }

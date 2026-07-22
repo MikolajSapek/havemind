@@ -262,7 +262,13 @@ describe('OutboxLocalChangeRepository', () => {
         },
       });
       expect(materialized).toEqual([
-        { fileId: FILE_ID, path: 'Notes/a.md', contentHash: 'hash-1', previousPath: null },
+        {
+          fileId: FILE_ID,
+          path: 'Notes/a.md',
+          contentHash: 'hash-1',
+          content: 'Hello\n',
+          previousPath: null,
+        },
       ]);
       expect(forgotten).toEqual([]);
     });
@@ -302,6 +308,7 @@ describe('OutboxLocalChangeRepository', () => {
         fileId: FILE_ID,
         path: 'Notes/b.md',
         contentHash: 'hash-1',
+        content: 'Hello\n',
         previousPath: 'Notes/a.md',
       });
     });
