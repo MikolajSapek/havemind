@@ -483,3 +483,17 @@
   gap: var(--size-4-2);
   margin-top: var(--size-4-3);
 }
+
+/*
+ * A section whose render body threw: muted, italic fallback tinted with the
+ * error token at low opacity so the failure reads as recoverable, not alarming.
+ * Semantic theme vars only — works in both light and dark.
+ */
+.havemind-section-error {
+  padding: var(--size-4-1) var(--size-4-2);
+  color: var(--text-muted);
+  font-style: italic;
+  font-size: var(--font-ui-smaller);
+  border-left: 3px solid var(--text-error);
+  background: hsla(var(--color-red-hsl), 0.08);
+}

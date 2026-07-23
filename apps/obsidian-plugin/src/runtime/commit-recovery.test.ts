@@ -82,26 +82,43 @@ describe('CommitPathRecovery (SND-02)', () => {
   });
 });
 
-describe('retryFailedCommit (MAJOR 2)', () => {
-  it('re-triggers the commit chain exactly once for a path that still exists', () => {
+describe('retryFailedCommit (MAJOR 2, tri-state)', () => {
+  it('re-triggers exactly once and reports "retriggered" when the file exists and the debouncer scheduled it', () => {
     const retriggered: string[] = [];
     const outcome = retryFailedCommit('Notes/A.md', {
       exists: () => true,
-      retrigger: (path) => retriggered.push(path),
+      retrigger: (path) => {
+        retriggered.push(path);
+        return true;
+      },
     });
 
-    expect(outcome).toBe(true);
+    expect(outcome).toBe('retriggered');
     expect(retriggered).toEqual(['Notes/A.md']);
   });
 
-  it('does not re-trigger and reports missing when the path no longer exists', () => {
+  it('does not re-trigger and reports "file-missing" when the path no longer exists', () => {
     const retriggered: string[] = [];
     const outcome = retryFailedCommit('Notes/Gone.md', {
       exists: () => false,
-      retrigger: (path) => retriggered.push(path),
+      retrigger: (path) => {
+        retriggered.push(path);
+        return true;
+      },
     });
 
-    expect(outcome).toBe(false);
+    expect(outcome).toBe('file-missing');
     expect(retriggered).toEqual([]);
+  });
+
+  it('reports "unavailable" when the file exists but the debouncer no-ops (disposed)', () => {
+    // FINDING 3: a disposed debouncer's trigger schedules nothing. The retry did
+    // NOT actually re-arm the commit chain, so the row must be kept, not dropped.
+    const outcome = retryFailedCommit('Notes/A.md', {
+      exists: () => true,
+      retrigger: () => false,
+    });
+
+    expect(outcome).toBe('unavailable');
   });
 });

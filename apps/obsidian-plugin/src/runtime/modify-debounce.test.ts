@@ -141,6 +141,21 @@ describe('ModifyDebouncer', () => {
     expect(settled).toEqual([]);
   });
 
+  it('reports whether trigger actually scheduled — true live, false once disposed (FINDING 3)', () => {
+    // The retry-from-disk recovery reads this return value to distinguish a
+    // real re-arm from a no-op against a torn-down producer.
+    const timer = new FakeTimer();
+    const debouncer = new ModifyDebouncer({
+      onSettled: () => undefined,
+      delayMs: MODIFY_SETTLE_MS,
+      timer,
+    });
+
+    expect(debouncer.trigger('A.md')).toBe(true);
+    debouncer.dispose();
+    expect(debouncer.trigger('A.md')).toBe(false);
+  });
+
   it('ignores cancel after dispose without throwing', () => {
     const timer = new FakeTimer();
     const debouncer = new ModifyDebouncer({

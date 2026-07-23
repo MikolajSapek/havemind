@@ -82,22 +82,38 @@ export class CommitPathRecovery {
 }
 
 /**
+ * The three distinguishable outcomes of retrying a failed-to-queue row
+ * (MAJOR 2 / FINDING 1). A single boolean conflated the last two — a vanished
+ * file (drop the row) with a debouncer that no-op'd the re-trigger because it
+ * was disposed (offline/torn-down producer). Only `file-missing` is a confirmed
+ * loss; `unavailable` means the retry could not run and the row must be kept.
+ */
+export type RetryFailedCommitOutcome =
+  | 'retriggered'
+  | 'file-missing'
+  | 'unavailable';
+
+/**
  * Retry a failed-to-queue row (MAJOR 2). Such a row has no stashed envelope —
  * it never reached the outbox — so the only recovery is to re-run the commit
- * chain against the current on-disk content (the source of truth). Re-triggers
- * exactly once through the injected `retrigger` (the same debouncer-trigger the
- * bounded re-arm uses) when the file still exists; returns false without
- * re-triggering when the path is gone, so the caller can surface it and drop the
- * stale row rather than pushing a phantom empty create for a vanished file.
+ * chain against the current on-disk content (the source of truth). Returns:
+ *  - `'file-missing'` when the path is gone (the ONLY confirmed-loss case): the
+ *    caller surfaces it and drops the stale row rather than pushing a phantom
+ *    empty create for a vanished file;
+ *  - `'unavailable'` when the file exists but the injected `retrigger` did NOT
+ *    schedule anything (the debouncer is disposed — producer torn down /
+ *    offline, FINDING 3): the retry never ran, so the caller keeps the row;
+ *  - `'retriggered'` when the commit chain was re-armed exactly once through the
+ *    injected `retrigger` (the same debouncer-trigger the bounded re-arm uses).
  */
 export function retryFailedCommit(
   path: string,
   deps: {
     readonly exists: (path: string) => boolean;
-    readonly retrigger: (path: string) => void;
+    /** Re-arm the settle window; returns whether it actually scheduled. */
+    readonly retrigger: (path: string) => boolean;
   },
-): boolean {
-  if (!deps.exists(path)) return false;
-  deps.retrigger(path);
-  return true;
+): RetryFailedCommitOutcome {
+  if (!deps.exists(path)) return 'file-missing';
+  return deps.retrigger(path) ? 'retriggered' : 'unavailable';
 }

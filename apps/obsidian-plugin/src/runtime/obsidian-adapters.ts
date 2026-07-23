@@ -50,7 +50,11 @@ import {
   rebaseCanonicalizedHashes,
   type RebaseVaultPort,
 } from './canonicalization-rebase';
-import { CommitPathRecovery, retryFailedCommit } from './commit-recovery';
+import {
+  CommitPathRecovery,
+  retryFailedCommit,
+  type RetryFailedCommitOutcome,
+} from './commit-recovery';
 import { HavemindSyncController, type StatusListener } from './controller';
 import { ModifyDebouncer } from './modify-debounce';
 import { SyncScheduler, type SchedulerHooks } from './scheduler';
@@ -730,12 +734,12 @@ export interface ConnectionHandle {
   /**
    * Retry a failed-to-queue row (MAJOR 2) by re-running the commit chain for
    * `path` against the current on-disk content — the only recovery for a row
-   * that never reached the outbox. Returns false when the file no longer exists,
-   * so the caller drops the stale row instead of pushing a phantom empty create.
-   * Absent on the no-op handle and whenever no producer started (no push
-   * identity), which is also when no failed-to-queue row can exist.
+   * that never reached the outbox. Returns a tri-state (FINDING 1): `file-missing`
+   * (drop the stale row), `unavailable` (retry could not run — keep the row), or
+   * `retriggered`. Absent on the no-op handle and whenever no producer started
+   * (no push identity), which is also when no failed-to-queue row can exist.
    */
-  readonly retryFailedCommit?: (path: string) => boolean;
+  readonly retryFailedCommit?: (path: string) => RetryFailedCommitOutcome;
 }
 
 const NOOP_HANDLE: ConnectionHandle = { stop: () => undefined, serverName: '' };
@@ -982,8 +986,12 @@ const PUSH_PRODUCER_KEY = 'pushProducer';
  */
 interface PushProducerHandle {
   dispose(): void;
-  /** Re-trigger the commit chain for `path`; false when the file is gone. */
-  retryFailedCommit(path: string): boolean;
+  /**
+   * Re-trigger the commit chain for `path`. Tri-state (FINDING 1): `file-missing`
+   * when the file is gone, `unavailable` when the debouncer no-op'd the re-arm
+   * (disposed producer), `retriggered` on a real re-arm.
+   */
+  retryFailedCommit(path: string): RetryFailedCommitOutcome;
 }
 
 function startPushProducer(
@@ -1258,9 +1266,12 @@ function startPushProducer(
     },
     // MAJOR 2: a failed-to-queue row has no stashed envelope, so its Retry
     // re-runs the commit chain against the current on-disk content — routed
-    // through the SAME debouncer trigger the bounded re-arm uses. Returns false
-    // when the file is gone, so the caller drops the stale row instead.
-    retryFailedCommit: (path: string): boolean =>
+    // through the SAME debouncer trigger the bounded re-arm uses. Tri-state
+    // (FINDING 1): `file-missing` when the file is gone (drop the row),
+    // `unavailable` when the debouncer no-op'd the re-arm because it was disposed
+    // (keep the row), `retriggered` on a real re-arm. `trigger` reports whether
+    // it actually scheduled, which is exactly the disposed/unavailable signal.
+    retryFailedCommit: (path: string): RetryFailedCommitOutcome =>
       retryFailedCommit(path, {
         exists: (candidate) =>
           vault.getAbstractFileByPath(candidate) !== null,

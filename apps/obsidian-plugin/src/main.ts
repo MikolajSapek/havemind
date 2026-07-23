@@ -15,6 +15,7 @@ import { hashPlaintext } from '@havemind/protocol';
 import { isSafePassiveJoinProtocolData } from './onboarding/invite';
 import { parseFailedToQueuePath } from './runtime/sync-state';
 import type { DurableSyncState } from './runtime/sync-state';
+import type { RetryFailedCommitOutcome } from './runtime/commit-recovery';
 import {
   computeLineDiff,
   createConflictResolver,
@@ -1205,7 +1206,75 @@ class HavemindSettingTab extends PluginSettingTab {
     });
     open.addClass('mod-cta');
     open.onClickEvent(() => plugin.revealPanel());
+    // FINDING 4: the settings tab reads the connection status once at display()
+    // time, so a status change while the tab stays open leaves the line stale.
+    // A subscribe/unsubscribe hook would need a `hide()` override the ambient
+    // Obsidian typings and test mock do not expose; the cheaper honest fix is a
+    // Refresh control that re-reads the live status on demand by re-rendering.
+    const refresh = this.containerEl.createEl('button', { text: 'Refresh' });
+    refresh.onClickEvent(() => this.display());
   }
+}
+
+/** The Notice + discard a from-disk retry should apply. */
+export interface RetryFromDiskEffect {
+  /** User-visible message, or null when the retry is silent. */
+  readonly notice: string | null;
+  /** Whether the quarantine row should be discarded. */
+  readonly discard: boolean;
+}
+
+/**
+ * FINDING 1: map a `retryFailedCommit` outcome to its Notice + discard effect.
+ * The old boolean conflated three cases; only a CONFIRMED-missing file drops the
+ * row. `unavailable` (debouncer disposed) and a null/uncallable connection — the
+ * common state for a durable row after a restart, before reconnect — KEEP the
+ * row and tell the user to reconnect, so a real unsynced change is never lost.
+ */
+export function planRetryFromDisk(
+  outcome: RetryFailedCommitOutcome | undefined,
+  path: string,
+  discardOnRetrigger: boolean,
+): RetryFromDiskEffect {
+  switch (outcome) {
+    case 'file-missing':
+      return {
+        notice: `${path} no longer exists — removing it from the queue.`,
+        discard: true,
+      };
+    case 'retriggered':
+      return { notice: null, discard: discardOnRetrigger };
+    default:
+      return {
+        notice: 'Cannot retry while disconnected — reconnect first.',
+        discard: false,
+      };
+  }
+}
+
+/** The next step after attempting to requeue a server-rejected quarantine row. */
+export type QuarantineRequeueFallback =
+  | { readonly kind: 'requeued' }
+  | { readonly kind: 'retry-from-disk'; readonly path: string }
+  | { readonly kind: 'discard-dead-letter'; readonly notice: string };
+
+/**
+ * FINDING 2: decide the fallback when re-queuing a server-rejected row is inert
+ * (its stashed envelope was evicted under the byte budget). When the row's
+ * fileId still resolves to a path, re-commit from disk; when it resolves to
+ * nothing there is nothing to re-commit, so surface a Notice and discard the
+ * dead-letter row rather than leaving Retry a silent no-op.
+ */
+export function planQuarantineRequeueFallback(
+  requeued: boolean,
+  path: string | null,
+): QuarantineRequeueFallback {
+  if (requeued) return { kind: 'requeued' };
+  if (path !== null) return { kind: 'retry-from-disk', path };
+  return {
+    kind: 'discard-dead-letter',
+    notice: 'The original file for this change no longer exists — removing it.',
+  };
 }
 
 export default class HavemindPlugin extends Plugin {
@@ -1917,14 +1986,23 @@ export default class HavemindPlugin extends Plugin {
     // Server-rejected send (SND-01): re-enqueue the stashed envelope. When the
     // stash was evicted under the byte budget (MAJOR 4) the requeue is inert, so
     // fall back to re-committing the file from disk (source of truth) and drop
-    // the superseded dead-letter row.
+    // the superseded dead-letter row. FINDING 2: when the fileId no longer
+    // resolves to a path there is nothing to re-commit, so surface a Notice and
+    // discard the dead-letter row rather than leaving Retry a silent no-op.
     const requeued = (await this.syncState?.requeueQuarantined(revisionId)) ?? false;
-    if (!requeued) {
-      const path = this.pathForQuarantineRow(revisionId);
-      if (path !== null) {
-        await this.retryFromDisk(revisionId, path, { discardOnRetrigger: true });
-        return;
-      }
+    const fallback = planQuarantineRequeueFallback(
+      requeued,
+      this.pathForQuarantineRow(revisionId),
+    );
+    if (fallback.kind === 'retry-from-disk') {
+      await this.retryFromDisk(revisionId, fallback.path, {
+        discardOnRetrigger: true,
+      });
+      return;
+    }
+    if (fallback.kind === 'discard-dead-letter') {
+      new Notice(fallback.notice);
+      await this.syncState?.discardQuarantined(revisionId);
     }
     this.onboardingView?.refresh();
   }
@@ -1941,23 +2019,24 @@ export default class HavemindPlugin extends Plugin {
 
   /**
    * Re-run the commit chain for `path` from disk (the MAJOR 2 recovery for a row
-   * with no usable stashed envelope). A vanished file cannot be re-committed:
-   * surface a Notice and drop the stale row. `discardOnRetrigger` drops the row
-   * immediately after a successful re-trigger for a superseded server-rejected
-   * row (MAJOR 4); a failed-to-queue row keeps its row until the commit lands.
+   * with no usable stashed envelope). FINDING 1: the retry outcome is tri-state.
+   * Only a CONFIRMED-missing file drops the row; `unavailable` (debouncer
+   * disposed) and a null/uncallable connection — the common state for a durable
+   * row after a restart, before reconnect — keep the row and tell the user to
+   * reconnect, so a real unsynced change is never silently discarded.
+   * `discardOnRetrigger` drops the row immediately after a real re-trigger for a
+   * superseded server-rejected row (MAJOR 4); a failed-to-queue row keeps its
+   * row until the commit lands.
    */
   private async retryFromDisk(
     revisionId: string,
     path: string,
     options: { readonly discardOnRetrigger: boolean },
   ): Promise<void> {
-    const retriggered = this.connection?.retryFailedCommit?.(path) ?? false;
-    if (!retriggered) {
-      new Notice(`${path} no longer exists — removing it from the queue.`);
-      await this.syncState?.discardQuarantined(revisionId);
-    } else if (options.discardOnRetrigger) {
-      await this.syncState?.discardQuarantined(revisionId);
-    }
+    const outcome = this.connection?.retryFailedCommit?.(path);
+    const effect = planRetryFromDisk(outcome, path, options.discardOnRetrigger);
+    if (effect.notice !== null) new Notice(effect.notice);
+    if (effect.discard) await this.syncState?.discardQuarantined(revisionId);
     this.onboardingView?.refresh();
   }
 

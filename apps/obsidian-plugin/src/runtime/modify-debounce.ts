@@ -70,9 +70,13 @@ export class ModifyDebouncer {
    * Records a modify for `path`, resetting any in-flight settle window for that
    * same path so only the LAST modify in a burst reaches `onSettled`. A no-op
    * once disposed, so a re-arm or late event after teardown never re-schedules.
+   *
+   * Returns whether a settle was actually scheduled: `true` when live, `false`
+   * once disposed. The retry-from-disk recovery (FINDING 3) reads this to tell a
+   * genuine re-arm from a no-op against a torn-down producer.
    */
-  trigger(path: string): void {
-    if (this.disposed) return;
+  trigger(path: string): boolean {
+    if (this.disposed) return false;
     const existing = this.pending.get(path);
     if (existing !== undefined) {
       this.timer.clear(existing);
@@ -82,6 +86,7 @@ export class ModifyDebouncer {
       this.onSettled(path);
     }, this.delayMs);
     this.pending.set(path, handle);
+    return true;
   }
 
   /**
