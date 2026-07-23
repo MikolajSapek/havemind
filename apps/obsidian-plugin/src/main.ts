@@ -979,7 +979,7 @@ export class HavemindOnboardingView extends ItemView {
     content.createEl('label', { text: 'Server URL' });
     const serverInput = content.createEl('input', {
       type: 'text',
-      placeholder: 'https://sapserver.tailnet.ts.net',
+      placeholder: 'https://your-server.tailnet.ts.net',
       value: this.draft.server,
     });
     this.liveInputs.token = tokenInput;
