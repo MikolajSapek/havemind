@@ -401,6 +401,26 @@ Naprawione w tej pętli commituje się osobno; poniżej to, co świadomie odło�
     istotne przy poszerzeniu granicy zaufania; (d) `#resolveBoundDevice` bierze najnowsze
     approved urządzenie — rewizja przed multi-device.
 
+## Server hardening (audit iteration 2)
+
+Znaleziska z drugiej iteracji audytu serwera (2026-07-23). Dwa naprawione w tej pętli
+(FIX #1 cursor-from-the-future CURSOR_INVALID na ścieżce pull; FIX #2 usunięcie pełnego
+re-hasha z hot-path `read` blobów); poniżej to, co świadomie odłożone.
+
+- [ ] **AUD2-01** NIT `serwer` `auth-routes.ts:129` — mapa `windows` rate-limitera nigdy nie
+  usuwa wpisów po `resetAt` (rośnie z liczbą kluczy). Ograniczone w praktyce (2 urządzenia).
+- [ ] **AUD2-02** NIT `serwer` `rejoin-routes.ts:157`, `revoke-routes.ts:154` — endpointy mutacji
+  właściciela (rejoin/revoke) bez rate-limitu.
+- [ ] **AUD2-03** NIT `serwer` `rejoin-grants.ts:321-342` — wiele żywych grantów rejoin
+  jednocześnie realizowalnych per membership.
+- [ ] **AUD2-04** NIT (latent, nieosiągalne w single-vault) `serwer` `membership-revocation.ts:127-132`
+  — rewokacja członkostwa kasuje WSZYSTKIE urządzenia usera przez `WHERE user_id`; staje się
+  realnym bugiem cross-vault, jeśli włączymy multi-vault.
+- [ ] **AUD2-05** NIT `serwer` `rejoin-grants.ts:254-319` — rejoin ignoruje soft-delete vaulta
+  (zawodzi fail-closed downstream).
+- [ ] **AUD2-06** MINOR `serwer` `auth-routes.ts:200-203` — blob GET zwolniony z rate-limitu jako
+  amplifikator; udokumentowane jako AUD-08, rewizja jeśli nadużywane.
+
 ## MERGE-3WAY (decyzja usera 2026-07-22: wzorem jest Obsidian Sync / obsidian-livesync)
 
 Research: `docs/research-conflicts.md`. Kolejność wykonania PO fixie kaskady konfliktów.

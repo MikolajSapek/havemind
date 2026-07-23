@@ -99,7 +99,26 @@ export class BlobStore {
     );
   }
 
+  /**
+   * Reads a content-addressed blob WITHOUT recomputing its hash. Blobs are
+   * verified against their hash at write time (see `#verifyExisting`, invoked
+   * from `#putSerialized`, and `readVerified` on the commit path), so a GET on
+   * the read hot path only needs an O(1) structural check — reject symlinks
+   * (O_NOFOLLOW) and non-regular files — never a full-file SHA-256 that would
+   * read up to 36 MiB per request.
+   */
   public async read(hash: BlobHash): Promise<Buffer> {
+    const path = this.pathForHash(hash);
+    return this.#readExisting(path, hash);
+  }
+
+  /**
+   * Like `read`, but re-hashes the bytes and rejects any mismatch. Reserved
+   * for the write/commit path (`RevisionRepository`), which double-checks a
+   * freshly-`put` blob before durably committing the revision that references
+   * it. Never call this from the read hot path — see `read`.
+   */
+  public async readVerified(hash: BlobHash): Promise<Buffer> {
     const path = this.pathForHash(hash);
     return this.#verifyExisting(path, hash);
   }
@@ -223,7 +242,13 @@ export class BlobStore {
     }
   }
 
-  async #verifyExisting(
+  /**
+   * Opens and reads the on-disk bytes for a blob, enforcing only the O(1)
+   * structural invariants (reject symlinks via O_NOFOLLOW, reject non-regular
+   * files). Does NOT recompute the hash — callers that need integrity
+   * verification wrap this in `#verifyExisting`.
+   */
+  async #readExisting(
     path: string,
     expectedHash: BlobHash,
   ): Promise<Buffer> {
@@ -242,19 +267,25 @@ export class BlobStore {
       if (!fileStat.isFile()) {
         throw new BlobIntegrityError(expectedHash, 'path is not a regular file');
       }
-
-      const bytes = await handle.readFile();
-      const actualHash = await hashBlob(bytes);
-      if (actualHash !== expectedHash) {
-        throw new BlobIntegrityError(
-          expectedHash,
-          `stored bytes hash to ${actualHash}`,
-        );
-      }
-      return bytes;
+      return await handle.readFile();
     } finally {
       await handle.close();
     }
+  }
+
+  async #verifyExisting(
+    path: string,
+    expectedHash: BlobHash,
+  ): Promise<Buffer> {
+    const bytes = await this.#readExisting(path, expectedHash);
+    const actualHash = await hashBlob(bytes);
+    if (actualHash !== expectedHash) {
+      throw new BlobIntegrityError(
+        expectedHash,
+        `stored bytes hash to ${actualHash}`,
+      );
+    }
+    return bytes;
   }
 
   async #hit(point: BlobStoreFaultPoint): Promise<void> {

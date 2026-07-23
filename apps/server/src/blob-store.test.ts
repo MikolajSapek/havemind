@@ -78,6 +78,37 @@ describe('BlobStore', () => {
     expect(await readFile(store.pathForHash(first.hash), 'utf8')).toBe('corrupt');
   });
 
+  it('serves blob bytes on read without re-hashing the full file', async () => {
+    const { store } = await makeStore();
+    const bytes = new TextEncoder().encode('read-does-not-rehash');
+    const stored = await store.put(bytes);
+
+    // Corrupt the on-disk bytes AFTER write-time verification. A content-
+    // addressed GET must not re-hash up to 36 MiB on every request, so `read`
+    // returns whatever bytes are on disk without recomputing SHA-256.
+    await writeFile(
+      store.pathForHash(stored.hash),
+      'tampered-bytes-of-a-different-length',
+    );
+
+    const served = await store.read(stored.hash);
+    expect(served).toEqual(
+      Buffer.from('tampered-bytes-of-a-different-length'),
+    );
+  });
+
+  it('still re-hashes on the verifying read used by the commit path', async () => {
+    const { store } = await makeStore();
+    const bytes = new TextEncoder().encode('verify-still-hashes');
+    const stored = await store.put(bytes);
+
+    await writeFile(store.pathForHash(stored.hash), 'corrupt');
+
+    await expect(store.readVerified(stored.hash)).rejects.toBeInstanceOf(
+      BlobIntegrityError,
+    );
+  });
+
   it('serializes concurrent writes for the same content', async () => {
     const { store } = await makeStore();
     const bytes = new TextEncoder().encode('same bytes');

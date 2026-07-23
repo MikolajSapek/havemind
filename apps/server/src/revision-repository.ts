@@ -342,13 +342,13 @@ function requireSafeNonNegativeInteger(value: number, field: string): number {
  */
 export class RevisionRepository {
   readonly #database: Database.Database;
-  readonly #blobStore: Pick<BlobStore, 'read'>;
+  readonly #blobStore: Pick<BlobStore, 'readVerified'>;
   readonly #now: () => Date;
   readonly #idempotencyTtlMs: number;
 
   public constructor(
     database: Database.Database,
-    blobStore: Pick<BlobStore, 'read'>,
+    blobStore: Pick<BlobStore, 'readVerified'>,
     options: RevisionRepositoryOptions = {},
   ) {
     this.#database = database;
@@ -501,7 +501,7 @@ export class RevisionRepository {
 
   async #readVerifiedBlob(hash: BlobHash): Promise<Buffer> {
     try {
-      return await this.#blobStore.read(hash);
+      return await this.#blobStore.readVerified(hash);
     } catch (error) {
       if (error instanceof BlobIntegrityError) {
         throw new RevisionRepositoryError(

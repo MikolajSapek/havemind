@@ -555,7 +555,7 @@ describe('RevisionRepository', () => {
     const repository = new RevisionRepository(
       fixture.database,
       {
-        async read(): Promise<Buffer> {
+        async readVerified(): Promise<Buffer> {
           throw new Error('Blob read must not run for a revoked actor.');
         },
       },

@@ -664,6 +664,48 @@ describe('sync push/pull routes', () => {
     expect(badCursor.statusCode).toBe(400);
   });
 
+  it('rejects a pull cursor beyond the max sequence with CURSOR_INVALID even without an epoch param', async () => {
+    const fixture = makeFixture();
+    const app = createApp(fixture);
+
+    await push(app, fixture.accessTokenA, VAULT_A, [
+      revisionInput(REVISION_1, [], 'k1', 'opaque-1'),
+    ]);
+
+    // A cursor "from the future" (after > highest committed sequence) can arise
+    // when restoreInstance rotates server_epoch back to an older backup whose
+    // max sequence is lower than the cursor a client still holds. The client
+    // pulls WITHOUT the epoch param, so the epoch guard never fires — this must
+    // still fail closed rather than silently return an empty page and skip
+    // re-issued sequences.
+    const future = await app.inject({
+      headers: { authorization: `Bearer ${fixture.accessTokenA}` },
+      method: 'GET',
+      url: `/vaults/${VAULT_A}/events?after=99`,
+    });
+
+    expect(future.statusCode).toBe(409);
+    expect(future.json()).toEqual({ error: { code: 'CURSOR_INVALID' } });
+  });
+
+  it('accepts a pull cursor at the max sequence (fully synced) with an empty page', async () => {
+    const fixture = makeFixture();
+    const app = createApp(fixture);
+
+    await push(app, fixture.accessTokenA, VAULT_A, [
+      revisionInput(REVISION_1, [], 'k1', 'opaque-1'),
+    ]);
+
+    const atHead = await app.inject({
+      headers: { authorization: `Bearer ${fixture.accessTokenA}` },
+      method: 'GET',
+      url: `/vaults/${VAULT_A}/events?after=1`,
+    });
+
+    expect(atHead.statusCode).toBe(200);
+    expect((atHead.json() as { events: unknown[] }).events).toEqual([]);
+  });
+
   it('serves a stored blob byte-exactly to a member of its vault', async () => {
     const fixture = makeFixture();
     const app = createApp(fixture);

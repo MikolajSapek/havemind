@@ -429,12 +429,22 @@ export function registerSyncRoutes(
     }
 
     try {
+      // A cursor strictly beyond the highest committed sequence is a cursor
+      // "from the future": it can only exist because the client's held cursor
+      // outran this vault's max sequence, e.g. after restoreInstance rotated
+      // server_epoch back to an older backup whose next_server_sequence is
+      // lower. The epoch guard above catches this only when the client sends
+      // the epoch param; fail closed here too so a client that pulls WITHOUT
+      // the epoch can never silently skip re-issued sequences.
+      const cursor = deps.revisions.getCursor(params.data.vaultId);
+      if (after > cursor) {
+        return sendSyncError(reply, 409, 'CURSOR_INVALID');
+      }
       const events = deps.revisions.listEvents(
         params.data.vaultId,
         after,
         limit,
       );
-      const cursor = deps.revisions.getCursor(params.data.vaultId);
       reply.header('cache-control', 'no-store');
       return {
         cursor,
