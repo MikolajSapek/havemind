@@ -614,3 +614,39 @@ describe('createVaultFilePort ensures parent folders on create-materialization',
     expect(vault.getAbstractFileByPath('Notatki')).toBeInstanceOf(TFile);
   });
 });
+
+describe('createSchedulerHooks focus/online listener disposal (MINOR)', () => {
+  it('returns real disposers that remove the exact listeners they added', async () => {
+    const { createSchedulerHooks } = await import('./obsidian-adapters');
+    const added: Array<{ type: string; listener: () => void }> = [];
+    const removed: Array<{ type: string; listener: () => void }> = [];
+    const target = {
+      addEventListener: (type: string, listener: () => void) =>
+        void added.push({ type, listener }),
+      removeEventListener: (type: string, listener: () => void) =>
+        void removed.push({ type, listener }),
+    };
+    const plugin = {
+      registerInterval: vi.fn(),
+    } as unknown as Parameters<typeof createSchedulerHooks>[0];
+
+    const hooks = createSchedulerHooks(plugin, target);
+    const onFocusRun = (): void => undefined;
+    const onOnlineRun = (): void => undefined;
+
+    const disposeFocus = hooks.onFocus(onFocusRun);
+    const disposeOnline = hooks.onOnline(onOnlineRun);
+    expect(added).toEqual([
+      { type: 'focus', listener: onFocusRun },
+      { type: 'online', listener: onOnlineRun },
+    ]);
+
+    // stop() calls the disposers: they must actually remove the listeners.
+    disposeFocus();
+    disposeOnline();
+    expect(removed).toEqual([
+      { type: 'focus', listener: onFocusRun },
+      { type: 'online', listener: onOnlineRun },
+    ]);
+  });
+});

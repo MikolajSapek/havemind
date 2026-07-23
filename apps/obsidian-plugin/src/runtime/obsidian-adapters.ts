@@ -57,6 +57,10 @@ import {
 } from './commit-recovery';
 import { HavemindSyncController, type StatusListener } from './controller';
 import { ModifyDebouncer } from './modify-debounce';
+import {
+  createSerializedDataPort,
+  getPluginDataMutex,
+} from './plugin-data-mutex';
 import { SyncScheduler, type SchedulerHooks } from './scheduler';
 import { formatStatusBar } from './status';
 import {
@@ -185,7 +189,7 @@ function toActivityKind(kind: LocalChangeKind): ActivityKind {
 }
 
 const PERSIST_KEY = 'syncState';
-const DEFAULT_INTERVAL_MS = 5 * 60 * 1000;
+const DEFAULT_INTERVAL_MS = 15 * 1000;
 const CONFLICT_FOLDER = 'Havemind Conflicts';
 
 /** Wraps Obsidian's `requestUrl` as the transport's `RequestUrlFn`. */
@@ -234,9 +238,12 @@ export function createPersistPort(plugin: Plugin): SyncStatePersistPort {
       return null;
     },
     async save(state) {
-      const data = await plugin.loadData();
-      const base = isRecord(data) ? data : {};
-      await plugin.saveData({ ...base, [PERSIST_KEY]: state });
+      // Serialize the load-modify-save so a concurrent write to another
+      // top-level key (producer, roster, onboarding, …) is never clobbered.
+      await getPluginDataMutex(plugin).update((base) => ({
+        ...base,
+        [PERSIST_KEY]: state,
+      }));
     },
   };
 }
@@ -274,16 +281,33 @@ async function runCanonicalizationRebase(plugin: Plugin): Promise<void> {
   });
 }
 
-/** Startup/focus/online/interval scheduler hooks over the Obsidian runtime. */
-export function createSchedulerHooks(plugin: Plugin): SchedulerHooks {
+/** The window-event surface the scheduler hooks need (injectable for tests). */
+export interface SchedulerEventTarget {
+  addEventListener(type: string, listener: () => void): void;
+  removeEventListener(type: string, listener: () => void): void;
+}
+
+/**
+ * Startup/focus/online/interval scheduler hooks over the Obsidian runtime.
+ *
+ * MINOR (listener leak): `plugin.registerDomEvent` only tears its listeners
+ * down on plugin UNLOAD, so `SyncScheduler.stop()` could never remove them —
+ * every reconnect leaked another focus+online listener pair for the session.
+ * The focus/online hooks now register directly via add/removeEventListener and
+ * return REAL disposers, so `stop()` removes exactly the listeners it added.
+ */
+export function createSchedulerHooks(
+  plugin: Plugin,
+  target: SchedulerEventTarget = window,
+): SchedulerHooks {
   return {
     onFocus(run) {
-      plugin.registerDomEvent(window, 'focus', run);
-      return () => undefined;
+      target.addEventListener('focus', run);
+      return () => target.removeEventListener('focus', run);
     },
     onOnline(run) {
-      plugin.registerDomEvent(window, 'online', run);
-      return () => undefined;
+      target.addEventListener('online', run);
+      return () => target.removeEventListener('online', run);
     },
     setInterval(run, ms) {
       const id = window.setInterval(run, ms);
@@ -666,14 +690,14 @@ const CLIENT_INSTANCE_KEY = 'clientInstanceId';
 const APPROVAL_POLL_INTERVAL_MS = 5000;
 const MAX_CONNECT_STEPS = 720; // ~1h of 5s polls before giving up
 
-/** Raw plugin-data load/save, shared by every durable non-secret store. */
+/**
+ * Plugin-data load/save for the onboarding store, serialized through the shared
+ * per-plugin mutex so its whole-blob save re-reads the latest on-disk snapshot
+ * and only its own top-level key is written — a concurrent save to another key
+ * (sync state, producer, roster) is never clobbered (MAJOR).
+ */
 function createRawPersistPort(plugin: Plugin): OnboardingPersistPort {
-  return {
-    load: () => plugin.loadData(),
-    async save(data) {
-      await plugin.saveData(data);
-    },
-  };
+  return createSerializedDataPort(getPluginDataMutex(plugin));
 }
 
 function createClientInstanceRepo(plugin: Plugin): ClientInstanceIdRepository {
@@ -684,9 +708,10 @@ function createClientInstanceRepo(plugin: Plugin): ClientInstanceIdRepository {
       return typeof value === 'string' ? value : null;
     },
     async writeClientInstanceId(value) {
-      const data = await plugin.loadData();
-      const base = isRecord(data) ? data : {};
-      await plugin.saveData({ ...base, [CLIENT_INSTANCE_KEY]: value });
+      await getPluginDataMutex(plugin).update((base) => ({
+        ...base,
+        [CLIENT_INSTANCE_KEY]: value,
+      }));
     },
   };
 }
@@ -798,9 +823,10 @@ async function writeOwnerConnection(
   plugin: Plugin,
   connection: StoredConnection,
 ): Promise<void> {
-  const data = await plugin.loadData();
-  const base = isRecord(data) ? data : {};
-  await plugin.saveData({ ...base, [OWNER_CONNECTION_KEY]: connection });
+  await getPluginDataMutex(plugin).update((base) => ({
+    ...base,
+    [OWNER_CONNECTION_KEY]: connection,
+  }));
 }
 
 interface ConnectedVault {
@@ -1010,9 +1036,10 @@ function startPushProducer(
       return parseProducerState(raw);
     },
     async save(next) {
-      const data = await plugin.loadData();
-      const base = isRecord(data) ? data : {};
-      await plugin.saveData({ ...base, [PUSH_PRODUCER_KEY]: next });
+      await getPluginDataMutex(plugin).update((base) => ({
+        ...base,
+        [PUSH_PRODUCER_KEY]: next,
+      }));
     },
   };
 

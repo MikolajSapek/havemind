@@ -63,6 +63,66 @@ describe('DurableSyncState', () => {
     expect(await state.isLocallyAuthored('rev-1')).toBe(false);
   });
 
+  it('does not drop an enqueue that races a concurrent cold-cache load (BLOCKER)', async () => {
+    // Two concurrent operations both find a cold cache and each fire `load`.
+    // Before the dedup fix the later-resolving load re-parsed the persisted blob
+    // and clobbered the cache mutation the enqueue had already made — a silent
+    // dropped push at connect (rule 3). Gate the load so both callers enter
+    // `ensureLoaded` while the cache is still null, then release.
+    let releaseLoad!: () => void;
+    const loadGate = new Promise<void>((resolve) => {
+      releaseLoad = resolve;
+    });
+    let loadCalls = 0;
+    const racingPersist: SyncStatePersistPort = {
+      async load() {
+        loadCalls += 1;
+        await loadGate;
+        return null;
+      },
+      async save() {
+        /* no-op */
+      },
+    };
+    const racing = new DurableSyncState({ persist: racingPersist });
+
+    const enqueueP = racing.enqueue(envelope({ revisionId: 'rev-race' }));
+    const listP = racing.listOutbox();
+    releaseLoad();
+    await Promise.all([enqueueP, listP]);
+
+    // A single shared in-flight load, and the enqueued revision survives.
+    expect(loadCalls).toBe(1);
+    expect(await racing.listOutbox()).toEqual([
+      expect.objectContaining({ revisionId: 'rev-race' }),
+    ]);
+  });
+
+  it('does not lose a concurrent read-modify-write when two critical sections race the warm cache (rule 3)', async () => {
+    // Faithfully models the production race behind the randomized-convergence
+    // flake: the apply path advances a file's base hash AND base content while
+    // the reflected observe-modify records path ownership for the SAME file
+    // concurrently. Each mutation is a read-modify-write of the shared in-memory
+    // cache (`{...state, field}` spread). On a warm cache `ensureLoaded` reads
+    // synchronously, so two sections launched without an intervening await both
+    // capture the SAME snapshot and the later `mutate` clobbers the earlier one's
+    // write — dropping, e.g., the base content while keeping the base hash, which
+    // later makes the three-way merge (needing the ancestor content) fail and
+    // spawn a SPURIOUS conflict copy. All three writes must survive together.
+    await state.loadCursor(); // warm the cache so both sections race on it
+
+    const applyTail = (async () => {
+      await state.recordBaseHash('file-1', 'base-hash');
+      await state.recordBaseContent('file-1', 'base-body');
+    })();
+    const reflected = state.recordPathOwner('file-1', 'Notes/a.md');
+    await Promise.all([applyTail, reflected]);
+
+    expect(state.baseHashFor('file-1')).toBe('base-hash');
+    expect(state.baseContentFor('file-1')).toBe('base-body');
+    expect(state.fileIdAtPath('Notes/a.md')).toBe('file-1');
+  });
+
   it('persists the cursor durably', async () => {
     await state.saveCursor(7);
     expect(await state.loadCursor()).toBe(7);

@@ -32,6 +32,11 @@ import {
   type SendQueueStatusView,
 } from './runtime/send-queue-status';
 import { sweepConflictCopies } from './runtime/conflict-sweep';
+import {
+  createSerializedDataPort,
+  getPluginDataMutex,
+} from './runtime/plugin-data-mutex';
+import { RerunGuard } from './runtime/rerun-guard';
 import type { RevisionRecord } from './activity/activity';
 import { buildActivityViewModel } from './runtime/activity-render';
 import { restoreActivityEntry } from './runtime/activity-restore';
@@ -1374,8 +1379,14 @@ export default class HavemindPlugin extends Plugin {
    * copies coalesces into a single pass ~2s after the last write.
    */
   private conflictSweepTimer: ReturnType<typeof globalThis.setTimeout> | null = null;
-  /** Guards against overlapping sweep runs (a pass in flight when the next fires). */
-  private conflictSweepRunning = false;
+  /**
+   * Serialises sweep runs AND re-arms one more pass when a trigger arrives
+   * mid-run — so a conflict copy written while a sweep is in flight is not
+   * dropped (MINOR); the guarded no-op used to leave it un-swept.
+   */
+  private readonly conflictSweepGuard = new RerunGuard(() =>
+    this.runConflictSweepOnce(),
+  );
 
   override onload(): void {
     // Wire the Activity view to the live feed: the log snapshot is mapped through
@@ -1814,11 +1825,11 @@ export default class HavemindPlugin extends Plugin {
 
   /** The durable roster store over the shared plugin-data blob. */
   private rosterStore(): RosterStore {
+    // Route the roster's read-modify-save through the shared per-plugin mutex so
+    // a concurrent write to another data.json key (sync state, producer,
+    // onboarding) is never clobbered (MAJOR).
     return new RosterStore({
-      persist: {
-        load: () => this.loadData(),
-        save: (data) => this.saveData(data),
-      },
+      persist: createSerializedDataPort(getPluginDataMutex(this)),
     });
   }
 
@@ -1914,6 +1925,10 @@ export default class HavemindPlugin extends Plugin {
     this.connection?.stop();
     this.connection = null;
     this.syncState = null;
+    // Tear down any armed invitee rejoin poll, matching retryConnection/onunload
+    // — otherwise a disconnected device keeps polling the server for a rejoin
+    // grant it will never act on (NIT).
+    this.disarmRejoin();
     this.connectionStatus = 'disconnected';
     this.lastSyncedAt = undefined;
     this.connectionError = undefined;
@@ -2100,23 +2115,26 @@ export default class HavemindPlugin extends Plugin {
    * the panel afterwards so a resolved conflict's row drops out.
    */
   private async runConflictSweep(): Promise<void> {
+    if (this.syncState === null) return;
+    // The guard serialises passes and re-arms one more run if a copy is written
+    // mid-sweep, so a mid-run trigger is never silently dropped (MINOR).
+    await this.conflictSweepGuard.trigger();
+  }
+
+  /** One sweep pass. Called only via {@link conflictSweepGuard}. */
+  private async runConflictSweepOnce(): Promise<void> {
     const state = this.syncState;
-    if (state === null || this.conflictSweepRunning) return;
-    this.conflictSweepRunning = true;
-    try {
-      await sweepConflictCopies({
-        port: this.conflictPort(),
-        fileIdAtPath: (path) => state.fileIdAtPath(path),
-        baseContentFor: (fileId) => state.baseContentFor(fileId),
-        baseHashFor: (fileId) => state.baseHashFor(fileId),
-        hashContent: (content) => hashPlaintext(content),
-        notify: (message) => {
-          new Notice(`Havemind: ${message}`);
-        },
-      });
-    } finally {
-      this.conflictSweepRunning = false;
-    }
+    if (state === null) return;
+    await sweepConflictCopies({
+      port: this.conflictPort(),
+      fileIdAtPath: (path) => state.fileIdAtPath(path),
+      baseContentFor: (fileId) => state.baseContentFor(fileId),
+      baseHashFor: (fileId) => state.baseHashFor(fileId),
+      hashContent: (content) => hashPlaintext(content),
+      notify: (message) => {
+        new Notice(`Havemind: ${message}`);
+      },
+    });
     this.onboardingView?.refresh();
   }
 

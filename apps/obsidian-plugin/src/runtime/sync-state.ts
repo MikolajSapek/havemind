@@ -207,6 +207,32 @@ export class DurableSyncState implements SyncStatePort {
   private readonly now: () => number;
   private readonly envelopeBudgetBytes: number;
   private cache: PersistedSyncState | null = null;
+  /**
+   * De-dupes concurrent cold-cache loads. Without it, two callers that both find
+   * a null cache each `await persist.load()`; the later resolution re-parses the
+   * on-disk blob and clobbers any cache mutation the first caller made during the
+   * await (an enqueued revision, an advanced cursor) — a silent dropped push at
+   * connect (rule 3). All concurrent callers share this single in-flight load.
+   */
+  private loadPromise: Promise<void> | null = null;
+  /**
+   * Serializes every read-modify-write critical section against the shared
+   * in-memory cache. Each mutating method reads the cache (`ensureLoaded`) and
+   * writes it back (`mutate`) as a `{ ...state, field }` spread, with `await`
+   * points in between. On a WARM cache `ensureLoaded` reads synchronously, so
+   * two sections that overlap each capture the SAME snapshot and the later
+   * `mutate` silently drops the earlier one's write — a lost update. In the
+   * two-device sync loop this dropped a file's base CONTENT while keeping its
+   * base HASH, which then made the three-way merge (it needs the ancestor
+   * content) fail and spawn a SPURIOUS conflict copy (rule 3: zero silent
+   * overwrites / data loss). This is the in-memory analogue of the data.json
+   * `PluginDataMutex`, which only guards the on-disk save, not the cache RMW.
+   * Chaining each section on this single tail makes it run to completion before
+   * the next one reads, so no committed write is ever clobbered. Read-only
+   * accessors stay off the queue: `mutate` swaps the whole cache object in one
+   * synchronous assignment, so any read sees a complete, consistent snapshot.
+   */
+  private mutationTail: Promise<unknown> = Promise.resolve();
 
   constructor(options: DurableSyncStateOptions) {
     this.persist = options.persist;
@@ -223,8 +249,10 @@ export class DurableSyncState implements SyncStatePort {
   }
 
   async saveCursor(sequence: number): Promise<void> {
-    const state = await this.ensureLoaded();
-    await this.mutate({ ...state, cursor: sequence });
+    return this.runExclusive(async () => {
+      const state = await this.ensureLoaded();
+      await this.mutate({ ...state, cursor: sequence });
+    });
   }
 
   async listOutbox(): Promise<readonly PushRevision[]> {
@@ -238,54 +266,58 @@ export class DurableSyncState implements SyncStatePort {
   }
 
   async recordPushReceipt(receipt: PushReceipt): Promise<void> {
-    const state = await this.ensureLoaded();
-    const outbox = state.outbox.filter(
-      (envelope) => envelope.revisionId !== receipt.revisionId,
-    );
-    await this.mutate({
-      ...state,
-      outbox,
-      locallyAuthored: this.rememberAuthored(
-        state.locallyAuthored,
-        receipt.revisionId,
-      ),
+    return this.runExclusive(async () => {
+      const state = await this.ensureLoaded();
+      const outbox = state.outbox.filter(
+        (envelope) => envelope.revisionId !== receipt.revisionId,
+      );
+      await this.mutate({
+        ...state,
+        outbox,
+        locallyAuthored: this.rememberAuthored(
+          state.locallyAuthored,
+          receipt.revisionId,
+        ),
+      });
     });
   }
 
   async quarantineOutboxItem(revisionId: string, reason: string): Promise<void> {
-    const state = await this.ensureLoaded();
-    const failed = state.outbox.find(
-      (envelope) => envelope.revisionId === revisionId,
-    );
-    const outbox = state.outbox.filter(
-      (envelope) => envelope.revisionId !== revisionId,
-    );
-    const entry: QuarantinedRevision = {
-      revisionId,
-      fileId: failed?.fileId ?? '',
-      reason,
-    };
-    const quarantine = [
-      ...state.quarantine.filter((item) => item.revisionId !== revisionId),
-      entry,
-    ];
-    // Stash the full envelope (SND-01) so a later "Retry" can re-enqueue the
-    // exact bytes; without it the dead-lettered payload is unrecoverable. Only
-    // stashed when the outbox actually held the item — a quarantine with no
-    // envelope simply carries no stash and its Retry is inert.
-    const quarantinedEnvelopes = { ...state.quarantinedEnvelopes };
-    if (failed !== undefined) {
-      quarantinedEnvelopes[revisionId] = failed;
-    }
-    // MAJOR 4: hold the stash under a total-bytes budget by evicting the oldest
-    // stashes first. The quarantine rows they belong to are left intact, so the
-    // failures stay visible and their Retry degrades to a re-commit from disk.
-    const budgeted = this.evictStashesOverBudget(quarantinedEnvelopes);
-    await this.mutate({
-      ...state,
-      outbox,
-      quarantine,
-      quarantinedEnvelopes: budgeted,
+    return this.runExclusive(async () => {
+      const state = await this.ensureLoaded();
+      const failed = state.outbox.find(
+        (envelope) => envelope.revisionId === revisionId,
+      );
+      const outbox = state.outbox.filter(
+        (envelope) => envelope.revisionId !== revisionId,
+      );
+      const entry: QuarantinedRevision = {
+        revisionId,
+        fileId: failed?.fileId ?? '',
+        reason,
+      };
+      const quarantine = [
+        ...state.quarantine.filter((item) => item.revisionId !== revisionId),
+        entry,
+      ];
+      // Stash the full envelope (SND-01) so a later "Retry" can re-enqueue the
+      // exact bytes; without it the dead-lettered payload is unrecoverable. Only
+      // stashed when the outbox actually held the item — a quarantine with no
+      // envelope simply carries no stash and its Retry is inert.
+      const quarantinedEnvelopes = { ...state.quarantinedEnvelopes };
+      if (failed !== undefined) {
+        quarantinedEnvelopes[revisionId] = failed;
+      }
+      // MAJOR 4: hold the stash under a total-bytes budget by evicting the oldest
+      // stashes first. The quarantine rows they belong to are left intact, so the
+      // failures stay visible and their Retry degrades to a re-commit from disk.
+      const budgeted = this.evictStashesOverBudget(quarantinedEnvelopes);
+      await this.mutate({
+        ...state,
+        outbox,
+        quarantine,
+        quarantinedEnvelopes: budgeted,
+      });
     });
   }
 
@@ -332,18 +364,20 @@ export class DurableSyncState implements SyncStatePort {
    * {@link parseFailedToQueuePath}) — the on-disk content is the source of truth.
    */
   async recordFailedToQueue(path: string): Promise<void> {
-    const state = await this.ensureLoaded();
-    const revisionId = failedToQueueRevisionId(path);
-    const entry: QuarantinedRevision = {
-      revisionId,
-      fileId: path,
-      reason: 'failed-to-queue',
-    };
-    const quarantine = [
-      ...state.quarantine.filter((item) => item.revisionId !== revisionId),
-      entry,
-    ];
-    await this.mutate({ ...state, quarantine });
+    return this.runExclusive(async () => {
+      const state = await this.ensureLoaded();
+      const revisionId = failedToQueueRevisionId(path);
+      const entry: QuarantinedRevision = {
+        revisionId,
+        fileId: path,
+        reason: 'failed-to-queue',
+      };
+      const quarantine = [
+        ...state.quarantine.filter((item) => item.revisionId !== revisionId),
+        entry,
+      ];
+      await this.mutate({ ...state, quarantine });
+    });
   }
 
   async listQuarantine(): Promise<readonly QuarantinedRevision[]> {
@@ -366,19 +400,23 @@ export class DurableSyncState implements SyncStatePort {
   }
 
   async recordPathOwner(fileId: string, path: string): Promise<void> {
-    const state = await this.ensureLoaded();
-    await this.mutate({
-      ...state,
-      pathOwners: { ...state.pathOwners, [path]: fileId },
+    return this.runExclusive(async () => {
+      const state = await this.ensureLoaded();
+      await this.mutate({
+        ...state,
+        pathOwners: { ...state.pathOwners, [path]: fileId },
+      });
     });
   }
 
   async forgetPath(path: string): Promise<void> {
-    const state = await this.ensureLoaded();
-    if (!(path in state.pathOwners)) return;
-    const pathOwners = { ...state.pathOwners };
-    delete pathOwners[path];
-    await this.mutate({ ...state, pathOwners });
+    return this.runExclusive(async () => {
+      const state = await this.ensureLoaded();
+      if (!(path in state.pathOwners)) return;
+      const pathOwners = { ...state.pathOwners };
+      delete pathOwners[path];
+      await this.mutate({ ...state, pathOwners });
+    });
   }
 
   /**
@@ -392,19 +430,23 @@ export class DurableSyncState implements SyncStatePort {
   }
 
   async recordBaseHash(fileId: string, hash: string): Promise<void> {
-    const state = await this.ensureLoaded();
-    await this.mutate({
-      ...state,
-      baseHashes: { ...state.baseHashes, [fileId]: hash },
+    return this.runExclusive(async () => {
+      const state = await this.ensureLoaded();
+      await this.mutate({
+        ...state,
+        baseHashes: { ...state.baseHashes, [fileId]: hash },
+      });
     });
   }
 
   async forgetBaseHash(fileId: string): Promise<void> {
-    const state = await this.ensureLoaded();
-    if (!(fileId in state.baseHashes)) return;
-    const baseHashes = { ...state.baseHashes };
-    delete baseHashes[fileId];
-    await this.mutate({ ...state, baseHashes });
+    return this.runExclusive(async () => {
+      const state = await this.ensureLoaded();
+      if (!(fileId in state.baseHashes)) return;
+      const baseHashes = { ...state.baseHashes };
+      delete baseHashes[fileId];
+      await this.mutate({ ...state, baseHashes });
+    });
   }
 
   /**
@@ -416,19 +458,23 @@ export class DurableSyncState implements SyncStatePort {
   }
 
   async recordBaseContent(fileId: string, content: string): Promise<void> {
-    const state = await this.ensureLoaded();
-    await this.mutate({
-      ...state,
-      baseContents: { ...state.baseContents, [fileId]: content },
+    return this.runExclusive(async () => {
+      const state = await this.ensureLoaded();
+      await this.mutate({
+        ...state,
+        baseContents: { ...state.baseContents, [fileId]: content },
+      });
     });
   }
 
   async forgetBaseContent(fileId: string): Promise<void> {
-    const state = await this.ensureLoaded();
-    if (!(fileId in state.baseContents)) return;
-    const baseContents = { ...state.baseContents };
-    delete baseContents[fileId];
-    await this.mutate({ ...state, baseContents });
+    return this.runExclusive(async () => {
+      const state = await this.ensureLoaded();
+      if (!(fileId in state.baseContents)) return;
+      const baseContents = { ...state.baseContents };
+      delete baseContents[fileId];
+      await this.mutate({ ...state, baseContents });
+    });
   }
 
   /**
@@ -444,26 +490,32 @@ export class DurableSyncState implements SyncStatePort {
     revisionId: string,
     path: string,
   ): Promise<void> {
-    const state = await this.ensureLoaded();
-    await this.mutate({
-      ...state,
-      conflictArtifacts: { ...state.conflictArtifacts, [revisionId]: path },
+    return this.runExclusive(async () => {
+      const state = await this.ensureLoaded();
+      await this.mutate({
+        ...state,
+        conflictArtifacts: { ...state.conflictArtifacts, [revisionId]: path },
+      });
     });
   }
 
   async enqueue(envelope: OutboxEnvelope): Promise<void> {
-    const state = await this.ensureLoaded();
-    // Stamp the enqueue time when the caller omitted it, so the send-queue view
-    // (SND-01) can age items without producers having to supply a clock.
-    const stamped: OutboxEnvelope =
-      envelope.enqueuedAt === undefined
-        ? { ...envelope, enqueuedAt: this.now() }
-        : envelope;
-    const outbox = [
-      ...state.outbox.filter((entry) => entry.revisionId !== envelope.revisionId),
-      stamped,
-    ];
-    await this.mutate({ ...state, outbox });
+    return this.runExclusive(async () => {
+      const state = await this.ensureLoaded();
+      // Stamp the enqueue time when the caller omitted it, so the send-queue
+      // view (SND-01) can age items without producers having to supply a clock.
+      const stamped: OutboxEnvelope =
+        envelope.enqueuedAt === undefined
+          ? { ...envelope, enqueuedAt: this.now() }
+          : envelope;
+      const outbox = [
+        ...state.outbox.filter(
+          (entry) => entry.revisionId !== envelope.revisionId,
+        ),
+        stamped,
+      ];
+      await this.mutate({ ...state, outbox });
+    });
   }
 
   /**
@@ -505,20 +557,22 @@ export class DurableSyncState implements SyncStatePort {
    * stash and returns false.
    */
   async requeueQuarantined(revisionId: string): Promise<boolean> {
-    const state = await this.ensureLoaded();
-    const stashed = state.quarantinedEnvelopes[revisionId];
-    if (stashed === undefined) return false;
-    const quarantinedEnvelopes = { ...state.quarantinedEnvelopes };
-    delete quarantinedEnvelopes[revisionId];
-    const outbox = [
-      ...state.outbox.filter((entry) => entry.revisionId !== revisionId),
-      { ...stashed, enqueuedAt: this.now() },
-    ];
-    const quarantine = state.quarantine.filter(
-      (item) => item.revisionId !== revisionId,
-    );
-    await this.mutate({ ...state, outbox, quarantine, quarantinedEnvelopes });
-    return true;
+    return this.runExclusive(async () => {
+      const state = await this.ensureLoaded();
+      const stashed = state.quarantinedEnvelopes[revisionId];
+      if (stashed === undefined) return false;
+      const quarantinedEnvelopes = { ...state.quarantinedEnvelopes };
+      delete quarantinedEnvelopes[revisionId];
+      const outbox = [
+        ...state.outbox.filter((entry) => entry.revisionId !== revisionId),
+        { ...stashed, enqueuedAt: this.now() },
+      ];
+      const quarantine = state.quarantine.filter(
+        (item) => item.revisionId !== revisionId,
+      );
+      await this.mutate({ ...state, outbox, quarantine, quarantinedEnvelopes });
+      return true;
+    });
   }
 
   /**
@@ -527,19 +581,21 @@ export class DurableSyncState implements SyncStatePort {
    * no-op.
    */
   async discardQuarantined(revisionId: string): Promise<void> {
-    const state = await this.ensureLoaded();
-    if (
-      !state.quarantine.some((item) => item.revisionId === revisionId) &&
-      state.quarantinedEnvelopes[revisionId] === undefined
-    ) {
-      return;
-    }
-    const quarantinedEnvelopes = { ...state.quarantinedEnvelopes };
-    delete quarantinedEnvelopes[revisionId];
-    const quarantine = state.quarantine.filter(
-      (item) => item.revisionId !== revisionId,
-    );
-    await this.mutate({ ...state, quarantine, quarantinedEnvelopes });
+    return this.runExclusive(async () => {
+      const state = await this.ensureLoaded();
+      if (
+        !state.quarantine.some((item) => item.revisionId === revisionId) &&
+        state.quarantinedEnvelopes[revisionId] === undefined
+      ) {
+        return;
+      }
+      const quarantinedEnvelopes = { ...state.quarantinedEnvelopes };
+      delete quarantinedEnvelopes[revisionId];
+      const quarantine = state.quarantine.filter(
+        (item) => item.revisionId !== revisionId,
+      );
+      await this.mutate({ ...state, quarantine, quarantinedEnvelopes });
+    });
   }
 
   async getEnvelope(revisionId: string): Promise<TransportEnvelope | undefined> {
@@ -569,8 +625,10 @@ export class DurableSyncState implements SyncStatePort {
   }
 
   async saveDeferred(events: readonly RemoteEvent[]): Promise<void> {
-    const state = await this.ensureLoaded();
-    await this.mutate({ ...state, deferred: [...events] });
+    return this.runExclusive(async () => {
+      const state = await this.ensureLoaded();
+      await this.mutate({ ...state, deferred: [...events] });
+    });
   }
 
   private rememberAuthored(
@@ -586,14 +644,45 @@ export class DurableSyncState implements SyncStatePort {
 
   private async ensureLoaded(): Promise<PersistedSyncState> {
     if (this.cache !== null) return this.cache;
-    const raw = await this.persist.load();
-    this.cache = parsePersistedState(raw);
+    if (this.loadPromise === null) {
+      this.loadPromise = this.persist
+        .load()
+        .then((raw) => {
+          // A mutation may have populated the cache while the load was in
+          // flight (e.g. an enqueue that awaited this same shared promise and
+          // then wrote). Never clobber it — parse only into a still-empty cache.
+          if (this.cache === null) {
+            this.cache = parsePersistedState(raw);
+          }
+        })
+        .finally(() => {
+          this.loadPromise = null;
+        });
+    }
+    await this.loadPromise;
+    if (this.cache === null) this.cache = emptyState();
     return this.cache;
   }
 
   private async mutate(next: PersistedSyncState): Promise<void> {
     this.cache = next;
     await this.persist.save(next);
+  }
+
+  /**
+   * Runs a read-modify-write `section` (an `ensureLoaded` + `mutate` pair)
+   * atomically with respect to every other section, by chaining them on a
+   * single tail. See {@link mutationTail} for why this is required. `section`s
+   * never nest (no mutating method calls another), so this cannot deadlock; the
+   * tail swallows outcomes so one section's rejection never wedges the next.
+   */
+  private runExclusive<T>(section: () => Promise<T>): Promise<T> {
+    const run = this.mutationTail.then(section, section);
+    this.mutationTail = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
   }
 }
 
