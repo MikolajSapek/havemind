@@ -307,6 +307,21 @@ export class VaultApplyAdapter implements VaultApplyPort {
           return 'conflict';
         }
       }
+      // Move the producer mapping off the OLD path BEFORE deleting it, exactly as
+      // the top-level delete branch does. The delete of the vacated path fires a
+      // reflected vault 'delete' event; if the producer still mapped the old path
+      // to this fileId, that event is observed as a genuine LOCAL delete, whose
+      // `forgetLocalMaterialization` wipes the base HASH and CONTENT for the
+      // still-live renamed fileId (keyed by fileId, not path). The merge ancestor
+      // then vanishes and the next edit round on the renamed file spuriously
+      // conflicts (the base advances only on remote apply — nothing re-seeds it).
+      // Whether that forget lands before or after this apply's own base re-record
+      // is pure microtask timing, so the corruption surfaced only under load. The
+      // write path below re-adopts the mapping at the new path via onRemoteWrite.
+      await this.producerSync?.onRemoteDelete({
+        fileId,
+        path: decoded.previousPath,
+      });
       await this.files.deleteByPath(decoded.previousPath);
       await this.files.forgetPath(decoded.previousPath);
     }
@@ -604,6 +619,14 @@ export class VaultApplyAdapter implements VaultApplyPort {
           return 'conflict';
         }
       }
+      // Move the producer mapping off the OLD path before deleting it (F9), so the
+      // reflected vault 'delete' event for the vacated path is not observed as a
+      // local delete that forgets the still-live renamed fileId's base — the same
+      // re-entrancy guard as the markdown rename branch above.
+      await this.producerSync?.onRemoteDelete({
+        fileId,
+        path: decoded.previousPath,
+      });
       await this.files.deleteByPath(decoded.previousPath);
       await this.files.forgetPath(decoded.previousPath);
     }
