@@ -106,7 +106,13 @@ export interface ConflictVaultPort {
   listNoteFiles(): ConflictVaultFile[];
   /** True when a file still exists at `path` (used to guard keepTheirs). */
   exists(path: string): Promise<boolean>;
-  readText(path: string): Promise<string>;
+  /**
+   * Reads `path`, or null when the file is absent (MINOR 6). Signalling absence
+   * as null — never as '' — is what closes the exists→read TOCTOU: a copy
+   * deleted between the guard and the read now returns null and aborts
+   * keepTheirs, instead of reading '' and blanking the live note.
+   */
+  readText(path: string): Promise<string | null>;
   writeText(path: string, content: string): Promise<void>;
   deleteFile(path: string): Promise<void>;
 }
@@ -292,7 +298,14 @@ export function createConflictResolver(port: ConflictVaultPort): ConflictResolve
           if (!(await port.exists(copy.copyPath))) {
             return 'vanished';
           }
+          // MINOR 6: the read itself is the authoritative absence signal —
+          // exists() above is belt-and-braces, but a copy deleted between the
+          // guard and the read returns null here and aborts, never reading '' and
+          // blanking the merged note (the exists→read TOCTOU, closed for good).
           const content = await port.readText(copy.copyPath);
+          if (content === null) {
+            return 'vanished';
+          }
           await port.writeText(copy.targetPath, content);
           await port.deleteFile(copy.copyPath);
           break;
@@ -330,7 +343,9 @@ export function createObsidianConflictPort(vault: Vault): ConflictVaultPort {
     exists: async (path) => vault.getAbstractFileByPath(path) !== null,
     readText: async (path) => {
       const file = vault.getAbstractFileByPath(path);
-      if (file === null) return '';
+      // MINOR 6: null (not '') signals a genuinely absent file, so a caller can
+      // distinguish "missing" from "present but empty".
+      if (file === null) return null;
       return vault.read(file as TFile);
     },
     writeText: async (path, content) => {

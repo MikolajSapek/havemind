@@ -50,13 +50,14 @@ import {
   rebaseCanonicalizedHashes,
   type RebaseVaultPort,
 } from './canonicalization-rebase';
-import { CommitPathRecovery } from './commit-recovery';
+import { CommitPathRecovery, retryFailedCommit } from './commit-recovery';
 import { HavemindSyncController, type StatusListener } from './controller';
 import { ModifyDebouncer } from './modify-debounce';
 import { SyncScheduler, type SchedulerHooks } from './scheduler';
 import { formatStatusBar } from './status';
 import {
   DurableSyncState,
+  failedToQueueRevisionId,
   type SyncStatePersistPort,
 } from './sync-state';
 import {
@@ -150,6 +151,20 @@ export interface RuntimeHooks {
    * be re-triggered by its own (or a retry's) copy write.
    */
   readonly onConflictWritten?: () => void;
+  /**
+   * Called when the send-queue (SND-01/02) changes outside a status cycle — in
+   * particular when a successful commit clears a stale `failed-to-queue` row
+   * (MAJOR 1) — so the panel drops the phantom failure immediately rather than
+   * waiting for the next status change to refresh it.
+   */
+  readonly onSendQueueChanged?: () => void;
+  /**
+   * Called with the synthetic revisionId when commit-recovery has already shown
+   * a Notice for a failed-to-queue row (MINOR 7). The plugin marks the id as
+   * already-notified so the panel's own quarantine-notice check skips it, so a
+   * single failed-to-queue event never fires two Notices.
+   */
+  readonly onFailedToQueueNotified?: (revisionId: string) => void;
 }
 
 /**
@@ -712,6 +727,15 @@ export interface ConnectionHandle {
    * Absent on the no-op handle (nothing connected).
    */
   readonly state?: DurableSyncState;
+  /**
+   * Retry a failed-to-queue row (MAJOR 2) by re-running the commit chain for
+   * `path` against the current on-disk content — the only recovery for a row
+   * that never reached the outbox. Returns false when the file no longer exists,
+   * so the caller drops the stale row instead of pushing a phantom empty create.
+   * Absent on the no-op handle and whenever no producer started (no push
+   * identity), which is also when no failed-to-queue row can exist.
+   */
+  readonly retryFailedCommit?: (path: string) => boolean;
 }
 
 const NOOP_HANDLE: ConnectionHandle = { stop: () => undefined, serverName: '' };
@@ -890,9 +914,9 @@ async function startSyncLoop(
   // starts once both are known — both the invitee flow and the owner /owner/pair
   // flow supply memberId + deviceId (connectAsOwner reads `pairing.memberId`
   // off the pairing response), so `hasPushIdentity` is true for either path.
-  let disposeProducer: (() => void) | null = null;
+  let producer: PushProducerHandle | null = null;
   if (hasPushIdentity) {
-    disposeProducer = startPushProducer(
+    producer = startPushProducer(
       plugin,
       state,
       {
@@ -929,8 +953,14 @@ async function startSyncLoop(
     // identity) pushes. Disposing here guarantees exactly one live producer.
     stop: () => {
       controller.stop();
-      disposeProducer?.();
+      producer?.dispose();
     },
+    // MAJOR 2: the panel routes Retry on a failed-to-queue row here so the
+    // commit chain re-runs from disk. Absent when no producer started (no push
+    // identity), which is also when no failed-to-queue row can exist.
+    ...(producer === null
+      ? {}
+      : { retryFailedCommit: producer.retryFailedCommit }),
     serverName: serverNameFromUrl(connection.apiBaseUrl),
   };
 }
@@ -943,11 +973,19 @@ const PUSH_PRODUCER_KEY = 'pushProducer';
  * existed before pairing are enumerated and pushed, and triggers a sync cycle
  * after each detected change. Never logs note contents.
  *
- * Returns a disposer that detaches every registered vault listener. The caller
- * (the connection handle's `stop()`) must call it on teardown/re-pair so a
- * prior-session producer never lingers and double-enqueues under a stale
- * identity — see the `stop()` comment in `startSyncLoop`.
+ * Returns a handle exposing `dispose()` — which detaches every registered
+ * vault listener (the connection handle's `stop()` must call it on teardown/
+ * re-pair so a prior-session producer never lingers and double-enqueues under a
+ * stale identity, see the `stop()` comment in `startSyncLoop`) — and
+ * `retryFailedCommit(path)`, which re-runs the commit chain for a failed-to-
+ * queue row against the current on-disk content (MAJOR 2).
  */
+interface PushProducerHandle {
+  dispose(): void;
+  /** Re-trigger the commit chain for `path`; false when the file is gone. */
+  retryFailedCommit(path: string): boolean;
+}
+
 function startPushProducer(
   plugin: Plugin,
   state: DurableSyncState,
@@ -955,7 +993,7 @@ function startPushProducer(
   triggerSync: () => void,
   producerRef: { current: OutboxLocalChangeRepository | null },
   hooks?: RuntimeHooks,
-): () => void {
+): PushProducerHandle {
   const vault = (plugin.app as unknown as AppWithVault).vault;
   const store: ProducerStorePort = {
     async load() {
@@ -1121,7 +1159,27 @@ function startPushProducer(
   const commitPathRecovery = new CommitPathRecovery({
     notify: (message) => new Notice(message),
     rearm: (path) => modifyDebouncer.trigger(path),
-    recordFailedToQueue: (path) => state.recordFailedToQueue(path),
+    recordFailedToQueue: async (path) => {
+      await state.recordFailedToQueue(path);
+      // MINOR 7: commit-recovery has already surfaced a Notice for this row, so
+      // mark it notified — the panel's quarantine-notice check must not fire a
+      // second Notice for the same failed-to-queue event.
+      hooks?.onFailedToQueueNotified?.(failedToQueueRevisionId(path));
+    },
+    // MAJOR 1: a successful commit discards any stale failed-to-queue row an
+    // earlier transient failure recorded, then refreshes the panel so the
+    // phantom failure disappears at once. Guarded on the warm snapshot so the
+    // common case (a success with no such row) neither saves nor refreshes.
+    clearFailedToQueue: (path) => {
+      const revisionId = failedToQueueRevisionId(path);
+      const present = state
+        .quarantineSnapshot()
+        .some((item) => item.revisionId === revisionId);
+      if (!present) return;
+      void state.discardQuarantined(revisionId).then(() => {
+        hooks?.onSendQueueChanged?.();
+      });
+    },
   });
   const observeSettledModify = (path: string): void => {
     void observer.observeModify(path).then(
@@ -1191,11 +1249,23 @@ function startPushProducer(
     ),
   );
 
-  return () => {
-    // Cancel any in-flight settle timers before detaching listeners so a
-    // pending modify can never fire after teardown/re-pair.
-    modifyDebouncer.dispose();
-    disposeListeners();
+  return {
+    dispose: () => {
+      // Cancel any in-flight settle timers before detaching listeners so a
+      // pending modify can never fire after teardown/re-pair.
+      modifyDebouncer.dispose();
+      disposeListeners();
+    },
+    // MAJOR 2: a failed-to-queue row has no stashed envelope, so its Retry
+    // re-runs the commit chain against the current on-disk content — routed
+    // through the SAME debouncer trigger the bounded re-arm uses. Returns false
+    // when the file is gone, so the caller drops the stale row instead.
+    retryFailedCommit: (path: string): boolean =>
+      retryFailedCommit(path, {
+        exists: (candidate) =>
+          vault.getAbstractFileByPath(candidate) !== null,
+        retrigger: (candidate) => modifyDebouncer.trigger(candidate),
+      }),
   };
 }
 

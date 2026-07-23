@@ -22,6 +22,7 @@ const IDENTITY_HEADERS = [
 
 type RevokeErrorCode =
   | 'FORBIDDEN'
+  | 'INTERNAL'
   | 'INVALID_REQUEST'
   | 'NOT_FOUND'
   | 'UNAUTHENTICATED';
@@ -105,11 +106,26 @@ const REVOKE_CODE_BY_ERROR: Readonly<
   MEMBERSHIP_NOT_FOUND: 'NOT_FOUND',
 };
 
-function sendRevokeError(reply: FastifyReply, error: unknown): FastifyReply {
+/**
+ * Resolves a revoke-path error to its HTTP status and error code. A domain
+ * {@link MembershipRevocationError} carries its own status and a 4xx code; any
+ * OTHER (unexpected) error is a server fault, so it maps to a 500-flavoured
+ * `INTERNAL` code — never the client-facing `INVALID_REQUEST`, which would
+ * mislabel a server bug as a bad request (MINOR 10, matching sibling routes).
+ */
+export function resolveRevokeError(error: unknown): {
+  readonly status: number;
+  readonly code: RevokeErrorCode;
+} {
   if (error instanceof MembershipRevocationError) {
-    return sendError(reply, error.httpStatus, REVOKE_CODE_BY_ERROR[error.code]);
+    return { status: error.httpStatus, code: REVOKE_CODE_BY_ERROR[error.code] };
   }
-  return sendError(reply, 500, 'INVALID_REQUEST');
+  return { status: 500, code: 'INTERNAL' };
+}
+
+function sendRevokeError(reply: FastifyReply, error: unknown): FastifyReply {
+  const { status, code } = resolveRevokeError(error);
+  return sendError(reply, status, code);
 }
 
 /**

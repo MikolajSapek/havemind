@@ -28,6 +28,13 @@ export interface CommitPathRecoveryDeps {
   readonly rearm: (path: string) => void;
   /** Durably record a `failed-to-queue` entry for the send-queue panel. */
   readonly recordFailedToQueue: (path: string) => Promise<void>;
+  /**
+   * Discard any durable `failed-to-queue` row for `path` (MAJOR 1). Called on a
+   * later successful commit for the same path so a stale row — recorded by an
+   * earlier transient failure — cannot survive as a phantom failure once the
+   * change has actually gone through. A no-op when no such row exists.
+   */
+  readonly clearFailedToQueue: (path: string) => void;
 }
 
 export class CommitPathRecovery {
@@ -62,8 +69,35 @@ export class CommitPathRecovery {
     await this.deps.recordFailedToQueue(path);
   }
 
-  /** Note a successful commit for `path`, clearing its retry budget. */
+  /**
+   * Note a successful commit for `path`: reset its in-memory retry budget AND
+   * discard any durable failed-to-queue row an earlier failure left behind
+   * (MAJOR 1), so a change that ultimately went through never lingers as a
+   * phantom failure in the send-queue panel.
+   */
   onCommitSuccess(path: string): void {
     this.rearmed.delete(path);
+    this.deps.clearFailedToQueue(path);
   }
+}
+
+/**
+ * Retry a failed-to-queue row (MAJOR 2). Such a row has no stashed envelope —
+ * it never reached the outbox — so the only recovery is to re-run the commit
+ * chain against the current on-disk content (the source of truth). Re-triggers
+ * exactly once through the injected `retrigger` (the same debouncer-trigger the
+ * bounded re-arm uses) when the file still exists; returns false without
+ * re-triggering when the path is gone, so the caller can surface it and drop the
+ * stale row rather than pushing a phantom empty create for a vanished file.
+ */
+export function retryFailedCommit(
+  path: string,
+  deps: {
+    readonly exists: (path: string) => boolean;
+    readonly retrigger: (path: string) => void;
+  },
+): boolean {
+  if (!deps.exists(path)) return false;
+  deps.retrigger(path);
+  return true;
 }

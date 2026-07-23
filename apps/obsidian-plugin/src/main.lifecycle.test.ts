@@ -59,6 +59,28 @@ describe('plugin lifecycle', () => {
     expect(app.network.requestCalls).toBe(0);
   });
 
+  it('renders a live connection status and an Open Havemind panel button in settings (MINOR 9)', async () => {
+    const app = new App();
+    const plugin = new HavemindPlugin(app, manifest);
+    await plugin.onload();
+
+    const tab = registrationState.settingsTabs[0];
+    tab?.display();
+
+    // The stale stub text is gone.
+    const descriptions = registrationState.settingsRows.flatMap(
+      (row) => row.descriptions,
+    );
+    expect(descriptions.some((d) => d.includes('next slice'))).toBe(false);
+    // A live status line is shown (the disconnected panel label).
+    expect(descriptions.length).toBeGreaterThan(0);
+    // The one action opens the pane.
+    const button = flatten(
+      tab?.containerEl as unknown as MockElement,
+    ).find((e) => e.text === 'Open Havemind panel');
+    expect(button).toBeDefined();
+  });
+
   it('registers a single owner connection command and drops the split commands', async () => {
     const app = new App();
     const plugin = new HavemindPlugin(app, manifest);

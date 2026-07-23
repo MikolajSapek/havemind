@@ -51,6 +51,14 @@ export class ModifyDebouncer {
   private readonly delayMs: number;
   private readonly timer: DebounceTimer;
   private readonly pending = new Map<string, number>();
+  /**
+   * Set by `dispose()`. Once torn down the debouncer is inert: a late vault
+   * event or a commit-recovery re-arm reaching `trigger()` must not schedule a
+   * fresh timer against a producer that no longer exists — its settle would run
+   * `onSettled` on a torn-down producer and a stale save could clobber the next
+   * producer's `data.json` after a re-pair.
+   */
+  private disposed = false;
 
   constructor(options: ModifyDebouncerOptions) {
     this.onSettled = options.onSettled;
@@ -60,9 +68,11 @@ export class ModifyDebouncer {
 
   /**
    * Records a modify for `path`, resetting any in-flight settle window for that
-   * same path so only the LAST modify in a burst reaches `onSettled`.
+   * same path so only the LAST modify in a burst reaches `onSettled`. A no-op
+   * once disposed, so a re-arm or late event after teardown never re-schedules.
    */
   trigger(path: string): void {
+    if (this.disposed) return;
     const existing = this.pending.get(path);
     if (existing !== undefined) {
       this.timer.clear(existing);
@@ -90,8 +100,15 @@ export class ModifyDebouncer {
     }
   }
 
-  /** Cancels every pending settle. Called on producer teardown/unload. */
+  /**
+   * Cancels every pending settle and marks the debouncer disposed. Called on
+   * producer teardown/unload. After this the invariant holds unconditionally: no
+   * settle can fire against the torn-down producer — both because every pending
+   * timer is cleared here AND because `trigger()` is now inert, so even a re-arm
+   * or a late vault event arriving after teardown cannot schedule a new one.
+   */
   dispose(): void {
+    this.disposed = true;
     for (const handle of this.pending.values()) {
       this.timer.clear(handle);
     }

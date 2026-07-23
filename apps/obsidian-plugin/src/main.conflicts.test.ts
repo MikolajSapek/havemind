@@ -9,6 +9,8 @@ import HavemindPlugin, {
 } from './main';
 import type { PluginManifest } from './test/obsidian.mock';
 import type { ConflictCopy } from './runtime/conflict-resolution';
+import { buildConnectionPanel } from './runtime/status';
+import type { RejoinRosterView } from './runtime/rejoin-roster';
 import {
   App,
   ItemView,
@@ -222,6 +224,53 @@ describe('HavemindOnboardingView conflict section', () => {
     const resolve = flatten(content).find((e) => e.text === 'Resolve');
     resolve?.triggerClick();
     expect(onResolveConflict).toHaveBeenCalledWith(newCopy().copyPath);
+  });
+});
+
+describe('HavemindOnboardingView per-section render isolation (MAJOR 5)', () => {
+  beforeEach(() => resetObsidianMock());
+
+  it('keeps the other sections rendering when one section provider throws', () => {
+    const roster: RejoinRosterView = {
+      empty: false,
+      rows: [
+        {
+          membershipId: 'm1',
+          displayName: 'Magda',
+          role: 'editor',
+          connected: true,
+          statusLabel: 'connected',
+          rejoinable: false,
+          removable: false,
+          colorToken: '--havemind-author-1',
+          self: false,
+        },
+      ],
+    };
+    const view = new HavemindOnboardingView(new WorkspaceLeaf(), {
+      panelProvider: () => buildConnectionPanel({ status: 'synced' }),
+      rejoinRosterProvider: () => roster,
+      // A synchronous provider throw must not blank the whole panel.
+      conflictsProvider: () => {
+        throw new Error('conflicts provider boom');
+      },
+      onResolveConflict: () => undefined,
+    });
+    view.onOpen();
+    const content = (view.containerEl as unknown as MockElement)
+      .children[1] as MockElement;
+    const all = flatten(content);
+
+    // Status indicator and roster still render despite the conflicts throw.
+    expect(all.some((e) => e.classes.includes('havemind-status'))).toBe(true);
+    expect(all.some((e) => e.classes.includes('havemind-roster-row'))).toBe(
+      true,
+    );
+    // The failed section degrades to an inline English fallback, not a blank pane.
+    const fallback = all.find((e) =>
+      e.classes.includes('havemind-section-error'),
+    );
+    expect(fallback?.text).toBe('Section unavailable');
   });
 });
 

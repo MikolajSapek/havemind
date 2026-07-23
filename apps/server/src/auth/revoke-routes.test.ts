@@ -408,3 +408,25 @@ describe('a revoked membership is terminally locked out of rejoin', () => {
     expect(response.statusCode).toBe(401);
   });
 });
+
+describe('resolveRevokeError (MINOR 10)', () => {
+  it('maps a domain revocation error to its own status and code', async () => {
+    const { resolveRevokeError } = await import('./revoke-routes.js');
+    const { MembershipRevocationError } = await import(
+      './membership-revocation.js'
+    );
+    const error = new MembershipRevocationError('MEMBERSHIP_NOT_FOUND');
+    expect(resolveRevokeError(error)).toEqual({
+      status: error.httpStatus,
+      code: 'NOT_FOUND',
+    });
+  });
+
+  it('maps an unexpected error to a 500 INTERNAL, not a 4xx INVALID_REQUEST', async () => {
+    const { resolveRevokeError } = await import('./revoke-routes.js');
+    expect(resolveRevokeError(new Error('boom'))).toEqual({
+      status: 500,
+      code: 'INTERNAL',
+    });
+  });
+});

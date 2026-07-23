@@ -108,4 +108,16 @@ describe('selectNewlyQuarantined', () => {
     expect(fresh).toEqual([]);
     expect([...next]).toEqual(['r1']);
   });
+
+  it('does not re-announce a failed-to-queue row already notified by commit-recovery (MINOR 7)', () => {
+    // commit-recovery showed the Notice and marked the synthetic id notified;
+    // the panel check must then skip it so a single event fires one Notice.
+    const known = new Set(['failed-to-queue:Notes/A.md']);
+    const quarantine: QuarantineViewEntry[] = [
+      { revisionId: 'failed-to-queue:Notes/A.md', fileId: 'Notes/A.md', reason: 'failed-to-queue' },
+    ];
+    const { fresh } = selectNewlyQuarantined(known, quarantine);
+
+    expect(fresh).toEqual([]);
+  });
 });

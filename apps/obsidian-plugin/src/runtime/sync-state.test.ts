@@ -2,6 +2,10 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import {
   DurableSyncState,
+  FAILED_TO_QUEUE_PREFIX,
+  QUARANTINED_ENVELOPE_BUDGET_BYTES,
+  failedToQueueRevisionId,
+  parseFailedToQueuePath,
   type OutboxEnvelope,
   type SyncStatePersistPort,
 } from './sync-state';
@@ -117,6 +121,27 @@ describe('DurableSyncState', () => {
     expect(await recovered.loadCursor()).toBe(0);
     expect(await recovered.listOutbox()).toEqual([]);
     expect(await recovered.listDeferred()).toEqual([]);
+  });
+
+  it('degrades a malformed optional sub-field to its default while preserving core fields (MINOR 8)', async () => {
+    const blob = {
+      version: 1,
+      cursor: 5,
+      outbox: [],
+      locallyAuthored: [],
+      deferred: [],
+      pathOwners: { 'Notes/A.md': 'file-1' },
+      baseHashes: { 'file-1': 'hash-1' },
+      // A malformed stash entry (missing required envelope fields) must NOT
+      // nuke cursor/pathOwners/baseHashes — it degrades to an empty stash.
+      quarantinedEnvelopes: { 'rev-1': { revisionId: 'rev-1' } },
+    };
+    const recovered = new DurableSyncState({ persist: new MemoryPersist(blob) });
+    expect(await recovered.loadCursor()).toBe(5);
+    expect(recovered.fileIdAtPath('Notes/A.md')).toBe('file-1');
+    expect(recovered.baseHashFor('file-1')).toBe('hash-1');
+    // The malformed stash degraded to empty, so its retry finds no envelope.
+    expect(await recovered.requeueQuarantined('rev-1')).toBe(false);
   });
 
   it('rehydrates a full valid blob including outbox and deferred', async () => {
@@ -282,6 +307,61 @@ describe('DurableSyncState', () => {
       expect(await reopened.listQuarantine()).toHaveLength(1);
       await reopened.discardQuarantined('failed-to-queue:Notes/A.md');
       expect(await reopened.listQuarantine()).toEqual([]);
+    });
+
+    it('round-trips a synthetic failed-to-queue revisionId (MAJOR 2 routing)', () => {
+      const id = failedToQueueRevisionId('Notes/A.md');
+      expect(id).toBe(`${FAILED_TO_QUEUE_PREFIX}Notes/A.md`);
+      expect(parseFailedToQueuePath(id)).toBe('Notes/A.md');
+      // A real (server-rejected) revisionId is not a failed-to-queue synthetic,
+      // so the retry router falls through to the normal requeue path.
+      expect(parseFailedToQueuePath('rev-1')).toBeNull();
+      // The prefix alone (empty path) is not a valid synthetic id.
+      expect(parseFailedToQueuePath(FAILED_TO_QUEUE_PREFIX)).toBeNull();
+    });
+
+    it('exports a positive stash byte budget default (MAJOR 4)', () => {
+      expect(QUARANTINED_ENVELOPE_BUDGET_BYTES).toBeGreaterThan(0);
+    });
+
+    it('evicts the oldest stashed envelope over the byte budget while keeping every row (MAJOR 4)', async () => {
+      // A small injected budget makes the overflow cheap to trigger. Each
+      // payload decodes to 12 bytes (base64 length 16), so two exceed a 20-byte
+      // budget and the oldest stash is evicted.
+      const bounded = new DurableSyncState({
+        persist,
+        quarantinedEnvelopeBudgetBytes: 20,
+      });
+      const big = 'A'.repeat(16);
+      await bounded.enqueue(envelope({ revisionId: 'rev-1', payloadBase64: big }));
+      await bounded.enqueue(envelope({ revisionId: 'rev-2', payloadBase64: big }));
+      await bounded.quarantineOutboxItem('rev-1', 'server-rejected');
+      await bounded.quarantineOutboxItem('rev-2', 'server-rejected');
+
+      // Both rows stay visible in the panel — nothing is silently dropped.
+      const rows = await bounded.listQuarantine();
+      expect(rows.map((r) => r.revisionId).sort()).toEqual(['rev-1', 'rev-2']);
+
+      // The oldest stash was evicted to respect the budget, so its Retry is
+      // inert at the state level (no stash) and the caller degrades it to a
+      // re-commit from disk (MAJOR 2 path). The newest stash survives, so its
+      // Retry still re-enqueues the exact bytes.
+      expect(await bounded.requeueQuarantined('rev-1')).toBe(false);
+      expect(await bounded.requeueQuarantined('rev-2')).toBe(true);
+      // The evicted row remains after its inert retry — visibility is preserved.
+      expect(
+        (await bounded.listQuarantine()).some((r) => r.revisionId === 'rev-1'),
+      ).toBe(true);
+    });
+
+    it('keeps every stashed envelope when within the byte budget (MAJOR 4)', async () => {
+      await state.enqueue(envelope({ revisionId: 'rev-1', payloadBase64: 'AAAA' }));
+      await state.enqueue(envelope({ revisionId: 'rev-2', payloadBase64: 'AAAA' }));
+      await state.quarantineOutboxItem('rev-1', 'server-rejected');
+      await state.quarantineOutboxItem('rev-2', 'server-rejected');
+      // Both stashes survive, so both retries re-enqueue their exact bytes.
+      expect(await state.requeueQuarantined('rev-1')).toBe(true);
+      expect(await state.requeueQuarantined('rev-2')).toBe(true);
     });
 
     it('keeps listQuarantine shape unchanged (no envelope leak into the row)', async () => {

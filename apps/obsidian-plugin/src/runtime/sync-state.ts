@@ -124,9 +124,51 @@ export interface DurableSyncStateOptions {
   readonly maxLocallyAuthored?: number;
   /** Wall clock for stamping outbox enqueue times (SND-01). Defaults to Date.now. */
   readonly now?: () => number;
+  /**
+   * Total-bytes budget for stashed quarantine envelopes (MAJOR 4). Defaults to
+   * {@link QUARANTINED_ENVELOPE_BUDGET_BYTES}; injectable so tests can trip the
+   * eviction path cheaply.
+   */
+  readonly quarantinedEnvelopeBudgetBytes?: number;
 }
 
 const DEFAULT_MAX_LOCALLY_AUTHORED = 10_000;
+
+/**
+ * Total-bytes ceiling for stashed quarantine envelopes (MAJOR 4). A dead-letter
+ * stash keeps the full push payload so "Retry" can re-send the exact bytes, but
+ * with F9 binary attachments up to 25 MB a run of rejected sends could otherwise
+ * grow `data.json` without bound. When the sum of stashed payload bytes exceeds
+ * this budget the OLDEST stashes are evicted — the quarantine ROW stays visible,
+ * and its Retry degrades to re-committing the file from disk (the on-disk
+ * content is the source of truth), so nothing is silently dropped.
+ */
+export const QUARANTINED_ENVELOPE_BUDGET_BYTES = 5 * 1024 * 1024;
+
+/**
+ * Prefix for the synthetic revisionId a `failed-to-queue` row (SND-02) is keyed
+ * by. The id is `failed-to-queue:<path>`, so repeated commit-path failures for
+ * the same file coalesce into one row. Exported so the retry router (MAJOR 2)
+ * can tell a failed-to-queue row (re-trigger the commit chain from disk) apart
+ * from a server-rejected send (re-enqueue the stashed envelope).
+ */
+export const FAILED_TO_QUEUE_PREFIX = 'failed-to-queue:';
+
+/** Builds the synthetic revisionId for a failed-to-queue row keyed by `path`. */
+export function failedToQueueRevisionId(path: string): string {
+  return `${FAILED_TO_QUEUE_PREFIX}${path}`;
+}
+
+/**
+ * The vault path a failed-to-queue synthetic revisionId encodes, or null when
+ * `revisionId` is not a failed-to-queue id (a real, server-rejected revision) or
+ * carries no path. A null result routes retry through the normal requeue path.
+ */
+export function parseFailedToQueuePath(revisionId: string): string | null {
+  if (!revisionId.startsWith(FAILED_TO_QUEUE_PREFIX)) return null;
+  const path = revisionId.slice(FAILED_TO_QUEUE_PREFIX.length);
+  return path.length === 0 ? null : path;
+}
 
 function emptyState(): PersistedSyncState {
   return {
@@ -163,6 +205,7 @@ export class DurableSyncState implements SyncStatePort {
   private readonly persist: SyncStatePersistPort;
   private readonly maxLocallyAuthored: number;
   private readonly now: () => number;
+  private readonly envelopeBudgetBytes: number;
   private cache: PersistedSyncState | null = null;
 
   constructor(options: DurableSyncStateOptions) {
@@ -170,6 +213,9 @@ export class DurableSyncState implements SyncStatePort {
     this.maxLocallyAuthored =
       options.maxLocallyAuthored ?? DEFAULT_MAX_LOCALLY_AUTHORED;
     this.now = options.now ?? (() => Date.now());
+    this.envelopeBudgetBytes =
+      options.quarantinedEnvelopeBudgetBytes ??
+      QUARANTINED_ENVELOPE_BUDGET_BYTES;
   }
 
   async loadCursor(): Promise<number> {
@@ -231,7 +277,41 @@ export class DurableSyncState implements SyncStatePort {
     if (failed !== undefined) {
       quarantinedEnvelopes[revisionId] = failed;
     }
-    await this.mutate({ ...state, outbox, quarantine, quarantinedEnvelopes });
+    // MAJOR 4: hold the stash under a total-bytes budget by evicting the oldest
+    // stashes first. The quarantine rows they belong to are left intact, so the
+    // failures stay visible and their Retry degrades to a re-commit from disk.
+    const budgeted = this.evictStashesOverBudget(quarantinedEnvelopes);
+    await this.mutate({
+      ...state,
+      outbox,
+      quarantine,
+      quarantinedEnvelopes: budgeted,
+    });
+  }
+
+  /**
+   * Returns a copy of `envelopes` trimmed to the byte budget (MAJOR 4). Object
+   * key order is insertion order, so iterating from the front evicts the OLDEST
+   * stashes until the summed decoded payload bytes fit. A single stash larger
+   * than the whole budget is evicted too — its row survives and Retry re-commits
+   * from disk, which is the only recovery once the bytes are dropped.
+   */
+  private evictStashesOverBudget(
+    envelopes: Record<string, OutboxEnvelope>,
+  ): Record<string, OutboxEnvelope> {
+    const entries = Object.entries(envelopes);
+    let total = entries.reduce(
+      (sum, [, env]) => sum + base64ByteLength(env.payloadBase64),
+      0,
+    );
+    if (total <= this.envelopeBudgetBytes) return envelopes;
+    const trimmed = { ...envelopes };
+    for (const [key, env] of entries) {
+      if (total <= this.envelopeBudgetBytes) break;
+      total -= base64ByteLength(env.payloadBase64);
+      delete trimmed[key];
+    }
+    return trimmed;
   }
 
   /**
@@ -239,15 +319,21 @@ export class DurableSyncState implements SyncStatePort {
    * commit-path enqueue permanently failed (e.g. a transient readText/saveData
    * failure that survived a bounded re-arm), so it never reached the outbox and
    * has no envelope to retry. It reuses the SND-01 quarantine machinery so the
-   * send-queue panel surfaces it alongside server-rejected sends with the same
-   * Retry/Discard affordances, under the distinguishable reason
-   * `failed-to-queue`. Keyed by a synthetic revisionId derived from the path so
-   * repeated failures for the same file coalesce into one row rather than
-   * flooding the panel. Nothing is ever silently dropped.
+   * send-queue panel surfaces it alongside server-rejected sends under the
+   * distinguishable reason `failed-to-queue`, keyed by a synthetic revisionId
+   * derived from the path (see {@link failedToQueueRevisionId}) so repeated
+   * failures for the same file coalesce into one row rather than flooding the
+   * panel. Nothing is ever silently dropped.
+   *
+   * Discard behaves identically to a server-rejected send, but Retry does NOT:
+   * a failed-to-queue row has no stashed envelope (it never reached the outbox),
+   * so `requeueQuarantined` is inert for it. Retry instead re-triggers the
+   * commit chain for the path from disk (MAJOR 2, routed by the caller via
+   * {@link parseFailedToQueuePath}) — the on-disk content is the source of truth.
    */
   async recordFailedToQueue(path: string): Promise<void> {
     const state = await this.ensureLoaded();
-    const revisionId = `failed-to-queue:${path}`;
+    const revisionId = failedToQueueRevisionId(path);
     const entry: QuarantinedRevision = {
       revisionId,
       fileId: path,
@@ -411,13 +497,17 @@ export class DurableSyncState implements SyncStatePort {
   /**
    * Retry a quarantined send (SND-01): re-enqueue its stashed envelope through
    * the normal outbox machinery (fresh enqueue time), then drop it from the
-   * quarantine and the stash. A no-op when nothing is stashed for `revisionId`
-   * (already requeued or discarded), so a double click cannot double-enqueue.
+   * quarantine and the stash. Returns true when it re-enqueued, false when
+   * nothing is stashed for `revisionId` — already requeued/discarded, or the
+   * stash was evicted under the byte budget (MAJOR 4). A false return leaves the
+   * quarantine row intact so the caller can degrade Retry to a re-commit from
+   * disk; a double click cannot double-enqueue because the second call finds no
+   * stash and returns false.
    */
-  async requeueQuarantined(revisionId: string): Promise<void> {
+  async requeueQuarantined(revisionId: string): Promise<boolean> {
     const state = await this.ensureLoaded();
     const stashed = state.quarantinedEnvelopes[revisionId];
-    if (stashed === undefined) return;
+    if (stashed === undefined) return false;
     const quarantinedEnvelopes = { ...state.quarantinedEnvelopes };
     delete quarantinedEnvelopes[revisionId];
     const outbox = [
@@ -428,6 +518,7 @@ export class DurableSyncState implements SyncStatePort {
       (item) => item.revisionId !== revisionId,
     );
     await this.mutate({ ...state, outbox, quarantine, quarantinedEnvelopes });
+    return true;
   }
 
   /**
@@ -548,17 +639,18 @@ function parsePersistedState(raw: unknown): PersistedSyncState {
   const baseHashes = parseStringMap(raw.baseHashes);
   if (baseHashes === null) return emptyState();
 
-  const baseContents = parseStringMap(raw.baseContents);
-  if (baseContents === null) return emptyState();
-
-  const conflictArtifacts = parseStringMap(raw.conflictArtifacts);
-  if (conflictArtifacts === null) return emptyState();
-
-  const quarantine = parseQuarantine(raw.quarantine);
-  if (quarantine === null) return emptyState();
-
-  const quarantinedEnvelopes = parseEnvelopeMap(raw.quarantinedEnvelopes);
-  if (quarantinedEnvelopes === null) return emptyState();
+  // MINOR 8: a malformed OPTIONAL sub-field degrades to its default with a
+  // console.warn rather than nuking the whole blob (which would lose the cursor,
+  // pathOwners and baseHashes over one bad quarantine/stash/artifact entry).
+  // Only core-field corruption (handled above) still resets to empty state.
+  const baseContents =
+    parseStringMap(raw.baseContents) ?? warnDegrade('baseContents', {});
+  const conflictArtifacts =
+    parseStringMap(raw.conflictArtifacts) ?? warnDegrade('conflictArtifacts', {});
+  const quarantine = parseQuarantine(raw.quarantine) ?? warnDegrade('quarantine', []);
+  const quarantinedEnvelopes =
+    parseEnvelopeMap(raw.quarantinedEnvelopes) ??
+    warnDegrade('quarantinedEnvelopes', {});
 
   return {
     version: 1,
@@ -573,6 +665,18 @@ function parsePersistedState(raw: unknown): PersistedSyncState {
     conflictArtifacts,
     quarantinedEnvelopes,
   };
+}
+
+/**
+ * Logs that an optional persisted sub-field was malformed and returns the
+ * supplied default in its place (MINOR 8), so one bad entry degrades that field
+ * alone instead of resetting the whole durable state.
+ */
+function warnDegrade<T>(field: string, fallback: T): T {
+  console.warn(
+    `Havemind: persisted "${field}" was malformed and was reset to its default; other sync state was preserved.`,
+  );
+  return fallback;
 }
 
 /** Parses an untrusted revisionId→envelope map; undefined (legacy) degrades to {}. */

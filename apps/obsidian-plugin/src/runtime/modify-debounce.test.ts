@@ -122,6 +122,36 @@ describe('ModifyDebouncer', () => {
     expect(settled).toEqual(['B.md']);
   });
 
+  it('ignores trigger after dispose — no settle fires against a torn-down producer', () => {
+    // A re-arm (or a late vault event) reaching a disposed debouncer must not
+    // schedule a fresh timer: the producer it would fire against is gone, and a
+    // stale save could clobber the next producer's data.json after re-pair.
+    const timer = new FakeTimer();
+    const settled: string[] = [];
+    const debouncer = new ModifyDebouncer({
+      onSettled: (path) => settled.push(path),
+      delayMs: MODIFY_SETTLE_MS,
+      timer,
+    });
+
+    debouncer.dispose();
+    debouncer.trigger('A.md');
+    timer.advance(MODIFY_SETTLE_MS * 2);
+
+    expect(settled).toEqual([]);
+  });
+
+  it('ignores cancel after dispose without throwing', () => {
+    const timer = new FakeTimer();
+    const debouncer = new ModifyDebouncer({
+      onSettled: () => undefined,
+      timer,
+    });
+
+    debouncer.dispose();
+    expect(() => debouncer.cancel('A.md')).not.toThrow();
+  });
+
   it('cancel is a no-op for a path with no pending settle', () => {
     const timer = new FakeTimer();
     const settled: string[] = [];

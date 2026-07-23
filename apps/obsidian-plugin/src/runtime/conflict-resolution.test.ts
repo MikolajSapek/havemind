@@ -19,6 +19,11 @@ function fakePort(
     contents: Record<string, string>;
     /** Paths that report as present via `exists`. Defaults to the content keys. */
     existingPaths: string[];
+    /**
+     * Paths whose `readText` returns null (absent) even though `exists` may
+     * report present — models the exists→read TOCTOU (MINOR 6).
+     */
+    nullReads: string[];
   }> = {},
 ): ConflictVaultPort & {
   reads: string[];
@@ -27,6 +32,7 @@ function fakePort(
 } {
   const contents = overrides.contents ?? {};
   const present = new Set(overrides.existingPaths ?? Object.keys(contents));
+  const nullReads = new Set(overrides.nullReads ?? []);
   const reads: string[] = [];
   const writes: Array<{ path: string; content: string }> = [];
   const deletes: string[] = [];
@@ -39,6 +45,7 @@ function fakePort(
     exists: async (path: string) => present.has(path),
     readText: async (path: string) => {
       reads.push(path);
+      if (nullReads.has(path)) return null;
       return contents[path] ?? '';
     },
     writeText: async (path: string, content: string) => {
@@ -241,6 +248,23 @@ describe('createConflictResolver', () => {
     // reports absent, so keepTheirs must NOT read '' and overwrite the good,
     // merged live note with an empty string (the data-loss bug).
     const port = fakePort({ existingPaths: [] });
+    const resolver = createConflictResolver(port);
+
+    const result = await resolver.resolve(newCopy, 'keepTheirs');
+
+    expect(result).toBe('vanished');
+    expect(port.writes).toEqual([]);
+    expect(port.deletes).toEqual([]);
+  });
+
+  it('keepTheirs aborts as "vanished" when the read finds the copy absent despite exists passing (MINOR 6 TOCTOU)', async () => {
+    // The exists() check passes but the copy is deleted before readText runs.
+    // readText now signals absence as null (not ''), so keepTheirs aborts
+    // rather than blanking the live note with an empty overwrite.
+    const port = fakePort({
+      existingPaths: [newCopy.copyPath],
+      nullReads: [newCopy.copyPath],
+    });
     const resolver = createConflictResolver(port);
 
     const result = await resolver.resolve(newCopy, 'keepTheirs');

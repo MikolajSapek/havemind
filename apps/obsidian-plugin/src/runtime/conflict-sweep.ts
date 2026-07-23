@@ -97,6 +97,9 @@ export async function sweepConflictCopies(
         deps.port.readText(targetPath),
         deps.port.readText(copy.copyPath),
       ]);
+      // MINOR 6: a null read means the note or copy vanished mid-sweep; leave the
+      // copy for the manual modal rather than merging against a missing side.
+      if (mine === null || theirs === null) continue;
 
       const result = merge(ancestor, mine, theirs);
       if (result.status !== 'merged') continue;

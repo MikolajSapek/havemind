@@ -13,6 +13,7 @@ import {
 import { hashPlaintext } from '@havemind/protocol';
 
 import { isSafePassiveJoinProtocolData } from './onboarding/invite';
+import { parseFailedToQueuePath } from './runtime/sync-state';
 import type { DurableSyncState } from './runtime/sync-state';
 import {
   computeLineDiff,
@@ -111,6 +112,27 @@ function renderViewTitle(content: HTMLElement, text: string): void {
   const icon = heading.createEl('span');
   icon.addClass('havemind-title-icon');
   setIcon(icon, 'hexagon');
+}
+
+/**
+ * MAJOR 5: render one panel section inside an error boundary. A synchronous
+ * throw from a section's provider or render body is logged and degraded to a
+ * small inline "Section unavailable" fallback so the failure is contained to
+ * that section — every other section keeps rendering rather than the whole
+ * panel blanking after `content.empty()`.
+ */
+function renderSection(
+  content: HTMLElement,
+  name: string,
+  render: () => void,
+): void {
+  try {
+    render();
+  } catch (error) {
+    console.error(`Havemind: the "${name}" panel section failed to render`, error);
+    const fallback = content.createDiv({ text: 'Section unavailable' });
+    fallback.addClass('havemind-section-error');
+  }
 }
 
 /** Owner actions attached to each rejoin-aware roster row. */
@@ -517,31 +539,35 @@ class HavemindActivityView extends ItemView {
     content.addClass('havemind-view');
     renderViewTitle(content, 'Havemind activity');
 
-    const model = buildActivityViewModel(this.options.feedProvider?.() ?? [], {
-      formatTimestamp: formatActivityTime,
-    });
-    if (model.empty) {
-      const empty = content.createDiv({ text: EMPTY_ACTIVITY_TEXT });
-      empty.addClass('havemind-empty');
-      return;
-    }
-
-    for (const row of model.rows) {
-      const entry = content.createDiv({ text: row.label });
-      entry.addClass('havemind-activity-row');
-      // Author colour as a left accent, paired with the author name already in
-      // the label — colour is never the only signal (accessibility rule).
-      entry.style.setProperty('--havemind-row-color', `var(${row.colorToken})`);
-      // The Restore button stays the first child so the F5 restore contract is
-      // unchanged; the time is appended after it.
-      if (row.canRestore && this.options.onRestore) {
-        const restore = entry.createEl('button', { text: 'Restore' });
-        restore.addClass('havemind-activity-action');
-        restore.onClickEvent(() => this.options.onRestore?.(row.revisionId));
+    // MAJOR 5: a throw building or rendering the feed degrades to an inline
+    // fallback rather than blanking the activity view.
+    renderSection(content, 'activity', () => {
+      const model = buildActivityViewModel(this.options.feedProvider?.() ?? [], {
+        formatTimestamp: formatActivityTime,
+      });
+      if (model.empty) {
+        const empty = content.createDiv({ text: EMPTY_ACTIVITY_TEXT });
+        empty.addClass('havemind-empty');
+        return;
       }
-      const time = entry.createEl('span', { text: ` ${row.timeLabel}` });
-      time.addClass('havemind-activity-time');
-    }
+
+      for (const row of model.rows) {
+        const entry = content.createDiv({ text: row.label });
+        entry.addClass('havemind-activity-row');
+        // Author colour as a left accent, paired with the author name already in
+        // the label — colour is never the only signal (accessibility rule).
+        entry.style.setProperty('--havemind-row-color', `var(${row.colorToken})`);
+        // The Restore button stays the first child so the F5 restore contract is
+        // unchanged; the time is appended after it.
+        if (row.canRestore && this.options.onRestore) {
+          const restore = entry.createEl('button', { text: 'Restore' });
+          restore.addClass('havemind-activity-action');
+          restore.onClickEvent(() => this.options.onRestore?.(row.revisionId));
+        }
+        const time = entry.createEl('span', { text: ` ${row.timeLabel}` });
+        time.addClass('havemind-activity-time');
+      }
+    });
   }
 }
 
@@ -775,17 +801,19 @@ export class HavemindOnboardingView extends ItemView {
     const panel =
       this.options.panelProvider?.() ??
       buildConnectionPanel({ status: 'disconnected' });
-    this.renderIndicator(content, panel);
-
-    this.renderSendQueue(content);
-
-    this.renderConflicts(content);
-
-    if (panel.showForm) {
-      this.renderForm(content);
-    } else {
-      this.renderConnected(content);
-    }
+    // MAJOR 5: each section renders inside its own guard so a synchronous
+    // provider throw degrades that one section to an inline fallback rather than
+    // blanking the whole panel (content.empty() has already run above).
+    renderSection(content, 'status', () => this.renderIndicator(content, panel));
+    renderSection(content, 'send queue', () => this.renderSendQueue(content));
+    renderSection(content, 'conflicts', () => this.renderConflicts(content));
+    renderSection(content, 'connection', () => {
+      if (panel.showForm) {
+        this.renderForm(content);
+      } else {
+        this.renderConnected(content);
+      }
+    });
   }
 
   /** Reads live input values into `draft` so the next render can restore them. */
@@ -981,31 +1009,39 @@ export class HavemindOnboardingView extends ItemView {
     renderViewTitle(content, 'Creating connection');
     if (model.notice) this.renderNotice(content, model.notice, model.noticeKind);
 
-    this.renderCreateSection(content, model);
+    // MAJOR 5: isolate the create, roster and waiting sections so a throw in
+    // one degrades to an inline fallback rather than blanking the composer.
+    renderSection(content, 'create invitation', () =>
+      this.renderCreateSection(content, model),
+    );
 
-    // The persistent "Connected" roster — who is already a member of this vault.
-    const roster = this.options.rejoinRosterProvider?.();
-    if (roster !== undefined && !roster.empty) {
-      const rosterDivider = content.createEl('hr');
-      rosterDivider.addClass('havemind-divider');
-      this.renderRoster(content, roster);
-    }
+    renderSection(content, 'roster', () => {
+      // The persistent "Connected" roster — who is already a member of this vault.
+      const roster = this.options.rejoinRosterProvider?.();
+      if (roster !== undefined && !roster.empty) {
+        const rosterDivider = content.createEl('hr');
+        rosterDivider.addClass('havemind-divider');
+        this.renderRoster(content, roster);
+      }
+    });
 
-    const divider = content.createEl('hr');
-    divider.addClass('havemind-divider');
+    renderSection(content, 'waiting devices', () => {
+      const divider = content.createEl('hr');
+      divider.addClass('havemind-divider');
 
-    content.createEl('h4', { text: 'Waiting for the other device' });
-    if (model.pending.length === 0) {
-      content
-        .createDiv({
-          text: 'No device is waiting yet. When the other device redeems the invite, it appears here to approve.',
-        })
-        .addClass('havemind-empty');
-      return;
-    }
-    for (const entry of model.pending) {
-      this.renderPendingRow(content, entry);
-    }
+      content.createEl('h4', { text: 'Waiting for the other device' });
+      if (model.pending.length === 0) {
+        content
+          .createDiv({
+            text: 'No device is waiting yet. When the other device redeems the invite, it appears here to approve.',
+          })
+          .addClass('havemind-empty');
+        return;
+      }
+      for (const entry of model.pending) {
+        this.renderPendingRow(content, entry);
+      }
+    });
   }
 
   private renderCreateSection(
@@ -1156,10 +1192,19 @@ class HavemindSettingTab extends PluginSettingTab {
   override display(): void {
     this.containerEl.empty();
 
+    // MINOR 9: replace the stale "onboarding coming next slice" stub with the
+    // live connection status plus a single action to open the pane, where the
+    // real connect/onboarding surface already lives.
+    const plugin = this.plugin as unknown as HavemindPlugin;
     new Setting(this.containerEl).setName('Havemind').setHeading();
     new Setting(this.containerEl)
       .setName('Connection')
-      .setDesc('Not connected. Onboarding will be added in the next slice.');
+      .setDesc(plugin.panelStatusLabel());
+    const open = this.containerEl.createEl('button', {
+      text: 'Open Havemind panel',
+    });
+    open.addClass('mod-cta');
+    open.onClickEvent(() => plugin.revealPanel());
   }
 }
 
@@ -1566,6 +1611,8 @@ export default class HavemindPlugin extends Plugin {
     onLocalActivity: (entry: ActivityLogEntry) => void;
     onRemoteActivity: (entry: ActivityLogEntry) => void;
     onConflictWritten: () => void;
+    onSendQueueChanged: () => void;
+    onFailedToQueueNotified: (revisionId: string) => void;
   } {
     return {
       onLocalActivity: (entry) => this.activityLog.record(entry),
@@ -1574,6 +1621,14 @@ export default class HavemindPlugin extends Plugin {
       onRemoteActivity: (entry) => this.activityLog.record(entry),
       // MRG-05: a new conflict copy schedules a debounced auto-repair sweep.
       onConflictWritten: () => this.scheduleConflictSweep(),
+      // MAJOR 1: a successful commit that cleared a stale failed-to-queue row
+      // refreshes the panel at once, so the phantom failure disappears.
+      onSendQueueChanged: () => this.onboardingView?.refresh(),
+      // MINOR 7: commit-recovery already showed a Notice for this failed-to-queue
+      // row, so record its id as notified — the panel's quarantine-notice check
+      // then skips it, preventing a duplicate Notice for the same event.
+      onFailedToQueueNotified: (revisionId) =>
+        this.notifiedQuarantineIds.add(revisionId),
     };
   }
 
@@ -1637,7 +1692,11 @@ export default class HavemindPlugin extends Plugin {
         port.readText(copy.targetPath),
         port.readText(copy.copyPath),
       ]);
-      diff = computeLineDiff(mine, theirs);
+      // MINOR 6: a null read means one side is absent; show no diff rather than
+      // diffing against a phantom empty string.
+      if (mine !== null && theirs !== null) {
+        diff = computeLineDiff(mine, theirs);
+      }
     }
 
     if (this.conflictResolver === null) {
@@ -1838,9 +1897,67 @@ export default class HavemindPlugin extends Plugin {
     });
   }
 
-  /** Retry a quarantined send by re-enqueuing it through the outbox (SND-01). */
+  /**
+   * Retry a quarantined send. A server-rejected send (SND-01) re-enqueues its
+   * stashed envelope through the outbox. A failed-to-queue row (SND-02, MAJOR 2)
+   * has no envelope — it never reached the outbox — so Retry re-runs the commit
+   * chain for the path against the current on-disk content; if the file has
+   * since been deleted, surface a Notice and drop the stale row instead of
+   * pushing a phantom empty create for a vanished file.
+   */
   private async retrySend(revisionId: string): Promise<void> {
-    await this.syncState?.requeueQuarantined(revisionId);
+    // Failed-to-queue synthetic row (SND-02): never had an envelope. Leave the
+    // row in place on a successful re-trigger — onCommitSuccess (MAJOR 1) clears
+    // it once the commit actually goes through.
+    const failedPath = parseFailedToQueuePath(revisionId);
+    if (failedPath !== null) {
+      await this.retryFromDisk(revisionId, failedPath, { discardOnRetrigger: false });
+      return;
+    }
+    // Server-rejected send (SND-01): re-enqueue the stashed envelope. When the
+    // stash was evicted under the byte budget (MAJOR 4) the requeue is inert, so
+    // fall back to re-committing the file from disk (source of truth) and drop
+    // the superseded dead-letter row.
+    const requeued = (await this.syncState?.requeueQuarantined(revisionId)) ?? false;
+    if (!requeued) {
+      const path = this.pathForQuarantineRow(revisionId);
+      if (path !== null) {
+        await this.retryFromDisk(revisionId, path, { discardOnRetrigger: true });
+        return;
+      }
+    }
+    this.onboardingView?.refresh();
+  }
+
+  /** The vault path a quarantine row's fileId resolves to, or null. */
+  private pathForQuarantineRow(revisionId: string): string | null {
+    const state = this.syncState;
+    if (state === null) return null;
+    const row = state
+      .quarantineSnapshot()
+      .find((item) => item.revisionId === revisionId);
+    return row === undefined ? null : state.pathForFileId(row.fileId);
+  }
+
+  /**
+   * Re-run the commit chain for `path` from disk (the MAJOR 2 recovery for a row
+   * with no usable stashed envelope). A vanished file cannot be re-committed:
+   * surface a Notice and drop the stale row. `discardOnRetrigger` drops the row
+   * immediately after a successful re-trigger for a superseded server-rejected
+   * row (MAJOR 4); a failed-to-queue row keeps its row until the commit lands.
+   */
+  private async retryFromDisk(
+    revisionId: string,
+    path: string,
+    options: { readonly discardOnRetrigger: boolean },
+  ): Promise<void> {
+    const retriggered = this.connection?.retryFailedCommit?.(path) ?? false;
+    if (!retriggered) {
+      new Notice(`${path} no longer exists — removing it from the queue.`);
+      await this.syncState?.discardQuarantined(revisionId);
+    } else if (options.discardOnRetrigger) {
+      await this.syncState?.discardQuarantined(revisionId);
+    }
     this.onboardingView?.refresh();
   }
 
@@ -2138,6 +2255,20 @@ export default class HavemindPlugin extends Plugin {
     } finally {
       this.retryInFlight = false;
     }
+  }
+
+  /**
+   * A short human-readable connection status line for the settings tab (MINOR 9).
+   * Reuses the same panel view-model the pane renders, so the wording stays in
+   * lockstep with the live indicator.
+   */
+  panelStatusLabel(): string {
+    return this.connectionPanel().label;
+  }
+
+  /** Opens (or reveals) the Havemind pane — the settings tab's one action. */
+  revealPanel(): void {
+    void this.openView(HAVEMIND_ONBOARDING_VIEW);
   }
 
   private connectionPanel(): ConnectionPanelView {
