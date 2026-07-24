@@ -42,4 +42,35 @@ describe('ObsidianOnboardingSecrets', () => {
     await secrets.saveRefreshToken('hm_rt_x');
     expect(storage.listSecrets().some((id) => id.includes(CID))).toBe(true);
   });
+
+  it('round-trips the in-flight rotation record and clears it (GAP-5)', async () => {
+    expect(await secrets.getPendingRotation()).toBeNull();
+    const record = {
+      refreshToken: 'hm_rt_cur',
+      rotationId: 'rot-1',
+      successorRefreshToken: 'hm_rt_next',
+    };
+    await secrets.savePendingRotation(record);
+    expect(await secrets.getPendingRotation()).toEqual(record);
+
+    await secrets.clearPendingRotation();
+    expect(await secrets.getPendingRotation()).toBeNull();
+  });
+
+  it('treats a malformed pending-rotation record as absent', async () => {
+    await secrets.savePendingRotation({
+      refreshToken: 'hm_rt_cur',
+      rotationId: 'rot-1',
+      successorRefreshToken: 'hm_rt_next',
+    });
+    // Corrupt the stored JSON directly in the backing store.
+    const key = storage
+      .listSecrets()
+      .find((id) => id.includes('pending-rotation'));
+    expect(key).toBeDefined();
+    if (key !== undefined) {
+      storage.setSecret(key, '{not valid json');
+    }
+    expect(await secrets.getPendingRotation()).toBeNull();
+  });
 });

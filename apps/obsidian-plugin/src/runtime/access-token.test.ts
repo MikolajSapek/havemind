@@ -1,12 +1,89 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { RefreshTokenAccessProvider } from './access-token';
+import type { PendingRotation } from './access-token';
 import type {
   RequestUrlOptions,
   RequestUrlResponseLike,
 } from './sync-transport';
 
 const API = 'https://host';
+
+/**
+ * A backing store shared across provider instances so a "process restart"
+ * mid-rotation can be simulated: create a fresh provider over the same backing
+ * and it sees the persisted refresh token and in-flight rotation record.
+ */
+interface Backing {
+  refresh: string;
+  pending: PendingRotation | null;
+}
+
+function makeBacking(refresh = 'hm_rt_current'): Backing {
+  return { refresh, pending: null };
+}
+
+function makeProvider(options: {
+  backing: Backing;
+  responder: (o: RequestUrlOptions) => RequestUrlResponseLike;
+  calls?: RequestUrlOptions[];
+  savedRefresh?: string[];
+  // When true, saveRefreshToken throws — models a crash after the server's 200
+  // but before the successor is committed locally.
+  crashOnSave?: boolean;
+  // When true, the durable pending-rotation store throws on every op — models a
+  // SecretStorage outage. The provider must degrade to in-memory-only.
+  storeUnavailable?: boolean;
+  now?: () => number;
+}): RefreshTokenAccessProvider {
+  const {
+    backing,
+    responder,
+    calls,
+    savedRefresh,
+    crashOnSave,
+    storeUnavailable,
+    now,
+  } = options;
+  let rotation = 0;
+  let successor = 0;
+  return new RefreshTokenAccessProvider({
+    requestUrl: async (o) => {
+      calls?.push(o);
+      return responder(o);
+    },
+    apiBaseUrl: API,
+    getRefreshToken: async () => backing.refresh,
+    saveRefreshToken: async (value) => {
+      if (crashOnSave === true) {
+        throw new Error('simulated crash before commit');
+      }
+      backing.refresh = value;
+      savedRefresh?.push(value);
+    },
+    generateRotationId: () => `rot-${(rotation += 1)}`,
+    generateSuccessorToken: () => `hm_rt_next-${(successor += 1)}`,
+    loadPendingRotation: async () => {
+      if (storeUnavailable === true) {
+        throw new Error('SecretStorage unavailable');
+      }
+      return backing.pending;
+    },
+    savePendingRotation: async (record) => {
+      if (storeUnavailable === true) {
+        throw new Error('SecretStorage unavailable');
+      }
+      backing.pending = record;
+    },
+    clearPendingRotation: async () => {
+      if (storeUnavailable === true) {
+        throw new Error('SecretStorage unavailable');
+      }
+      backing.pending = null;
+    },
+    now: now ?? (() => 0),
+  });
+}
 
 function build(
   responder: (o: RequestUrlOptions) => RequestUrlResponseLike,
@@ -116,5 +193,139 @@ describe('RefreshTokenAccessProvider', () => {
     await provider.getAccessToken();
     await provider.getAccessToken();
     expect(calls).toHaveLength(2);
+  });
+
+  it('replays the identical {rotationId, successor} after an interrupted rotation and commits on retry (GAP-5)', async () => {
+    // Attempt 1: the server commits (200) but the client crashes before it can
+    // persist the successor locally — modelled by saveRefreshToken throwing.
+    const backing = makeBacking('hm_rt_current');
+    const calls1: RequestUrlOptions[] = [];
+    const crashed = makeProvider({
+      backing,
+      responder: () => refreshOk('2026-07-24T10:05:00.000Z'),
+      calls: calls1,
+      crashOnSave: true,
+    });
+    await expect(crashed.getAccessToken()).rejects.toThrow();
+
+    // The old refresh token is untouched and the in-flight record persisted.
+    expect(backing.refresh).toBe('hm_rt_current');
+    expect(backing.pending).not.toBeNull();
+    const firstBody = JSON.parse(calls1[0]?.body ?? '{}');
+
+    // Attempt 2: a fresh provider (simulated restart) over the same backing must
+    // REPLAY the identical rotationId + successor — not mint a new pair — so the
+    // server's exact-retry guard forgives it instead of burning the family.
+    const calls2: RequestUrlOptions[] = [];
+    const savedRefresh: string[] = [];
+    const restarted = makeProvider({
+      backing,
+      responder: () => refreshOk('2026-07-24T10:05:00.000Z'),
+      calls: calls2,
+      savedRefresh,
+    });
+    const token = await restarted.getAccessToken();
+    const secondBody = JSON.parse(calls2[0]?.body ?? '{}');
+
+    expect(secondBody.rotationId).toBe(firstBody.rotationId);
+    expect(secondBody.successorRefreshToken).toBe(
+      firstBody.successorRefreshToken,
+    );
+    expect(secondBody.refreshToken).toBe('hm_rt_current');
+    expect(token).toBe('access-1');
+    // A confirmed 200 commits the successor and clears the in-flight record.
+    expect(savedRefresh).toEqual([firstBody.successorRefreshToken]);
+    expect(backing.refresh).toBe(firstBody.successorRefreshToken);
+    expect(backing.pending).toBeNull();
+  });
+
+  it('never replays a stale pending record whose refreshToken does not match the current token', async () => {
+    // A leftover record bound to an OLD token (e.g. after the user reconnected
+    // with a fresh credential) must be ignored, not replayed against the new one.
+    const backing = makeBacking('hm_rt_new');
+    backing.pending = {
+      refreshToken: 'hm_rt_OLD_stale',
+      rotationId: 'rot-STALE',
+      successorRefreshToken: 'hm_rt_STALE_successor',
+    };
+    const calls: RequestUrlOptions[] = [];
+    const provider = makeProvider({
+      backing,
+      responder: () => refreshOk('2026-07-24T10:05:00.000Z'),
+      calls,
+    });
+    await provider.getAccessToken();
+    const body = JSON.parse(calls[0]?.body ?? '{}');
+    expect(body.refreshToken).toBe('hm_rt_new');
+    expect(body.rotationId).not.toBe('rot-STALE');
+    expect(body.successorRefreshToken).not.toBe('hm_rt_STALE_successor');
+  });
+
+  it('surfaces a terminal 401 as authDenied, clears the in-flight record, and keeps the refresh token', async () => {
+    const backing = makeBacking('hm_rt_current');
+    const savedRefresh: string[] = [];
+    const provider = makeProvider({
+      backing,
+      responder: () => ({ status: 401, json: { error: { code: 'REUSE' } } }),
+      savedRefresh,
+    });
+    await expect(provider.getAccessToken()).rejects.toMatchObject({
+      authDenied: true,
+    });
+    // Not masked, refresh token untouched, and the dead in-flight record dropped.
+    expect(savedRefresh).toEqual([]);
+    expect(backing.refresh).toBe('hm_rt_current');
+    expect(backing.pending).toBeNull();
+  });
+
+  it('keeps the in-flight record on a transient 5xx so the next attempt replays it', async () => {
+    const backing = makeBacking('hm_rt_current');
+    let status = 503;
+    const calls: RequestUrlOptions[] = [];
+    const provider = makeProvider({
+      backing,
+      responder: () =>
+        status >= 500
+          ? { status, json: {} }
+          : refreshOk('2026-07-24T10:05:00.000Z'),
+      calls,
+    });
+    await expect(provider.getAccessToken()).rejects.toMatchObject({
+      authDenied: false,
+    });
+    expect(backing.pending).not.toBeNull();
+    const firstBody = JSON.parse(calls[0]?.body ?? '{}');
+
+    // Recover: same in-process provider retries and replays the identical pair.
+    status = 200;
+    await provider.getAccessToken();
+    const secondBody = JSON.parse(calls[1]?.body ?? '{}');
+    expect(secondBody.rotationId).toBe(firstBody.rotationId);
+    expect(secondBody.successorRefreshToken).toBe(
+      firstBody.successorRefreshToken,
+    );
+  });
+
+  it('still rotates when the pending-rotation store is unavailable (degrades to in-memory, connect not aborted)', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const backing = makeBacking('hm_rt_current');
+      const calls: RequestUrlOptions[] = [];
+      const savedRefresh: string[] = [];
+      const provider = makeProvider({
+        backing,
+        responder: () => refreshOk('2026-07-24T10:05:00.000Z'),
+        calls,
+        savedRefresh,
+        storeUnavailable: true,
+      });
+      const token = await provider.getAccessToken();
+      // The rotation succeeds despite every store op throwing.
+      expect(token).toBe('access-1');
+      expect(calls).toHaveLength(1);
+      expect(savedRefresh).toHaveLength(1);
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 });
