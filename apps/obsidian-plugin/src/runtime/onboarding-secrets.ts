@@ -34,7 +34,12 @@ export class ObsidianOnboardingSecrets implements OnboardingSecretsPort {
     this.invitationKey = `${prefix}-invitation`;
     this.pendingKey = `${prefix}-pending`;
     this.refreshKey = `${prefix}-refresh`;
-    this.pendingRotationKey = `${prefix}-pending-rotation`;
+    // Obsidian's SecretStorage rejects keys over 64 chars (lowercase letters,
+    // numbers and dashes only). With a 36-char UUID clientInstanceId, prefix
+    // is already 49 chars, so this suffix must stay short (a longer
+    // `-pending-rotation` suffix pushed the total to 66, silently disabling
+    // GAP-5's durable in-flight rotation on every device).
+    this.pendingRotationKey = `${prefix}-rotation`;
   }
 
   async getInvitationEnvelope(): Promise<string | null> {
