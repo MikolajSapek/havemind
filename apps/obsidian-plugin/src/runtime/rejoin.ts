@@ -183,8 +183,18 @@ export class RejoinController {
       return this.state;
     }
     // The invitee holds the raw refresh token; persist it so the access-token
-    // provider can rotate it into a session and resume sync.
-    await this.options.saveRefreshToken(refreshToken);
+    // provider can rotate it into a session and resume sync. The grant is
+    // single-use and burned server-side on this 200, so a persistence failure
+    // (SecretStorage/keychain write can throw) is terminal: the grant can never
+    // be redeemed again. Surface it as 'rejoin-failed' rather than letting the
+    // throw escape with the state frozen at 'rejoining' — a permanent, invisible
+    // wedge where the 30 s poll early-returns 'rejoining' forever (FIX C1).
+    try {
+      await this.options.saveRefreshToken(refreshToken);
+    } catch {
+      this.state = 'rejoin-failed';
+      return this.state;
+    }
     this.state = 'syncing';
     return {
       membershipId: body.membershipId,

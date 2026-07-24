@@ -851,3 +851,34 @@ describe('preserveCorruptProducerState (GAP-3 sidecar)', () => {
     expect(disk.value['pushProducerCorrupt.2000']).toEqual({ bad: 'producer' });
   });
 });
+
+describe('buildRejoinControllerForInvitee role gate (sweep-P1)', () => {
+  function fakePlugin(data: Record<string, unknown>) {
+    return {
+      async loadData() {
+        return data;
+      },
+      async saveData() {
+        /* no-op */
+      },
+    } as unknown as Plugin;
+  }
+
+  it('returns null for an OWNER connection (owner self-rejoin is a dead-end — never arm the doomed poll)', async () => {
+    // An authenticated owner session is required to issue a rejoin grant, which a
+    // burned owner lacks: owner rejoin can never succeed. So no controller is
+    // built for an owner connection and the doomed /auth/rejoin poll never arms.
+    const { buildRejoinControllerForInvitee } = await import('./obsidian-adapters');
+    const plugin = fakePlugin({
+      ownerConnection: {
+        apiBaseUrl: 'https://sync.example.test',
+        vaultId: 'vault-1',
+        memberId: 'm-owner',
+        deviceId: 'd-owner',
+      },
+    });
+
+    const controller = await buildRejoinControllerForInvitee(plugin);
+    expect(controller).toBeNull();
+  });
+});

@@ -612,6 +612,60 @@ describe('F9 rejoin wiring', () => {
     expect((plugin as any).connectionError).toContain('Rejoin');
   });
 
+  it('routes a throwing attempt() to the surfaced failure path (no unhandled rejection) (FIX C1)', async () => {
+    // If the controller's attempt() rejects — e.g. the post-200 refresh-token
+    // save throws — pollRejoinOnce must catch it and route to the surfaced
+    // rejoin-failed path, never let it escape as an unhandled rejection that
+    // leaves the 30 s poll spinning against a burned grant in silence.
+    const plugin = newPlugin();
+    const attempt = vi
+      .fn()
+      .mockRejectedValue(new Error('saveRefreshToken failed'));
+    const controller = { attempt, getState: () => 'terminal-auth' };
+    adapterMocks.buildRejoinControllerForInvitee.mockResolvedValue(controller);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (plugin as any).handleStatus('reconnect-required', STATUS_VIEW);
+    await flushMicrotasks();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((plugin as any).rejoinController).toBe(controller);
+
+    // The poll ticks and the attempt rejects — the tick must resolve, not throw.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await expect((plugin as any).pollRejoinOnce()).resolves.toBeUndefined();
+
+    // The interval is disarmed …
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((plugin as any).rejoinController).toBeNull();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((plugin as any).rejoinPollTimer).toBeNull();
+    // … and the failure is surfaced to the user (not swallowed).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((plugin as any).connectionError).toContain('Rejoin');
+  });
+
+  it('does not arm the doomed rejoin poll for an OWNER dead-end but still surfaces the error (sweep-P1)', async () => {
+    // The owner self-rejoin is a documented dead-end: issuing a grant needs an
+    // authenticated owner session the burned owner lacks. buildRejoinControllerForInvitee
+    // returns null for an owner connection, so no /auth/rejoin poll is armed —
+    // but the reconnect-required error is still surfaced to drive re-pairing.
+    const plugin = newPlugin();
+    adapterMocks.buildRejoinControllerForInvitee.mockResolvedValue(null);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (plugin as any).handleStatus('reconnect-required', STATUS_VIEW);
+    await flushMicrotasks();
+
+    // No doomed background poll is armed …
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((plugin as any).rejoinController).toBeNull();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((plugin as any).rejoinPollTimer).toBeNull();
+    // … but the surfaced error state still drives the retry / re-pair flow.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((plugin as any).connectionError).toBeTruthy();
+  });
+
   it('does not arm when no persisted rejoin identity exists', async () => {
     const plugin = newPlugin();
     adapterMocks.buildRejoinControllerForInvitee.mockResolvedValue(null);

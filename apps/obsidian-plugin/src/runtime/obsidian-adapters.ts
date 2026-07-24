@@ -2030,6 +2030,13 @@ interface RejoinIdentity {
   readonly apiBaseUrl: string;
   readonly deviceId: string;
   readonly membershipId: string;
+  /**
+   * Which side this device connected as. Only an invitee can complete a rejoin:
+   * issuing the grant needs an authenticated owner session the burned owner no
+   * longer has (the documented self-grant dead-end), so the owner poll can never
+   * succeed and must not be armed (sweep-P1).
+   */
+  readonly role: 'owner' | 'invitee';
 }
 
 /**
@@ -2052,6 +2059,7 @@ async function readRejoinIdentity(
       apiBaseUrl: owner.apiBaseUrl,
       deviceId: owner.deviceId,
       membershipId: owner.memberId,
+      role: 'owner',
     };
   }
   const { controller: onboarding } = await buildOnboardingController(plugin);
@@ -2070,6 +2078,7 @@ async function readRejoinIdentity(
         apiBaseUrl: connected.apiBaseUrl,
         deviceId: connected.deviceId,
         membershipId: connected.memberId,
+        role: 'invitee',
       };
     }
   }
@@ -2094,7 +2103,14 @@ export async function buildRejoinControllerForInvitee(
   plugin: Plugin,
 ): Promise<RejoinController | null> {
   const identity = await readRejoinIdentity(plugin);
-  if (identity === null) {
+  // No stored identity → nothing to rejoin with. An OWNER identity is a dead-end:
+  // completing a rejoin needs an authenticated owner session to issue the grant,
+  // which the burned owner no longer has (the documented self-grant dead-end).
+  // Building a controller here would only arm a /auth/rejoin poll that can never
+  // succeed, so skip it — the surfaced reconnect-required/connectionError state
+  // already drives the correct owner recovery (retry / re-paste pairing token).
+  // sweep-P1.
+  if (identity === null || identity.role === 'owner') {
     return null;
   }
 

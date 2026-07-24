@@ -130,6 +130,29 @@ describe('RejoinController (invitee)', () => {
     expect(second).toEqual({ status: 'syncing', membershipId: MEMBERSHIP, vaultId: VAULT });
   });
 
+  it('marks rejoin-failed (surfaced, never a frozen rejoining) when the post-200 token save throws (FIX C1)', async () => {
+    // The grant is single-use and burned server-side on the 200. If persisting
+    // the fresh refresh token throws (SecretStorage/keychain write can fail) the
+    // controller must transition to the SURFACED terminal state, not escape with
+    // the state frozen at 'rejoining' (a permanent, invisible wedge).
+    const saveRefreshToken = vi.fn(async () => {
+      throw new Error('SecretStorage write failed');
+    });
+    const { controller } = makeController(
+      [
+        {
+          status: 200,
+          json: { status: 'rejoined', membershipId: MEMBERSHIP, vaultId: VAULT },
+        },
+      ],
+      saveRefreshToken,
+    );
+    const result = await controller.attempt();
+    expect(result).toBe('rejoin-failed');
+    expect(controller.getState()).toBe('rejoin-failed');
+    expect(saveRefreshToken).toHaveBeenCalledTimes(1);
+  });
+
   it('marks rejoin-failed on a 200 with an unusable body', async () => {
     const { controller, saveRefreshToken } = makeController([{ status: 200, json: { status: 'rejoined' } }]);
     const result = await controller.attempt();

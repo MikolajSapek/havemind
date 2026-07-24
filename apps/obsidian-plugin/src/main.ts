@@ -57,6 +57,8 @@ import {
 import {
   REJOIN_POLL_INTERVAL_MS,
   type RejoinController,
+  type RejoinResumed,
+  type RejoinState,
 } from './runtime/rejoin';
 import {
   buildConnectionPanel,
@@ -2301,7 +2303,19 @@ export default class HavemindPlugin extends Plugin {
       this.disarmRejoin();
       return;
     }
-    const result = await controller.attempt();
+    let result: RejoinState | RejoinResumed;
+    try {
+      result = await controller.attempt();
+    } catch {
+      // FIX C1: attempt() can reject if the post-200 refresh-token save throws
+      // (SecretStorage/keychain write). The controller normally converts that to
+      // 'rejoin-failed', but a raw throw must never escape here as an unhandled
+      // rejection that leaves the 30 s poll spinning against a burned grant in
+      // silence. Route it to the same surfaced terminal path.
+      if (this.unloaded || this.rejoinRestarted) return;
+      this.surfaceRejoinFailed();
+      return;
+    }
     if (this.unloaded || this.rejoinRestarted) return;
     if (typeof result === 'object' && result.status === 'syncing') {
       this.rejoinRestarted = true;
@@ -2310,21 +2324,30 @@ export default class HavemindPlugin extends Plugin {
       return;
     }
     // FIX 4: 'rejoin-failed' is terminal and unrecoverable by polling (the
-    // server returned a 200 the controller could not use). Leaving the 30 s
-    // poll armed spins forever in silence, so disarm it and surface the failure
-    // to the user. The manual retry path: a later terminal-auth status (the user
-    // reconnecting) re-arms the poll from scratch, since disarmRejoin cleared
-    // `rejoinController`.
+    // server returned a 200 the controller could not use, or the post-200 save
+    // failed). Leaving the 30 s poll armed spins forever in silence, so disarm
+    // it and surface the failure to the user. The manual retry path: a later
+    // terminal-auth status (the user reconnecting) re-arms the poll from
+    // scratch, since disarmRejoin cleared `rejoinController`.
     if (result === 'rejoin-failed') {
-      this.disarmRejoin();
-      this.connectionError =
-        'Rejoin failed — the server rejected the automatic rejoin. Reconnect manually to resume syncing.';
-      this.setStatus(formatStatusBar({ status: 'reconnect-required' }));
-      new Notice(
-        'Havemind: rejoin failed. Reconnect manually to resume syncing.',
-      );
-      this.onboardingView?.refresh();
+      this.surfaceRejoinFailed();
     }
+  }
+
+  /**
+   * Disarm the doomed poll and surface a terminal rejoin failure to the user
+   * (status + Notice), leaving a manual reconnect as the only retry path. Shared
+   * by the 'rejoin-failed' controller result and a raw throw from attempt().
+   */
+  private surfaceRejoinFailed(): void {
+    this.disarmRejoin();
+    this.connectionError =
+      'Rejoin failed — the server rejected the automatic rejoin. Reconnect manually to resume syncing.';
+    this.setStatus(formatStatusBar({ status: 'reconnect-required' }));
+    new Notice(
+      'Havemind: rejoin failed. Reconnect manually to resume syncing.',
+    );
+    this.onboardingView?.refresh();
   }
 
   /** Tears the invitee rejoin poll down (idempotent). */
