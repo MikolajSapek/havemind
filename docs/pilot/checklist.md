@@ -35,11 +35,29 @@ Pre-pilot confirmations and the daily 7-day pilot log live here
   chown); CLI must be invoked via `apps/server/bin/havemind.js` (dist/cli.js is
   a library). Dockerfile fix queued so future deploys skip the chown.
 
-## Daily log (fill during the 7-day pilot)
+## Daily log — first attempt (2026-07-16, superseded)
+
+The first window surfaced a cluster of real defects (that is what a pilot is
+for): the rename→conflict-cascade bug (fe280d9), 5-min→15 s live sync, the
+cold-cache dropped-push race and data.json write-clobber (c31603f), plus the
+server cursor-guard and blob read-path perf (fcefe25). Because the build changed
+materially, the clean append-only observation window is **restarted** below on
+the stabilised build.
 
 | Day | Date | `df -h /` | Sync status | Incidents |
 |-----|------|-----------|-------------|-----------|
 | 1 | 2026-07-16 | /dev/nvme0n1p2  109G  8.5G   95G   9% / | Owner device connected — green Synced; /owner/pair 200, /auth/refresh 200, events polling 200 | F8-02f fixes deployed (rotationId, terminal-401, live panel) |
+
+## Daily log — clean 7-day window (restart 2026-07-24)
+
+Build under test: plugin `main.js` 864659 B (fe280d9 rename fix + 15 s live
+sync + c31603f lifecycle fixes); server = fcefe25 (cursor guard + blob perf),
+healthz/readyz OK. Quota (005) and checkpoints (006) are committed but
+deliberately NOT deployed — the pilot exercises the stable core only.
+
+| Day | Date | `df -h /` | Sync status | Incidents |
+|-----|------|-----------|-------------|-----------|
+| 1 | 2026-07-24 | | | |
 | 2 | | | | |
 | 3 | | | | |
 | 4 | | | | |
