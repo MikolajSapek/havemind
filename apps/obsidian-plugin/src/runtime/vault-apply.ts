@@ -358,6 +358,12 @@ export class VaultApplyAdapter implements VaultApplyPort {
         await this.files.forgetBaseContent(owner);
         await this.files.recordPathOwner(fileId, decoded.path);
         await this.files.recordBaseHash(fileId, contentHash);
+        // Persist the base CONTENT too (not just its hash): both sides already
+        // hold `text` as the adopted content, so it is a valid three-way merge
+        // ancestor. Without this, `baseContentFor(fileId)` stays null after
+        // adoption and the next concurrent edit falls through `tryMergeApply`
+        // straight to a conflict copy even though a clean merge was possible.
+        await this.files.recordBaseContent(fileId, text);
         // Adopt the remote fileId into the producer mapping too (no disk write
         // fires here, but a later LOCAL edit must push under the shared fileId,
         // never the old random one this device minted for the same note).

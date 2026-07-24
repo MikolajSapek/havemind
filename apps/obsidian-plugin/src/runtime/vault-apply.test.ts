@@ -1209,5 +1209,71 @@ describe('VaultApplyAdapter', () => {
       // The on-disk content is untouched.
       expect(files.onDisk.get('Notes/a.md')).toBe(local);
     });
+
+    it('seeds base content on F3 adoption, enabling a clean merge on the next divergence', async () => {
+      // Regression for the "adopt but never seed base content" bug: without
+      // recording base content alongside base hash at adoption time, a later
+      // concurrent edit had no merge ancestor and fell straight through to a
+      // conflict copy even though both sides held the adopted content as a
+      // shared ancestor.
+      const adoptedContent = 'A\nB\nC\n';
+      const files = new FakeFiles();
+      files.owners.set('Notes/a.md', 'old-file');
+      files.onDisk.set('Notes/a.md', adoptedContent);
+
+      let nextText = adoptedContent;
+      const adapter = new VaultApplyAdapter({
+        files,
+        conflictFolder: 'Havemind Conflicts',
+        resolveRevision: async () => content('Notes/a.md', nextText),
+        hashContent: fakeHash,
+        conflictNaming: {
+          now: () => new Date(2026, 6, 22, 21, 56),
+          resolveAuthorName: () => 'Windows',
+        },
+      });
+
+      // Adoption: the incoming fileId 'file-a' claims 'Notes/a.md' via the F3
+      // content-match branch.
+      const adoptOutcome = await adapter.applyRemote(event('rev-a', 'file-a'));
+      expect(adoptOutcome).toBe('noop');
+      // Base CONTENT, not just base hash, must be seeded at adoption — the fix
+      // under test.
+      expect(files.baseContents.get('file-a')).toBe(adoptedContent);
+      expect(files.baseHashes.get('file-a')).toBe(await fakeHash(adoptedContent));
+
+      // Both sides now diverge from the adopted ancestor with non-overlapping
+      // edits: a clean three-way merge is possible.
+      files.onDisk.set('Notes/a.md', 'A1\nB\nC\n');
+      nextText = 'A\nB\nC1\n';
+
+      const outcome = await adapter.applyRemote(event('rev-b', 'file-a'));
+
+      // A clean merge, NOT a conflict copy — proves the base content seeded at
+      // adoption served as the merge ancestor.
+      expect(outcome).toBe('applied');
+      expect(files.conflicts).toEqual([]);
+      expect(files.writes).toEqual([
+        { path: 'Notes/a.md', content: 'A1\nB\nC1\n' },
+      ]);
+    });
+
+    it('does not seed base content on binary F3 adoption (binaries never merge)', async () => {
+      const bytes = new Uint8Array([1, 2, 3]);
+      const { adapter, files } = build(() =>
+        binaryContent('Assets/pic.png', bytes),
+      );
+      files.owners.set('Assets/pic.png', 'device-b-random');
+      files.binaryOnDisk.set('Assets/pic.png', new Uint8Array(bytes));
+
+      const outcome = await adapter.applyRemote(event('rev-9', 'file-1'));
+
+      expect(outcome).toBe('noop');
+      expect(files.owners.get('Assets/pic.png')).toBe('file-1');
+      expect(files.baseHashes.get('file-1')).toBe(await hashBlob(bytes));
+      // Binaries never merge, so base CONTENT must not be recorded for them —
+      // contrast with the markdown adoption test above.
+      expect(files.baseContents.has('file-1')).toBe(false);
+    });
   });
 });
