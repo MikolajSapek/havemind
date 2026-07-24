@@ -89,4 +89,32 @@ describe('RefreshTokenAccessProvider', () => {
       authDenied: false,
     });
   });
+
+  it('shares one in-flight rotation across concurrent callers (single-flight)', async () => {
+    const { provider, calls } = build(() =>
+      refreshOk('2026-07-16T10:05:00.000Z'),
+    );
+    const [a, b] = await Promise.all([
+      provider.getAccessToken(),
+      provider.getAccessToken(),
+    ]);
+    // Both callers saw the token expired but only ONE /auth/refresh fires, so
+    // the same refresh token is never rotated twice in parallel.
+    expect(calls).toHaveLength(1);
+    expect(a).toBe('access-1');
+    expect(b).toBe('access-1');
+  });
+
+  it('allows a fresh rotation after the in-flight one settles', async () => {
+    const expiry = Date.parse('2026-07-16T10:05:00.000Z');
+    const { provider, calls } = build(
+      () => refreshOk('2026-07-16T10:05:00.000Z'),
+      // now() is only read on a cache hit; the first call skips it (empty cache),
+      // the second reads expiry → past skew → rotates again.
+      [expiry, expiry],
+    );
+    await provider.getAccessToken();
+    await provider.getAccessToken();
+    expect(calls).toHaveLength(2);
+  });
 });

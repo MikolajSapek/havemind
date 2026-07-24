@@ -34,12 +34,36 @@ export type StatusListener = (
   view: StatusBarView,
 ) => void;
 
+/**
+ * Minimal real-time push surface the controller owns. Satisfied by
+ * `WakeSubscription`; kept as a narrow interface so the controller is unit-tested
+ * without HTTP. The controller starts/stops it in lockstep with the schedule and
+ * flips the poll cadence when the subscription reports connectivity through the
+ * callback wired at construction (see `buildSyncController`).
+ */
+export interface WakeSubscriptionLike {
+  start(): void;
+  stop(): void;
+}
+
 export interface HavemindSyncControllerOptions {
   readonly runner: SyncRunnerLike;
   readonly hooks: SchedulerHooks;
   readonly intervalMs: number;
   readonly onStatus: StatusListener;
   readonly now?: () => number;
+  /**
+   * Optional real-time push subscription. When present the controller owns its
+   * lifecycle (start on `start()`, stop on `stop()`).
+   */
+  readonly wake?: WakeSubscriptionLike;
+  /**
+   * Poll cadence to use while the push channel is connected. The periodic poll
+   * degrades to this slow heartbeat (push delivers the real-time wakes) and
+   * reverts to `intervalMs` when push is down. Defaults to `intervalMs` (no
+   * degradation) when omitted.
+   */
+  readonly pushConnectedIntervalMs?: number;
 }
 
 /**
@@ -72,16 +96,37 @@ export class HavemindSyncController {
 
   start(): void {
     this.scheduler.start();
+    // The real-time push subscription runs alongside the periodic poll: it wakes
+    // the loop immediately on a peer change while the poll stays as a fallback.
+    this.options.wake?.start();
   }
 
   stop(): void {
     this.scheduler.stop();
+    // Stop the push subscription in lockstep so no long-poll survives teardown.
+    this.options.wake?.stop();
     // Quiesce the runner too, not only the schedule: `scheduler.stop()` disarms
     // the focus/online/interval triggers, but the runner owns a separate backoff
     // timer that would otherwise fire a cycle after teardown. On reconnect that
     // late cycle would push through the now-stale transport (prior identity) and
     // 403 the server — so a stopped connection's runner must be fully inert.
     this.options.runner.stop?.();
+  }
+
+  /**
+   * Reacts to a push-connectivity transition by flipping the periodic poll
+   * cadence: while push is connected the poll degrades to the slow heartbeat
+   * (`pushConnectedIntervalMs`) because the subscription delivers real-time
+   * wakes; when push is down it reverts to the normal `intervalMs` so the poll
+   * alone keeps the vault fresh. Wired to the subscription's connectivity
+   * callback in `buildSyncController`.
+   */
+  setPushConnected(connected: boolean): void {
+    const connectedMs =
+      this.options.pushConnectedIntervalMs ?? this.options.intervalMs;
+    this.scheduler.setIntervalMs(
+      connected ? connectedMs : this.options.intervalMs,
+    );
   }
 
   async syncNow(): Promise<void> {

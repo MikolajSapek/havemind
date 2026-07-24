@@ -8,6 +8,13 @@
  *
  * A failed rotation throws and leaves the stored refresh token untouched, so a
  * transient failure never discards a still-valid credential.
+ *
+ * Single-flight: concurrent callers that all see the access token expired share
+ * one in-flight rotation promise (in memory), so the same refresh token is never
+ * rotated twice in parallel — which would present the same token to
+ * `POST /auth/refresh` twice and trip the server's reuse-detection, burning the
+ * whole token family. Once a rotation settles the guard clears, so the next
+ * caller may start a fresh rotation.
  */
 
 import type { RequestUrlFn } from './sync-transport';
@@ -45,6 +52,7 @@ export class RefreshTokenAccessProvider {
   private readonly now: () => number;
   private cachedToken: string | null = null;
   private cachedExpiry = 0;
+  private inFlight: Promise<string> | null = null;
 
   constructor(options: RefreshTokenAccessProviderOptions) {
     this.options = options;
@@ -61,7 +69,25 @@ export class RefreshTokenAccessProvider {
     return this.rotate();
   }
 
-  private async rotate(): Promise<string> {
+  /**
+   * Single-flight guard: concurrent callers share one in-flight rotation. The
+   * identical refresh token is never rotated twice in parallel, so a second
+   * caller can never present the already-rotated token and trip the server's
+   * reuse-burn. The guard clears once the rotation settles, so the next call may
+   * start a fresh rotation.
+   */
+  private rotate(): Promise<string> {
+    if (this.inFlight !== null) {
+      return this.inFlight;
+    }
+    const run = this.rotateOnce();
+    this.inFlight = run;
+    return run.finally(() => {
+      this.inFlight = null;
+    });
+  }
+
+  private async rotateOnce(): Promise<string> {
     const refreshToken = await this.options.getRefreshToken();
     if (refreshToken === null) {
       throw new AccessTokenError('No refresh token is stored.');

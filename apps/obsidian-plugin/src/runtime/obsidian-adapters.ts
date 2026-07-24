@@ -56,6 +56,7 @@ import {
   type RetryFailedCommitOutcome,
 } from './commit-recovery';
 import { HavemindSyncController, type StatusListener } from './controller';
+import { WakeSubscription } from './wake-subscription';
 import { ModifyDebouncer } from './modify-debounce';
 import {
   createSerializedDataPort,
@@ -190,6 +191,13 @@ function toActivityKind(kind: LocalChangeKind): ActivityKind {
 
 const PERSIST_KEY = 'syncState';
 const DEFAULT_INTERVAL_MS = 15 * 1000;
+/**
+ * Poll cadence while the real-time push channel is connected. The long-poll
+ * `WakeSubscription` delivers peer changes within a round-trip, so the periodic
+ * poll degrades to this slow heartbeat and reverts to `DEFAULT_INTERVAL_MS` when
+ * push is down.
+ */
+const PUSH_CONNECTED_INTERVAL_MS = 60_000;
 const CONFLICT_FOLDER = 'Havemind Conflicts';
 
 /** Wraps Obsidian's `requestUrl` as the transport's `RequestUrlFn`. */
@@ -663,11 +671,51 @@ export function buildSyncController(
     onCycleComplete: (result) => controllerRef.current?.observeCycle(result),
   });
 
+  // Real-time push: a held long-poll on the server's wait endpoint wakes the
+  // sync loop the moment a peer advances the log, instead of waiting up to a
+  // whole poll interval. Callbacks are late-bound through `controllerRef` (the
+  // controller is built just below), matching the runner's `onCycleComplete`
+  // wiring. While push is connected the controller degrades the poll to a slow
+  // heartbeat; it reverts to `DEFAULT_INTERVAL_MS` when push drops.
+  //
+  // CONNECT-SAFE: push is strictly additive to the poll. If constructing the
+  // subscription throws for any reason, the connect/sync path must still proceed
+  // poll-only — a push-setup failure must never abort building the controller.
+  // So the construction is wrapped and, on failure, the controller is built with
+  // no `wake` (poll-only fallback) and the reason is logged.
+  let wake: WakeSubscription | undefined;
+  try {
+    wake = new WakeSubscription({
+      requestUrl: createRequestUrlFn(),
+      apiBaseUrl: connection.apiBaseUrl,
+      vaultId: connection.vaultId,
+      getAuthToken: connection.getAuthToken,
+      loadCursor: () => state.loadCursor(),
+      onWake: () => {
+        void controllerRef.current?.syncNow();
+      },
+      onConnectedChange: (connected) => {
+        controllerRef.current?.setPushConnected(connected);
+      },
+    });
+  } catch (error) {
+    wake = undefined;
+    console.error(
+      'Havemind: real-time push setup failed; continuing poll-only',
+      error,
+    );
+  }
+
   const controller = new HavemindSyncController({
     runner,
     hooks: createSchedulerHooks(plugin),
     intervalMs: connection.intervalMs ?? DEFAULT_INTERVAL_MS,
     onStatus,
+    // Push is optional: omit `wake` entirely on the poll-only fallback path so
+    // the controller never tries to start a subscription that failed to build.
+    ...(wake === undefined
+      ? {}
+      : { wake, pushConnectedIntervalMs: PUSH_CONNECTED_INTERVAL_MS }),
   });
   controllerRef.current = controller;
 
