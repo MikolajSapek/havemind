@@ -72,6 +72,19 @@ class FakeObjectStore {
     );
     return request as unknown as IDBRequest;
   }
+
+  delete(key: IDBValidKey | IDBKeyRange): IDBRequest {
+    const request = new FakeRequest();
+    this.transaction.run(
+      request,
+      () => {
+        this.records.delete(toKey(key));
+        request.result = undefined;
+      },
+      true,
+    );
+    return request as unknown as IDBRequest;
+  }
 }
 
 class FakeTransaction {

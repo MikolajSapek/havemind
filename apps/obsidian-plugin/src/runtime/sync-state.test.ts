@@ -3,10 +3,13 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import {
   DurableSyncState,
   FAILED_TO_QUEUE_PREFIX,
+  PAYLOAD_MISSING_REASON,
   QUARANTINED_ENVELOPE_BUDGET_BYTES,
   failedToQueueRevisionId,
   parseFailedToQueuePath,
   type OutboxEnvelope,
+  type OutboxPayloadStore,
+  type PersistedSyncState,
   type SyncStatePersistPort,
 } from './sync-state';
 import type { RemoteEvent } from '../sync/sync-runner';
@@ -690,5 +693,243 @@ describe('DurableSyncState', () => {
       expect(state.pathForFileId('file-1')).toBe('Notes/A.md');
       expect(state.pathForFileId('unknown')).toBeNull();
     });
+  });
+});
+
+class FakePayloadStore implements OutboxPayloadStore {
+  readonly map = new Map<string, string>();
+  putFails = false;
+  getFails = false;
+  puts = 0;
+  gets = 0;
+  deletes = 0;
+
+  async putPayload(revisionId: string, payloadBase64: string): Promise<void> {
+    this.puts += 1;
+    if (this.putFails) throw new Error('payload store unavailable');
+    this.map.set(revisionId, payloadBase64);
+  }
+
+  async getPayload(revisionId: string): Promise<string | undefined> {
+    this.gets += 1;
+    if (this.getFails) throw new Error('payload store unavailable');
+    return this.map.get(revisionId);
+  }
+
+  async deletePayload(revisionId: string): Promise<void> {
+    this.deletes += 1;
+    this.map.delete(revisionId);
+  }
+}
+
+/** The disk (data.json) form the persist port last received. */
+function diskState(persist: MemoryPersist): PersistedSyncState {
+  return persist.saved as PersistedSyncState;
+}
+
+describe('DurableSyncState outbox payload externalization (arch P1)', () => {
+  let persist: MemoryPersist;
+  let store: FakePayloadStore;
+
+  beforeEach(() => {
+    persist = new MemoryPersist();
+    store = new FakePayloadStore();
+  });
+
+  it('enqueues the payload into the store, not into data.json', async () => {
+    const state = new DurableSyncState({ persist, payloadStore: store });
+    await state.enqueue(envelope({ payloadBase64: 'PAYLOAD64' }));
+
+    // The bytes live in the store, keyed by revisionId.
+    expect(store.map.get('rev-1')).toBe('PAYLOAD64');
+    // data.json carries only a reference: empty payload + externalized marker.
+    const disk = diskState(persist);
+    expect(disk.outbox[0]?.payloadBase64).toBe('');
+    expect(disk.outbox[0]?.payloadExternalized).toBe(true);
+    // The runner-facing envelope still resolves the real bytes from the cache.
+    expect((await state.getEnvelope('rev-1'))?.payloadBase64).toBe('PAYLOAD64');
+    expect(state.peekEnvelope('rev-1')?.payloadBase64).toBe('PAYLOAD64');
+  });
+
+  it('keeps data.json small when a large payload is queued', async () => {
+    const state = new DurableSyncState({ persist, payloadStore: store });
+    const big = 'A'.repeat(200_000);
+    await state.enqueue(envelope({ payloadBase64: big }));
+
+    const serialized = JSON.stringify(persist.saved);
+    expect(serialized.length).toBeLessThan(1000);
+    expect(store.map.get('rev-1')).toBe(big);
+  });
+
+  it('reloads an externalized outbox and drains the correct bytes', async () => {
+    const first = new DurableSyncState({ persist, payloadStore: store });
+    await first.enqueue(envelope({ payloadBase64: 'REAL-BYTES' }));
+
+    // A fresh instance sharing the same (persisted) store + data.json.
+    const reopened = new DurableSyncState({ persist, payloadStore: store });
+    expect((await reopened.listOutbox())[0]?.revisionId).toBe('rev-1');
+    expect((await reopened.getEnvelope('rev-1'))?.payloadBase64).toBe(
+      'REAL-BYTES',
+    );
+  });
+
+  it('migrates a legacy inline-payload data.json into the store, still draining', async () => {
+    // A pre-upgrade blob: full payload inline, no externalized marker.
+    const legacy: PersistedSyncState = {
+      version: 1,
+      cursor: 4,
+      outbox: [
+        {
+          operationId: 'op-1',
+          revisionId: 'rev-1',
+          fileId: 'file-1',
+          contentHash: 'hash-1',
+          idempotencyKey: 'idem-1',
+          header: { revisionId: 'rev-1' },
+          payloadBase64: 'LEGACY-INLINE',
+        },
+      ],
+      locallyAuthored: [],
+      deferred: [],
+      quarantine: [],
+      pathOwners: {},
+      baseHashes: {},
+      baseContents: {},
+      conflictArtifacts: {},
+      quarantinedEnvelopes: {},
+    };
+    persist = new MemoryPersist(legacy);
+    const state = new DurableSyncState({ persist, payloadStore: store });
+
+    // Warming the cache runs the migration.
+    expect(await state.loadCursor()).toBe(4);
+    // The inline payload was moved into the store.
+    expect(store.map.get('rev-1')).toBe('LEGACY-INLINE');
+    // data.json now holds only a reference.
+    const disk = diskState(persist);
+    expect(disk.outbox[0]?.payloadBase64).toBe('');
+    expect(disk.outbox[0]?.payloadExternalized).toBe(true);
+    // The outbox still drains the correct bytes.
+    expect((await state.getEnvelope('rev-1'))?.payloadBase64).toBe(
+      'LEGACY-INLINE',
+    );
+    expect(await state.listOutbox()).toHaveLength(1);
+  });
+
+  it('fails closed when a referenced payload is missing from the store (torn state)', async () => {
+    // data.json references an externalized payload the store does NOT have.
+    const torn: PersistedSyncState = {
+      version: 1,
+      cursor: 0,
+      outbox: [
+        {
+          operationId: 'op-1',
+          revisionId: 'rev-1',
+          fileId: 'file-1',
+          contentHash: 'hash-1',
+          idempotencyKey: 'idem-1',
+          header: { revisionId: 'rev-1' },
+          payloadBase64: '',
+          payloadExternalized: true,
+        },
+      ],
+      locallyAuthored: [],
+      deferred: [],
+      quarantine: [],
+      pathOwners: {},
+      baseHashes: {},
+      baseContents: {},
+      conflictArtifacts: {},
+      quarantinedEnvelopes: {},
+    };
+    persist = new MemoryPersist(torn);
+    const state = new DurableSyncState({ persist, payloadStore: store });
+
+    // The torn item is quarantined, never left drainable with empty bytes.
+    expect(await state.listOutbox()).toEqual([]);
+    expect(await state.getEnvelope('rev-1')).toBeUndefined();
+    expect(state.peekEnvelope('rev-1')).toBeUndefined();
+    const rows = await state.listQuarantine();
+    expect(rows).toEqual([
+      { revisionId: 'rev-1', fileId: 'file-1', reason: PAYLOAD_MISSING_REASON },
+    ]);
+  });
+
+  it('falls back to inline data.json when the store is unavailable', async () => {
+    store.putFails = true;
+    const state = new DurableSyncState({ persist, payloadStore: store });
+    await state.enqueue(envelope({ payloadBase64: 'INLINE-FALLBACK' }));
+
+    // Nothing reached the store, but sync still works: the bytes are inline.
+    expect(store.map.size).toBe(0);
+    const disk = diskState(persist);
+    expect(disk.outbox[0]?.payloadBase64).toBe('INLINE-FALLBACK');
+    expect(disk.outbox[0]?.payloadExternalized).not.toBe(true);
+    expect((await state.getEnvelope('rev-1'))?.payloadBase64).toBe(
+      'INLINE-FALLBACK',
+    );
+    expect(await state.listOutbox()).toHaveLength(1);
+  });
+
+  it('deletes the externalized payload when a revision leaves the outbox on receipt', async () => {
+    const state = new DurableSyncState({ persist, payloadStore: store });
+    await state.enqueue(envelope({ payloadBase64: 'BYTES' }));
+    expect(store.map.has('rev-1')).toBe(true);
+
+    await state.recordPushReceipt({ revisionId: 'rev-1', serverSequence: 9 });
+    expect(store.map.has('rev-1')).toBe(false);
+  });
+
+  it('deletes the externalized payload when a quarantined send is discarded', async () => {
+    const state = new DurableSyncState({ persist, payloadStore: store });
+    await state.enqueue(envelope({ payloadBase64: 'BYTES' }));
+    await state.quarantineOutboxItem('rev-1', 'server-rejected');
+    // Still stashed for retry → payload retained.
+    expect(store.map.has('rev-1')).toBe(true);
+
+    await state.discardQuarantined('rev-1');
+    expect(store.map.has('rev-1')).toBe(false);
+  });
+
+  it('deletes the payload of a stash evicted under the byte budget (no leak)', async () => {
+    const bounded = new DurableSyncState({
+      persist,
+      payloadStore: store,
+      quarantinedEnvelopeBudgetBytes: 20,
+    });
+    const big = 'A'.repeat(16); // decodes to 12 bytes; two exceed the 20-byte budget
+    await bounded.enqueue(envelope({ revisionId: 'rev-1', payloadBase64: big }));
+    await bounded.enqueue(envelope({ revisionId: 'rev-2', payloadBase64: big }));
+    await bounded.quarantineOutboxItem('rev-1', 'server-rejected');
+    await bounded.quarantineOutboxItem('rev-2', 'server-rejected');
+
+    // The oldest stash was evicted → its payload must not leak in the store.
+    expect(store.map.has('rev-1')).toBe(false);
+    expect(store.map.has('rev-2')).toBe(true);
+  });
+
+  it('retains the payload across quarantine and requeues the exact bytes', async () => {
+    const state = new DurableSyncState({ persist, payloadStore: store });
+    await state.enqueue(envelope({ payloadBase64: 'RETRY-BYTES' }));
+    await state.quarantineOutboxItem('rev-1', 'server-rejected');
+    expect(store.map.get('rev-1')).toBe('RETRY-BYTES');
+
+    expect(await state.requeueQuarantined('rev-1')).toBe(true);
+    expect((await state.getEnvelope('rev-1'))?.payloadBase64).toBe(
+      'RETRY-BYTES',
+    );
+    expect(store.map.get('rev-1')).toBe('RETRY-BYTES');
+  });
+
+  it('still recovers a corrupt blob from backup with a payload store present (GAP-1)', async () => {
+    // Seed a good backup, then a corrupt primary — the GAP-1 path must still win.
+    const good = new DurableSyncState({ persist, payloadStore: store });
+    await good.saveCursor(11);
+    await good.saveCursor(12); // primary=12, backup=11
+    // Corrupt the primary in place.
+    persist.saved = { version: 1, cursor: 'not-a-number' };
+
+    const recovered = new DurableSyncState({ persist, payloadStore: store });
+    expect(await recovered.loadCursor()).toBe(11);
   });
 });

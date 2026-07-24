@@ -42,7 +42,45 @@ export interface OutboxEnvelope extends TransportEnvelope {
    * which is correct for an item that has been sitting since before the upgrade).
    */
   readonly enqueuedAt?: number;
+  /**
+   * Arch P1: when true, the payload BYTES do not live in this record — they are
+   * stored out-of-band in the injected {@link OutboxPayloadStore} (IndexedDB)
+   * keyed by `revisionId`, and `payloadBase64` is `''` on disk. This keeps a
+   * 25 MB attachment out of `data.json`, which is re-serialised on every cursor
+   * save. In the in-memory cache the payload is always rehydrated back into
+   * `payloadBase64` (so `peekEnvelope` stays synchronous and drains the real
+   * bytes); the flag is stripped-and-reapplied only when writing the disk form.
+   * Absent/false on a legacy or inline-fallback envelope whose bytes ARE inline.
+   */
+  readonly payloadExternalized?: boolean;
 }
+
+/**
+ * Out-of-band store for large outbox payload bytes (arch P1). The metadata
+ * (cursor, refs, ids, statuses, mappings) stays in the small `data.json` blob;
+ * only the base64 payload bytes move here, keyed by `revisionId`. Best-effort by
+ * contract: {@link DurableSyncState} treats every call as fallible and degrades
+ * to inline-in-`data.json` behaviour when the store is unavailable, so a mobile
+ * runtime without IndexedDB never breaks sync. Backed in production by
+ * {@link IndexedDbClientStore} via a thin runtime adapter.
+ */
+export interface OutboxPayloadStore {
+  /** Durably store `payloadBase64` under `revisionId` (overwrite on repeat). */
+  putPayload(revisionId: string, payloadBase64: string): Promise<void>;
+  /** The stored payload, or `undefined` when absent (a torn/missing state). */
+  getPayload(revisionId: string): Promise<string | undefined>;
+  /** Remove the payload; a no-op when absent. */
+  deletePayload(revisionId: string): Promise<void>;
+}
+
+/**
+ * Quarantine reason for an outbox revision whose externalized payload could not
+ * be resolved from the {@link OutboxPayloadStore} at load (arch P1 fail-closed):
+ * the `data.json` reference exists but the bytes are gone from IndexedDB. The
+ * item is dead-lettered rather than drained with an empty/wrong payload; its
+ * Retry degrades to a re-commit from disk (the on-disk content is the truth).
+ */
+export const PAYLOAD_MISSING_REASON = 'payload-missing';
 
 /** An outbox item paired with its enqueue time, for the send-queue view (SND-01). */
 export interface OutboxAge {
@@ -139,6 +177,14 @@ export interface SyncStatePersistPort {
 
 export interface DurableSyncStateOptions {
   readonly persist: SyncStatePersistPort;
+  /**
+   * Optional out-of-band payload store (arch P1). When present, large outbox
+   * payload bytes are stored here instead of inline in `data.json`, keeping the
+   * re-serialised-on-every-mutation blob small. Best-effort: when omitted, or
+   * when the store throws (mobile without IndexedDB), payloads degrade to inline
+   * in `data.json` and sync continues unchanged.
+   */
+  readonly payloadStore?: OutboxPayloadStore;
   /** Upper bound on remembered authored ids; oldest are pruned first. */
   readonly maxLocallyAuthored?: number;
   /** Wall clock for stamping outbox enqueue times (SND-01). Defaults to Date.now. */
@@ -225,6 +271,22 @@ export class DurableSyncState implements SyncStatePort {
   private readonly maxLocallyAuthored: number;
   private readonly now: () => number;
   private readonly envelopeBudgetBytes: number;
+  /**
+   * Optional out-of-band payload store (arch P1). Undefined → payloads always
+   * stay inline in `data.json` (legacy behaviour, unchanged). Present → payload
+   * bytes are mirrored here and stripped from the on-disk blob; every access is
+   * wrapped in a fallible guard so an unavailable store degrades to inline.
+   */
+  private readonly payloadStore: OutboxPayloadStore | undefined;
+  /**
+   * The set of outbox/stash `revisionId`s whose payload currently lives in the
+   * payload store (so the on-disk form strips their inline bytes). Populated on
+   * enqueue/requeue, on load rehydration, and on legacy-blob migration; pruned
+   * on receipt/discard/eviction. A revisionId absent here keeps its bytes inline
+   * (the fallback path), so the disk form only ever strips a payload the store
+   * actually holds — never one that would then be irrecoverable.
+   */
+  private readonly externalized = new Set<string>();
   private cache: PersistedSyncState | null = null;
   /**
    * Set when the primary blob was present-but-corrupt with an UNRECOVERABLE
@@ -274,6 +336,7 @@ export class DurableSyncState implements SyncStatePort {
     this.envelopeBudgetBytes =
       options.quarantinedEnvelopeBudgetBytes ??
       QUARANTINED_ENVELOPE_BUDGET_BYTES;
+    this.payloadStore = options.payloadStore;
   }
 
   /**
@@ -313,6 +376,9 @@ export class DurableSyncState implements SyncStatePort {
       const outbox = state.outbox.filter(
         (envelope) => envelope.revisionId !== receipt.revisionId,
       );
+      // Arch P1: the revision is durably on the server — its externalized payload
+      // is no longer needed anywhere, so free the store bytes (no leak).
+      await this.dropPayload(receipt.revisionId);
       await this.mutate({
         ...state,
         outbox,
@@ -354,6 +420,14 @@ export class DurableSyncState implements SyncStatePort {
       // stashes first. The quarantine rows they belong to are left intact, so the
       // failures stay visible and their Retry degrades to a re-commit from disk.
       const budgeted = this.evictStashesOverBudget(quarantinedEnvelopes);
+      // Arch P1: a stash evicted under the byte budget no longer holds its retry
+      // bytes, so free any externalized payload it referenced (no store leak).
+      // The quarantine ROW survives, so its Retry still degrades to re-commit.
+      for (const evictedId of Object.keys(quarantinedEnvelopes)) {
+        if (!(evictedId in budgeted)) {
+          await this.dropPayload(evictedId);
+        }
+      }
       await this.mutate({
         ...state,
         outbox,
@@ -550,6 +624,13 @@ export class DurableSyncState implements SyncStatePort {
         envelope.enqueuedAt === undefined
           ? { ...envelope, enqueuedAt: this.now() }
           : envelope;
+      // Arch P1: mirror the payload bytes into the out-of-band store before the
+      // save so the disk form strips them; on a store failure keep them inline.
+      if (await this.safePutPayload(stamped.revisionId, stamped.payloadBase64)) {
+        this.externalized.add(stamped.revisionId);
+      } else {
+        this.externalized.delete(stamped.revisionId);
+      }
       const outbox = [
         ...state.outbox.filter(
           (entry) => entry.revisionId !== envelope.revisionId,
@@ -636,6 +717,9 @@ export class DurableSyncState implements SyncStatePort {
       const quarantine = state.quarantine.filter(
         (item) => item.revisionId !== revisionId,
       );
+      // Arch P1: the send is permanently discarded — free its externalized
+      // payload bytes so a dead-lettered attachment cannot leak in the store.
+      await this.dropPayload(revisionId);
       await this.mutate({ ...state, quarantine, quarantinedEnvelopes });
     });
   }
@@ -690,6 +774,12 @@ export class DurableSyncState implements SyncStatePort {
       this.loadPromise = this.persist
         .load()
         .then((raw) => this.hydrate(raw))
+        // Arch P1: after the cache is settled (GAP-1 recovery included),
+        // reconcile outbox/stash payloads with the out-of-band store — rehydrate
+        // externalized bytes, fail-closed on a torn/missing payload, and migrate
+        // any legacy inline payloads out of `data.json`. Part of the shared
+        // in-flight load so every concurrent caller observes a settled cache.
+        .then(() => this.reconcilePayloads())
         .finally(() => {
           this.loadPromise = null;
         });
@@ -770,7 +860,9 @@ export class DurableSyncState implements SyncStatePort {
       this.cache = emptyState();
       if (outcome.outboxAtRisk) this.recoveryRequired = true;
     }
-    await this.persist.save(this.cache);
+    // Arch P1: `reconcilePayloads` (which populates `externalized`) runs after
+    // hydrate, so `toDiskForm` is a passthrough here; use it anyway for symmetry.
+    await this.persist.save(this.toDiskForm(this.cache));
   }
 
   private async mutate(next: PersistedSyncState): Promise<void> {
@@ -783,7 +875,180 @@ export class DurableSyncState implements SyncStatePort {
     // a permanent, silent wedge. The recovery paths in {@link hydrate} now rewrite
     // the primary to a clean/salvaged state before returning, so saves are always
     // safe (no queued-but-unsent revision is ever behind an un-rewritten primary).
-    await this.persist.save(next);
+    // Arch P1: persist the DISK form — outbox/stash payloads whose bytes live in
+    // the payload store are stripped to a reference so `data.json` stays small.
+    // The in-memory `cache` keeps the full payloads (peekEnvelope drains them).
+    await this.persist.save(this.toDiskForm(next));
+  }
+
+  /**
+   * Arch P1: the on-disk projection of `state`. For every outbox/stash envelope
+   * whose payload is externalized (its `revisionId` is in {@link externalized},
+   * i.e. the store durably holds the bytes), the inline `payloadBase64` is
+   * replaced by `''` and marked `payloadExternalized: true`. A payload NOT in the
+   * set (legacy, or an inline-fallback under an unavailable store) is written
+   * inline unchanged — so the disk form only ever strips bytes the store actually
+   * holds, never bytes that would then be irrecoverable. Returns `state` itself
+   * when nothing is externalized (the legacy path), so behaviour is identical to
+   * before when no payload store is configured.
+   */
+  private toDiskForm(state: PersistedSyncState): PersistedSyncState {
+    if (this.externalized.size === 0) return state;
+    const strip = (env: OutboxEnvelope): OutboxEnvelope =>
+      this.externalized.has(env.revisionId)
+        ? { ...env, payloadBase64: '', payloadExternalized: true }
+        : env;
+    const quarantinedEnvelopes: Record<string, OutboxEnvelope> = {};
+    for (const [key, env] of Object.entries(state.quarantinedEnvelopes)) {
+      quarantinedEnvelopes[key] = strip(env);
+    }
+    return {
+      ...state,
+      outbox: state.outbox.map(strip),
+      quarantinedEnvelopes,
+    };
+  }
+
+  /** Fallible payload-store read: undefined on absence OR any store failure. */
+  private async safeGetPayload(revisionId: string): Promise<string | undefined> {
+    if (this.payloadStore === undefined) return undefined;
+    try {
+      return await this.payloadStore.getPayload(revisionId);
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Fallible payload-store write. Returns true when the bytes are durably in the
+   * store (so the caller marks the id externalized and the disk form strips it),
+   * false when there is no store or the write threw (keep the payload inline —
+   * the graceful mobile/unavailable fallback).
+   */
+  private async safePutPayload(
+    revisionId: string,
+    payloadBase64: string,
+  ): Promise<boolean> {
+    if (this.payloadStore === undefined) return false;
+    try {
+      await this.payloadStore.putPayload(revisionId, payloadBase64);
+      return true;
+    } catch (error) {
+      console.warn(
+        `Havemind: outbox payload for ${revisionId} could not be externalized; keeping it inline in data.json.`,
+        error,
+      );
+      return false;
+    }
+  }
+
+  /**
+   * Drop a revision's externalized payload from the store when it leaves BOTH the
+   * outbox and the stash for good (receipt, discard, budget eviction). A no-op
+   * when the id was never externalized (inline path). Best-effort: a failed
+   * delete only leaks bytes, never corrupts state, so it is swallowed.
+   */
+  private async dropPayload(revisionId: string): Promise<void> {
+    if (!this.externalized.has(revisionId)) return;
+    if (this.payloadStore !== undefined) {
+      try {
+        await this.payloadStore.deletePayload(revisionId);
+      } catch {
+        /* best-effort: a failed delete leaks bytes but never corrupts state */
+      }
+    }
+    this.externalized.delete(revisionId);
+  }
+
+  /**
+   * Reconcile outbox/stash payloads with the out-of-band store after load (arch
+   * P1). For each envelope:
+   *  - EXTERNALIZED (a reference: empty inline bytes + marker): fetch the bytes.
+   *    Present → rehydrate them into the in-memory cache so `peekEnvelope` drains
+   *    the real payload; missing/unresolvable → fail-closed. A missing OUTBOX
+   *    payload is quarantined (never drained empty); a missing STASH payload is
+   *    dropped (its quarantine row already records the failure), mirroring the
+   *    byte-budget eviction contract.
+   *  - INLINE (legacy or fallback): opportunistically MIGRATE the bytes into the
+   *    store, marking the id externalized so the next save shrinks `data.json`.
+   * When anything changed, the cleaned/migrated state is persisted immediately
+   * (disk form) so a legacy blob is shrunk on first load, not only on next edit.
+   */
+  private async reconcilePayloads(): Promise<void> {
+    const state = this.cache;
+    if (state === null) return;
+
+    // `cacheChanged` tracks whether the in-memory outbox/stash changed (a payload
+    // was rehydrated, an item quarantined, or a stash dropped) — then the cache
+    // must be swapped so `peekEnvelope` sees the real bytes. `persistNeeded`
+    // tracks whether the DISK blob changed (a legacy inline payload migrated out,
+    // or an item quarantined) — then it is re-saved. Rehydrating an already-
+    // externalized payload changes only the cache, never the disk form.
+    let cacheChanged = false;
+    let persistNeeded = false;
+    const nextOutbox: OutboxEnvelope[] = [];
+    const addedQuarantine: QuarantinedRevision[] = [];
+    for (const env of state.outbox) {
+      if (env.payloadExternalized === true) {
+        const payload = await this.safeGetPayload(env.revisionId);
+        if (typeof payload === 'string') {
+          this.externalized.add(env.revisionId);
+          nextOutbox.push({ ...env, payloadBase64: payload });
+          cacheChanged = true;
+        } else {
+          // Torn/unresolvable: dead-letter it so it can never drain empty bytes.
+          console.warn(
+            `Havemind: outbox payload for ${env.revisionId} is missing from the store; quarantining it (fail-closed).`,
+          );
+          addedQuarantine.push({
+            revisionId: env.revisionId,
+            fileId: env.fileId,
+            reason: PAYLOAD_MISSING_REASON,
+          });
+          cacheChanged = true;
+          persistNeeded = true;
+        }
+      } else {
+        nextOutbox.push(env);
+        if (await this.safePutPayload(env.revisionId, env.payloadBase64)) {
+          this.externalized.add(env.revisionId);
+          persistNeeded = true; // migrated: disk form now strips this payload
+        }
+      }
+    }
+
+    const nextStash: Record<string, OutboxEnvelope> = {};
+    for (const [key, env] of Object.entries(state.quarantinedEnvelopes)) {
+      if (env.payloadExternalized === true) {
+        const payload = await this.safeGetPayload(env.revisionId);
+        if (typeof payload === 'string') {
+          this.externalized.add(env.revisionId);
+          nextStash[key] = { ...env, payloadBase64: payload };
+          cacheChanged = true;
+        } else {
+          // The quarantine ROW already exists; only the retry bytes are gone.
+          persistNeeded = true;
+        }
+      } else {
+        nextStash[key] = env;
+        if (await this.safePutPayload(env.revisionId, env.payloadBase64)) {
+          this.externalized.add(env.revisionId);
+          persistNeeded = true; // migrated
+        }
+      }
+    }
+
+    if (!cacheChanged && !persistNeeded) return;
+    const next: PersistedSyncState = {
+      ...state,
+      outbox: nextOutbox,
+      quarantine: [...state.quarantine, ...addedQuarantine],
+      quarantinedEnvelopes: nextStash,
+    };
+    this.cache = next;
+    if (persistNeeded) {
+      await this.persist.save(this.toDiskForm(next));
+    }
   }
 
   /**
@@ -1142,6 +1407,12 @@ function parseEnvelope(value: unknown): OutboxEnvelope | null {
     // to "unstamped" so `outboxAges` treats it as old rather than throwing.
     ...(typeof value.enqueuedAt === 'number'
       ? { enqueuedAt: value.enqueuedAt }
+      : {}),
+    // Arch P1: carry the externalized marker so load-time reconciliation knows
+    // to rehydrate the payload from the store (an empty inline `payloadBase64` is
+    // otherwise indistinguishable from a genuinely 0-byte payload).
+    ...(value.payloadExternalized === true
+      ? { payloadExternalized: true }
       : {}),
   };
 }

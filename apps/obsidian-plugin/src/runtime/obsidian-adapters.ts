@@ -67,6 +67,7 @@ import { formatStatusBar } from './status';
 import {
   DurableSyncState,
   failedToQueueRevisionId,
+  type OutboxPayloadStore,
   type SyncStatePersistPort,
 } from './sync-state';
 import {
@@ -119,6 +120,7 @@ import {
 } from '../sync/sync-runner';
 import { OnboardingController } from '../onboarding/controller';
 import {
+  IndexedDbClientStore,
   ensureClientInstanceId,
   type ClientInstanceIdRepository,
 } from '../storage/client-store';
@@ -677,7 +679,12 @@ export function buildSyncController(
   hooks?: RuntimeHooks,
   producerSync?: RemoteApplyProducerSync,
 ): BuiltSyncController {
-  const state = new DurableSyncState({ persist: createPersistPort(plugin) });
+  const state = new DurableSyncState({
+    persist: createPersistPort(plugin),
+    // Arch P1: keep large outbox payload bytes out of `data.json`. Best-effort —
+    // degrades to inline when IndexedDB is unavailable (see the factory).
+    payloadStore: createOutboxPayloadStore(plugin),
+  });
 
   const transport = new RequestUrlTransport({
     requestUrl: createRequestUrlFn(),
@@ -838,6 +845,61 @@ function createClientInstanceRepo(plugin: Plugin): ClientInstanceIdRepository {
         ...base,
         [CLIENT_INSTANCE_KEY]: value,
       }));
+    },
+  };
+}
+
+/**
+ * Arch P1: the out-of-band outbox payload store backed by {@link
+ * IndexedDbClientStore}. Large outbox payload bytes live here instead of inline
+ * in `data.json` (which is re-serialised on every cursor save). CONNECT-SAFE and
+ * mobile-safe: the returned adapter's construction never throws; the underlying
+ * IndexedDB connection is opened lazily on first access and, if it is
+ * unavailable (or any call fails), the adapter degrades so {@link
+ * DurableSyncState} keeps the payload inline — sync is never broken. The client
+ * instance id + the open both happen once behind a cached promise.
+ */
+function createOutboxPayloadStore(plugin: Plugin): OutboxPayloadStore {
+  let storePromise: Promise<IndexedDbClientStore | null> | null = null;
+  const ensureStore = (): Promise<IndexedDbClientStore | null> => {
+    if (storePromise === null) {
+      storePromise = (async () => {
+        try {
+          const clientInstanceId = await ensureClientInstanceId(
+            createClientInstanceRepo(plugin),
+          );
+          const store = new IndexedDbClientStore({ clientInstanceId });
+          await store.open();
+          return store;
+        } catch (error) {
+          console.warn(
+            'Havemind: outbox payload store unavailable; payloads stay inline in data.json.',
+            error,
+          );
+          return null;
+        }
+      })();
+    }
+    return storePromise;
+  };
+  return {
+    async putPayload(revisionId, payloadBase64) {
+      const store = await ensureStore();
+      // Throw when unavailable so DurableSyncState keeps the payload inline.
+      if (store === null) {
+        throw new Error('Havemind: outbox payload store is unavailable.');
+      }
+      await store.putPayload(revisionId, payloadBase64);
+    },
+    async getPayload(revisionId) {
+      const store = await ensureStore();
+      if (store === null) return undefined;
+      return store.getPayload(revisionId);
+    },
+    async deletePayload(revisionId) {
+      const store = await ensureStore();
+      if (store === null) return;
+      await store.deletePayload(revisionId);
     },
   };
 }

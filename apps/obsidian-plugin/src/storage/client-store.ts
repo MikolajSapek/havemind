@@ -7,10 +7,18 @@ export const CLIENT_STORE_NAMES = [
   'heads',
   'inbox',
   'outbox',
+  // Arch P1: out-of-band store for large outbox payload bytes, keyed by
+  // revisionId. Keeps a 25 MB attachment out of the per-plugin `data.json`,
+  // which is re-serialised on every cursor save.
+  'payloads',
   'provenance',
 ] as const;
 
-export const CLIENT_STORE_VERSION = 1;
+// Bumped 1 → 2 when the `payloads` store was added (arch P1). `open()`'s
+// `onupgradeneeded` creates only the object stores a database is missing, so an
+// existing v1 database gains the `payloads` store on next open without touching
+// any already-stored data.
+export const CLIENT_STORE_VERSION = 2;
 
 const CLIENT_DATABASE_PREFIX = 'havemind-client-';
 const CLIENT_INSTANCE_ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -240,6 +248,36 @@ export class IndexedDbClientStore {
       (store) => store.getAll(),
     );
     return entries.map(parseOutboxEntry);
+  }
+
+  /**
+   * Arch P1: store an outbox revision's base64 payload out-of-band, keyed by
+   * `revisionId`, so the large bytes stay out of the per-plugin `data.json`.
+   */
+  async putPayload(revisionId: string, payloadBase64: string): Promise<void> {
+    assertStorageKey(revisionId);
+    await this.runTransaction('payloads', 'readwrite', (store) =>
+      store.put(payloadBase64, revisionId),
+    );
+  }
+
+  /** The stored payload for `revisionId`, or undefined when absent (torn state). */
+  async getPayload(revisionId: string): Promise<string | undefined> {
+    assertStorageKey(revisionId);
+    const value = await this.runTransaction<unknown>(
+      'payloads',
+      'readonly',
+      (store) => store.get(revisionId),
+    );
+    return typeof value === 'string' ? value : undefined;
+  }
+
+  /** Remove a stored payload; a no-op when absent. */
+  async deletePayload(revisionId: string): Promise<void> {
+    assertStorageKey(revisionId);
+    await this.runTransaction<undefined>('payloads', 'readwrite', (store) =>
+      store.delete(revisionId),
+    );
   }
 
   private requireDatabase(): IDBDatabase {

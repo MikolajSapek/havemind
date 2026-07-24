@@ -108,6 +108,26 @@ describe('IndexedDbClientStore storage', () => {
     ]);
   });
 
+  it('stores, reads, and deletes out-of-band outbox payloads across reopen (arch P1)', async () => {
+    const indexedDb = new FakeIndexedDbFactory();
+    const first = createStore(indexedDb);
+    await first.open();
+
+    await first.putPayload('rev-1', 'BASE64-PAYLOAD-BYTES');
+    // A missing key reads back as undefined (a torn state the caller fails closed on).
+    await expect(first.getPayload('absent')).resolves.toBeUndefined();
+    first.close();
+
+    const reopened = createStore(indexedDb);
+    await reopened.open();
+    await expect(reopened.getPayload('rev-1')).resolves.toBe(
+      'BASE64-PAYLOAD-BYTES',
+    );
+
+    await reopened.deletePayload('rev-1');
+    await expect(reopened.getPayload('rev-1')).resolves.toBeUndefined();
+  });
+
   it('reports a blocked upgrade, closes late success, and permits an explicit retry', async () => {
     const indexedDb = new FakeIndexedDbFactory();
     indexedDb.blockNextOpen();
