@@ -5,12 +5,14 @@ import { join } from 'node:path';
 import { Writable } from 'node:stream';
 
 import type Database from 'better-sqlite3';
+import type { FastifyReply, FastifyRequest } from 'fastify';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { buildApp } from '../app.js';
 import { DEFAULT_VAULT_QUOTA_BYTES, parseServerConfig } from '../config.js';
 import { openDatabase } from '../db.js';
 import { runMigrations } from '../migrations.js';
+import { createRateLimiter, defaultClientKey } from './auth-routes.js';
 import { SessionRepository } from './session-repository.js';
 import { generateRefreshToken } from './tokens.js';
 
@@ -497,5 +499,162 @@ describe('deny-by-default auth-routes', () => {
 
     expect(response.statusCode).toBe(200);
     expect(lookupAccess).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * GAP-4: the long-poll wake endpoint `GET /vaults/:vaultId/wait` reconnects
+ * roughly every 25s and is not a mutation, so it must be exempt from the
+ * per-device rate-limit bucket the same way blob GET already is (AUD-08) —
+ * otherwise a reconnect storm (`/auth/refresh` + `/wait` + pull on every
+ * iteration) can momentarily exhaust the 120-req/60s bucket and 429 the
+ * held long-poll. There is no real Fastify route registered at this pattern
+ * in this build (buildApp's test fixture never wires `deps.sync`, and the
+ * route itself lives outside this module's scope), so — unlike the blob-GET
+ * exemption test in `sync-routes.test.ts`, which drives a real registered
+ * route through `app.inject` — these tests drive `defaultClientKey` and
+ * `createRateLimiter` directly. `request.routeOptions?.url` reflects the
+ * Fastify route *pattern* regardless of whether the handler exists, so this
+ * exercises the exact production code path the real route would hit.
+ */
+describe('GAP-4 long-poll wait rate-limit exemption', () => {
+  const WAIT_ROUTE = '/vaults/:vaultId/wait';
+  const MEMBERS_ROUTE = '/vaults/:vaultId/members';
+  const REVISIONS_ROUTE = '/vaults/:vaultId/revisions';
+
+  function fakeRequest(options: {
+    readonly authorization?: string;
+    readonly method: string;
+    readonly routeUrl: string;
+  }): FastifyRequest {
+    return {
+      headers:
+        options.authorization === undefined
+          ? {}
+          : { authorization: options.authorization },
+      ip: '127.0.0.1',
+      method: options.method,
+      routeOptions: { url: options.routeUrl },
+    } as unknown as FastifyRequest;
+  }
+
+  function fakeReply(): FastifyReply & { statusCode: number | null } {
+    const reply = {
+      code(status: number) {
+        reply.statusCode = status;
+        return reply;
+      },
+      header() {
+        return reply;
+      },
+      send() {
+        return reply;
+      },
+      statusCode: null as number | null,
+    };
+    return reply as unknown as FastifyReply & { statusCode: number | null };
+  }
+
+  it('exempts GET /vaults/:vaultId/wait from the per-device bucket', () => {
+    const fixture = makeFixture();
+    const clientKey = defaultClientKey(fixture.sessions);
+
+    const key = clientKey(
+      fakeRequest({
+        authorization: `Bearer ${fixture.accessTokenA}`,
+        method: 'GET',
+        routeUrl: WAIT_ROUTE,
+      }),
+    );
+
+    expect(key).toBeNull();
+  });
+
+  it('still keys a non-exempt authenticated GET route to the device bucket', () => {
+    const fixture = makeFixture();
+    const clientKey = defaultClientKey(fixture.sessions);
+
+    const key = clientKey(
+      fakeRequest({
+        authorization: `Bearer ${fixture.accessTokenA}`,
+        method: 'GET',
+        routeUrl: MEMBERS_ROUTE,
+      }),
+    );
+
+    expect(key).toBe(`device:${DEVICE_A}`);
+  });
+
+  it('does not exempt POST /vaults/:vaultId/revisions (mutations stay in-bucket)', () => {
+    const fixture = makeFixture();
+    const clientKey = defaultClientKey(fixture.sessions);
+
+    const key = clientKey(
+      fakeRequest({
+        authorization: `Bearer ${fixture.accessTokenA}`,
+        method: 'POST',
+        routeUrl: REVISIONS_ROUTE,
+      }),
+    );
+
+    expect(key).toBe(`device:${DEVICE_A}`);
+  });
+
+  it('does not exempt a POST to the /wait route pattern (GET-only exemption)', () => {
+    const fixture = makeFixture();
+    const clientKey = defaultClientKey(fixture.sessions);
+
+    const key = clientKey(
+      fakeRequest({
+        authorization: `Bearer ${fixture.accessTokenA}`,
+        method: 'POST',
+        routeUrl: WAIT_ROUTE,
+      }),
+    );
+
+    expect(key).toBe(`device:${DEVICE_A}`);
+  });
+
+  it('a burst of GET /wait requests beyond the bucket limit is never rate limited', () => {
+    const fixture = makeFixture();
+    const limiter = createRateLimiter(
+      { maxRequests: 2, windowMs: 60_000 },
+      () => new Date(START_TIME),
+      defaultClientKey(fixture.sessions),
+    );
+    const request = fakeRequest({
+      authorization: `Bearer ${fixture.accessTokenA}`,
+      method: 'GET',
+      routeUrl: WAIT_ROUTE,
+    });
+
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const reply = fakeReply();
+      limiter(request, reply);
+      expect(reply.statusCode).toBeNull();
+    }
+  });
+
+  it('a burst of a non-exempt GET route beyond the bucket limit still 429s (exemption stays narrow)', () => {
+    const fixture = makeFixture();
+    const limiter = createRateLimiter(
+      { maxRequests: 2, windowMs: 60_000 },
+      () => new Date(START_TIME),
+      defaultClientKey(fixture.sessions),
+    );
+    const request = fakeRequest({
+      authorization: `Bearer ${fixture.accessTokenA}`,
+      method: 'GET',
+      routeUrl: MEMBERS_ROUTE,
+    });
+
+    const statusCodes: Array<number | null> = [];
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const reply = fakeReply();
+      limiter(request, reply);
+      statusCodes.push(reply.statusCode);
+    }
+
+    expect(statusCodes).toEqual([null, null, 429, 429]);
   });
 });

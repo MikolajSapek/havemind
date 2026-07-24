@@ -165,6 +165,9 @@ export function createRateLimiter(
 /** The blob-download route, as Fastify reports it via `request.routeOptions.url`. */
 const BLOB_GET_ROUTE_PATTERN = '/vaults/:vaultId/blobs/:blobHash';
 
+/** The long-poll wake route, as Fastify reports it via `request.routeOptions.url`. */
+const WAIT_ROUTE_PATTERN = '/vaults/:vaultId/wait';
+
 /**
  * True for a `GET` on the blob-download route. Draining a large pull backlog
  * fetches one blob per applied revision (see `sync-runner.ts`), so this is
@@ -175,6 +178,21 @@ function isBlobGetRoute(request: FastifyRequest): boolean {
   return (
     request.method === 'GET' &&
     request.routeOptions?.url === BLOB_GET_ROUTE_PATTERN
+  );
+}
+
+/**
+ * True for a `GET` on the long-poll wake route (GAP-4). This is a held
+ * request that reconnects roughly every 25s, not a mutation, and it never
+ * counts against a client-controlled amplification factor the way blob GET
+ * does — it is a single held connection, not one-per-revision. Excluding it
+ * from the bucket the same way as blob GET stops a reconnect storm (each
+ * iteration doing `/auth/refresh` + `/wait` + pull) from momentarily
+ * exhausting the per-device bucket and 429ing the real-time-push long-poll.
+ */
+function isWaitGetRoute(request: FastifyRequest): boolean {
+  return (
+    request.method === 'GET' && request.routeOptions?.url === WAIT_ROUTE_PATTERN
   );
 }
 
@@ -193,8 +211,13 @@ function isBlobGetRoute(request: FastifyRequest): boolean {
  * relay, and it is the only way to drain a large (>100-revision) catch-up
  * backlog — one blob fetch per applied revision — without the per-device
  * bucket 429ing mid-drain (AUD-08).
+ *
+ * A `GET` on the long-poll wake route is exempted the same way (GAP-4): it
+ * is a held connection that reconnects roughly every 25s, never a mutation,
+ * so it must not compete with a device's mutation traffic for the same
+ * bucket slots during a reconnect storm.
  */
-function defaultClientKey(
+export function defaultClientKey(
   sessions: SessionRepository,
 ): (request: FastifyRequest) => string | null {
   return (request) => {
@@ -209,7 +232,7 @@ function defaultClientKey(
     if (session === null) {
       return request.ip;
     }
-    if (isBlobGetRoute(request)) {
+    if (isBlobGetRoute(request) || isWaitGetRoute(request)) {
       return null;
     }
     return `device:${session.deviceId}`;
