@@ -751,26 +751,40 @@ export function buildSyncController(
   // controller is built just below), matching the runner's `onCycleComplete`
   // wiring. While push is connected the controller degrades the poll to a slow
   // heartbeat; it reverts to `DEFAULT_INTERVAL_MS` when push drops.
-  const wake = new WakeSubscription({
-    requestUrl: createRequestUrlFn(),
-    apiBaseUrl: connection.apiBaseUrl,
-    vaultId: connection.vaultId,
-    getAuthToken: connection.getAuthToken,
-    loadCursor: () => state.loadCursor(),
-    onWake: () => {
-      void controllerRef.current?.syncNow();
-    },
-    onConnectedChange: (connected) => {
-      controllerRef.current?.setPushConnected(connected);
-    },
-  });
+  //
+  // Best-effort (rule: a persisted pair is never discarded): if constructing the
+  // push subscription throws, real-time push is simply unavailable and the
+  // controller falls back to poll-only — this must never abort building the
+  // controller and, transitively, the whole connect.
+  let wake: WakeSubscription | undefined;
+  try {
+    wake = new WakeSubscription({
+      requestUrl: createRequestUrlFn(),
+      apiBaseUrl: connection.apiBaseUrl,
+      vaultId: connection.vaultId,
+      getAuthToken: connection.getAuthToken,
+      loadCursor: () => state.loadCursor(),
+      onWake: () => {
+        void controllerRef.current?.syncNow();
+      },
+      onConnectedChange: (connected) => {
+        controllerRef.current?.setPushConnected(connected);
+      },
+    });
+  } catch (error) {
+    console.error(
+      'Havemind: real-time push setup failed; falling back to poll-only.',
+      error,
+    );
+    wake = undefined;
+  }
 
   const controller = new HavemindSyncController({
     runner,
     hooks: createSchedulerHooks(plugin),
     intervalMs: connection.intervalMs ?? DEFAULT_INTERVAL_MS,
     onStatus,
-    wake,
+    ...(wake === undefined ? {} : { wake }),
     pushConnectedIntervalMs: PUSH_CONNECTED_INTERVAL_MS,
   });
   controllerRef.current = controller;
@@ -1035,48 +1049,109 @@ async function startSyncLoop(
     producerSync,
   );
 
-  // AUD-03 PART 2 — one-time migration. BEFORE the first sync cycle, rebase any
-  // persisted base hashes / producer-mapping content hashes that were computed
-  // under the OLD canonicalization to the NEW canonical form, so the first pull
-  // does not read stale hashes and mint spurious revisions / conflict artifacts
-  // for files whose bytes differ only by a trailing newline or BOM. A version
-  // marker in plugin data makes this run exactly once.
-  await runCanonicalizationRebase(plugin);
+  // Once the pair has persisted the refresh token + owner connection, the
+  // session MUST NOT be discarded by any follow-up step. Everything from here on
+  // is best-effort: a throw is caught, logged and surfaced as a non-fatal Notice
+  // — the started handle is still returned. As a belt-and-braces guard, any
+  // UNforeseen throw after the controller exists tears the controller down
+  // before rethrowing, so a half-built connect can never leak an orphaned,
+  // unstoppable sync loop that would arm the doomed /auth/rejoin poll.
+  try {
+    // AUD-03 PART 2 — one-time migration. BEFORE the first sync cycle, rebase
+    // any persisted base hashes / producer-mapping content hashes computed under
+    // the OLD canonicalization to the NEW canonical form, so the first pull does
+    // not read stale hashes and mint spurious revisions / conflict artifacts for
+    // files whose bytes differ only by a trailing newline or BOM. A version
+    // marker in plugin data makes this run exactly once. Best-effort: if it
+    // throws, the worst case is the first pull re-mints a few hashes — never a
+    // discarded session.
+    try {
+      await runCanonicalizationRebase(plugin);
+    } catch (error) {
+      console.error(
+        'Havemind: one-time canonicalization migration failed (non-fatal); continuing.',
+        error,
+      );
+      new Notice('Havemind: a one-time migration was skipped — see console.');
+    }
 
-  controller.start();
+    controller.start();
 
-  // The push producer detects local edits, enumerates pre-existing files and
-  // enqueues revisions the runner POSTs. Without a server-issued memberId +
-  // deviceId a revision header cannot be built (rule 3), so the producer only
-  // starts once both are known — both the invitee flow and the owner /owner/pair
-  // flow supply memberId + deviceId (connectAsOwner reads `pairing.memberId`
-  // off the pairing response), so `hasPushIdentity` is true for either path.
-  let producer: PushProducerHandle | null = null;
-  if (hasPushIdentity) {
-    producer = startPushProducer(
-      plugin,
+    // The push producer detects local edits, enumerates pre-existing files and
+    // enqueues revisions the runner POSTs. Without a server-issued memberId +
+    // deviceId a revision header cannot be built (rule 3), so the producer only
+    // starts once both are known — both the invitee flow and the owner
+    // /owner/pair flow supply memberId + deviceId (connectAsOwner reads
+    // `pairing.memberId` off the pairing response), so `hasPushIdentity` is true
+    // for either path. Best-effort: a failure here degrades local-change
+    // detection (poll still syncs remote edits) but never discards the session.
+    let producer: PushProducerHandle | null = null;
+    if (hasPushIdentity) {
+      try {
+        producer = startPushProducer(
+          plugin,
+          state,
+          {
+            vaultId: connection.vaultId,
+            memberId: connection.memberId as string,
+            deviceId: connection.deviceId as string,
+          },
+          () => {
+            void controller.syncNow();
+          },
+          producerRef,
+          extras.hooks,
+        );
+      } catch (error) {
+        console.error(
+          'Havemind: push-producer setup failed (non-fatal); local-change detection is degraded.',
+          error,
+        );
+        new Notice(
+          'Havemind: local change detection is degraded — see the Havemind panel.',
+        );
+      }
+    }
+
+    // The local member's own persistent roster entry, when the server issued a
+    // membership id. Presence is connection state, so this is recorded once and
+    // stays connected until an explicit teardown.
+    const selfMembership =
+      connection.memberId === undefined
+        ? undefined
+        : { membershipId: connection.memberId, role: extras.role ?? 'editor' };
+
+    return buildConnectionHandle({
+      controller,
       state,
-      {
-        vaultId: connection.vaultId,
-        memberId: connection.memberId as string,
-        deviceId: connection.deviceId as string,
-      },
-      () => {
-        void controller.syncNow();
-      },
-      producerRef,
-      extras.hooks,
+      producer,
+      selfMembership,
+      apiBaseUrl: connection.apiBaseUrl,
+    });
+  } catch (error) {
+    // Unforeseen throw after the controller was built: never leak an orphaned,
+    // unstoppable controller (it would cycle to reconnect-required and arm the
+    // owner /auth/rejoin 401 loop). Tear it down, then rethrow so the caller
+    // still learns the connect failed.
+    console.error(
+      'Havemind: sync-loop assembly failed after the controller started; tearing it down.',
+      error,
     );
+    controller.stop();
+    throw error;
   }
+}
 
-  // The local member's own persistent roster entry, when the server issued a
-  // membership id. Presence is connection state, so this is recorded once and
-  // stays connected until an explicit teardown.
-  const selfMembership =
-    connection.memberId === undefined
-      ? undefined
-      : { membershipId: connection.memberId, role: extras.role ?? 'editor' };
+interface ConnectionHandleParts {
+  readonly controller: HavemindSyncController;
+  readonly state: DurableSyncState;
+  readonly producer: PushProducerHandle | null;
+  readonly selfMembership: ConnectionHandle['selfMembership'];
+  readonly apiBaseUrl: string;
+}
 
+function buildConnectionHandle(parts: ConnectionHandleParts): ConnectionHandle {
+  const { controller, state, producer, selfMembership, apiBaseUrl } = parts;
   return {
     ...(selfMembership === undefined ? {} : { selfMembership }),
     // The live durable state, so the plugin can read the send-queue (SND-01) and
@@ -1098,7 +1173,7 @@ async function startSyncLoop(
     ...(producer === null
       ? {}
       : { retryFailedCommit: producer.retryFailedCommit }),
-    serverName: serverNameFromUrl(connection.apiBaseUrl),
+    serverName: serverNameFromUrl(apiBaseUrl),
   };
 }
 
@@ -1586,6 +1661,12 @@ export async function connectFromInput(
     );
     return null;
   } catch (error) {
+    // Never swallow the real error blind: a null connect with only a UI banner
+    // hides whatever actually threw (e.g. a post-pair assembly failure), making
+    // the field outage undiagnosable. Log the underlying error to the console.
+    // `startSyncLoop` already tears down any controller it started before it
+    // rethrows, so no orphaned sync loop leaks into the /auth/rejoin poll here.
+    console.error('Havemind: connect failed.', error);
     options.report(`Could not connect: ${describeError(error)}`);
     return null;
   }
