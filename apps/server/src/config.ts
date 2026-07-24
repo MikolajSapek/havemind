@@ -1,3 +1,5 @@
+import { join } from 'node:path';
+
 // F9 binary attachments: DEFAULT_MAX_PAYLOAD_BYTES in sync-routes.ts is 36 MiB
 // (a 25 MB raw file inflates to ~33.4 MB as base64). The Fastify body limit
 // must sit above that plus JSON envelope/batch overhead, so the default is
@@ -243,4 +245,50 @@ function containsControlCharacter(value: string): boolean {
 
 function isLoopbackHost(host: string): boolean {
   return host === '127.0.0.1' || host === '::1' || host === 'localhost';
+}
+
+// --- Encrypted checkpoints (plans/006) --------------------------------------
+
+/** A 32-byte X25519 recipient public key is 64 lowercase hex characters. */
+export const CHECKPOINT_PUBLIC_KEY_HEX_LENGTH = 64;
+
+const CHECKPOINTS_DIRNAME = 'checkpoints';
+const HEX32_PATTERN = /^[0-9a-f]{64}$/u;
+
+/**
+ * Validates the checkpoint recipient PUBLIC key from the environment. The
+ * server only ever holds the public key (it can seal a new checkpoint but never
+ * open any — plans/006 "Zarządzanie kluczem"). Returns null when unset so the
+ * CLI can require it only for `checkpoint create`.
+ */
+export function parseCheckpointPublicKeyHex(
+  value: string | undefined,
+): string | null {
+  if (value === undefined || value.trim() === '') {
+    return null;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (!HEX32_PATTERN.test(normalized)) {
+    throw new ConfigValidationError([
+      'HAVEMIND_CHECKPOINT_PUBLIC_KEY must be 64 lowercase hex characters (a 32-byte X25519 public key)',
+    ]);
+  }
+  return normalized;
+}
+
+/**
+ * Resolves the directory checkpoints are written to. Explicit
+ * `HAVEMIND_CHECKPOINT_DIR` wins; otherwise `<HAVEMIND_DATA_DIR>/checkpoints`.
+ * Returns null when neither is set.
+ */
+export function resolveCheckpointDir(env: ServerEnvironment): string | null {
+  const explicit = env.HAVEMIND_CHECKPOINT_DIR;
+  if (explicit !== undefined && explicit.trim() !== '') {
+    return explicit.trim();
+  }
+  const dataDir = env.HAVEMIND_DATA_DIR;
+  if (dataDir !== undefined && dataDir.trim() !== '') {
+    return join(dataDir.trim(), CHECKPOINTS_DIRNAME);
+  }
+  return null;
 }

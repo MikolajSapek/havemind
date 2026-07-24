@@ -50,6 +50,28 @@ export interface Sodium {
     key: Uint8Array,
   ): Uint8Array;
 
+  // --- Anonymous public-key encryption (sealed box, X25519) ----------------
+  // Used by the encrypted-checkpoint layer (plans/006): the server holds ONLY
+  // the recipient public key, so it can SEAL a new checkpoint but can never
+  // OPEN any — only the owner's secret key (kept off-server in a recovery kit)
+  // decrypts. `crypto_box_seal` uses a fresh ephemeral sender keypair per call
+  // and appends a Poly1305 tag, so it provides confidentiality + integrity to
+  // the secret-key holder (a tampered sealed box makes `crypto_box_seal_open`
+  // throw). It is anonymous: it does NOT authenticate the sender.
+  readonly crypto_box_PUBLICKEYBYTES: number;
+  readonly crypto_box_SECRETKEYBYTES: number;
+  crypto_box_keypair(): {
+    readonly publicKey: Uint8Array;
+    readonly privateKey: Uint8Array;
+    readonly keyType: string;
+  };
+  crypto_box_seal(message: Uint8Array, publicKey: Uint8Array): Uint8Array;
+  crypto_box_seal_open(
+    ciphertext: Uint8Array,
+    publicKey: Uint8Array,
+    secretKey: Uint8Array,
+  ): Uint8Array;
+
   // --- CSPRNG --------------------------------------------------------------
   randombytes_buf(length: number): Uint8Array;
 }
