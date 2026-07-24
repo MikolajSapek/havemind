@@ -493,6 +493,26 @@ export function registerSyncRoutes(
           // authoritative in-transaction check tripped (e.g. a concurrent push
           // charged the last free bytes between the pre-check and this commit).
           // Fail closed with 413 so the client stops rather than dead-lettering.
+          //
+          // Revisions before this one may have already committed and advanced
+          // the durable cursor. That accepted prefix must still wake any held
+          // /wait peers now, or they'd only converge on the heartbeat instead
+          // of near-real-time — the early return below would otherwise bypass
+          // the notify block further down entirely. Best-effort, exactly like
+          // the notify at the end of a fully-processed batch.
+          if (
+            deps.wakeRegistry !== undefined &&
+            results.some((result) => result.status === 'accepted')
+          ) {
+            try {
+              deps.wakeRegistry.notify(
+                params.data.vaultId,
+                deps.revisions.getCursor(params.data.vaultId),
+              );
+            } catch {
+              // Wake is advisory; the poll fallback still converges the client.
+            }
+          }
           return sendCommitError(reply, error);
         }
         if (error instanceof RevisionRepositoryError) {

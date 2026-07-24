@@ -159,6 +159,11 @@ function makeFixture(): Fixture {
   };
 }
 
+interface SyncBlobStore {
+  put: BlobStore['put'];
+  read: BlobStore['read'];
+}
+
 function createApp(
   fixture: Fixture,
   options?: {
@@ -173,6 +178,12 @@ function createApp(
     maxPayloadBytes?: number;
     wakeRegistry?: VaultWakeRegistry;
     waitTimeoutMs?: number;
+    /**
+     * Overrides the blob store used by the sync routes, letting a test
+     * inject side effects (e.g. shrinking a vault's quota) at a precise
+     * point in the per-revision commit loop.
+     */
+    blobStore?: SyncBlobStore;
   },
 ): ReturnType<typeof buildApp> {
   const config = parseServerConfig(TEST_ENV);
@@ -184,7 +195,7 @@ function createApp(
       ...(options?.rateLimit === undefined ? {} : { rateLimit: options.rateLimit }),
       sessions: fixture.sessions,
       sync: {
-        blobStore: fixture.blobStore,
+        blobStore: options?.blobStore ?? fixture.blobStore,
         database: fixture.database,
         ...(options?.maxPayloadBytes === undefined
           ? {}
@@ -202,6 +213,10 @@ function createApp(
   });
   applications.push(app);
   return app;
+}
+
+function setVaultQuota(database: Database.Database, vaultId: string, quota: number): void {
+  database.prepare(`UPDATE vaults SET quota_bytes = ? WHERE id = ?`).run(quota, vaultId);
 }
 
 function header(
@@ -988,6 +1003,84 @@ describe('sync push/pull routes', () => {
       expect((rejected.json() as { results: Array<{ status: string }> }).results[0]?.status).toBe(
         'rejected',
       );
+      expect(notify).not.toHaveBeenCalled();
+    });
+
+    it('wakes a held /wait peer for the committed prefix when a later revision in the same batch trips QUOTA_EXCEEDED (413)', async () => {
+      const fixture = makeFixture();
+      const registry = new VaultWakeRegistry();
+      // Large enough that the batch-level pre-check (sum of the 3 new blobs)
+      // passes; the quota is shrunk mid-loop below to force the third
+      // revision's authoritative in-transaction check to trip, simulating a
+      // concurrent push racing the pre-check.
+      setVaultQuota(fixture.database, VAULT_A, 1_000);
+      let putCalls = 0;
+      const blobStore: SyncBlobStore = {
+        put: async (input) => {
+          putCalls += 1;
+          if (putCalls === 3) {
+            setVaultQuota(fixture.database, VAULT_A, 100);
+          }
+          return fixture.blobStore.put(input);
+        },
+        read: (hash) => fixture.blobStore.read(hash),
+      };
+      const app = createApp(fixture, {
+        blobStore,
+        wakeRegistry: registry,
+        waitTimeoutMs: 10_000,
+      });
+
+      const held = app.inject({
+        headers: { authorization: `Bearer ${fixture.accessTokenA}` },
+        method: 'GET',
+        url: `/vaults/${VAULT_A}/wait?cursor=0`,
+      });
+
+      await waitFor(() => registry.pendingCount(VAULT_A) === 1);
+
+      const notify = vi.spyOn(registry, 'notify');
+      const pushed = await push(app, fixture.accessTokenA, VAULT_A, [
+        revisionInput(REVISION_1, [], 'k1', 'a'.repeat(60)),
+        revisionInput(REVISION_2, [REVISION_1], 'k2', 'b'.repeat(60)),
+        revisionInput(REVISION_3, [REVISION_2], 'k3', 'c'.repeat(60)),
+      ]);
+
+      expect(pushed.statusCode).toBe(413);
+      expect(pushed.json()).toEqual({ error: { code: 'QUOTA_EXCEEDED' } });
+      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).toHaveBeenCalledWith(VAULT_A, 2);
+
+      const waited = await held;
+      expect(waited.statusCode).toBe(200);
+      expect(waited.json()).toEqual({ cursor: 2 });
+      expect(registry.pendingCount(VAULT_A)).toBe(0);
+    });
+
+    it('does not notify when the first revision in the batch trips QUOTA_EXCEEDED (zero accepted)', async () => {
+      const fixture = makeFixture();
+      const registry = new VaultWakeRegistry();
+      setVaultQuota(fixture.database, VAULT_A, 1_000);
+      let putCalls = 0;
+      const blobStore: SyncBlobStore = {
+        put: async (input) => {
+          putCalls += 1;
+          if (putCalls === 1) {
+            setVaultQuota(fixture.database, VAULT_A, 10);
+          }
+          return fixture.blobStore.put(input);
+        },
+        read: (hash) => fixture.blobStore.read(hash),
+      };
+      const app = createApp(fixture, { blobStore, wakeRegistry: registry });
+
+      const notify = vi.spyOn(registry, 'notify');
+      const pushed = await push(app, fixture.accessTokenA, VAULT_A, [
+        revisionInput(REVISION_1, [], 'k1', 'a'.repeat(60)),
+      ]);
+
+      expect(pushed.statusCode).toBe(413);
+      expect(pushed.json()).toEqual({ error: { code: 'QUOTA_EXCEEDED' } });
       expect(notify).not.toHaveBeenCalled();
     });
 
