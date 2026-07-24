@@ -23,6 +23,7 @@ RUN apt-get update \
 COPY package.json package-lock.json ./
 COPY apps/server/package.json apps/server/package.json
 COPY packages/protocol/package.json packages/protocol/package.json
+COPY packages/crypto/package.json packages/crypto/package.json
 COPY packages/sync-core/package.json packages/sync-core/package.json
 COPY apps/obsidian-plugin/package.json apps/obsidian-plugin/package.json
 
@@ -31,9 +32,11 @@ RUN npm ci
 # Copy the sources needed to build the server and its runtime dependency graph.
 COPY tsconfig.base.json ./
 COPY packages/protocol packages/protocol
+COPY packages/crypto packages/crypto
 COPY apps/server apps/server
 
 RUN npm run build --workspace @havemind/protocol \
+  && npm run build --workspace @havemind/crypto \
   && npm run build --workspace @havemind/server
 
 # Prune to production dependencies for the runtime stage.
@@ -50,6 +53,8 @@ WORKDIR /app
 COPY --from=build --chown=1000:1000 /app/node_modules ./node_modules
 COPY --from=build --chown=1000:1000 /app/packages/protocol/dist ./packages/protocol/dist
 COPY --from=build --chown=1000:1000 /app/packages/protocol/package.json ./packages/protocol/package.json
+COPY --from=build --chown=1000:1000 /app/packages/crypto/dist ./packages/crypto/dist
+COPY --from=build --chown=1000:1000 /app/packages/crypto/package.json ./packages/crypto/package.json
 COPY --from=build --chown=1000:1000 /app/apps/server/dist ./apps/server/dist
 COPY --from=build --chown=1000:1000 /app/apps/server/package.json ./apps/server/package.json
 COPY --from=build --chown=1000:1000 /app/apps/server/healthcheck.js ./apps/server/healthcheck.js
