@@ -22,6 +22,7 @@ import {
   type RevisionRepositoryErrorCode,
 } from '../revision-repository.js';
 import type { AccessSession } from '../auth/session-repository.js';
+import type { VaultWakeRegistry } from './vault-wake-registry.js';
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
@@ -76,7 +77,30 @@ export interface SyncRoutesDeps {
   readonly freeDiskBytes?: () => Promise<number> | number;
   /** Reject writes when free disk falls below this many bytes (S6). */
   readonly minFreeDiskBytes?: number;
+  /**
+   * Optional in-memory wake registry backing real-time push. When present, the
+   * push route notifies it once per batch that commits at least one revision,
+   * and `GET /wait` holds requests against it. When omitted, `/wait` degrades to
+   * an immediate heartbeat (returns the current cursor without holding), so the
+   * client's poll fallback still drives sync.
+   */
+  readonly wakeRegistry?: VaultWakeRegistry;
+  /**
+   * How long `GET /wait` holds a request before returning a cursor-unchanged
+   * heartbeat, in milliseconds. MUST stay strictly below the Fastify
+   * `requestTimeout` (30_000 in app.ts) so the server, never a proxy, always
+   * ends the request cleanly. Injected for tests; defaults to 25_000.
+   */
+  readonly waitTimeoutMs?: number;
 }
+
+const DEFAULT_WAIT_TIMEOUT_MS = 25_000;
+
+const waitQuerySchema = z
+  .object({
+    cursor: z.coerce.number().int().nonnegative().safe().optional(),
+  })
+  .strict();
 
 interface MembershipRow {
   readonly membershipId: string;
@@ -491,8 +515,112 @@ export function registerSyncRoutes(
       }
     }
 
+    // Real-time push wake: if this batch durably committed at least one new
+    // revision (pure replays and all-rejected batches advance nothing), wake
+    // any held /wait requests for this vault EXACTLY ONCE with the final
+    // cursor. Wake is strictly best-effort — a failure here must never turn a
+    // successful commit into an error, so it is isolated in try/catch.
+    if (
+      deps.wakeRegistry !== undefined &&
+      results.some((result) => result.status === 'accepted')
+    ) {
+      try {
+        deps.wakeRegistry.notify(
+          params.data.vaultId,
+          deps.revisions.getCursor(params.data.vaultId),
+        );
+      } catch {
+        // Wake is advisory; the poll fallback still converges the client.
+      }
+    }
+
     reply.header('cache-control', 'no-store');
     return { results };
+  });
+
+  instance.get('/vaults/:vaultId/wait', async (request, reply) => {
+    const params = vaultParamsSchema.safeParse(request.params);
+    if (!params.success) {
+      return sendSyncError(reply, 400, 'INVALID_REQUEST');
+    }
+    const session = requireSession(request, reply);
+    if (session === null) {
+      return reply;
+    }
+    const membership = loadActiveMembership(
+      deps.database,
+      session.userId,
+      params.data.vaultId,
+    );
+    if (membership === null) {
+      return sendSyncError(reply, 403, 'FORBIDDEN');
+    }
+
+    const query = waitQuerySchema.safeParse(request.query);
+    if (!query.success) {
+      return sendSyncError(reply, 400, 'INVALID_REQUEST');
+    }
+    const clientCursor = query.data.cursor ?? 0;
+
+    let current: number;
+    try {
+      current = deps.revisions.getCursor(params.data.vaultId);
+    } catch (error) {
+      return sendCommitError(reply, error);
+    }
+
+    // Fast path: the server already has newer revisions than the client holds,
+    // or no registry is wired — return the current cursor without holding.
+    const wakeRegistry = deps.wakeRegistry;
+    if (current > clientCursor || wakeRegistry === undefined) {
+      reply.header('cache-control', 'no-store');
+      return { cursor: current };
+    }
+
+    const waitTimeoutMs = deps.waitTimeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS;
+
+    return await new Promise<{ cursor: number }>((resolve) => {
+      let settled = false;
+
+      const teardown = (): void => {
+        clearTimeout(timer);
+        unsubscribe();
+        request.raw.removeListener('close', onClientGone);
+        request.raw.removeListener('aborted', onClientGone);
+      };
+
+      const finish = (cursor: number): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        teardown();
+        reply.header('cache-control', 'no-store');
+        resolve({ cursor });
+      };
+
+      function onClientGone(): void {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        teardown();
+        // The client is gone: take over the reply so Fastify does not try to
+        // serialise a body onto a dead socket, then settle the handler promise
+        // so it cannot leak.
+        reply.hijack();
+        resolve({ cursor: current });
+      }
+
+      const unsubscribe = wakeRegistry.subscribe(params.data.vaultId, (cursor) => {
+        finish(cursor);
+      });
+      const timer = setTimeout(() => {
+        finish(current);
+      }, waitTimeoutMs);
+      request.raw.on('close', onClientGone);
+      request.raw.on('aborted', onClientGone);
+    });
   });
 
   instance.get('/vaults/:vaultId/events', async (request, reply) => {

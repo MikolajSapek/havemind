@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { HavemindSyncController, type SyncRunnerLike } from './controller';
+import {
+  HavemindSyncController,
+  type SyncRunnerLike,
+  type WakeSubscriptionLike,
+} from './controller';
 import type { SchedulerHooks } from './scheduler';
 import type { StatusBarView } from './status';
 import type { SyncCycleResult } from '../sync/sync-runner';
@@ -51,7 +55,24 @@ class FakeHooks implements SchedulerHooks {
   }
 }
 
-function build(): {
+class FakeWake implements WakeSubscriptionLike {
+  startCount = 0;
+  stopCount = 0;
+
+  start(): void {
+    this.startCount += 1;
+  }
+
+  stop(): void {
+    this.stopCount += 1;
+  }
+}
+
+function build(overrides?: {
+  intervalMs?: number;
+  wake?: WakeSubscriptionLike;
+  pushConnectedIntervalMs?: number;
+}): {
   controller: HavemindSyncController;
   runner: FakeRunner;
   hooks: FakeHooks;
@@ -63,9 +84,13 @@ function build(): {
   const controller = new HavemindSyncController({
     runner,
     hooks,
-    intervalMs: 60_000,
+    intervalMs: overrides?.intervalMs ?? 60_000,
     onStatus: (_status, view) => statuses.push(view),
     now: () => 1_000,
+    ...(overrides?.wake === undefined ? {} : { wake: overrides.wake }),
+    ...(overrides?.pushConnectedIntervalMs === undefined
+      ? {}
+      : { pushConnectedIntervalMs: overrides.pushConnectedIntervalMs }),
   });
   return { controller, runner, hooks, statuses };
 }
@@ -120,6 +145,34 @@ describe('HavemindSyncController', () => {
     controller.start();
     controller.stop();
     expect(runner.stopCount).toBe(1);
+  });
+
+  it('starts and stops the push subscription in lockstep with the schedule', () => {
+    const wake = new FakeWake();
+    const { controller } = build({ wake });
+    controller.start();
+    expect(wake.startCount).toBe(1);
+    controller.stop();
+    expect(wake.stopCount).toBe(1);
+  });
+
+  it('degrades the poll to the slow heartbeat while push is connected and reverts when it drops', () => {
+    const wake = new FakeWake();
+    const { controller, hooks } = build({
+      intervalMs: 15_000,
+      pushConnectedIntervalMs: 60_000,
+      wake,
+    });
+    controller.start();
+    expect(hooks.interval?.ms).toBe(15_000);
+
+    // Push comes up: the poll degrades to the slow heartbeat.
+    controller.setPushConnected(true);
+    expect(hooks.interval?.ms).toBe(60_000);
+
+    // Push drops: the poll reverts to the normal cadence.
+    controller.setPushConnected(false);
+    expect(hooks.interval?.ms).toBe(15_000);
   });
 
   const OFFLINE: SyncCycleResult = { ...CLEAN, status: 'offline' };

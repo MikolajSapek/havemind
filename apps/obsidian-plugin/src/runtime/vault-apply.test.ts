@@ -73,7 +73,7 @@ class FakeFiles implements VaultFilePort {
   /** Paths whose write throws ParentFolderOccupiedError (simulated occupancy). */
   parentFolderOccupied = new Set<string>();
 
-  openBufferStates(fileId: string): readonly OpenBuffer[] {
+  async openBufferStates(fileId: string): Promise<readonly OpenBuffer[]> {
     return this.buffers.get(fileId) ?? [];
   }
 

@@ -19,6 +19,7 @@ import { BlobStore } from './blob-store.js';
 import { RevisionRepository } from './revision-repository.js';
 import { InvitationService } from './auth/invitations.js';
 import { SessionRepository } from './auth/session-repository.js';
+import { VaultWakeRegistry } from './sync/vault-wake-registry.js';
 
 // The setup CLI (`havemind setup`) writes the database under this name, so the
 // server must open the same file it initialised. Blobs live beside it.
@@ -52,6 +53,11 @@ async function main(): Promise<void> {
     vaultQuotaBytes: config.vaultQuotaBytes,
   });
 
+  // In-memory real-time push wake registry (see vault-wake-registry.ts). A
+  // single instance is shared by the push route (notify on commit) and the
+  // /wait long-poll route (subscribe while held).
+  const wakeRegistry = new VaultWakeRegistry();
+
   // O(1) free-bytes probe on the data-root filesystem for the disk-pressure
   // guard (plans/005 S6). `bavail`/`bsize` give the space available to a
   // non-privileged writer without scanning any file.
@@ -81,6 +87,7 @@ async function main(): Promise<void> {
         vaultQuotaBytes: config.vaultQuotaBytes,
         freeDiskBytes,
         minFreeDiskBytes: config.minFreeDiskBytes,
+        wakeRegistry,
       },
     },
   });

@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { hashPlaintext } from '@havemind/protocol';
+
 // Obsidian's real `requestUrl()` resolves to `{ status, headers, arrayBuffer,
 // json, text }` (see obsidian.d.ts). The shared test mock re-exports the
 // platform surface used by lifecycle tests but has no reason to model
@@ -103,6 +105,26 @@ class FakeVault {
 
   async modify(file: AbstractFileLike, data: string): Promise<void> {
     this.entries.set(file.path, { kind: 'file', content: data });
+  }
+
+  async read(file: AbstractFileLike): Promise<string> {
+    return this.entries.get(file.path)?.content ?? '';
+  }
+
+  async delete(file: AbstractFileLike): Promise<void> {
+    this.entries.delete(file.path);
+  }
+
+  has(path: string): boolean {
+    return this.entries.has(path);
+  }
+
+  fileCountUnder(prefix: string): number {
+    let count = 0;
+    for (const [path, entry] of this.entries) {
+      if (entry.kind === 'file' && path.startsWith(prefix)) count += 1;
+    }
+    return count;
   }
 
   async readBinary(file: AbstractFileLike): Promise<ArrayBuffer> {
@@ -612,6 +634,259 @@ describe('createVaultFilePort ensures parent folders on create-materialization',
     ).rejects.toBeInstanceOf(ParentFolderOccupiedError);
     // The occupying file is left untouched.
     expect(vault.getAbstractFileByPath('Notatki')).toBeInstanceOf(TFile);
+  });
+});
+
+/** A single open editor leaf double for the buffer-reconciliation tests. */
+class FakeLeaf {
+  detached = false;
+  constructor(
+    readonly view: {
+      file: { path: string } | null;
+      editor?: { getValue: () => string };
+    },
+  ) {}
+
+  detach(): void {
+    this.detached = true;
+  }
+}
+
+/** Workspace double exposing only the markdown-leaf enumeration the port uses. */
+class FakeWorkspace {
+  constructor(private readonly markdownLeaves: FakeLeaf[]) {}
+
+  getLeavesOfType(type: string): FakeLeaf[] {
+    return type === 'markdown' ? [...this.markdownLeaves] : [];
+  }
+}
+
+/** A DurableSyncState stand-in exposing only what `createVaultFilePort` reads. */
+function makeState(seed: {
+  owners?: Record<string, string>;
+  baseHashes?: Record<string, string>;
+}) {
+  const owners = new Map(Object.entries(seed.owners ?? {}));
+  const baseHashes = new Map(Object.entries(seed.baseHashes ?? {}));
+  return {
+    fileIdAtPath: (path: string): string | null => owners.get(path) ?? null,
+    baseHashFor: (id: string): string | null => baseHashes.get(id) ?? null,
+    recordBaseHash: async (): Promise<void> => undefined,
+    forgetBaseHash: async (): Promise<void> => undefined,
+    baseContentFor: (): string | null => null,
+    recordBaseContent: async (): Promise<void> => undefined,
+    forgetBaseContent: async (): Promise<void> => undefined,
+    recordPathOwner: async (): Promise<void> => undefined,
+    forgetPath: async (path: string): Promise<void> => {
+      owners.delete(path);
+    },
+    conflictArtifactPathFor: (): string | null => null,
+    recordConflictArtifactPath: async (): Promise<void> => undefined,
+  };
+}
+
+describe('createVaultFilePort open-buffer reconciliation and delete-detach (delete-not-live)', () => {
+  it('detaches an open leaf displaying the file BEFORE removing it on disk', async () => {
+    const { createVaultFilePort } = await import('./obsidian-adapters');
+    const { TFile, TFolder } = await import('obsidian');
+    const vault = new FakeVault(TFile, TFolder);
+    vault.seedFile('Notes/a.md', 'A\n');
+    const leaf = new FakeLeaf({ file: { path: 'Notes/a.md' } });
+    const port = createVaultFilePort({
+      vault: vault as never,
+      state: makeState({}) as never,
+      workspace: new FakeWorkspace([leaf]) as never,
+    });
+
+    await port.deleteByPath('Notes/a.md');
+
+    expect(leaf.detached).toBe(true);
+    expect(vault.has('Notes/a.md')).toBe(false);
+  });
+
+  it('leaves a leaf showing a DIFFERENT file attached on delete', async () => {
+    const { createVaultFilePort } = await import('./obsidian-adapters');
+    const { TFile, TFolder } = await import('obsidian');
+    const vault = new FakeVault(TFile, TFolder);
+    vault.seedFile('Notes/a.md', 'A\n');
+    vault.seedFile('Notes/other.md', 'O\n');
+    const otherLeaf = new FakeLeaf({ file: { path: 'Notes/other.md' } });
+    const port = createVaultFilePort({
+      vault: vault as never,
+      state: makeState({}) as never,
+      workspace: new FakeWorkspace([otherLeaf]) as never,
+    });
+
+    await port.deleteByPath('Notes/a.md');
+
+    expect(otherLeaf.detached).toBe(false);
+    expect(vault.has('Notes/other.md')).toBe(true);
+  });
+
+  it('reports a CLEAN open buffer (current hash == base) for the owning fileId', async () => {
+    const { createVaultFilePort } = await import('./obsidian-adapters');
+    const { TFile, TFolder } = await import('obsidian');
+    const synced = 'Hello\n';
+    const base = await hashPlaintext(synced);
+    const leaf = new FakeLeaf({
+      file: { path: 'Notes/a.md' },
+      editor: { getValue: () => synced },
+    });
+    const port = createVaultFilePort({
+      vault: new FakeVault(TFile, TFolder) as never,
+      state: makeState({
+        owners: { 'Notes/a.md': 'file-1' },
+        baseHashes: { 'file-1': base },
+      }) as never,
+      workspace: new FakeWorkspace([leaf]) as never,
+    });
+
+    const buffers = await port.openBufferStates('file-1');
+
+    expect(buffers).toEqual([{ currentHash: base, baseHash: base }]);
+  });
+
+  it('reports a DIRTY open buffer (current hash != base) and ignores leaves for other files', async () => {
+    const { createVaultFilePort } = await import('./obsidian-adapters');
+    const { TFile, TFolder } = await import('obsidian');
+    const synced = 'Hello\n';
+    const base = await hashPlaintext(synced);
+    const dirty = 'Hello — unsaved edit\n';
+    const dirtyLeaf = new FakeLeaf({
+      file: { path: 'Notes/a.md' },
+      editor: { getValue: () => dirty },
+    });
+    // A leaf for a different file must never be reported for file-1.
+    const otherLeaf = new FakeLeaf({
+      file: { path: 'Notes/b.md' },
+      editor: { getValue: () => 'B\n' },
+    });
+    const port = createVaultFilePort({
+      vault: new FakeVault(TFile, TFolder) as never,
+      state: makeState({
+        owners: { 'Notes/a.md': 'file-1', 'Notes/b.md': 'file-2' },
+        baseHashes: { 'file-1': base },
+      }) as never,
+      workspace: new FakeWorkspace([dirtyLeaf, otherLeaf]) as never,
+    });
+
+    const buffers = await port.openBufferStates('file-1');
+
+    expect(buffers).toHaveLength(1);
+    expect(buffers[0]?.baseHash).toBe(base);
+    expect(buffers[0]?.currentHash).not.toBe(base);
+    expect(buffers[0]?.currentHash).toBe(await hashPlaintext(dirty));
+  });
+
+  it('apply-side: a remote delete of an open CLEAN buffer removes the file and detaches the leaf (no resurrection)', async () => {
+    const { createVaultFilePort } = await import('./obsidian-adapters');
+    const { VaultApplyAdapter } = await import('./vault-apply');
+    const { decideRemoteApply } = await import('../sync/sync-runner');
+    const { TFile, TFolder } = await import('obsidian');
+
+    const synced = 'Body\n';
+    const base = await hashPlaintext(synced);
+    const vault = new FakeVault(TFile, TFolder);
+    vault.seedFile('Notes/a.md', synced);
+    const cleanLeaf = new FakeLeaf({
+      file: { path: 'Notes/a.md' },
+      editor: { getValue: () => synced }, // clean: editor == synced base
+    });
+    const port = createVaultFilePort({
+      vault: vault as never,
+      state: makeState({
+        owners: { 'Notes/a.md': 'file-1' },
+        baseHashes: { 'file-1': base },
+      }) as never,
+      workspace: new FakeWorkspace([cleanLeaf]) as never,
+    });
+    const adapter = new VaultApplyAdapter({
+      files: port,
+      conflictFolder: 'Havemind Conflicts',
+      resolveRevision: async () => ({
+        operation: 'delete',
+        path: 'Notes/a.md',
+        previousPath: null,
+        content: null,
+      }),
+      hashContent: (c) => hashPlaintext(c),
+    });
+    const deleteEvent = {
+      serverSequence: 4,
+      revision: {
+        revisionId: 'rev-del',
+        fileId: 'file-1',
+        contentHash: 'delete-hash',
+      },
+    };
+
+    // The runner's apply gate sees a clean buffer → apply.
+    const buffers = await adapter.openBuffers('file-1');
+    expect(decideRemoteApply(buffers, deleteEvent.revision.contentHash)).toBe(
+      'apply',
+    );
+
+    const outcome = await adapter.applyRemote(deleteEvent);
+
+    expect(outcome).toBe('applied');
+    expect(vault.has('Notes/a.md')).toBe(false); // gone from disk
+    expect(cleanLeaf.detached).toBe(true); // no live leaf survives to resurrect it
+  });
+
+  it('apply-side: a remote delete of an open DIRTY buffer diverts to a conflict, never a silent deletion', async () => {
+    const { createVaultFilePort } = await import('./obsidian-adapters');
+    const { VaultApplyAdapter } = await import('./vault-apply');
+    const { decideRemoteApply } = await import('../sync/sync-runner');
+    const { TFile, TFolder } = await import('obsidian');
+
+    const synced = 'Body\n';
+    const base = await hashPlaintext(synced);
+    const vault = new FakeVault(TFile, TFolder);
+    vault.seedFile('Notes/a.md', synced);
+    const dirtyLeaf = new FakeLeaf({
+      file: { path: 'Notes/a.md' },
+      editor: { getValue: () => 'Body — unsaved local edit\n' }, // divergent
+    });
+    const port = createVaultFilePort({
+      vault: vault as never,
+      state: makeState({
+        owners: { 'Notes/a.md': 'file-1' },
+        baseHashes: { 'file-1': base },
+      }) as never,
+      workspace: new FakeWorkspace([dirtyLeaf]) as never,
+    });
+    const adapter = new VaultApplyAdapter({
+      files: port,
+      conflictFolder: 'Havemind Conflicts',
+      resolveRevision: async () => ({
+        operation: 'delete',
+        path: 'Notes/a.md',
+        previousPath: null,
+        content: null,
+      }),
+      hashContent: (c) => hashPlaintext(c),
+    });
+    const deleteEvent = {
+      serverSequence: 4,
+      revision: {
+        revisionId: 'rev-del',
+        fileId: 'file-1',
+        contentHash: 'delete-hash',
+      },
+    };
+
+    // The apply gate sees a dirty buffer with a known base → conflict, not apply.
+    const buffers = await adapter.openBuffers('file-1');
+    expect(decideRemoteApply(buffers, deleteEvent.revision.contentHash)).toBe(
+      'conflict',
+    );
+
+    // The runner routes a conflict decision to recordConflict (never applyRemote).
+    await adapter.recordConflict(deleteEvent);
+
+    expect(vault.has('Notes/a.md')).toBe(true); // the user's file is preserved
+    expect(dirtyLeaf.detached).toBe(false); // the open editor is left untouched
+    expect(vault.fileCountUnder('Havemind Conflicts')).toBeGreaterThan(0);
   });
 });
 

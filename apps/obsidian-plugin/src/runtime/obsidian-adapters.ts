@@ -46,6 +46,30 @@ import {
 /** The runtime App exposes a Vault; the ambient stub only models what we use. */
 type AppWithVault = { vault: Vault };
 
+/**
+ * A single open editor leaf, as seen by the buffer-reconciliation and
+ * delete-detach paths. Kept minimal and structural (like `AppWithVault`) so it
+ * binds to the real Obsidian `WorkspaceLeaf`/`MarkdownView` by cast and is
+ * trivially faked in tests: `view.file.path` identifies the note the leaf shows,
+ * `view.editor.getValue()` reads its live in-memory content, and `detach()`
+ * closes the leaf.
+ */
+interface EditorLeafLike {
+  readonly view?: {
+    readonly file?: { readonly path?: string } | null;
+    readonly editor?: { getValue(): string };
+  } | null;
+  detach(): void;
+}
+
+/** The narrow workspace surface the vault file port reconciles open buffers over. */
+interface WorkspaceLike {
+  getLeavesOfType(type: string): EditorLeafLike[];
+}
+
+/** The runtime App also exposes a Workspace; only the leaf enumeration is used. */
+type AppWithWorkspace = { workspace: WorkspaceLike };
+
 import {
   rebaseCanonicalizedHashes,
   type RebaseVaultPort,
@@ -56,6 +80,7 @@ import {
   type RetryFailedCommitOutcome,
 } from './commit-recovery';
 import { HavemindSyncController, type StatusListener } from './controller';
+import { WakeSubscription } from './wake-subscription';
 import { ModifyDebouncer } from './modify-debounce';
 import {
   createSerializedDataPort,
@@ -190,6 +215,13 @@ function toActivityKind(kind: LocalChangeKind): ActivityKind {
 
 const PERSIST_KEY = 'syncState';
 const DEFAULT_INTERVAL_MS = 15 * 1000;
+/**
+ * Poll cadence while the real-time push channel is connected. The long-poll
+ * `WakeSubscription` delivers peer changes within a round-trip, so the periodic
+ * poll degrades to this slow heartbeat and reverts to `DEFAULT_INTERVAL_MS` when
+ * push is down.
+ */
+const PUSH_CONNECTED_INTERVAL_MS = 60_000;
 const CONFLICT_FOLDER = 'Havemind Conflicts';
 
 /** Wraps Obsidian's `requestUrl` as the transport's `RequestUrlFn`. */
@@ -327,6 +359,13 @@ export function createBackoffScheduler(): SchedulerFn {
 export interface VaultFilePortOptions {
   readonly vault: Vault;
   readonly state: DurableSyncState;
+  /**
+   * The live workspace, so the port can report open editor buffers to the apply
+   * gate and detach a leaf before a remote delete removes its file on disk.
+   * Optional: when absent no buffer is reported and no leaf is detached (the
+   * pre-buffer behaviour), which keeps callers that never open editors simple.
+   */
+  readonly workspace?: WorkspaceLike;
 }
 
 /**
@@ -450,13 +489,48 @@ async function ensureParentFolders(
 }
 
 export function createVaultFilePort(options: VaultFilePortOptions): VaultFilePort {
-  const { vault, state } = options;
+  const { vault, state, workspace } = options;
+  // Detaches every open markdown leaf currently displaying `path`. Called BEFORE
+  // a delete removes the file on disk so no live editor survives to re-write it
+  // on the next autosave/layout-persist (the delete-resurrection bug). A no-op
+  // when no workspace is wired.
+  const detachLeavesForPath = (path: string): void => {
+    if (workspace === undefined) return;
+    for (const leaf of workspace.getLeavesOfType('markdown')) {
+      if (leaf.view?.file?.path === path) {
+        leaf.detach();
+      }
+    }
+  };
   return {
-    openBufferStates(): readonly OpenBuffer[] {
-      // Buffer divergence is resolved from the editor layer; the desktop shell
-      // wires live buffers in a later slice. Until then no buffer is reported,
-      // which is the safe default (clean → apply).
-      return [];
+    async openBufferStates(fileId): Promise<readonly OpenBuffer[]> {
+      // Reconcile the apply gate against the LIVE editor: every open markdown
+      // leaf whose file this device owns as `fileId` reports its in-memory hash
+      // vs the last synced base. A clean buffer (current == base) is safe to
+      // apply/delete; a dirty buffer diverts to a conflict rather than a silent
+      // overwrite/deletion (rule 3, zero silent overwrites). No workspace wired
+      // → no buffer reported, the safe pre-buffer default (clean → apply).
+      if (workspace === undefined) {
+        return [];
+      }
+      const baseHash = state.baseHashFor(fileId);
+      const buffers: OpenBuffer[] = [];
+      for (const leaf of workspace.getLeavesOfType('markdown')) {
+        const path = leaf.view?.file?.path;
+        const editor = leaf.view?.editor;
+        if (typeof path !== 'string' || editor === undefined) {
+          continue;
+        }
+        if (state.fileIdAtPath(path) !== fileId) {
+          continue;
+        }
+        // Hash the editor's in-memory content the SAME way the base hash was
+        // recorded (`hashPlaintext` canonicalises internally), so a buffer that
+        // still holds the synced content compares equal to its base.
+        const currentHash = await hashPlaintext(editor.getValue());
+        buffers.push({ currentHash, baseHash });
+      }
+      return buffers;
     },
     fileIdAtPath(path) {
       // The single shared ownership truth: a path Havemind owns (authored here or
@@ -523,6 +597,13 @@ export function createVaultFilePort(options: VaultFilePortOptions): VaultFilePor
     async deleteByPath(path) {
       const existing = vault.getAbstractFileByPath(path);
       if (existing !== null) {
+        // Detach any live editor leaf for this file BEFORE removing it on disk.
+        // Otherwise an open CodeMirror leaf re-materialises the note on its next
+        // autosave/layout-persist and the deletion only "sticks" after a restart
+        // (the delete-resurrection bug). The apply gate has already ruled out a
+        // DIRTY open buffer (that path diverts to a conflict), so any leaf here
+        // is clean and safe to close.
+        detachLeavesForPath(path);
         await vault.delete(existing);
       }
     },
@@ -617,6 +698,7 @@ export function buildSyncController(
     files: createVaultFilePort({
       vault: (plugin.app as unknown as AppWithVault).vault,
       state,
+      workspace: (plugin.app as unknown as AppWithWorkspace).workspace,
     }),
     conflictFolder: CONFLICT_FOLDER,
     resolveRevision: connection.resolveRevision,
@@ -663,11 +745,33 @@ export function buildSyncController(
     onCycleComplete: (result) => controllerRef.current?.observeCycle(result),
   });
 
+  // Real-time push: a held long-poll on the server's wait endpoint wakes the
+  // sync loop the moment a peer advances the log, instead of waiting up to a
+  // whole poll interval. Callbacks are late-bound through `controllerRef` (the
+  // controller is built just below), matching the runner's `onCycleComplete`
+  // wiring. While push is connected the controller degrades the poll to a slow
+  // heartbeat; it reverts to `DEFAULT_INTERVAL_MS` when push drops.
+  const wake = new WakeSubscription({
+    requestUrl: createRequestUrlFn(),
+    apiBaseUrl: connection.apiBaseUrl,
+    vaultId: connection.vaultId,
+    getAuthToken: connection.getAuthToken,
+    loadCursor: () => state.loadCursor(),
+    onWake: () => {
+      void controllerRef.current?.syncNow();
+    },
+    onConnectedChange: (connected) => {
+      controllerRef.current?.setPushConnected(connected);
+    },
+  });
+
   const controller = new HavemindSyncController({
     runner,
     hooks: createSchedulerHooks(plugin),
     intervalMs: connection.intervalMs ?? DEFAULT_INTERVAL_MS,
     onStatus,
+    wake,
+    pushConnectedIntervalMs: PUSH_CONNECTED_INTERVAL_MS,
   });
   controllerRef.current = controller;
 

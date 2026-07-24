@@ -50,8 +50,12 @@ export class ParentFolderOccupiedError extends Error {
 }
 
 export interface VaultFilePort {
-  /** Open editor buffer states for the file, or an empty list if none open. */
-  openBufferStates(fileId: string): readonly OpenBuffer[];
+  /**
+   * Open editor buffer states for the file, or an empty list if none open.
+   * Async because computing each buffer's current-content hash goes through the
+   * shared SHA-256 helper (`hashPlaintext`).
+   */
+  openBufferStates(fileId: string): Promise<readonly OpenBuffer[]>;
   /** The fileId of the live file currently at `path`, or null if none. */
   fileIdAtPath(path: string): string | null;
   /** The current on-disk content at `path`, or null if no file exists there. */

@@ -29,32 +29,53 @@ export class SyncScheduler {
   private readonly options: SyncSchedulerOptions;
   private disposers: Array<() => void> = [];
   private running = false;
+  private intervalMs: number;
+  private intervalDisposer: (() => void) | null = null;
+  private fire: () => void = () => undefined;
 
   constructor(options: SyncSchedulerOptions) {
     this.options = options;
+    this.intervalMs = options.intervalMs;
   }
 
   start(): void {
     if (this.running) return;
     this.running = true;
 
-    const fire = (): void => {
+    this.fire = (): void => {
       if (this.running) this.options.trigger();
     };
 
     // Startup: production calls `start()` from `workspace.onLayoutReady`, so the
     // first trigger fires as soon as the schedule is armed.
-    fire();
-    this.disposers.push(this.options.hooks.onFocus(fire));
-    this.disposers.push(this.options.hooks.onOnline(fire));
-    this.disposers.push(
-      this.options.hooks.setInterval(fire, this.options.intervalMs),
+    this.fire();
+    this.disposers.push(this.options.hooks.onFocus(this.fire));
+    this.disposers.push(this.options.hooks.onOnline(this.fire));
+    this.intervalDisposer = this.options.hooks.setInterval(
+      this.fire,
+      this.intervalMs,
     );
+  }
+
+  /**
+   * Re-arms the periodic timer at a new cadence, disposing the current interval
+   * registration and re-registering at `ms`. Used to degrade the poll to a slow
+   * heartbeat while a real-time push channel is connected and revert it when push
+   * is down, without disturbing the focus/online triggers. A no-op (other than
+   * remembering `ms` for the next `start()`) while stopped.
+   */
+  setIntervalMs(ms: number): void {
+    this.intervalMs = ms;
+    if (!this.running) return;
+    this.intervalDisposer?.();
+    this.intervalDisposer = this.options.hooks.setInterval(this.fire, ms);
   }
 
   stop(): void {
     if (!this.running) return;
     this.running = false;
+    this.intervalDisposer?.();
+    this.intervalDisposer = null;
     for (const dispose of this.disposers.splice(0)) {
       dispose();
     }

@@ -66,6 +66,44 @@ describe('SyncScheduler', () => {
     expect(hooks.disposed).toBe(3);
   });
 
+  it('re-arms the interval at a new cadence, disposing the previous timer', () => {
+    const hooks = new FakeHooks();
+    let triggers = 0;
+    const scheduler = new SyncScheduler({
+      trigger: () => {
+        triggers += 1;
+      },
+      hooks,
+      intervalMs: 15_000,
+    });
+    scheduler.start();
+    expect(hooks.interval?.ms).toBe(15_000);
+
+    scheduler.setIntervalMs(60_000);
+    // The previous interval disposer fired exactly once, and the timer is
+    // re-registered at the new cadence.
+    expect(hooks.disposed).toBe(1);
+    expect(hooks.interval?.ms).toBe(60_000);
+
+    // The re-armed interval still funnels into the trigger.
+    triggers = 0;
+    hooks.interval?.run();
+    expect(triggers).toBe(1);
+  });
+
+  it('remembers a cadence set before start and applies it on start', () => {
+    const hooks = new FakeHooks();
+    const scheduler = new SyncScheduler({
+      trigger: () => undefined,
+      hooks,
+      intervalMs: 15_000,
+    });
+    scheduler.setIntervalMs(60_000); // before start: no timer exists yet
+    expect(hooks.interval).toBeNull();
+    scheduler.start();
+    expect(hooks.interval?.ms).toBe(60_000);
+  });
+
   it('ignores triggers fired after stop', () => {
     const hooks = new FakeHooks();
     let triggers = 0;

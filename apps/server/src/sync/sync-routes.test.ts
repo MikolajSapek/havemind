@@ -8,7 +8,7 @@ import {
   type ProtectedRevisionHeader,
 } from '@havemind/protocol';
 import type Database from 'better-sqlite3';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { buildApp } from '../app.js';
 import { SessionRepository } from '../auth/session-repository.js';
@@ -19,6 +19,7 @@ import { openDatabase } from '../db.js';
 import { runMigrations } from '../migrations.js';
 import { RevisionRepository } from '../revision-repository.js';
 import { DEFAULT_MAX_PAYLOAD_BYTES } from './sync-routes.js';
+import { VaultWakeRegistry } from './vault-wake-registry.js';
 
 const TEST_ENV = {
   HAVEMIND_API_BASE_URL: 'https://sync.example.test/api/v1',
@@ -170,6 +171,8 @@ function createApp(
      */
     useFixedClientKey?: boolean;
     maxPayloadBytes?: number;
+    wakeRegistry?: VaultWakeRegistry;
+    waitTimeoutMs?: number;
   },
 ): ReturnType<typeof buildApp> {
   const config = parseServerConfig(TEST_ENV);
@@ -187,6 +190,12 @@ function createApp(
           ? {}
           : { maxPayloadBytes: options.maxPayloadBytes }),
         revisions: fixture.revisions,
+        ...(options?.wakeRegistry === undefined
+          ? {}
+          : { wakeRegistry: options.wakeRegistry }),
+        ...(options?.waitTimeoutMs === undefined
+          ? {}
+          : { waitTimeoutMs: options.waitTimeoutMs }),
       },
     },
     config,
@@ -833,6 +842,204 @@ describe('sync push/pull routes', () => {
 
       expect(first.statusCode).toBe(200);
       expect(second.statusCode).toBe(429);
+    });
+  });
+
+  describe('real-time push wake (GET /vaults/:vaultId/wait)', () => {
+    async function waitFor(
+      predicate: () => boolean,
+      timeoutMs = 1_000,
+    ): Promise<void> {
+      const start = Date.now();
+      while (!predicate()) {
+        if (Date.now() - start > timeoutMs) {
+          throw new Error('waitFor condition timed out');
+        }
+        await new Promise((resolve) => {
+          setTimeout(resolve, 5);
+        });
+      }
+    }
+
+    it('requires authentication (no bearer -> 401)', async () => {
+      const fixture = makeFixture();
+      const app = createApp(fixture, { wakeRegistry: new VaultWakeRegistry() });
+
+      const unauth = await app.inject({
+        method: 'GET',
+        url: `/vaults/${VAULT_A}/wait?cursor=0`,
+      });
+
+      expect(unauth.statusCode).toBe(401);
+      expect(unauth.json()).toEqual({ error: { code: 'UNAUTHENTICATED' } });
+    });
+
+    it('forbids a non-member polling another vault with 403', async () => {
+      const fixture = makeFixture();
+      const app = createApp(fixture, { wakeRegistry: new VaultWakeRegistry() });
+
+      const cross = await app.inject({
+        headers: { authorization: `Bearer ${fixture.accessTokenB}` },
+        method: 'GET',
+        url: `/vaults/${VAULT_A}/wait?cursor=0`,
+      });
+
+      expect(cross.statusCode).toBe(403);
+      expect(cross.json()).toEqual({ error: { code: 'FORBIDDEN' } });
+    });
+
+    it('returns immediately with the current cursor when the server is already ahead', async () => {
+      const fixture = makeFixture();
+      const registry = new VaultWakeRegistry();
+      const app = createApp(fixture, { wakeRegistry: registry });
+
+      await push(app, fixture.accessTokenA, VAULT_A, [
+        revisionInput(REVISION_1, [], 'k1', 'opaque-1'),
+      ]);
+
+      const waited = await app.inject({
+        headers: { authorization: `Bearer ${fixture.accessTokenA}` },
+        method: 'GET',
+        url: `/vaults/${VAULT_A}/wait?cursor=0`,
+      });
+
+      expect(waited.statusCode).toBe(200);
+      expect(waited.headers['cache-control']).toBe('no-store');
+      expect(waited.json()).toEqual({ cursor: 1 });
+      // No waiter is ever registered on the fast path.
+      expect(registry.pendingCount(VAULT_A)).toBe(0);
+    });
+
+    it('wakes a held request when a peer commits a revision', async () => {
+      const fixture = makeFixture();
+      const registry = new VaultWakeRegistry();
+      const app = createApp(fixture, {
+        wakeRegistry: registry,
+        waitTimeoutMs: 10_000,
+      });
+
+      const held = app.inject({
+        headers: { authorization: `Bearer ${fixture.accessTokenA}` },
+        method: 'GET',
+        url: `/vaults/${VAULT_A}/wait?cursor=0`,
+      });
+
+      await waitFor(() => registry.pendingCount(VAULT_A) === 1);
+
+      await push(app, fixture.accessTokenA, VAULT_A, [
+        revisionInput(REVISION_1, [], 'k1', 'opaque-1'),
+      ]);
+
+      const waited = await held;
+      expect(waited.statusCode).toBe(200);
+      expect(waited.json()).toEqual({ cursor: 1 });
+      expect(registry.pendingCount(VAULT_A)).toBe(0);
+    });
+
+    it('notifies exactly once for a batch with at least one accepted revision', async () => {
+      const fixture = makeFixture();
+      const registry = new VaultWakeRegistry();
+      const notify = vi.spyOn(registry, 'notify');
+      const app = createApp(fixture, { wakeRegistry: registry });
+
+      await push(app, fixture.accessTokenA, VAULT_A, [
+        revisionInput(REVISION_1, [], 'k1', 'opaque-1'),
+        revisionInput(REVISION_2, [REVISION_1], 'k2', 'opaque-2'),
+      ]);
+
+      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).toHaveBeenCalledWith(VAULT_A, 2);
+    });
+
+    it('does not notify for a pure replay batch', async () => {
+      const fixture = makeFixture();
+      const registry = new VaultWakeRegistry();
+      const app = createApp(fixture, { wakeRegistry: registry });
+
+      await push(app, fixture.accessTokenA, VAULT_A, [
+        revisionInput(REVISION_1, [], 'k1', 'opaque-1'),
+      ]);
+
+      const notify = vi.spyOn(registry, 'notify');
+      const replay = await push(app, fixture.accessTokenA, VAULT_A, [
+        revisionInput(REVISION_1, [], 'k1-again', 'opaque-1'),
+      ]);
+
+      expect((replay.json() as { results: Array<{ status: string }> }).results[0]?.status).toBe(
+        'replayed',
+      );
+      expect(notify).not.toHaveBeenCalled();
+    });
+
+    it('does not notify for an all-rejected batch', async () => {
+      const fixture = makeFixture();
+      const registry = new VaultWakeRegistry();
+      const app = createApp(fixture, { wakeRegistry: registry });
+
+      await push(app, fixture.accessTokenA, VAULT_A, [
+        revisionInput(REVISION_1, [], 'k1', 'opaque-1'),
+      ]);
+
+      const notify = vi.spyOn(registry, 'notify');
+      const rejected = await push(app, fixture.accessTokenA, VAULT_A, [
+        revisionInput(REVISION_1, [], 'k1-conflict', 'different-bytes'),
+      ]);
+
+      expect((rejected.json() as { results: Array<{ status: string }> }).results[0]?.status).toBe(
+        'rejected',
+      );
+      expect(notify).not.toHaveBeenCalled();
+    });
+
+    it('resolves with the unchanged cursor when the hold times out', async () => {
+      const fixture = makeFixture();
+      const registry = new VaultWakeRegistry();
+      const app = createApp(fixture, {
+        wakeRegistry: registry,
+        waitTimeoutMs: 100,
+      });
+
+      const waited = await app.inject({
+        headers: { authorization: `Bearer ${fixture.accessTokenA}` },
+        method: 'GET',
+        url: `/vaults/${VAULT_A}/wait?cursor=0`,
+      });
+
+      expect(waited.statusCode).toBe(200);
+      expect(waited.json()).toEqual({ cursor: 0 });
+      expect(registry.pendingCount(VAULT_A)).toBe(0);
+    });
+
+    it('unregisters the waiter when the client aborts the held request', async () => {
+      const fixture = makeFixture();
+      const registry = new VaultWakeRegistry();
+      const app = createApp(fixture, {
+        wakeRegistry: registry,
+        waitTimeoutMs: 10_000,
+      });
+
+      await app.listen({ host: '127.0.0.1', port: 0 });
+      const address = app.server.address();
+      if (address === null || typeof address === 'string') {
+        throw new Error('expected a bound TCP address');
+      }
+      const controller = new AbortController();
+      const request = fetch(
+        `http://127.0.0.1:${address.port}/vaults/${VAULT_A}/wait?cursor=0`,
+        {
+          headers: { authorization: `Bearer ${fixture.accessTokenA}` },
+          signal: controller.signal,
+        },
+      ).catch(() => undefined);
+
+      await waitFor(() => registry.pendingCount(VAULT_A) === 1);
+      controller.abort();
+      await request;
+
+      // The abort teardown must drop the waiter so notify never fires against a
+      // dead connection (and the 10 s timer is cleared alongside it).
+      await waitFor(() => registry.pendingCount(VAULT_A) === 0);
+      expect(registry.pendingCount(VAULT_A)).toBe(0);
     });
   });
 });
