@@ -734,7 +734,21 @@ export class DurableSyncState implements SyncStatePort {
       // The last durable snapshot is intact — recover from it, but still stash
       // the corrupt primary for forensics/manual recovery.
       await this.persist.preserveCorrupt(raw, this.now());
-      if (this.cache === null) this.cache = backupOutcome.state;
+      if (this.cache === null) {
+        this.cache = backupOutcome.state;
+        // `.bak` is exactly one generation behind the primary (save() rotates
+        // the prior primary into .bak). If the corrupt primary was damaged in a
+        // NON-outbox field while its own outbox was intact and held revisions
+        // newer than the backup's, `outcome.salvage` preserved them — but this
+        // branch prefers the consistent backup snapshot as the live state
+        // (never auto-merge/union: riskier). Surface the observable recovery
+        // signal so the user knows the live queue was rewound and the richer
+        // salvage lives in the sidecar (just written above) for manual
+        // recovery, rather than the newer delta silently vanishing.
+        if (salvageHasOutboxEntriesMissingFrom(outcome.salvage, backupOutcome.state.outbox)) {
+          this.recoveryRequired = true;
+        }
+      }
       return;
     }
 
@@ -1002,6 +1016,26 @@ function outboxAtRisk(raw: unknown): boolean {
   const outbox = raw.outbox;
   if (outbox === undefined || Array.isArray(outbox)) return false;
   return true;
+}
+
+/**
+ * Cheap, never-throwing check for whether a corrupt primary's SALVAGE (see
+ * {@link salvageState}) preserved outbox revisions the chosen `.bak` snapshot
+ * does not have. `.bak` is exactly one generation behind the primary (save()
+ * rotates the prior primary into `.bak`), so when the primary was corrupted in
+ * a non-outbox field while its outbox stayed intact, that intact outbox can
+ * hold revisions newer than the backup's. This never merges the two — it only
+ * answers "would the discarded salvage have kept something the backup does
+ * not", by comparing revisionId sets (an id present in the salvage but absent
+ * from the backup is a newer, at-risk queue delta).
+ */
+function salvageHasOutboxEntriesMissingFrom(
+  salvage: PersistedSyncState | null,
+  backupOutbox: readonly OutboxEnvelope[],
+): boolean {
+  if (salvage === null || salvage.outbox.length === 0) return false;
+  const backupIds = new Set(backupOutbox.map((entry) => entry.revisionId));
+  return salvage.outbox.some((entry) => !backupIds.has(entry.revisionId));
 }
 
 /**

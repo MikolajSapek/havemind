@@ -486,6 +486,71 @@ describe('DurableSyncState', () => {
       // The corrupt primary is still preserved for forensics.
       expect(persist.corrupt).toHaveLength(1);
     });
+
+    it('flags recovery when a corrupt primary recovered from .bak had a newer queued revision the backup lacks', async () => {
+      // The primary's CORE cursor is corrupt, but its outbox is intact and holds
+      // 'rev-newer' — a revision the one-generation-behind .bak does not have
+      // (e.g. it was enqueued after the last save() rotated .bak). The backup is
+      // a valid, parseable snapshot, so hydrate prefers it as the live state
+      // (never auto-merges), but the newer delta the salvage would have kept
+      // must not silently vanish: the observable recovery signal must be set.
+      persist = new MemoryPersist({
+        version: 1,
+        cursor: 'corrupt',
+        outbox: [envelope({ revisionId: 'rev-newer' })],
+        locallyAuthored: [],
+        deferred: [],
+      });
+      persist.backup = {
+        version: 1,
+        cursor: 12,
+        outbox: [],
+        locallyAuthored: ['rev-x'],
+        deferred: [],
+      };
+      const recovered = new DurableSyncState({ persist, now: () => 7 });
+
+      // The backup snapshot is preferred as the live state — not a merge.
+      expect(await recovered.loadCursor()).toBe(12);
+      expect(await recovered.isLocallyAuthored('rev-x')).toBe(true);
+      expect(await recovered.listOutbox()).toEqual([]);
+      // But the newer delta that was preserved-not-applied must be surfaced.
+      expect(recovered.isRecoveryRequired()).toBe(true);
+      // The raw corrupt primary (with the newer revision) is preserved to the
+      // sidecar for manual recovery.
+      expect(persist.corrupt).toHaveLength(1);
+      expect(persist.corrupt[0]?.raw).toMatchObject({
+        outbox: [expect.objectContaining({ revisionId: 'rev-newer' })],
+      });
+    });
+
+    it('does NOT flag recovery when the .bak-recovered outbox already matches the corrupt primary salvage (no newer delta)', async () => {
+      // Same corrupt-primary-with-intact-outbox shape, but this time the queued
+      // revision is ALSO present in the backup snapshot — the salvage carries
+      // nothing the backup lacks, so no spurious recovery signal should fire.
+      persist = new MemoryPersist({
+        version: 1,
+        cursor: 'corrupt',
+        outbox: [envelope({ revisionId: 'rev-shared' })],
+        locallyAuthored: [],
+        deferred: [],
+      });
+      persist.backup = {
+        version: 1,
+        cursor: 12,
+        outbox: [envelope({ revisionId: 'rev-shared' })],
+        locallyAuthored: ['rev-x'],
+        deferred: [],
+      };
+      const recovered = new DurableSyncState({ persist, now: () => 7 });
+
+      expect(await recovered.loadCursor()).toBe(12);
+      expect((await recovered.listOutbox()).map((r) => r.revisionId)).toEqual([
+        'rev-shared',
+      ]);
+      expect(recovered.isRecoveryRequired()).toBe(false);
+      expect(persist.corrupt).toHaveLength(1);
+    });
   });
 
   describe('send-queue visibility (SND-01)', () => {
