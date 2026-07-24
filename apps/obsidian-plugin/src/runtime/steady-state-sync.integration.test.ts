@@ -118,15 +118,25 @@ class InMemoryVault {
 
 function makeMemoryPersist(): {
   load(): Promise<unknown>;
+  loadBackup(): Promise<unknown>;
   save(state: PersistedSyncState): Promise<void>;
+  preserveCorrupt(raw: unknown, timestamp: number): Promise<void>;
 } {
   let stored: PersistedSyncState | null = null;
+  let backup: PersistedSyncState | null = null;
   return {
     async load() {
       return stored;
     },
+    async loadBackup() {
+      return backup;
+    },
     async save(state) {
+      backup = stored;
       stored = state;
+    },
+    async preserveCorrupt() {
+      /* no-op: this steady-state harness never seeds a corrupt blob */
     },
   };
 }

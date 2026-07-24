@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { Plugin } from 'obsidian';
 
 // Obsidian's real `requestUrl()` resolves to `{ status, headers, arrayBuffer,
 // json, text }` (see obsidian.d.ts). The shared test mock re-exports the
@@ -648,5 +649,95 @@ describe('createSchedulerHooks focus/online listener disposal (MINOR)', () => {
       { type: 'focus', listener: onFocusRun },
       { type: 'online', listener: onOnlineRun },
     ]);
+  });
+});
+
+describe('createPersistPort atomic write + backup (GAP-1)', () => {
+  /** Minimal plugin double exposing only the data blob surface the port uses. */
+  function fakePlugin(
+    disk: { value: Record<string, unknown> },
+    onSave?: (call: number) => void,
+  ) {
+    let saveCalls = 0;
+    return {
+      async loadData() {
+        return disk.value;
+      },
+      async saveData(data: unknown) {
+        saveCalls += 1;
+        onSave?.(saveCalls);
+        disk.value = data as Record<string, unknown>;
+      },
+    } as unknown as Plugin;
+  }
+
+  it('retains the previous good primary when the promote write is torn mid-save', async () => {
+    const { createPersistPort } = await import('./obsidian-adapters');
+    const goodPrimary = { version: 1, cursor: 1, outbox: [], locallyAuthored: [], deferred: [] };
+    const disk = { value: { syncState: goodPrimary } as Record<string, unknown> };
+    // The atomic save writes twice (stage, then promote). Fail the promote.
+    const plugin = fakePlugin(disk, (call) => {
+      if (call === 2) throw new Error('torn write');
+    });
+    const port = createPersistPort(plugin);
+
+    const newState = {
+      version: 1 as const,
+      cursor: 99,
+      outbox: [],
+      locallyAuthored: [],
+      deferred: [],
+      quarantine: [],
+      pathOwners: {},
+      baseHashes: {},
+      baseContents: {},
+      conflictArtifacts: {},
+      quarantinedEnvelopes: {},
+    };
+    await expect(port.save(newState)).rejects.toThrow('torn write');
+
+    // The primary on disk is still the previous good blob, and it is loadable.
+    expect(await port.load()).toEqual(goodPrimary);
+  });
+
+  it('promotes the staged blob and retains exactly one previous-good .bak', async () => {
+    const { createPersistPort } = await import('./obsidian-adapters');
+    const first = { version: 1, cursor: 1, outbox: [], locallyAuthored: [], deferred: [] };
+    const disk = { value: { syncState: first } as Record<string, unknown> };
+    const port = createPersistPort(fakePlugin(disk));
+
+    const second = {
+      version: 1 as const,
+      cursor: 2,
+      outbox: [],
+      locallyAuthored: [],
+      deferred: [],
+      quarantine: [],
+      pathOwners: {},
+      baseHashes: {},
+      baseContents: {},
+      conflictArtifacts: {},
+      quarantinedEnvelopes: {},
+    };
+    await port.save(second);
+
+    // New primary installed; prior primary demoted to the single backup; the
+    // staging slot cleared.
+    expect((await port.load()) as { cursor: number }).toMatchObject({ cursor: 2 });
+    expect((await port.loadBackup()) as { cursor: number }).toMatchObject({ cursor: 1 });
+    expect(disk.value['syncState.staging']).toBeUndefined();
+  });
+
+  it('preserves a corrupt blob under a timestamped sidecar without clobbering an existing one', async () => {
+    const { createPersistPort } = await import('./obsidian-adapters');
+    const disk = { value: {} as Record<string, unknown> };
+    const port = createPersistPort(fakePlugin(disk));
+
+    await port.preserveCorrupt({ bad: 'blob' }, 1000);
+    expect(disk.value['syncStateCorrupt.1000']).toEqual({ bad: 'blob' });
+
+    // A second call at the SAME timestamp must not clobber the existing sidecar.
+    await port.preserveCorrupt({ different: 'blob' }, 1000);
+    expect(disk.value['syncStateCorrupt.1000']).toEqual({ bad: 'blob' });
   });
 });

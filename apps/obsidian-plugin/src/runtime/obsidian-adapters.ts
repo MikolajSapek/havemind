@@ -190,6 +190,25 @@ function toActivityKind(kind: LocalChangeKind): ActivityKind {
 }
 
 const PERSIST_KEY = 'syncState';
+/**
+ * Single previous-good backup of {@link PERSIST_KEY} (GAP-1). Every save demotes
+ * the prior primary here before installing the new one, so a primary that later
+ * parses as corrupt can be recovered from the last durable snapshot.
+ */
+const PERSIST_BAK_KEY = 'syncState.bak';
+/**
+ * Staging slot for the atomic save (GAP-1). The new blob is written here first,
+ * then a second write promotes it to the primary and demotes the old primary to
+ * `.bak`. A torn write during the promote therefore cannot destroy the primary:
+ * on failure the disk still holds the prior primary plus the staged copy.
+ */
+const PERSIST_STAGING_KEY = 'syncState.staging';
+/**
+ * Prefix for a timestamped sidecar preserving a present-but-corrupt primary blob
+ * (GAP-1). The bytes are kept for forensics/manual recovery rather than
+ * discarded; a pre-existing sidecar at the same key is never clobbered.
+ */
+const PERSIST_CORRUPT_PREFIX = 'syncStateCorrupt.';
 const DEFAULT_INTERVAL_MS = 15 * 1000;
 /**
  * Poll cadence while the real-time push channel is connected. The long-poll
@@ -239,19 +258,49 @@ export function createRequestUrlFn(): RequestUrlFn {
  * in SecretStorage.
  */
 export function createPersistPort(plugin: Plugin): SyncStatePersistPort {
+  const mutex = getPluginDataMutex(plugin);
   return {
     async load() {
       const data = await plugin.loadData();
       if (isRecord(data)) return data[PERSIST_KEY] ?? null;
       return null;
     },
+    async loadBackup() {
+      const data = await plugin.loadData();
+      if (isRecord(data)) return data[PERSIST_BAK_KEY] ?? null;
+      return null;
+    },
     async save(state) {
-      // Serialize the load-modify-save so a concurrent write to another
-      // top-level key (producer, roster, onboarding, …) is never clobbered.
-      await getPluginDataMutex(plugin).update((base) => ({
-        ...base,
-        [PERSIST_KEY]: state,
-      }));
+      // Atomic save (GAP-1). Two serialized load-modify-saves, so a torn write
+      // can never destroy the previous good primary, and a concurrent write to
+      // another top-level key (producer, roster, onboarding, …) is never
+      // clobbered (via the shared mutex):
+      //   Phase 1 — stage the new blob under the staging key, leaving the
+      //             primary and its `.bak` untouched.
+      //   Phase 2 — promote: demote the current primary to `.bak`, install the
+      //             staged blob as the new primary, and clear the staging slot.
+      // If phase 2's write is torn, the disk still holds the prior primary plus
+      // the staged copy, so load() keeps returning the last good primary.
+      await mutex.update((base) => ({ ...base, [PERSIST_STAGING_KEY]: state }));
+      await mutex.update((base) => {
+        const next = { ...base };
+        const priorPrimary = next[PERSIST_KEY];
+        // Retain exactly one previous-good backup.
+        if (priorPrimary !== undefined) next[PERSIST_BAK_KEY] = priorPrimary;
+        next[PERSIST_KEY] =
+          PERSIST_STAGING_KEY in next ? next[PERSIST_STAGING_KEY] : state;
+        delete next[PERSIST_STAGING_KEY];
+        return next;
+      });
+    },
+    async preserveCorrupt(raw, timestamp) {
+      // Keep the corrupt bytes under a timestamped sidecar; never clobber a
+      // pre-existing corrupt sidecar at the same key.
+      await mutex.update((base) => {
+        const key = `${PERSIST_CORRUPT_PREFIX}${timestamp}`;
+        if (key in base) return base;
+        return { ...base, [key]: raw };
+      });
     },
   };
 }

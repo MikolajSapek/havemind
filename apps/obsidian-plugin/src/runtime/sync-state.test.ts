@@ -13,6 +13,8 @@ import type { RemoteEvent } from '../sync/sync-runner';
 
 class MemoryPersist implements SyncStatePersistPort {
   saved: unknown = null;
+  backup: unknown = null;
+  corrupt: Array<{ raw: unknown; timestamp: number }> = [];
   saveCalls = 0;
 
   constructor(initial: unknown = null) {
@@ -23,10 +25,24 @@ class MemoryPersist implements SyncStatePersistPort {
     return this.saved;
   }
 
+  async loadBackup(): Promise<unknown> {
+    return this.backup;
+  }
+
   async save(state: unknown): Promise<void> {
     this.saveCalls += 1;
-    // Emulate a real persistence layer's JSON round-trip.
+    // Model the port's promote step: the prior primary becomes the single
+    // backup, the new state becomes the primary. Emulate a real persistence
+    // layer's JSON round-trip.
+    this.backup = this.saved;
     this.saved = JSON.parse(JSON.stringify(state)) as unknown;
+  }
+
+  async preserveCorrupt(raw: unknown, timestamp: number): Promise<void> {
+    this.corrupt.push({
+      raw: JSON.parse(JSON.stringify(raw)) as unknown,
+      timestamp,
+    });
   }
 }
 
@@ -80,7 +96,13 @@ describe('DurableSyncState', () => {
         await loadGate;
         return null;
       },
+      async loadBackup() {
+        return null;
+      },
       async save() {
+        /* no-op */
+      },
+      async preserveCorrupt() {
         /* no-op */
       },
     };
@@ -298,6 +320,101 @@ describe('DurableSyncState', () => {
     const outbox = await state.listOutbox();
     expect(outbox).toHaveLength(1);
     expect(outbox[0]?.contentHash).toBe('hash-2');
+  });
+
+  describe('fail-closed persisted-state recovery (GAP-1)', () => {
+    it('fails closed on a corrupt core field: preserves the raw blob and refuses to overwrite a queued outbox', async () => {
+      // A present blob whose CORE cursor is corrupt but whose outbox still holds
+      // a queued-but-unsent revision. The old fail-OPEN parser returned empty and
+      // the next mutation persisted that wipe — silently losing the revision.
+      const corruptBlob = {
+        version: 1,
+        cursor: 'not-a-number',
+        outbox: [envelope({ revisionId: 'rev-queued' })],
+        locallyAuthored: [],
+        deferred: [],
+      };
+      persist = new MemoryPersist(corruptBlob);
+      const recovered = new DurableSyncState({ persist, now: () => 4242 });
+
+      await recovered.loadCursor(); // triggers the load/parse
+      expect(recovered.isRecoveryRequired()).toBe(true);
+
+      // The original bytes are preserved under a corrupt sidecar, timestamped
+      // from the injected clock — nothing is discarded.
+      expect(persist.corrupt).toHaveLength(1);
+      expect(persist.corrupt[0]?.raw).toEqual(corruptBlob);
+      expect(persist.corrupt[0]?.timestamp).toBe(4242);
+
+      // A mutation must NOT overwrite the on-disk blob: the queued revision is
+      // still on disk, not wiped. This is the data-loss guard.
+      await recovered.saveCursor(9);
+      expect(persist.saveCalls).toBe(0);
+      expect(persist.saved).toEqual(corruptBlob);
+    });
+
+    it('treats a null/absent blob as a clean first run (no recovery flag)', async () => {
+      persist = new MemoryPersist(null);
+      const fresh = new DurableSyncState({ persist });
+
+      expect(await fresh.loadCursor()).toBe(0);
+      expect(await fresh.listOutbox()).toEqual([]);
+      expect(fresh.isRecoveryRequired()).toBe(false);
+      expect(persist.corrupt).toEqual([]);
+
+      // A genuine first run is fully writable — the empty state persists normally.
+      await fresh.saveCursor(3);
+      expect(persist.saveCalls).toBe(1);
+      expect(await fresh.loadCursor()).toBe(3);
+    });
+
+    it('keeps valid outbox envelopes and quarantines one malformed sibling (no full wipe)', async () => {
+      const blob = {
+        version: 1,
+        cursor: 2,
+        outbox: [
+          envelope({ revisionId: 'rev-good' }),
+          { revisionId: 'rev-bad' }, // missing the required envelope fields
+        ],
+        locallyAuthored: [],
+        deferred: [],
+      };
+      const recovered = new DurableSyncState({ persist: new MemoryPersist(blob) });
+
+      // The good envelope survives; the whole outbox is NOT nuked.
+      const outbox = await recovered.listOutbox();
+      expect(outbox.map((row) => row.revisionId)).toEqual(['rev-good']);
+      expect(await recovered.loadCursor()).toBe(2);
+      expect(recovered.isRecoveryRequired()).toBe(false);
+
+      // The bad entry is quarantined (visible), not silently dropped.
+      const quarantine = await recovered.listQuarantine();
+      expect(
+        quarantine.some(
+          (row) => row.revisionId === 'rev-bad' && row.reason === 'corrupt-envelope',
+        ),
+      ).toBe(true);
+    });
+
+    it('recovers from a valid .bak when the primary is corrupt', async () => {
+      persist = new MemoryPersist({ version: 1, cursor: 'corrupt' });
+      persist.backup = {
+        version: 1,
+        cursor: 12,
+        outbox: [],
+        locallyAuthored: ['rev-x'],
+        deferred: [],
+      };
+      const recovered = new DurableSyncState({ persist, now: () => 7 });
+
+      // The last durable snapshot is loaded from .bak, so the state is usable
+      // and NOT recovery-required.
+      expect(await recovered.loadCursor()).toBe(12);
+      expect(await recovered.isLocallyAuthored('rev-x')).toBe(true);
+      expect(recovered.isRecoveryRequired()).toBe(false);
+      // The corrupt primary is still preserved for forensics.
+      expect(persist.corrupt).toHaveLength(1);
+    });
   });
 
   describe('send-queue visibility (SND-01)', () => {

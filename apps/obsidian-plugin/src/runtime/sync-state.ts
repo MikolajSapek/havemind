@@ -114,8 +114,27 @@ export interface PersistedSyncState {
 
 /** Persistence boundary; wraps `Plugin.loadData`/`Plugin.saveData` in production. */
 export interface SyncStatePersistPort {
+  /** The current primary blob (null when absent — a normal first run). */
   load(): Promise<unknown>;
+  /**
+   * The previous-good backup blob (GAP-1), or null when none exists. Read only
+   * when the primary parses as present-but-corrupt, to recover from the last
+   * durable snapshot before declaring recovery-required.
+   */
+  loadBackup(): Promise<unknown>;
+  /**
+   * Atomically persist `state` as the new primary while retaining the prior
+   * primary as the single `.bak` (GAP-1). A torn write must never destroy the
+   * previous good blob.
+   */
   save(state: PersistedSyncState): Promise<void>;
+  /**
+   * Preserve a present-but-corrupt raw blob under a timestamped sidecar key
+   * (GAP-1) so a fail-closed load never discards the bytes it could not parse.
+   * A pre-existing sidecar is never clobbered. `timestamp` is supplied by the
+   * caller (never read from a clock inside pure parse code).
+   */
+  preserveCorrupt(raw: unknown, timestamp: number): Promise<void>;
 }
 
 export interface DurableSyncStateOptions {
@@ -208,6 +227,15 @@ export class DurableSyncState implements SyncStatePort {
   private readonly envelopeBudgetBytes: number;
   private cache: PersistedSyncState | null = null;
   /**
+   * Set when the primary blob was present-but-corrupt in a CORE field AND held
+   * a non-empty outbox we could not parse (GAP-1), and no usable `.bak` existed.
+   * While set, {@link mutate} refuses to persist: the wiped in-memory state must
+   * never overwrite the on-disk blob whose queued-but-unsent revisions were
+   * preserved to a sidecar. Surfaced via {@link isRecoveryRequired} so the UI can
+   * tell the user "local queue needs recovery" instead of silently losing it.
+   */
+  private recoveryRequired = false;
+  /**
    * De-dupes concurrent cold-cache loads. Without it, two callers that both find
    * a null cache each `await persist.load()`; the later resolution re-parses the
    * on-disk blob and clobbers any cache mutation the first caller made during the
@@ -242,6 +270,16 @@ export class DurableSyncState implements SyncStatePort {
     this.envelopeBudgetBytes =
       options.quarantinedEnvelopeBudgetBytes ??
       QUARANTINED_ENVELOPE_BUDGET_BYTES;
+  }
+
+  /**
+   * Whether the last load found a present-but-corrupt blob with an unparseable
+   * non-empty outbox and no usable backup (GAP-1). While true, no mutation is
+   * persisted (the corrupt blob and its sidecar copy are left intact), and the
+   * UI/status should tell the user the local queue needs recovery.
+   */
+  isRecoveryRequired(): boolean {
+    return this.recoveryRequired;
   }
 
   async loadCursor(): Promise<number> {
@@ -647,14 +685,7 @@ export class DurableSyncState implements SyncStatePort {
     if (this.loadPromise === null) {
       this.loadPromise = this.persist
         .load()
-        .then((raw) => {
-          // A mutation may have populated the cache while the load was in
-          // flight (e.g. an enqueue that awaited this same shared promise and
-          // then wrote). Never clobber it — parse only into a still-empty cache.
-          if (this.cache === null) {
-            this.cache = parsePersistedState(raw);
-          }
-        })
+        .then((raw) => this.hydrate(raw))
         .finally(() => {
           this.loadPromise = null;
         });
@@ -664,8 +695,54 @@ export class DurableSyncState implements SyncStatePort {
     return this.cache;
   }
 
+  /**
+   * Parse the loaded primary blob into the cache (GAP-1 fail-closed policy). A
+   * mutation may have populated the cache while the load was in flight (e.g. an
+   * enqueue that awaited this same shared promise and then wrote); never clobber
+   * it — re-check `this.cache === null` before each assignment.
+   *
+   *  - ABSENT (null/undefined): a clean first run → empty, writable state.
+   *  - OK: the parsed state (with bad outbox envelopes quarantined, not nuked).
+   *  - CORRUPT (present but a core field failed): try the `.bak` first; if it is
+   *    a valid present state, recover from it. Otherwise preserve the raw blob to
+   *    a sidecar and, when it held a non-empty outbox at risk, enter
+   *    recovery-required so no wiped state is ever persisted over it.
+   */
+  private async hydrate(raw: unknown): Promise<void> {
+    if (this.cache !== null) return;
+    const outcome = parsePersistedState(raw);
+    if (outcome.status !== 'corrupt') {
+      if (this.cache === null) this.cache = outcome.state;
+      return;
+    }
+
+    const backup = await this.persist.loadBackup();
+    if (this.cache !== null) return;
+    const backupOutcome = parsePersistedState(backup);
+    if (backupOutcome.status === 'ok') {
+      // The last durable snapshot is intact — recover from it, but still stash
+      // the corrupt primary for forensics/manual recovery.
+      await this.persist.preserveCorrupt(raw, this.now());
+      if (this.cache === null) this.cache = backupOutcome.state;
+      return;
+    }
+
+    // No usable backup: fail closed. Preserve the bytes we could not parse, then
+    // refuse to persist a replacement over them when a non-empty outbox was lost.
+    await this.persist.preserveCorrupt(raw, this.now());
+    if (this.cache !== null) return;
+    this.cache = emptyState();
+    if (outcome.corruptOutboxAtRisk) this.recoveryRequired = true;
+  }
+
   private async mutate(next: PersistedSyncState): Promise<void> {
     this.cache = next;
+    // Fail-closed (GAP-1): while recovery is required the on-disk blob still
+    // holds queued-but-unsent revisions we could not parse (preserved to a
+    // sidecar). Persisting the wiped in-memory state here would overwrite them —
+    // the exact silent data loss this guard prevents. Reads still see `next`,
+    // but nothing reaches disk until the user recovers.
+    if (this.recoveryRequired) return;
     await this.persist.save(next);
   }
 
@@ -686,14 +763,67 @@ export class DurableSyncState implements SyncStatePort {
   }
 }
 
-function parsePersistedState(raw: unknown): PersistedSyncState {
-  if (!isRecord(raw) || raw.version !== 1) return emptyState();
+/**
+ * Prefix for the synthetic revisionId of a quarantine row minted for an outbox
+ * envelope that could not be parsed but carried no usable revisionId (GAP-1). It
+ * keeps the bad entry visible in the send-queue panel instead of dropping it.
+ */
+export const CORRUPT_ENVELOPE_PREFIX = 'corrupt-envelope:';
+
+/** Outcome of parsing the untrusted persisted blob (GAP-1 fail-closed policy). */
+interface ParseResult {
+  /**
+   *  - `absent`: null/undefined blob — a normal first run (clean, writable).
+   *  - `ok`: parsed successfully (bad outbox envelopes quarantined, not nuked).
+   *  - `corrupt`: present but a CORE field failed — fail closed.
+   */
+  readonly status: 'absent' | 'ok' | 'corrupt';
+  /** `emptyState()` for `absent`/`corrupt`; the parsed value for `ok`. */
+  readonly state: PersistedSyncState;
+  /**
+   * Only meaningful for `corrupt`: the corrupt blob held a non-empty outbox we
+   * could not parse, so a wiped replacement must never be persisted over it.
+   */
+  readonly corruptOutboxAtRisk: boolean;
+}
+
+/**
+ * True when a corrupt raw blob may still hold queued-but-unsent outbox items
+ * (GAP-1). An explicitly-empty array carries nothing at risk; anything else
+ * present (a non-empty array, or a non-array value we cannot enumerate) is
+ * treated conservatively as at risk so its bytes are never silently replaced.
+ */
+function corruptOutboxAtRisk(raw: unknown): boolean {
+  if (!isRecord(raw)) return false;
+  const outbox = raw.outbox;
+  if (outbox === undefined) return false;
+  if (Array.isArray(outbox)) return outbox.length > 0;
+  return true;
+}
+
+function corruptResult(raw: unknown): ParseResult {
+  return {
+    status: 'corrupt',
+    state: emptyState(),
+    corruptOutboxAtRisk: corruptOutboxAtRisk(raw),
+  };
+}
+
+function parsePersistedState(raw: unknown): ParseResult {
+  // A genuinely absent blob is a normal first run — a clean, writable state,
+  // NOT corruption (GAP-1: distinguish null/absent from present-but-corrupt).
+  if (raw === null || raw === undefined) {
+    return { status: 'absent', state: emptyState(), corruptOutboxAtRisk: false };
+  }
+  if (!isRecord(raw) || raw.version !== 1) return corruptResult(raw);
 
   const cursor = raw.cursor;
   const outbox = raw.outbox;
   const locallyAuthored = raw.locallyAuthored;
   const deferred = raw.deferred;
 
+  // Core-container corruption (a non-array outbox, a bad cursor, etc.) fails
+  // closed — see hydrate(). Individual bad ENTRIES are handled below.
   if (
     !Number.isSafeInteger(cursor) ||
     (cursor as number) < 0 ||
@@ -701,37 +831,44 @@ function parsePersistedState(raw: unknown): PersistedSyncState {
     !Array.isArray(locallyAuthored) ||
     !Array.isArray(deferred)
   ) {
-    return emptyState();
-  }
-
-  const parsedOutbox: OutboxEnvelope[] = [];
-  for (const entry of outbox) {
-    const parsed = parseEnvelope(entry);
-    if (parsed === null) return emptyState();
-    parsedOutbox.push(parsed);
+    return corruptResult(raw);
   }
 
   if (!locallyAuthored.every((value) => typeof value === 'string')) {
-    return emptyState();
+    return corruptResult(raw);
   }
 
   const parsedDeferred: RemoteEvent[] = [];
   for (const entry of deferred) {
     const parsed = parseRemoteEvent(entry);
-    if (parsed === null) return emptyState();
+    if (parsed === null) return corruptResult(raw);
     parsedDeferred.push(parsed);
   }
 
-  const pathOwners = parsePathOwners(raw.pathOwners);
-  if (pathOwners === null) return emptyState();
+  // A single unparseable outbox envelope must NOT discard its parseable siblings
+  // (GAP-1): keep the good ones and quarantine the bad entry so it stays visible
+  // rather than nuking the whole outbox to empty.
+  const parsedOutbox: OutboxEnvelope[] = [];
+  const quarantinedBadEnvelopes: QuarantinedRevision[] = [];
+  outbox.forEach((entry, index) => {
+    const parsed = parseEnvelope(entry);
+    if (parsed === null) {
+      quarantinedBadEnvelopes.push(quarantineForCorruptEnvelope(entry, index));
+    } else {
+      parsedOutbox.push(parsed);
+    }
+  });
+  if (quarantinedBadEnvelopes.length > 0) {
+    console.warn(
+      `Havemind: ${quarantinedBadEnvelopes.length} unparseable outbox envelope(s) were quarantined; the rest of the outbox was preserved.`,
+    );
+  }
 
-  const baseHashes = parseStringMap(raw.baseHashes);
-  if (baseHashes === null) return emptyState();
-
-  // MINOR 8: a malformed OPTIONAL sub-field degrades to its default with a
-  // console.warn rather than nuking the whole blob (which would lose the cursor,
-  // pathOwners and baseHashes over one bad quarantine/stash/artifact entry).
-  // Only core-field corruption (handled above) still resets to empty state.
+  // Non-core sub-fields degrade to their default with a console.warn rather than
+  // nuking the whole blob (MINOR 8, extended to pathOwners/baseHashes under
+  // GAP-1: those maps are re-derivable, so losing them must not wipe the outbox).
+  const pathOwners = parseStringMap(raw.pathOwners) ?? warnDegrade('pathOwners', {});
+  const baseHashes = parseStringMap(raw.baseHashes) ?? warnDegrade('baseHashes', {});
   const baseContents =
     parseStringMap(raw.baseContents) ?? warnDegrade('baseContents', {});
   const conflictArtifacts =
@@ -742,18 +879,41 @@ function parsePersistedState(raw: unknown): PersistedSyncState {
     warnDegrade('quarantinedEnvelopes', {});
 
   return {
-    version: 1,
-    cursor: cursor as number,
-    outbox: parsedOutbox,
-    locallyAuthored: locallyAuthored as string[],
-    deferred: parsedDeferred,
-    quarantine,
-    pathOwners,
-    baseHashes,
-    baseContents,
-    conflictArtifacts,
-    quarantinedEnvelopes,
+    status: 'ok',
+    corruptOutboxAtRisk: false,
+    state: {
+      version: 1,
+      cursor: cursor as number,
+      outbox: parsedOutbox,
+      locallyAuthored: locallyAuthored as string[],
+      deferred: parsedDeferred,
+      // Merge the corrupt-envelope rows in so nothing is silently dropped.
+      quarantine: [...quarantine, ...quarantinedBadEnvelopes],
+      pathOwners,
+      baseHashes,
+      baseContents,
+      conflictArtifacts,
+      quarantinedEnvelopes,
+    },
   };
+}
+
+/**
+ * Build a quarantine row for an unparseable outbox envelope (GAP-1). Reuses the
+ * entry's own revisionId/fileId when present; otherwise mints a synthetic id
+ * from the index so the row is stable and visible.
+ */
+function quarantineForCorruptEnvelope(
+  entry: unknown,
+  index: number,
+): QuarantinedRevision {
+  const revisionId =
+    isRecord(entry) && typeof entry.revisionId === 'string'
+      ? entry.revisionId
+      : `${CORRUPT_ENVELOPE_PREFIX}${index}`;
+  const fileId =
+    isRecord(entry) && typeof entry.fileId === 'string' ? entry.fileId : '';
+  return { revisionId, fileId, reason: 'corrupt-envelope' };
 }
 
 /**
@@ -804,12 +964,6 @@ function parseQuarantine(value: unknown): QuarantinedRevision[] | null {
     });
   }
   return result;
-}
-
-function parsePathOwners(
-  value: unknown,
-): Record<string, string> | null {
-  return parseStringMap(value);
 }
 
 /** Parses an untrusted `Record<string, string>`; undefined degrades to empty. */
