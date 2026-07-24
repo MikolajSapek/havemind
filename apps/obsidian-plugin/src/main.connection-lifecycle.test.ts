@@ -378,6 +378,50 @@ describe('Retry now (user-initiated reconnect)', () => {
     plugin.unload();
   });
 
+  it('a successful re-pair via connectFromInput disarms the rejoin poll and clears the sticky banner (FINDING 1c)', async () => {
+    // After a terminal auth failure the invitee rejoin poll is armed and the
+    // sticky "server refused" banner is set. If the user instead re-pairs from
+    // scratch (owner /owner/pair path), connectFromInput must tear that terminal
+    // state down — matching retryConnection's disarm-first idiom — otherwise the
+    // doomed rejoin poll keeps running and the banner never drops even though a
+    // healthy session is live.
+    const plugin = newPlugin();
+    const controller = { attempt: vi.fn(), getState: () => 'terminal-auth' };
+    adapterMocks.buildRejoinControllerForInvitee.mockResolvedValue(controller);
+
+    // A terminal auth failure arms the invitee rejoin poll and sets the banner.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (plugin as any).handleStatus('reconnect-required', STATUS_VIEW);
+    await flushMicrotasks();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((plugin as any).rejoinController).toBe(controller);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((plugin as any).connectionError).toBeDefined();
+
+    // The user re-pairs from scratch and the pairing succeeds.
+    const paired = fakeHandle('re-paired');
+    adapterMocks.connectFromInput.mockResolvedValue(paired);
+    await (
+      plugin as unknown as {
+        connectFromInput: (
+          input: string,
+          serverUrl: string,
+          report: (message: string) => void,
+        ) => Promise<void>;
+      }
+    ).connectFromInput('owner-pairing-token', 'https://sapserver.example', () => {});
+
+    // The stale rejoin poll is disarmed, the sticky banner is cleared, and the
+    // sync controller runs on the freshly paired session.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((plugin as any).rejoinController).toBeNull();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((plugin as any).connectionError).toBeUndefined();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((plugin as any).connection).toBe(paired);
+    plugin.unload();
+  });
+
   it('no-ops a poll tick when the connection was re-established since the poll armed (FINDING 1b, generation guard)', async () => {
     const plugin = newPlugin();
     const attempt = vi

@@ -1865,6 +1865,13 @@ export default class HavemindPlugin extends Plugin {
     // identity during the reconnect window — the stale-identity 403 burst. This
     // is an explicit user-initiated (re)connect, so replacing the connection is
     // the intended outcome; the new identity is the only one that pushes after.
+    //
+    // FINDING 1c: disarm any armed invitee rejoin poll BEFORE the pairing attempt,
+    // matching retryConnection's disarm-first ordering. If a terminal auth failure
+    // left the poll armed, a stale tick must not re-fire mid-pair against the
+    // connection this re-pair is about to build. If the re-pair fails and lands
+    // back in reconnect-required, handleStatus re-arms the poll from scratch.
+    this.disarmRejoin();
     this.connection?.stop();
     this.connection = null;
     const handle = await connectFromInput(this, input, serverUrl, {
@@ -1908,6 +1915,14 @@ export default class HavemindPlugin extends Plugin {
       // down here.
       this.awaitingApproval = null;
       this.guestInvitationInvalid = false;
+      // FINDING 1c: a successful re-pair is the recovery from a terminal auth
+      // failure. Tear down the terminal rejoin state — mirror disconnect(): stop
+      // the doomed rejoin poll and drop the sticky "server refused" banner —
+      // otherwise the poll keeps running and the banner never clears even though
+      // this fresh session is live and syncing. disarmRejoin() is idempotent, so
+      // this stays correct alongside the pre-pairing disarm above.
+      this.disarmRejoin();
+      this.connectionError = undefined;
       this.connection = handle;
       this.syncState = handle.state ?? null;
       // A live connection was (re-)established — advance the generation (FINDING 1b).
