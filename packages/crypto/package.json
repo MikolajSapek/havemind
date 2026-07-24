@@ -1,0 +1,26 @@
+{
+  "name": "@havemind/crypto",
+  "version": "0.0.0-private",
+  "private": true,
+  "description": "De-risking crypto spike: pure vault-key derivation, key-wrap and payload AEAD for Havemind E2EE (plans/004). Not wired into sync.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run --root ../.. packages/crypto/src",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "6.0.3",
+    "vitest": "4.1.10"
+  },
+  "dependencies": {
+    "libsodium-wrappers-sumo": "0.8.4"
+  }
+}
