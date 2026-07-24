@@ -7,6 +7,7 @@
  */
 
 import type { OnboardingSecretsPort } from '../onboarding/controller';
+import type { PendingRotation } from './access-token';
 import type { SecretStoragePort } from '../storage/secret-store';
 import { isValidClientInstanceId } from '../storage/client-store';
 
@@ -20,6 +21,7 @@ export class ObsidianOnboardingSecrets implements OnboardingSecretsPort {
   private readonly invitationKey: string;
   private readonly pendingKey: string;
   private readonly refreshKey: string;
+  private readonly pendingRotationKey: string;
 
   constructor(options: ObsidianOnboardingSecretsOptions) {
     if (!isValidClientInstanceId(options.clientInstanceId)) {
@@ -32,6 +34,7 @@ export class ObsidianOnboardingSecrets implements OnboardingSecretsPort {
     this.invitationKey = `${prefix}-invitation`;
     this.pendingKey = `${prefix}-pending`;
     this.refreshKey = `${prefix}-refresh`;
+    this.pendingRotationKey = `${prefix}-pending-rotation`;
   }
 
   async getInvitationEnvelope(): Promise<string | null> {
@@ -64,6 +67,42 @@ export class ObsidianOnboardingSecrets implements OnboardingSecretsPort {
 
   async saveRefreshToken(value: string): Promise<void> {
     this.write(this.refreshKey, value);
+  }
+
+  /**
+   * The in-flight refresh rotation record (rule 6: secret material, so it lives
+   * in SecretStorage alongside the refresh token, never in `data.json`). Stored
+   * as JSON; a malformed or absent value reads back as null.
+   */
+  async getPendingRotation(): Promise<PendingRotation | null> {
+    const raw = this.read(this.pendingRotationKey);
+    if (raw === null) {
+      return null;
+    }
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      if (
+        typeof parsed === 'object' &&
+        parsed !== null &&
+        typeof (parsed as Record<string, unknown>).refreshToken === 'string' &&
+        typeof (parsed as Record<string, unknown>).rotationId === 'string' &&
+        typeof (parsed as Record<string, unknown>).successorRefreshToken ===
+          'string'
+      ) {
+        return parsed as PendingRotation;
+      }
+    } catch {
+      // Corrupt record: treat as absent so a fresh rotation is minted.
+    }
+    return null;
+  }
+
+  async savePendingRotation(record: PendingRotation): Promise<void> {
+    this.write(this.pendingRotationKey, JSON.stringify(record));
+  }
+
+  async clearPendingRotation(): Promise<void> {
+    this.write(this.pendingRotationKey, '');
   }
 
   private read(key: string): string | null {

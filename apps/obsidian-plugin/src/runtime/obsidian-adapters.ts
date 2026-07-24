@@ -992,6 +992,9 @@ async function startSyncLoop(
     saveRefreshToken: (value) => secrets.saveRefreshToken(value),
     generateRotationId: generateRotationIdValue,
     generateSuccessorToken: generateRefreshTokenValue,
+    loadPendingRotation: () => secrets.getPendingRotation(),
+    savePendingRotation: (record) => secrets.savePendingRotation(record),
+    clearPendingRotation: () => secrets.clearPendingRotation(),
   });
   const resolvers = buildConnectionResolvers({
     apiBaseUrl: connection.apiBaseUrl,
@@ -1729,6 +1732,9 @@ export async function createInvitationForOwner(
     saveRefreshToken: (value) => secrets.saveRefreshToken(value),
     generateRotationId: generateRotationIdValue,
     generateSuccessorToken: generateRefreshTokenValue,
+    loadPendingRotation: () => secrets.getPendingRotation(),
+    savePendingRotation: (record) => secrets.savePendingRotation(record),
+    clearPendingRotation: () => secrets.clearPendingRotation(),
   });
 
   return createVaultInvitation({
@@ -1775,6 +1781,9 @@ export async function approvePendingDeviceForOwner(
     saveRefreshToken: (value) => secrets.saveRefreshToken(value),
     generateRotationId: generateRotationIdValue,
     generateSuccessorToken: generateRefreshTokenValue,
+    loadPendingRotation: () => secrets.getPendingRotation(),
+    savePendingRotation: (record) => secrets.savePendingRotation(record),
+    clearPendingRotation: () => secrets.clearPendingRotation(),
   });
 
   return approveRedeemedDevice({
@@ -1817,6 +1826,9 @@ export async function requestRejoinGrantForOwner(
     saveRefreshToken: (value) => secrets.saveRefreshToken(value),
     generateRotationId: generateRotationIdValue,
     generateSuccessorToken: generateRefreshTokenValue,
+    loadPendingRotation: () => secrets.getPendingRotation(),
+    savePendingRotation: (record) => secrets.savePendingRotation(record),
+    clearPendingRotation: () => secrets.clearPendingRotation(),
   });
 
   return requestRejoinGrant({
@@ -1856,6 +1868,9 @@ export async function revokeMembershipForOwner(
     saveRefreshToken: (value) => secrets.saveRefreshToken(value),
     generateRotationId: generateRotationIdValue,
     generateSuccessorToken: generateRefreshTokenValue,
+    loadPendingRotation: () => secrets.getPendingRotation(),
+    savePendingRotation: (record) => secrets.savePendingRotation(record),
+    clearPendingRotation: () => secrets.clearPendingRotation(),
   });
 
   return revokeMembership({
