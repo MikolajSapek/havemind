@@ -5,6 +5,25 @@
 // headroom above the new default.
 export const DEFAULT_BODY_LIMIT_BYTES = 40 * 1024 * 1024;
 
+// Per-vault storage quota (F9 attachments/quota, plans/005). Accounting is a
+// pure byte sum over the DISTINCT blob_hash set a vault references, so the
+// server stays opaque: it never inspects payload contents, only `blob_size`.
+// Default 2 GiB leaves ample room for the two disposable pilot vaults plus
+// retained history inside sapserver's ~96 GB free disk, while staying low
+// enough that a single client cannot fill the box (see the disk-pressure guard
+// below). `MAX_VAULT_QUOTA_BYTES` (64 GiB) is a hard configuration ceiling that
+// keeps the free-disk guard meaningful even if the quota is mis-set.
+export const DEFAULT_VAULT_QUOTA_BYTES = 2 * 1024 * 1024 * 1024;
+export const MAX_VAULT_QUOTA_BYTES = 64 * 1024 * 1024 * 1024;
+
+// Disk-pressure guard: an O(1) statfs-style free-bytes check on the data-root
+// filesystem, evaluated once per push before any blob is written. Below this
+// threshold writes fail closed with STORAGE_UNAVAILABLE (507). Reads are never
+// blocked. This is the last line of defence shared across every vault, WAL and
+// backup directory on the single ITX box.
+export const DEFAULT_MIN_FREE_DISK_BYTES = 2 * 1024 * 1024 * 1024;
+const MAX_MIN_FREE_DISK_BYTES = 1024 * 1024 * 1024 * 1024;
+
 const MIN_BODY_LIMIT_BYTES = 1024;
 const MAX_BODY_LIMIT_BYTES = 64 * 1024 * 1024;
 const DEFAULT_HOST = '127.0.0.1';
@@ -29,8 +48,10 @@ export interface ServerConfig {
   readonly bodyLimitBytes: number;
   readonly host: string;
   readonly logLevel: ServerLogLevel;
+  readonly minFreeDiskBytes: number;
   readonly port: number;
   readonly serverName: string;
+  readonly vaultQuotaBytes: number;
 }
 
 export class ConfigValidationError extends Error {
@@ -73,6 +94,20 @@ export function parseServerConfig(environment: ServerEnvironment): ServerConfig 
     MIN_BODY_LIMIT_BYTES,
     MAX_BODY_LIMIT_BYTES,
   );
+  const vaultQuotaBytes = parseBoundedInteger(
+    environment.HAVEMIND_VAULT_QUOTA_BYTES,
+    'HAVEMIND_VAULT_QUOTA_BYTES',
+    DEFAULT_VAULT_QUOTA_BYTES,
+    0,
+    MAX_VAULT_QUOTA_BYTES,
+  );
+  const minFreeDiskBytes = parseBoundedInteger(
+    environment.HAVEMIND_MIN_FREE_DISK_BYTES,
+    'HAVEMIND_MIN_FREE_DISK_BYTES',
+    DEFAULT_MIN_FREE_DISK_BYTES,
+    0,
+    MAX_MIN_FREE_DISK_BYTES,
+  );
   const logLevel = parseLogLevel(environment.HAVEMIND_LOG_LEVEL);
 
   return Object.freeze({
@@ -80,8 +115,10 @@ export function parseServerConfig(environment: ServerEnvironment): ServerConfig 
     bodyLimitBytes,
     host,
     logLevel,
+    minFreeDiskBytes,
     port,
     serverName,
+    vaultQuotaBytes,
   });
 }
 

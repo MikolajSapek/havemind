@@ -8,7 +8,7 @@ import type Database from 'better-sqlite3';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { buildApp } from '../app.js';
-import { parseServerConfig } from '../config.js';
+import { DEFAULT_VAULT_QUOTA_BYTES, parseServerConfig } from '../config.js';
 import { openDatabase } from '../db.js';
 import { runMigrations } from '../migrations.js';
 import { SessionRepository } from './session-repository.js';
@@ -203,7 +203,9 @@ describe('deny-by-default auth-routes', () => {
     expect(response.headers['cache-control']).toBe('no-store');
     expect(response.json()).toEqual({
       members: [{ displayName: 'Alice', role: 'owner' }],
+      quotaBytes: DEFAULT_VAULT_QUOTA_BYTES,
       role: 'owner',
+      storageBytes: 0,
       vaultId: VAULT_A,
     });
   });

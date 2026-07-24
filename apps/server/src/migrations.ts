@@ -143,11 +143,21 @@ const rejoinGrantsMigration: MigrationDefinition = Object.freeze({
   version: 4,
 });
 
+const quotaMigration: MigrationDefinition = Object.freeze({
+  name: 'quota',
+  sql: readFileSync(
+    new URL('./migrations/005-quota.sql', import.meta.url),
+    'utf8',
+  ),
+  version: 5,
+});
+
 export const DEFAULT_MIGRATIONS: readonly MigrationDefinition[] = Object.freeze([
   initialMigration,
   onboardingMigration,
   approvalAttemptsMigration,
   rejoinGrantsMigration,
+  quotaMigration,
 ]);
 
 export const CURRENT_SCHEMA_VERSION =

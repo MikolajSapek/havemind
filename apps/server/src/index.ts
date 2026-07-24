@@ -7,6 +7,7 @@
 // approval, bootstrap and sync routes exist — without it the process only
 // serves discovery/health, which is why `/owner/pair` returned 404 in prod.
 
+import { statfs } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { buildApp } from './app.js';
@@ -47,7 +48,17 @@ async function main(): Promise<void> {
   const sessions = new SessionRepository(database);
   const invitations = new InvitationService(database);
   const blobStore = new BlobStore(join(dataDir, BLOBS_DIRNAME));
-  const revisions = new RevisionRepository(database, blobStore);
+  const revisions = new RevisionRepository(database, blobStore, {
+    vaultQuotaBytes: config.vaultQuotaBytes,
+  });
+
+  // O(1) free-bytes probe on the data-root filesystem for the disk-pressure
+  // guard (plans/005 S6). `bavail`/`bsize` give the space available to a
+  // non-privileged writer without scanning any file.
+  const freeDiskBytes = async (): Promise<number> => {
+    const stats = await statfs(dataDir);
+    return stats.bavail * stats.bsize;
+  };
 
   // Reclaim blobs orphaned by rejected pushes (idempotency/revision-id reuse,
   // forbidden actor, missing parent, etc). This must run before the server
@@ -62,7 +73,15 @@ async function main(): Promise<void> {
       database,
       sessions,
       invitations,
-      sync: { blobStore, database, revisions },
+      vaultQuotaBytes: config.vaultQuotaBytes,
+      sync: {
+        blobStore,
+        database,
+        revisions,
+        vaultQuotaBytes: config.vaultQuotaBytes,
+        freeDiskBytes,
+        minFreeDiskBytes: config.minFreeDiskBytes,
+      },
     },
   });
 

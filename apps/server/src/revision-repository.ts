@@ -12,6 +12,13 @@ import {
 import type Database from 'better-sqlite3';
 
 import { BlobIntegrityError, type BlobStore } from './blob-store.js';
+import { DEFAULT_VAULT_QUOTA_BYTES } from './config.js';
+import {
+  computeVaultStorageBytes,
+  readVaultQuotaBytes,
+  resolveEffectiveQuotaBytes,
+  vaultContainsBlob,
+} from './quota.js';
 
 const DEFAULT_IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1_000;
 const MAX_IDEMPOTENCY_TTL_MS = 365 * 24 * 60 * 60 * 1_000;
@@ -30,6 +37,7 @@ export type RevisionRepositoryErrorCode =
   | 'INVALID_REQUEST'
   | 'MISSING_PARENT'
   | 'NOT_FOUND'
+  | 'QUOTA_EXCEEDED'
   | 'REVISION_ID_REUSE';
 
 /** A fail-closed repository error with a machine-readable code. */
@@ -72,6 +80,12 @@ export interface StoredRevisionEvent {
 export interface RevisionRepositoryOptions {
   readonly idempotencyTtlMs?: number;
   readonly now?: () => Date;
+  /**
+   * Server-wide default per-vault storage quota, applied to any vault whose
+   * `vaults.quota_bytes` is NULL (inherit). A per-vault non-NULL value overrides
+   * this. Defaults to {@link DEFAULT_VAULT_QUOTA_BYTES}.
+   */
+  readonly vaultQuotaBytes?: number;
 }
 
 interface PreparedCommit {
@@ -110,7 +124,13 @@ interface ActorRow {
 
 interface VaultRow {
   readonly nextServerSequence: number;
+  readonly quotaBytes: number | null;
   readonly writeEpoch: number;
+}
+
+export interface VaultStorageUsage {
+  readonly quotaBytes: number;
+  readonly storageBytes: number;
 }
 
 interface FileRow {
@@ -345,6 +365,7 @@ export class RevisionRepository {
   readonly #blobStore: Pick<BlobStore, 'readVerified'>;
   readonly #now: () => Date;
   readonly #idempotencyTtlMs: number;
+  readonly #defaultQuotaBytes: number;
 
   public constructor(
     database: Database.Database,
@@ -357,6 +378,22 @@ export class RevisionRepository {
     this.#idempotencyTtlMs = validateIdempotencyTtl(
       options.idempotencyTtlMs ?? DEFAULT_IDEMPOTENCY_TTL_MS,
     );
+    this.#defaultQuotaBytes =
+      options.vaultQuotaBytes ?? DEFAULT_VAULT_QUOTA_BYTES;
+  }
+
+  /**
+   * Owner-facing storage usage for a vault: its canonical DISTINCT-blob byte sum
+   * and its effective quota. Reads only; never blocked by the disk-pressure guard.
+   */
+  public getStorageUsage(vaultId: string): VaultStorageUsage {
+    return {
+      quotaBytes: resolveEffectiveQuotaBytes(
+        readVaultQuotaBytes(this.#database, vaultId),
+        this.#defaultQuotaBytes,
+      ),
+      storageBytes: computeVaultStorageBytes(this.#database, vaultId),
+    };
   }
 
   /** Accepts or idempotently replays one protected revision. */
@@ -580,6 +617,7 @@ export class RevisionRepository {
       );
     }
 
+    this.#assertWithinQuota(prepared, vault);
     this.#validateAndPrepareFileGraph(prepared, serverTime);
     this.#insertRevision(prepared, vault, serverSequence, serverTime);
     this.#replaceParentHeads(prepared);
@@ -599,6 +637,40 @@ export class RevisionRepository {
     const accepted = { receipt, status: 'accepted' } as const;
     this.#insertIdempotencyRecord(prepared, accepted, 201, now);
     return accepted;
+  }
+
+  /**
+   * Authoritative per-vault quota check, run INSIDE the commit transaction so it
+   * is TOCTOU-safe: better-sqlite3 has a single writer and `BEGIN IMMEDIATE`
+   * holds the write lock, so a concurrent push sees this revision's bytes already
+   * charged before its own check runs. A blob whose `blob_hash` already belongs to
+   * the vault is deduplicated (content-addressed) and charges nothing. Accounting
+   * uses only `blob_size`/`blob_hash`, so the opaque boundary is intact.
+   */
+  #assertWithinQuota(prepared: PreparedCommit, vault: VaultRow): void {
+    if (
+      vaultContainsBlob(
+        this.#database,
+        prepared.header.vaultId,
+        prepared.blobHash,
+      )
+    ) {
+      return;
+    }
+    const used = computeVaultStorageBytes(
+      this.#database,
+      prepared.header.vaultId,
+    );
+    const quota = resolveEffectiveQuotaBytes(
+      vault.quotaBytes,
+      this.#defaultQuotaBytes,
+    );
+    if (used + prepared.blobSize > quota) {
+      throw new RevisionRepositoryError(
+        'QUOTA_EXCEEDED',
+        `Vault ${prepared.header.vaultId} storage quota would be exceeded.`,
+      );
+    }
   }
 
   #insertRevision(
@@ -751,7 +823,8 @@ export class RevisionRepository {
       .prepare(
         `SELECT
            write_epoch AS writeEpoch,
-           next_server_sequence AS nextServerSequence
+           next_server_sequence AS nextServerSequence,
+           quota_bytes AS quotaBytes
          FROM vaults
          WHERE id = ? AND deleted_at IS NULL`,
       )

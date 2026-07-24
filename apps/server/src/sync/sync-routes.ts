@@ -1,4 +1,5 @@
 import {
+  hashBlob,
   protectedRevisionHeaderSchema,
   type ProtectedRevisionHeader,
 } from '@havemind/protocol';
@@ -8,6 +9,13 @@ import { z } from 'zod';
 
 import type { BlobStore } from '../blob-store.js';
 import { readInstanceEpoch } from '../backup-restore.js';
+import { DEFAULT_VAULT_QUOTA_BYTES } from '../config.js';
+import {
+  computeVaultStorageBytes,
+  readVaultQuotaBytes,
+  resolveEffectiveQuotaBytes,
+  vaultContainsBlob,
+} from '../quota.js';
 import {
   RevisionRepositoryError,
   type RevisionRepository,
@@ -44,7 +52,9 @@ export type SyncErrorCode =
   | 'INVALID_REQUEST'
   | 'MISSING_PARENT'
   | 'NOT_FOUND'
+  | 'QUOTA_EXCEEDED'
   | 'REVISION_ID_REUSE'
+  | 'STORAGE_UNAVAILABLE'
   | 'UNAUTHENTICATED';
 
 export interface SyncRoutesDeps {
@@ -53,6 +63,19 @@ export interface SyncRoutesDeps {
   readonly database: Database.Database;
   readonly maxBatchSize?: number;
   readonly maxPayloadBytes?: number;
+  /**
+   * Server-wide default per-vault quota, used by the optimistic pre-check for a
+   * vault whose `quota_bytes` is NULL. Must match the value the repository uses.
+   */
+  readonly vaultQuotaBytes?: number;
+  /**
+   * O(1) free-bytes probe on the data-root filesystem (statfs-style), injected
+   * so the disk-pressure guard is testable without filling a disk. When omitted
+   * the guard is inactive (used by unit fixtures that do not exercise it).
+   */
+  readonly freeDiskBytes?: () => Promise<number> | number;
+  /** Reject writes when free disk falls below this many bytes (S6). */
+  readonly minFreeDiskBytes?: number;
 }
 
 interface MembershipRow {
@@ -109,6 +132,7 @@ const HTTP_STATUS_BY_REPOSITORY_CODE: Readonly<
   MISSING_PARENT: 422,
   NOT_FOUND: 404,
   PARENT_FILE_MISMATCH: 422,
+  QUOTA_EXCEEDED: 413,
   REPOSITORY_INTEGRITY: 500,
   REVISION_ID_REUSE: 409,
 };
@@ -126,6 +150,7 @@ const SYNC_CODE_BY_REPOSITORY_CODE: Readonly<
   MISSING_PARENT: 'MISSING_PARENT',
   NOT_FOUND: 'NOT_FOUND',
   PARENT_FILE_MISMATCH: 'INVALID_REQUEST',
+  QUOTA_EXCEEDED: 'QUOTA_EXCEEDED',
   REPOSITORY_INTEGRITY: 'INTERNAL',
   REVISION_ID_REUSE: 'REVISION_ID_REUSE',
 };
@@ -274,6 +299,41 @@ function blobBelongsToVault(
 }
 
 /**
+ * Optimistic per-vault quota pre-check over the ordered batch. Computes each
+ * revision's content-addressed hash and charges its `blob_size` once per new
+ * DISTINCT blob (already-stored blobs and repeats within the batch cost
+ * nothing), returning `true` as soon as the running total would exceed the
+ * vault's effective quota. Runs before any `blobStore.put`, so a payload that
+ * plainly will not fit never reaches disk. This is advisory only — the
+ * authoritative check is inside the commit transaction.
+ */
+async function precheckVaultQuota(
+  database: Database.Database,
+  vaultId: string,
+  ordered: readonly ParsedRevisionInput[],
+  defaultQuotaBytes: number,
+): Promise<boolean> {
+  const quota = resolveEffectiveQuotaBytes(
+    readVaultQuotaBytes(database, vaultId),
+    defaultQuotaBytes,
+  );
+  let projected = computeVaultStorageBytes(database, vaultId);
+  const chargedInBatch = new Set<string>();
+  for (const revision of ordered) {
+    const hash = await hashBlob(revision.payload);
+    if (chargedInBatch.has(hash) || vaultContainsBlob(database, vaultId, hash)) {
+      continue;
+    }
+    projected += revision.payload.byteLength;
+    if (projected > quota) {
+      return true;
+    }
+    chargedInBatch.add(hash);
+  }
+  return false;
+}
+
+/**
  * Registers the batched push, cursor-based pull and byte-exact blob retrieval
  * routes. The caller must register this inside the deny-by-default protected
  * scope from `auth-routes`, so every request already carries an authenticated
@@ -330,6 +390,40 @@ export function registerSyncRoutes(
       return sendSyncError(reply, 422, 'INVALID_BATCH');
     }
 
+    // S6 free-disk guard: an O(1) statfs-style probe evaluated once per push,
+    // before any blob is written. Below the threshold — or if the probe itself
+    // fails — the whole push is rejected fail-closed with 507. Reads are never
+    // gated (this hook lives only on the push route). This is the last line of
+    // defence against filling the shared data-root, independent of quota.
+    if (deps.freeDiskBytes !== undefined) {
+      const minFreeDiskBytes = deps.minFreeDiskBytes ?? 0;
+      let freeBytes: number;
+      try {
+        freeBytes = await deps.freeDiskBytes();
+      } catch {
+        return sendSyncError(reply, 507, 'STORAGE_UNAVAILABLE');
+      }
+      if (!Number.isFinite(freeBytes) || freeBytes < minFreeDiskBytes) {
+        return sendSyncError(reply, 507, 'STORAGE_UNAVAILABLE');
+      }
+    }
+
+    // S3 pre-check (optimistic, outside the commit transaction): reject a push
+    // whose new blobs cannot fit the vault quota BEFORE any payload is written to
+    // disk, closing the "orphaned oversized blob" DoS vector (T1/C). The
+    // authoritative, TOCTOU-safe check still runs inside `commitRevision`'s
+    // transaction; this pass only avoids the disk write for pushes that plainly
+    // will not fit. Accounting uses only blob_hash/blob_size (opaque boundary).
+    const quotaRejection = await precheckVaultQuota(
+      deps.database,
+      params.data.vaultId,
+      ordered,
+      deps.vaultQuotaBytes ?? DEFAULT_VAULT_QUOTA_BYTES,
+    );
+    if (quotaRejection) {
+      return sendSyncError(reply, 413, 'QUOTA_EXCEEDED');
+    }
+
     // Per-revision results: a domain failure on one revision rejects only that
     // revision (with its machine code) and never aborts the batch, so the client
     // records the accepted prefix and isolates the single failure instead of
@@ -367,6 +461,16 @@ export function registerSyncRoutes(
           status: result.status,
         });
       } catch (error) {
+        if (
+          error instanceof RevisionRepositoryError &&
+          error.code === 'QUOTA_EXCEEDED'
+        ) {
+          // Quota is a whole-request rejection, not a per-revision skip: the
+          // authoritative in-transaction check tripped (e.g. a concurrent push
+          // charged the last free bytes between the pre-check and this commit).
+          // Fail closed with 413 so the client stops rather than dead-lettering.
+          return sendCommitError(reply, error);
+        }
         if (error instanceof RevisionRepositoryError) {
           // The blob bytes for this rejected revision are left on disk. They
           // are content-addressed and may still be referenced by another

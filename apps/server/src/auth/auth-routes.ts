@@ -2,6 +2,12 @@ import type Database from 'better-sqlite3';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
+import { DEFAULT_VAULT_QUOTA_BYTES } from '../config.js';
+import {
+  computeVaultStorageBytes,
+  readVaultQuotaBytes,
+  resolveEffectiveQuotaBytes,
+} from '../quota.js';
 import { registerSyncRoutes, type SyncRoutesDeps } from '../sync/sync-routes.js';
 import type { InvitationService } from './invitations.js';
 import {
@@ -56,6 +62,12 @@ export interface AuthRoutesDeps {
   readonly clientKey?: (request: FastifyRequest) => string | null;
   readonly sync?: SyncRoutesDeps;
   readonly invitations?: InvitationService;
+  /**
+   * Server-wide default per-vault quota reported to members alongside usage when
+   * a vault has no explicit `quota_bytes`. Defaults to
+   * {@link DEFAULT_VAULT_QUOTA_BYTES}; wire {@link ServerConfig.vaultQuotaBytes}.
+   */
+  readonly vaultQuotaBytes?: number;
 }
 
 declare module 'fastify' {
@@ -326,10 +338,21 @@ export function registerAuthRoutes(
         return sendError(reply, 403, 'FORBIDDEN');
       }
 
+      // Storage usage/quota is exposed only to an active member of this vault
+      // (deny-by-default already enforced above), never leaking other vaults'
+      // numbers or any payload content — it is a pure blob_size/blob_hash sum.
       reply.header('cache-control', 'no-store');
       return {
         members: loadVaultMembers(deps.database, params.data.vaultId),
+        quotaBytes: resolveEffectiveQuotaBytes(
+          readVaultQuotaBytes(deps.database, params.data.vaultId),
+          deps.vaultQuotaBytes ?? DEFAULT_VAULT_QUOTA_BYTES,
+        ),
         role: membership.role,
+        storageBytes: computeVaultStorageBytes(
+          deps.database,
+          params.data.vaultId,
+        ),
         vaultId: params.data.vaultId,
       };
     });
