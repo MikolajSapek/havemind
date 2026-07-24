@@ -1389,7 +1389,7 @@ export default class HavemindPlugin extends Plugin {
   );
 
   override onload(): void {
-    console.log('[Havemind] plugin loaded — build marker RTPUSH-4', new Date().toISOString());
+    console.log('[Havemind] plugin loaded — build marker RTPUSH-5', new Date().toISOString());
     // Wire the Activity view to the live feed: the log snapshot is mapped through
     // the roster so each row shows the author's display name + colour. Without
     // this the view was orphaned and always rendered the empty placeholder.

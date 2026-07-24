@@ -209,6 +209,15 @@ const PERSIST_STAGING_KEY = 'syncState.staging';
  * discarded; a pre-existing sidecar at the same key is never clobbered.
  */
 const PERSIST_CORRUPT_PREFIX = 'syncStateCorrupt.';
+/**
+ * Prefix for a timestamped sidecar preserving a present-but-corrupt PRODUCER blob
+ * (GAP-3), the producer analogue of {@link PERSIST_CORRUPT_PREFIX}. When the
+ * producer state (path↔fileId↔content mappings) is present but unparseable, its
+ * raw bytes are kept here for recovery rather than silently dropped — losing a
+ * mapping would let a later local edit mint a FRESH fileId (a duplicate) instead
+ * of updating in place. A pre-existing sidecar at the same key is never clobbered.
+ */
+const PERSIST_PRODUCER_CORRUPT_PREFIX = 'pushProducerCorrupt.';
 const DEFAULT_INTERVAL_MS = 15 * 1000;
 /**
  * Poll cadence while the real-time push channel is connected. The long-poll
@@ -303,6 +312,26 @@ export function createPersistPort(plugin: Plugin): SyncStatePersistPort {
       });
     },
   };
+}
+
+/**
+ * Preserve a present-but-corrupt PRODUCER blob under a timestamped sidecar
+ * (GAP-3), mirroring `createPersistPort.preserveCorrupt`'s convention: keyed by a
+ * caller-supplied timestamp and never clobbering a pre-existing sidecar at the
+ * same key. Used by the producer store's load path so unparseable mapping bytes
+ * are kept for recovery rather than silently discarded. Writes through the shared
+ * plugin-data mutex so it never races a concurrent write to another top-level key.
+ */
+export async function preserveCorruptProducerState(
+  plugin: Plugin,
+  raw: unknown,
+  timestamp: number,
+): Promise<void> {
+  await getPluginDataMutex(plugin).update((base) => {
+    const key = `${PERSIST_PRODUCER_CORRUPT_PREFIX}${timestamp}`;
+    if (key in base) return base;
+    return { ...base, [key]: raw };
+  });
 }
 
 /** Top-level plugin-data key recording the AUD-03 rebase version applied. */
@@ -1136,7 +1165,28 @@ function startPushProducer(
     async load() {
       const data = await plugin.loadData();
       const raw = isRecord(data) ? data[PUSH_PRODUCER_KEY] : null;
-      return parseProducerState(raw);
+      const result = parseProducerStateResult(raw);
+      // GAP-3: preserve unparseable producer bytes to a sidecar so a lost mapping
+      // can't silently fork a duplicate fileId. Connect-safety: the persist may
+      // fail (loadData/mutex), but that must NEVER abort producer setup — degrade
+      // defensively and fall through to the (empty-or-partial) parsed state.
+      try {
+        if (result.status === 'corrupt') {
+          await preserveCorruptProducerState(plugin, raw, Date.now());
+        } else if (result.quarantinedMappings.length > 0) {
+          await preserveCorruptProducerState(
+            plugin,
+            { mappings: result.quarantinedMappings },
+            Date.now(),
+          );
+        }
+      } catch (error) {
+        console.warn(
+          'Havemind: failed to preserve corrupt producer state to a sidecar.',
+          error,
+        );
+      }
+      return result.state;
     },
     async save(next) {
       await getPluginDataMutex(plugin).update((base) => ({
@@ -1467,44 +1517,130 @@ export function registerVaultChangeListeners(
   };
 }
 
-export function parseProducerState(raw: unknown): ProducerState {
-  if (!isRecord(raw) || !Array.isArray(raw.mappings) || !isRecord(raw.heads)) {
-    return { mappings: [], heads: {} };
+/**
+ * Outcome of parsing the untrusted persisted PRODUCER blob (GAP-3, the producer
+ * analogue of `sync-state.ts`'s `ParseResult`).
+ *
+ *  - `absent`: null/undefined blob — a normal first run (clean, writable, no
+ *    signal).
+ *  - `ok`: parsed successfully. A single unparseable mapping entry is QUARANTINED
+ *    (kept in `quarantinedMappings`) rather than silently dropped, and its valid
+ *    siblings are preserved. `quarantinedMappings.length > 0` is the recoverable
+ *    signal the caller preserves to a sidecar.
+ *  - `corrupt`: present but the container itself is structurally broken (not a
+ *    record, or `mappings`/`heads` the wrong shape) — fail closed. The caller
+ *    preserves the raw blob to a sidecar so a previously-populated mapping set is
+ *    never silently replaced by an empty one.
+ */
+export interface ProducerParseResult {
+  readonly status: 'absent' | 'ok' | 'corrupt';
+  /** Empty for `absent`/`corrupt`; the parsed value (valid entries) for `ok`. */
+  readonly state: ProducerState;
+  /**
+   * Raw malformed mapping entries kept for recovery on the `ok` path (GAP-3): the
+   * quarantined bad entries whose valid siblings survived. Empty otherwise. A
+   * non-empty list is the recoverable signal; the caller preserves it to a
+   * sidecar instead of silently dropping it.
+   */
+  readonly quarantinedMappings: readonly unknown[];
+}
+
+const EMPTY_PRODUCER_STATE: ProducerState = { mappings: [], heads: {} };
+
+/** True when `entry` is a well-formed persisted mapping (all required strings). */
+function isValidProducerMapping(
+  entry: unknown,
+): entry is Record<string, unknown> {
+  return (
+    isRecord(entry) &&
+    typeof entry.collisionKey === 'string' &&
+    typeof entry.content === 'string' &&
+    typeof entry.contentHash === 'string' &&
+    typeof entry.fileId === 'string' &&
+    typeof entry.path === 'string'
+  );
+}
+
+/** Builds a `LocalFileMapping` from an already-validated entry. */
+function buildProducerMapping(entry: Record<string, unknown>): LocalFileMapping {
+  return {
+    collisionKey: entry.collisionKey as string,
+    content: entry.content as string,
+    contentHash: entry.contentHash as string,
+    // Preserve the binary/markdown discriminator across every load→save
+    // cycle. Dropping it here silently converts a persisted binary mapping
+    // to markdown, so the startup rebase then canonicalises its base64 over
+    // the markdown path and corrupts the raw-byte hash → a false conflict on
+    // the next binary sync (BLOCKER). Validate as an optional
+    // 'markdown'|'binary'; anything else (absent/legacy) defaults to
+    // markdown by omission, keeping legacy mappings unchanged.
+    ...(entry.contentKind === 'binary' || entry.contentKind === 'markdown'
+      ? { contentKind: entry.contentKind }
+      : {}),
+    fileId: entry.fileId as string,
+    path: entry.path as string,
+  };
+}
+
+/**
+ * Parse the untrusted persisted producer blob under the GAP-3 fail-closed policy.
+ * Pure and NEVER-THROWS (it runs on the connect path during producer setup, so it
+ * must degrade defensively rather than abort a connect). See
+ * {@link ProducerParseResult} for the absent/ok/corrupt distinction.
+ */
+export function parseProducerStateResult(raw: unknown): ProducerParseResult {
+  // ABSENT: a genuinely missing blob is a normal first run — clean, writable,
+  // and carries no signal. Distinguished from present-but-corrupt below.
+  if (raw === null || raw === undefined) {
+    return {
+      status: 'absent',
+      state: EMPTY_PRODUCER_STATE,
+      quarantinedMappings: [],
+    };
   }
+  // CORRUPT: present but the container is structurally broken. Fail closed so the
+  // caller preserves the raw bytes; never silently empty a populated mapping set.
+  if (!isRecord(raw) || !Array.isArray(raw.mappings) || !isRecord(raw.heads)) {
+    console.warn(
+      'Havemind: producer state was present but structurally corrupt; its raw bytes were preserved to a sidecar and an empty state was used for this session.',
+    );
+    return {
+      status: 'corrupt',
+      state: EMPTY_PRODUCER_STATE,
+      quarantinedMappings: [],
+    };
+  }
+
+  // OK: keep every valid mapping and QUARANTINE (never drop) each malformed one so
+  // a lost path↔fileId↔content entry can't later mint a duplicate fileId silently.
   const mappings: LocalFileMapping[] = [];
+  const quarantinedMappings: unknown[] = [];
   for (const entry of raw.mappings) {
-    if (
-      isRecord(entry) &&
-      typeof entry.collisionKey === 'string' &&
-      typeof entry.content === 'string' &&
-      typeof entry.contentHash === 'string' &&
-      typeof entry.fileId === 'string' &&
-      typeof entry.path === 'string'
-    ) {
-      mappings.push({
-        collisionKey: entry.collisionKey,
-        content: entry.content,
-        contentHash: entry.contentHash,
-        // Preserve the binary/markdown discriminator across every load→save
-        // cycle. Dropping it here silently converts a persisted binary mapping
-        // to markdown, so the startup rebase then canonicalises its base64 over
-        // the markdown path and corrupts the raw-byte hash → a false conflict on
-        // the next binary sync (BLOCKER). Validate as an optional
-        // 'markdown'|'binary'; anything else (absent/legacy) defaults to
-        // markdown by omission, keeping legacy mappings unchanged.
-        ...(entry.contentKind === 'binary' || entry.contentKind === 'markdown'
-          ? { contentKind: entry.contentKind }
-          : {}),
-        fileId: entry.fileId,
-        path: entry.path,
-      });
+    if (isValidProducerMapping(entry)) {
+      mappings.push(buildProducerMapping(entry));
+    } else {
+      quarantinedMappings.push(entry);
     }
+  }
+  if (quarantinedMappings.length > 0) {
+    console.warn(
+      `Havemind: ${quarantinedMappings.length} malformed producer mapping(s) were preserved for recovery; the rest of the mapping set was kept.`,
+    );
   }
   const heads: Record<string, string> = {};
   for (const [fileId, revisionId] of Object.entries(raw.heads)) {
     if (typeof revisionId === 'string') heads[fileId] = revisionId;
   }
-  return { mappings, heads };
+  return { status: 'ok', state: { mappings, heads }, quarantinedMappings };
+}
+
+/**
+ * Backward-compatible thin wrapper returning only the parsed {@link ProducerState}
+ * (valid mappings + heads). Callers that need the absent/ok/corrupt distinction
+ * or the quarantined entries use {@link parseProducerStateResult} directly.
+ */
+export function parseProducerState(raw: unknown): ProducerState {
+  return parseProducerStateResult(raw).state;
 }
 
 export async function startHavemindConnection(

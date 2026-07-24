@@ -741,3 +741,113 @@ describe('createPersistPort atomic write + backup (GAP-1)', () => {
     expect(disk.value['syncStateCorrupt.1000']).toEqual({ bad: 'blob' });
   });
 });
+
+describe('parseProducerStateResult (GAP-3 fail-closed producer state)', () => {
+  const validMapping = {
+    collisionKey: 'k1',
+    content: 'hello',
+    contentHash: 'h1',
+    fileId: 'f1',
+    path: 'Note.md',
+  };
+
+  it('treats an ABSENT producer state as a clean first run with no signal', async () => {
+    const { parseProducerStateResult } = await import('./obsidian-adapters');
+
+    for (const raw of [null, undefined]) {
+      const result = parseProducerStateResult(raw);
+      expect(result.status).toBe('absent');
+      expect(result.state).toEqual({ mappings: [], heads: {} });
+      expect(result.quarantinedMappings).toEqual([]);
+    }
+  });
+
+  it('keeps valid mappings and PRESERVES one malformed mapping (not silently dropped)', async () => {
+    const { parseProducerStateResult } = await import('./obsidian-adapters');
+    const badMapping = { collisionKey: 'k2', fileId: 42 /* wrong type */ };
+    const result = parseProducerStateResult({
+      mappings: [validMapping, badMapping],
+      heads: {},
+    });
+
+    expect(result.status).toBe('ok');
+    // The valid sibling survives.
+    expect(result.state.mappings).toHaveLength(1);
+    expect(result.state.mappings[0]?.fileId).toBe('f1');
+    // The bad entry is preserved (quarantined) for recovery — a recoverable signal.
+    expect(result.quarantinedMappings).toEqual([badMapping]);
+  });
+
+  it('fails CLOSED on a structurally-broken container and does not silently empty a populated set', async () => {
+    const { parseProducerStateResult } = await import('./obsidian-adapters');
+    // A previously-populated mapping set arrives with a broken (non-record) heads
+    // container. This must be reported as corrupt (so the caller preserves the raw
+    // bytes) rather than degrading to a clean, signal-free empty like an absent blob.
+    const result = parseProducerStateResult({
+      mappings: [validMapping],
+      heads: 'not-a-record',
+    });
+
+    expect(result.status).toBe('corrupt');
+    // It does not throw and returns a usable (empty) state so connect proceeds.
+    expect(result.state).toEqual({ mappings: [], heads: {} });
+  });
+
+  it('reports a non-record raw (wrong shape) as corrupt, not absent', async () => {
+    const { parseProducerStateResult } = await import('./obsidian-adapters');
+    const result = parseProducerStateResult(['not', 'an', 'object']);
+    expect(result.status).toBe('corrupt');
+  });
+
+  it('parses heads alongside mappings on the ok path', async () => {
+    const { parseProducerStateResult } = await import('./obsidian-adapters');
+    const result = parseProducerStateResult({
+      mappings: [validMapping],
+      heads: { f1: 'rev-1', bad: 99 /* dropped: non-string */ },
+    });
+
+    expect(result.status).toBe('ok');
+    expect(result.state.heads).toEqual({ f1: 'rev-1' });
+    expect(result.state.mappings).toHaveLength(1);
+  });
+
+  it('NEVER throws on arbitrary garbage (connect-safety)', async () => {
+    const { parseProducerStateResult } = await import('./obsidian-adapters');
+    for (const raw of [42, 'string', true, [1, 2, 3], { mappings: 5 }]) {
+      expect(() => parseProducerStateResult(raw)).not.toThrow();
+    }
+  });
+
+  it('parseProducerState stays a ProducerState-returning wrapper (backward compatible)', async () => {
+    const { parseProducerState } = await import('./obsidian-adapters');
+    const state = parseProducerState({ mappings: [validMapping], heads: { f1: 'r' } });
+    expect(state.mappings).toHaveLength(1);
+    expect(state.heads).toEqual({ f1: 'r' });
+  });
+});
+
+describe('preserveCorruptProducerState (GAP-3 sidecar)', () => {
+  function fakePlugin(disk: { value: Record<string, unknown> }) {
+    return {
+      async loadData() {
+        return disk.value;
+      },
+      async saveData(data: unknown) {
+        disk.value = data as Record<string, unknown>;
+      },
+    } as unknown as Plugin;
+  }
+
+  it('preserves the raw blob under a timestamped producer sidecar without clobbering', async () => {
+    const { preserveCorruptProducerState } = await import('./obsidian-adapters');
+    const disk = { value: {} as Record<string, unknown> };
+    const plugin = fakePlugin(disk);
+
+    await preserveCorruptProducerState(plugin, { bad: 'producer' }, 2000);
+    expect(disk.value['pushProducerCorrupt.2000']).toEqual({ bad: 'producer' });
+
+    // A second call at the SAME timestamp must not clobber the existing sidecar.
+    await preserveCorruptProducerState(plugin, { other: 'blob' }, 2000);
+    expect(disk.value['pushProducerCorrupt.2000']).toEqual({ bad: 'producer' });
+  });
+});
