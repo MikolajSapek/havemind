@@ -379,6 +379,24 @@ export function renderSendQueueSection(
   }
 }
 
+/**
+ * Renders the "local queue needs recovery" warning (GAP-1). Shown when the
+ * durable sync state could not read its persisted outbox and resumed from a
+ * clean, writable empty state — the unsent revisions were preserved to a sidecar
+ * for manual recovery, so the user must be told rather than left assuming the
+ * queue drained silently. Renders nothing when recovery is not required.
+ */
+export function renderRecoveryNotice(
+  content: HTMLElement,
+  recoveryRequired: boolean,
+): void {
+  if (!recoveryRequired) return;
+  const row = content.createDiv({
+    text: 'Local queue needs recovery — some unsent changes could not be read and were preserved for manual recovery.',
+  });
+  row.addClass('havemind-send-recovery');
+}
+
 /** View model for the resolve modal — pure, built from a copy + optional diff. */
 export interface ConflictModalModel {
   readonly title: string;
@@ -668,6 +686,13 @@ export interface OnboardingViewOptions {
    * status indicator; null (disconnected) or an all-clear view draws nothing.
    */
   readonly sendQueueProvider?: () => SendQueueStatusView | null;
+  /**
+   * GAP-1 recovery signal. Returns true when the durable sync state could not
+   * read its persisted outbox and resumed from a clean empty state — the panel
+   * then draws a "local queue needs recovery" warning so the loss is never
+   * silent. Defaults to false (nothing to recover) when omitted.
+   */
+  readonly recoveryRequiredProvider?: () => boolean;
   /** Retry a quarantined send: re-enqueue it through the outbox machinery. */
   readonly onRetrySend?: (revisionId: string) => void;
   /** Discard a quarantined send permanently (panel confirms in two steps). */
@@ -879,6 +904,9 @@ export class HavemindOnboardingView extends ItemView {
    * (disconnected) or an all-clear view renders nothing.
    */
   private renderSendQueue(content: HTMLElement): void {
+    // GAP-1: surface the recovery warning first, so it shows even when there is
+    // no send-queue view (or an all-clear one) to draw beneath it.
+    renderRecoveryNotice(content, this.options.recoveryRequiredProvider?.() ?? false);
     const view = this.options.sendQueueProvider?.() ?? null;
     if (view === null) return;
     const onRetry = this.options.onRetrySend;
@@ -1418,6 +1446,8 @@ export default class HavemindPlugin extends Plugin {
           void this.openConflictModal(copyPath);
         },
         sendQueueProvider: () => this.sendQueueView(),
+        recoveryRequiredProvider: () =>
+          this.syncState?.isRecoveryRequired() ?? false,
         onRetrySend: (revisionId) => {
           void this.retrySend(revisionId);
         },

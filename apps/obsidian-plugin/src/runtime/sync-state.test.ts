@@ -323,10 +323,49 @@ describe('DurableSyncState', () => {
   });
 
   describe('fail-closed persisted-state recovery (GAP-1)', () => {
-    it('fails closed on a corrupt core field: preserves the raw blob and refuses to overwrite a queued outbox', async () => {
+    it('SALVAGES a queued outbox when a non-outbox core field is corrupt, then persists normally (no permanent wedge)', async () => {
       // A present blob whose CORE cursor is corrupt but whose outbox still holds
-      // a queued-but-unsent revision. The old fail-OPEN parser returned empty and
-      // the next mutation persisted that wipe — silently losing the revision.
+      // a queued-but-unsent revision. The salvage path keeps the readable outbox,
+      // resets only the unrecoverable field (cursor→0), preserves the raw blob to
+      // the sidecar and writes the CLEANED state as the new primary — nothing is
+      // dropped and nothing is wedged.
+      const corruptBlob = {
+        version: 1,
+        cursor: 'not-a-number',
+        outbox: [envelope({ revisionId: 'rev-queued' })],
+        locallyAuthored: ['rev-author'],
+        deferred: [],
+      };
+      persist = new MemoryPersist(corruptBlob);
+      const recovered = new DurableSyncState({ persist, now: () => 4242 });
+
+      await recovered.loadCursor(); // triggers the load/parse + salvage write
+
+      // The readable queue is salvaged; the unrecoverable cursor is reset to 0.
+      expect(await recovered.loadCursor()).toBe(0);
+      expect((await recovered.listOutbox()).map((r) => r.revisionId)).toEqual([
+        'rev-queued',
+      ]);
+      expect(await recovered.isLocallyAuthored('rev-author')).toBe(true);
+      // Salvage is not a wedge: nothing is at risk (the queue was saved).
+      expect(recovered.isRecoveryRequired()).toBe(false);
+
+      // The original bytes are preserved under a corrupt sidecar, timestamped
+      // from the injected clock — nothing is discarded.
+      expect(persist.corrupt).toHaveLength(1);
+      expect(persist.corrupt[0]?.raw).toEqual(corruptBlob);
+      expect(persist.corrupt[0]?.timestamp).toBe(4242);
+
+      // The salvaged state was written as the new clean primary during hydrate,
+      // and subsequent mutations persist normally (the wedge is gone).
+      expect(persist.saveCalls).toBeGreaterThanOrEqual(1);
+      const savesBefore = persist.saveCalls;
+      await recovered.saveCursor(9);
+      expect(persist.saveCalls).toBe(savesBefore + 1);
+      expect(await recovered.loadCursor()).toBe(9);
+    });
+
+    it('reloads a SALVAGED primary as a clean ok state (not re-locked across restart)', async () => {
       const corruptBlob = {
         version: 1,
         cursor: 'not-a-number',
@@ -335,22 +374,54 @@ describe('DurableSyncState', () => {
         deferred: [],
       };
       persist = new MemoryPersist(corruptBlob);
-      const recovered = new DurableSyncState({ persist, now: () => 4242 });
+      const first = new DurableSyncState({ persist, now: () => 1 });
+      await first.loadCursor(); // salvages + rewrites the primary
 
-      await recovered.loadCursor(); // triggers the load/parse
-      expect(recovered.isRecoveryRequired()).toBe(true);
+      // A fresh instance over the SAME persistence reads the cleaned primary as a
+      // normal 'ok' state — it must not re-detect corruption and re-lock.
+      const reopened = new DurableSyncState({ persist });
+      expect(reopened.isRecoveryRequired()).toBe(false);
+      expect((await reopened.listOutbox()).map((r) => r.revisionId)).toEqual([
+        'rev-queued',
+      ]);
+      // No fresh corrupt sidecar is minted on the clean reload.
+      expect(persist.corrupt).toHaveLength(1);
+    });
 
-      // The original bytes are preserved under a corrupt sidecar, timestamped
-      // from the injected clock — nothing is discarded.
+    it('resumes writable from a clean empty state when the outbox itself is UNRECOVERABLE, surfacing a recovery signal (no wedge)', async () => {
+      // The outbox container is not an array, so the queue truly cannot be read.
+      // The raw bytes are preserved to the sidecar for manual recovery, the state
+      // resumes from a clean writable empty state, the primary is rewritten so a
+      // restart does not re-lock, and an OBSERVABLE recovery signal is set.
+      const corruptBlob = {
+        version: 1,
+        cursor: 0,
+        outbox: 'not-an-array',
+        locallyAuthored: [],
+        deferred: [],
+      };
+      persist = new MemoryPersist(corruptBlob);
+      const recovered = new DurableSyncState({ persist, now: () => 99 });
+
+      await recovered.loadCursor();
+
+      // Raw bytes preserved for manual recovery; recovery signal is observable.
       expect(persist.corrupt).toHaveLength(1);
       expect(persist.corrupt[0]?.raw).toEqual(corruptBlob);
-      expect(persist.corrupt[0]?.timestamp).toBe(4242);
+      expect(recovered.isRecoveryRequired()).toBe(true);
 
-      // A mutation must NOT overwrite the on-disk blob: the queued revision is
-      // still on disk, not wiped. This is the data-loss guard.
-      await recovered.saveCursor(9);
-      expect(persist.saveCalls).toBe(0);
-      expect(persist.saved).toEqual(corruptBlob);
+      // The state is writable — a mutation persists (never wedged).
+      await recovered.enqueue(envelope({ revisionId: 'rev-new' }));
+      expect((await recovered.listOutbox()).map((r) => r.revisionId)).toEqual([
+        'rev-new',
+      ]);
+
+      // A restart reads the rewritten clean primary as 'ok' and is not re-locked.
+      const reopened = new DurableSyncState({ persist });
+      expect(reopened.isRecoveryRequired()).toBe(false);
+      expect((await reopened.listOutbox()).map((r) => r.revisionId)).toEqual([
+        'rev-new',
+      ]);
     });
 
     it('treats a null/absent blob as a clean first run (no recovery flag)', async () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { renderSendQueueSection } from './main';
+import { renderRecoveryNotice, renderSendQueueSection } from './main';
 import type { SendQueueStatusView } from './runtime/send-queue-status';
 import {
   ItemView,
@@ -80,6 +80,21 @@ describe('renderSendQueueSection', () => {
     const retry = flatten(container).find((e) => e.text === 'Retry');
     retry?.triggerClick();
     expect(retried).toEqual(['r1']);
+  });
+
+  it('renders nothing when recovery is not required', () => {
+    const container = createContent();
+    renderRecoveryNotice(asEl(container), false);
+    expect(container.children).toHaveLength(0);
+  });
+
+  it('surfaces a "local queue needs recovery" warning when recovery is required', () => {
+    const container = createContent();
+    renderRecoveryNotice(asEl(container), true);
+    const notice = flatten(container).find((e) =>
+      e.classes.includes('havemind-send-recovery'),
+    );
+    expect(notice?.text).toContain('Local queue needs recovery');
   });
 
   it('Discard requires a two-step confirm before firing', () => {

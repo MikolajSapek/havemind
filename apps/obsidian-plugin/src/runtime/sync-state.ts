@@ -227,12 +227,16 @@ export class DurableSyncState implements SyncStatePort {
   private readonly envelopeBudgetBytes: number;
   private cache: PersistedSyncState | null = null;
   /**
-   * Set when the primary blob was present-but-corrupt in a CORE field AND held
-   * a non-empty outbox we could not parse (GAP-1), and no usable `.bak` existed.
-   * While set, {@link mutate} refuses to persist: the wiped in-memory state must
-   * never overwrite the on-disk blob whose queued-but-unsent revisions were
-   * preserved to a sidecar. Surfaced via {@link isRecoveryRequired} so the UI can
-   * tell the user "local queue needs recovery" instead of silently losing it.
+   * Set when the primary blob was present-but-corrupt with an UNRECOVERABLE
+   * outbox (the queue container itself could not be read), no usable `.bak`
+   * existed, and the raw bytes were preserved to a sidecar for manual recovery
+   * (GAP-1). It is a purely OBSERVABLE signal (see {@link isRecoveryRequired}),
+   * never a save lock — the instance resumes from a clean, writable empty state
+   * and the primary is rewritten so a restart never re-locks. Surfaced to the UI
+   * so the user sees "local queue needs recovery" rather than silently assuming
+   * the queue drained. A salvageable corruption (readable outbox, only a
+   * non-outbox core field damaged) never sets this: the queue is kept and the
+   * cleaned state is written back, so nothing is at risk.
    */
   private recoveryRequired = false;
   /**
@@ -704,9 +708,16 @@ export class DurableSyncState implements SyncStatePort {
    *  - ABSENT (null/undefined): a clean first run → empty, writable state.
    *  - OK: the parsed state (with bad outbox envelopes quarantined, not nuked).
    *  - CORRUPT (present but a core field failed): try the `.bak` first; if it is
-   *    a valid present state, recover from it. Otherwise preserve the raw blob to
-   *    a sidecar and, when it held a non-empty outbox at risk, enter
-   *    recovery-required so no wiped state is ever persisted over it.
+   *    a valid present state, recover from it. Otherwise, with no usable backup:
+   *      · SALVAGE when the outbox is still readable (only a non-outbox core
+   *        field is damaged): keep the queue + locally-authored ids, reset the
+   *        unrecoverable fields to safe defaults, preserve the raw blob to a
+   *        sidecar, and write the CLEANED state back as the new primary. Nothing
+   *        is at risk, so recovery is NOT flagged and the next load reads 'ok'.
+   *      · UNRECOVERABLE when the queue container itself cannot be read: preserve
+   *        the raw blob to a sidecar for manual recovery, resume from a clean,
+   *        writable empty state, rewrite the primary to it (so a restart never
+   *        re-locks), and set the observable recovery signal.
    */
   private async hydrate(raw: unknown): Promise<void> {
     if (this.cache !== null) return;
@@ -727,22 +738,37 @@ export class DurableSyncState implements SyncStatePort {
       return;
     }
 
-    // No usable backup: fail closed. Preserve the bytes we could not parse, then
-    // refuse to persist a replacement over them when a non-empty outbox was lost.
+    // No usable backup. Preserve the bytes we could not parse to a sidecar, then
+    // recover forward — never wedge. Both branches rewrite the primary to the
+    // clean/salvaged state so a restart re-reads an 'ok' blob (the permanent-wedge
+    // bug this fixes: the corrupt primary used to survive and re-lock every load).
     await this.persist.preserveCorrupt(raw, this.now());
     if (this.cache !== null) return;
-    this.cache = emptyState();
-    if (outcome.corruptOutboxAtRisk) this.recoveryRequired = true;
+    if (outcome.salvage !== null) {
+      // SALVAGE: the outbox was readable. Keep it (plus locallyAuthored); the
+      // unrecoverable fields were already reset to safe defaults during parse.
+      // Nothing is at risk (the queue was saved), so recovery is NOT flagged.
+      this.cache = outcome.salvage;
+    } else {
+      // UNRECOVERABLE queue: resume from a clean, writable empty state and set the
+      // observable recovery signal so the UI can tell the user their local queue
+      // needs recovery. The unsent revisions live on in the sidecar.
+      this.cache = emptyState();
+      if (outcome.outboxAtRisk) this.recoveryRequired = true;
+    }
+    await this.persist.save(this.cache);
   }
 
   private async mutate(next: PersistedSyncState): Promise<void> {
     this.cache = next;
-    // Fail-closed (GAP-1): while recovery is required the on-disk blob still
-    // holds queued-but-unsent revisions we could not parse (preserved to a
-    // sidecar). Persisting the wiped in-memory state here would overwrite them —
-    // the exact silent data loss this guard prevents. Reads still see `next`,
-    // but nothing reaches disk until the user recovers.
-    if (this.recoveryRequired) return;
+    // GAP-1: `recoveryRequired` is a purely OBSERVABLE signal (surfaced via
+    // {@link isRecoveryRequired}), never a save lock. The earlier design blocked
+    // every future save while set — but nothing here ever cleared it and
+    // `preserveCorrupt` only writes a sidecar (never rewrites the primary), so the
+    // corrupt primary stayed on disk and re-locked the instance on every restart:
+    // a permanent, silent wedge. The recovery paths in {@link hydrate} now rewrite
+    // the primary to a clean/salvaged state before returning, so saves are always
+    // safe (no queued-but-unsent revision is ever behind an un-rewritten primary).
     await this.persist.save(next);
   }
 
@@ -770,84 +796,41 @@ export class DurableSyncState implements SyncStatePort {
  */
 export const CORRUPT_ENVELOPE_PREFIX = 'corrupt-envelope:';
 
-/** Outcome of parsing the untrusted persisted blob (GAP-1 fail-closed policy). */
+/** Outcome of parsing the untrusted persisted blob (GAP-1 recovery policy). */
 interface ParseResult {
   /**
    *  - `absent`: null/undefined blob — a normal first run (clean, writable).
    *  - `ok`: parsed successfully (bad outbox envelopes quarantined, not nuked).
-   *  - `corrupt`: present but a CORE field failed — fail closed.
+   *  - `corrupt`: present but a CORE field failed — recover forward (never wedge).
    */
   readonly status: 'absent' | 'ok' | 'corrupt';
   /** `emptyState()` for `absent`/`corrupt`; the parsed value for `ok`. */
   readonly state: PersistedSyncState;
   /**
-   * Only meaningful for `corrupt`: the corrupt blob held a non-empty outbox we
-   * could not parse, so a wiped replacement must never be persisted over it.
+   * Only meaningful for `corrupt`: a best-effort SALVAGED state when the outbox
+   * container was still readable (only a non-outbox core field was damaged), so
+   * the queue is preserved and the damaged fields are reset to safe defaults.
+   * `null` when the queue itself could not be read (an UNRECOVERABLE outbox).
    */
-  readonly corruptOutboxAtRisk: boolean;
+  readonly salvage: PersistedSyncState | null;
+  /**
+   * Only meaningful for `corrupt` with `salvage === null`: the blob held an
+   * outbox value we could not read (a non-array container), so queued-but-unsent
+   * revisions may be lost — set the observable recovery signal. An absent/empty
+   * or already-readable outbox carries nothing extra at risk.
+   */
+  readonly outboxAtRisk: boolean;
 }
 
 /**
- * True when a corrupt raw blob may still hold queued-but-unsent outbox items
- * (GAP-1). An explicitly-empty array carries nothing at risk; anything else
- * present (a non-empty array, or a non-array value we cannot enumerate) is
- * treated conservatively as at risk so its bytes are never silently replaced.
+ * Parses an untrusted outbox array, keeping every readable envelope and
+ * quarantining each unparseable sibling (GAP-1) — a single bad entry must never
+ * discard the good ones. Shared by the strict `ok` path and the salvage path.
  */
-function corruptOutboxAtRisk(raw: unknown): boolean {
-  if (!isRecord(raw)) return false;
-  const outbox = raw.outbox;
-  if (outbox === undefined) return false;
-  if (Array.isArray(outbox)) return outbox.length > 0;
-  return true;
-}
-
-function corruptResult(raw: unknown): ParseResult {
-  return {
-    status: 'corrupt',
-    state: emptyState(),
-    corruptOutboxAtRisk: corruptOutboxAtRisk(raw),
-  };
-}
-
-function parsePersistedState(raw: unknown): ParseResult {
-  // A genuinely absent blob is a normal first run — a clean, writable state,
-  // NOT corruption (GAP-1: distinguish null/absent from present-but-corrupt).
-  if (raw === null || raw === undefined) {
-    return { status: 'absent', state: emptyState(), corruptOutboxAtRisk: false };
-  }
-  if (!isRecord(raw) || raw.version !== 1) return corruptResult(raw);
-
-  const cursor = raw.cursor;
-  const outbox = raw.outbox;
-  const locallyAuthored = raw.locallyAuthored;
-  const deferred = raw.deferred;
-
-  // Core-container corruption (a non-array outbox, a bad cursor, etc.) fails
-  // closed — see hydrate(). Individual bad ENTRIES are handled below.
-  if (
-    !Number.isSafeInteger(cursor) ||
-    (cursor as number) < 0 ||
-    !Array.isArray(outbox) ||
-    !Array.isArray(locallyAuthored) ||
-    !Array.isArray(deferred)
-  ) {
-    return corruptResult(raw);
-  }
-
-  if (!locallyAuthored.every((value) => typeof value === 'string')) {
-    return corruptResult(raw);
-  }
-
-  const parsedDeferred: RemoteEvent[] = [];
-  for (const entry of deferred) {
-    const parsed = parseRemoteEvent(entry);
-    if (parsed === null) return corruptResult(raw);
-    parsedDeferred.push(parsed);
-  }
-
-  // A single unparseable outbox envelope must NOT discard its parseable siblings
-  // (GAP-1): keep the good ones and quarantine the bad entry so it stays visible
-  // rather than nuking the whole outbox to empty.
+function parseOutboxEntries(outbox: readonly unknown[]): {
+  readonly parsedOutbox: OutboxEnvelope[];
+  readonly quarantinedBadEnvelopes: QuarantinedRevision[];
+} {
   const parsedOutbox: OutboxEnvelope[] = [];
   const quarantinedBadEnvelopes: QuarantinedRevision[] = [];
   outbox.forEach((entry, index) => {
@@ -863,6 +846,66 @@ function parsePersistedState(raw: unknown): ParseResult {
       `Havemind: ${quarantinedBadEnvelopes.length} unparseable outbox envelope(s) were quarantined; the rest of the outbox was preserved.`,
     );
   }
+  return { parsedOutbox, quarantinedBadEnvelopes };
+}
+
+function parsePersistedState(raw: unknown): ParseResult {
+  // A genuinely absent blob is a normal first run — a clean, writable state,
+  // NOT corruption (GAP-1: distinguish null/absent from present-but-corrupt).
+  if (raw === null || raw === undefined) {
+    return { status: 'absent', state: emptyState(), salvage: null, outboxAtRisk: false };
+  }
+  const strict = strictParse(raw);
+  if (strict !== null) {
+    return { status: 'ok', state: strict, salvage: null, outboxAtRisk: false };
+  }
+  // Corrupt: classify for recovery. A readable outbox is salvageable; an
+  // unreadable one resumes empty with the recovery signal (see hydrate()).
+  return {
+    status: 'corrupt',
+    state: emptyState(),
+    salvage: salvageState(raw),
+    outboxAtRisk: outboxAtRisk(raw),
+  };
+}
+
+/**
+ * The strict parse: returns the fully-parsed state, or `null` the moment any
+ * CORE container is corrupt (bad version/cursor, a non-array outbox/
+ * locallyAuthored/deferred, a non-string authored id, or an unparseable deferred
+ * event). Individual bad outbox ENTRIES are quarantined, not rejected. Non-core
+ * sub-fields degrade to their default (MINOR 8) rather than failing the parse.
+ */
+function strictParse(raw: unknown): PersistedSyncState | null {
+  if (!isRecord(raw) || raw.version !== 1) return null;
+
+  const cursor = raw.cursor;
+  const outbox = raw.outbox;
+  const locallyAuthored = raw.locallyAuthored;
+  const deferred = raw.deferred;
+
+  if (
+    !Number.isSafeInteger(cursor) ||
+    (cursor as number) < 0 ||
+    !Array.isArray(outbox) ||
+    !Array.isArray(locallyAuthored) ||
+    !Array.isArray(deferred)
+  ) {
+    return null;
+  }
+
+  if (!locallyAuthored.every((value) => typeof value === 'string')) {
+    return null;
+  }
+
+  const parsedDeferred: RemoteEvent[] = [];
+  for (const entry of deferred) {
+    const parsed = parseRemoteEvent(entry);
+    if (parsed === null) return null;
+    parsedDeferred.push(parsed);
+  }
+
+  const { parsedOutbox, quarantinedBadEnvelopes } = parseOutboxEntries(outbox);
 
   // Non-core sub-fields degrade to their default with a console.warn rather than
   // nuking the whole blob (MINOR 8, extended to pathOwners/baseHashes under
@@ -879,23 +922,86 @@ function parsePersistedState(raw: unknown): ParseResult {
     warnDegrade('quarantinedEnvelopes', {});
 
   return {
-    status: 'ok',
-    corruptOutboxAtRisk: false,
-    state: {
-      version: 1,
-      cursor: cursor as number,
-      outbox: parsedOutbox,
-      locallyAuthored: locallyAuthored as string[],
-      deferred: parsedDeferred,
-      // Merge the corrupt-envelope rows in so nothing is silently dropped.
-      quarantine: [...quarantine, ...quarantinedBadEnvelopes],
-      pathOwners,
-      baseHashes,
-      baseContents,
-      conflictArtifacts,
-      quarantinedEnvelopes,
-    },
+    version: 1,
+    cursor: cursor as number,
+    outbox: parsedOutbox,
+    locallyAuthored: locallyAuthored as string[],
+    deferred: parsedDeferred,
+    // Merge the corrupt-envelope rows in so nothing is silently dropped.
+    quarantine: [...quarantine, ...quarantinedBadEnvelopes],
+    pathOwners,
+    baseHashes,
+    baseContents,
+    conflictArtifacts,
+    quarantinedEnvelopes,
   };
+}
+
+/**
+ * Best-effort SALVAGE for a corrupt blob (GAP-1). Returns a clean state that
+ * KEEPS the readable outbox (the only truly irreplaceable data — queued-but-
+ * unsent revisions) and locally-authored ids, while resetting every damaged or
+ * unreadable NON-outbox field to a safe default (cursor→0, deferred→[], the
+ * re-derivable maps→{}). Returns `null` only when the outbox container itself is
+ * unreadable (not an array), because then there is nothing to salvage — that is
+ * the UNRECOVERABLE case the caller resumes empty from.
+ */
+function salvageState(raw: unknown): PersistedSyncState | null {
+  if (!isRecord(raw) || !Array.isArray(raw.outbox)) return null;
+  const { parsedOutbox, quarantinedBadEnvelopes } = parseOutboxEntries(raw.outbox);
+  const cursor =
+    Number.isSafeInteger(raw.cursor) && (raw.cursor as number) >= 0
+      ? (raw.cursor as number)
+      : 0;
+  const locallyAuthored =
+    Array.isArray(raw.locallyAuthored) &&
+    raw.locallyAuthored.every((value) => typeof value === 'string')
+      ? (raw.locallyAuthored as string[])
+      : [];
+  const quarantine = parseQuarantine(raw.quarantine) ?? [];
+  return {
+    version: 1,
+    cursor,
+    outbox: parsedOutbox,
+    locallyAuthored,
+    deferred: salvageDeferred(raw.deferred),
+    quarantine: [...quarantine, ...quarantinedBadEnvelopes],
+    pathOwners: parseStringMap(raw.pathOwners) ?? {},
+    baseHashes: parseStringMap(raw.baseHashes) ?? {},
+    baseContents: parseStringMap(raw.baseContents) ?? {},
+    conflictArtifacts: parseStringMap(raw.conflictArtifacts) ?? {},
+    quarantinedEnvelopes: parseEnvelopeMap(raw.quarantinedEnvelopes) ?? {},
+  };
+}
+
+/**
+ * Parses a deferred-events list for the salvage path: an all-or-nothing best
+ * effort. Deferred events are a re-derivable optimisation (a fresh pull re-emits
+ * them), so a single unparseable entry safely resets the whole list to empty
+ * rather than blocking the salvage.
+ */
+function salvageDeferred(value: unknown): RemoteEvent[] {
+  if (!Array.isArray(value)) return [];
+  const result: RemoteEvent[] = [];
+  for (const entry of value) {
+    const parsed = parseRemoteEvent(entry);
+    if (parsed === null) return [];
+    result.push(parsed);
+  }
+  return result;
+}
+
+/**
+ * True when a corrupt blob held an outbox value we could NOT read (a non-array
+ * container): queued-but-unsent revisions may be lost, so the recovery signal is
+ * set. An absent outbox, or one that is a readable array (salvageable), carries
+ * nothing extra at risk here.
+ */
+function outboxAtRisk(raw: unknown): boolean {
+  if (!isRecord(raw)) return false;
+  const outbox = raw.outbox;
+  if (outbox === undefined || Array.isArray(outbox)) return false;
+  return true;
 }
 
 /**
