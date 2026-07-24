@@ -29,6 +29,13 @@ import type { RequestUrlFn } from './sync-transport';
 const DEFAULT_BASE_BACKOFF_MS = 5000;
 /** Upper bound on the backoff ceiling; mirrors the runner. */
 const DEFAULT_MAX_BACKOFF_MS = 60_000;
+/**
+ * Short pause applied between re-checks while a fired wake is still settling — the
+ * durable cursor has not yet advanced past the cursor whose /wait triggered the
+ * sync. Bounds the loop so it can never re-issue back-to-back fast-path /wait
+ * responses for the same still-behind cursor.
+ */
+const DEFAULT_SETTLE_DELAY_MS = 250;
 
 export interface WakeSubscriptionOptions {
   readonly requestUrl: RequestUrlFn;
@@ -58,6 +65,13 @@ export interface WakeSubscriptionOptions {
   readonly random?: () => number;
   readonly baseBackoffMs?: number;
   readonly maxBackoffMs?: number;
+  /**
+   * Delay applied between re-checks while a fired wake is still settling (the
+   * durable cursor has not yet advanced past the cursor whose /wait woke us).
+   * Keeps the loop from re-issuing back-to-back fast-path /wait for the same
+   * cursor. Injectable for tests; defaults to {@link DEFAULT_SETTLE_DELAY_MS}.
+   */
+  readonly settleDelayMs?: number;
 }
 
 /** Marks the terminal 401 so the loop can stop instead of backing off. */
@@ -70,7 +84,11 @@ export class WakeSubscription {
   private readonly options: Required<
     Pick<
       WakeSubscriptionOptions,
-      'scheduler' | 'random' | 'baseBackoffMs' | 'maxBackoffMs'
+      | 'scheduler'
+      | 'random'
+      | 'baseBackoffMs'
+      | 'maxBackoffMs'
+      | 'settleDelayMs'
     >
   > &
     WakeSubscriptionOptions;
@@ -78,6 +96,14 @@ export class WakeSubscription {
   private stopped = false;
   private started = false;
   private failureCount = 0;
+  /**
+   * The cursor sent on the /wait that last resolved as an advance and fired a
+   * wake, or `null` when no wake is awaiting settlement. While set, the loop
+   * waits for the durable cursor to advance past it (syncNow landing) before
+   * re-arming the long-poll, so it never re-issues a fast-path /wait for the
+   * same still-behind cursor.
+   */
+  private pendingSyncFromCursor: number | null = null;
   /** null until the first edge is emitted, so the very first state is reported. */
   private connected: boolean | null = null;
   private runPromise: Promise<void> = Promise.resolve();
@@ -92,6 +118,7 @@ export class WakeSubscription {
       random: options.random ?? Math.random,
       baseBackoffMs: options.baseBackoffMs ?? DEFAULT_BASE_BACKOFF_MS,
       maxBackoffMs: options.maxBackoffMs ?? DEFAULT_MAX_BACKOFF_MS,
+      settleDelayMs: options.settleDelayMs ?? DEFAULT_SETTLE_DELAY_MS,
       ...options,
     };
   }
@@ -125,6 +152,21 @@ export class WakeSubscription {
       let resolvedCursor: number;
       try {
         sentCursor = await this.options.loadCursor();
+        // Anti-spin gate. `onWake` fires syncNow fire-and-forget; the durable
+        // cursor only advances once that pull completes. Until it does,
+        // re-issuing /wait with the same still-behind cursor just triggers the
+        // server fast-path again — a tight back-to-back loop. So while a wake is
+        // pending and the durable cursor has not advanced past the cursor we
+        // sent, pause a short bounded delay and re-check instead of re-polling.
+        if (
+          this.pendingSyncFromCursor !== null &&
+          sentCursor <= this.pendingSyncFromCursor
+        ) {
+          await this.settleDelay();
+          continue;
+        }
+        // Durable cursor caught up (sync landed) or no wake pending: re-arm.
+        this.pendingSyncFromCursor = null;
         resolvedCursor = await this.pollOnce(sentCursor);
       } catch (error) {
         if (this.stopped) {
@@ -145,10 +187,23 @@ export class WakeSubscription {
       this.failureCount = 0;
       this.setConnected(true);
       if (resolvedCursor > sentCursor) {
+        // A peer advanced the log. Fire one sync and remember the cursor we
+        // sent; the next iteration waits for the durable cursor to advance past
+        // it before re-arming — the "one wake → one sync, then wait" contract.
+        this.pendingSyncFromCursor = sentCursor;
         this.options.onWake();
+      } else {
+        // Heartbeat (unchanged cursor): nothing pending, re-issue normally.
+        this.pendingSyncFromCursor = null;
       }
-      // Heartbeat (unchanged cursor) simply falls through and re-issues the poll.
     }
+  }
+
+  /** Bounded pause between re-checks while a fired wake settles. */
+  private settleDelay(): Promise<void> {
+    return new Promise((resolve) => {
+      this.options.scheduler(() => resolve(), this.options.settleDelayMs);
+    });
   }
 
   private async pollOnce(cursor: number): Promise<number> {

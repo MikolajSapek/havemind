@@ -47,7 +47,10 @@ function baseOptions() {
 describe('WakeSubscription', () => {
   it('triggers exactly one sync when the long-poll resolves with an advanced cursor', async () => {
     let wakes = 0;
-    // Call 0 → advanced (5 → 7): one wake. Call 1 stops the loop, so no more polls.
+    // The durable cursor starts at 5. Call 0 resolves advanced (5 → 7): one wake.
+    // onWake stands in for syncNow landing — it advances the durable cursor to 7,
+    // so call 1 is a heartbeat (7 → 7) that stops the loop. No more polls.
+    let cursor = 5;
     const { fn, calls } = scriptedRequestUrl({
       script: [ok(7), ok(7)],
       onCall: (index) => {
@@ -56,10 +59,13 @@ describe('WakeSubscription', () => {
     });
     const sub = new WakeSubscription({
       ...baseOptions(),
+      loadCursor: async () => cursor,
       requestUrl: fn,
       onWake: () => {
         wakes += 1;
+        cursor = 7; // syncNow pulled and advanced the durable cursor.
       },
+      scheduler: (callback) => callback(),
     });
 
     sub.start();
@@ -67,6 +73,85 @@ describe('WakeSubscription', () => {
 
     expect(wakes).toBe(1);
     expect(calls[0]).toBe('https://host/vaults/vault-1/wait?cursor=5');
+  });
+
+  it('does not re-issue a fast-path /wait for a stale cursor while the wake settles', async () => {
+    // Peer advance where the durable cursor lags the wake cursor: the server keeps
+    // resolving cursor 7, but loadCursor only catches up to 7 after a few settle
+    // delays (syncNow pulling). The loop must NOT hammer /wait with the stale
+    // cursor 5 — it gates on the durable cursor and issues exactly one cursor=5
+    // poll, then one cursor=7 poll once the durable cursor has caught up.
+    let wakes = 0;
+    let cursor = 5;
+    let settleDelays = 0;
+    const { fn, calls } = scriptedRequestUrl({
+      script: [ok(7)], // every poll resolves cursor 7
+      onCall: (index) => {
+        // Stop as soon as we finally poll with the settled (advanced) cursor.
+        if (calls[index]?.endsWith('cursor=7')) sub.stop();
+        // Safety net: never let a regressed tight loop run away in the test.
+        if (index >= 10) sub.stop();
+      },
+    });
+    const sub = new WakeSubscription({
+      ...baseOptions(),
+      loadCursor: async () => cursor,
+      requestUrl: fn,
+      onWake: () => {
+        wakes += 1;
+      },
+      scheduler: (callback) => {
+        settleDelays += 1;
+        if (settleDelays >= 3) cursor = 7; // durable cursor catches up after settling
+        callback();
+      },
+    });
+
+    sub.start();
+    await sub.whenStopped();
+
+    const staleWaits = calls.filter((url) => url.endsWith('cursor=5'));
+    expect(staleWaits).toHaveLength(1); // exactly one poll for the stale cursor, no spin
+    expect(wakes).toBe(1); // one wake → one sync, not a storm
+    expect(settleDelays).toBeGreaterThanOrEqual(1); // it gated with a delay rather than re-polling
+    expect(calls[calls.length - 1]).toBe(
+      'https://host/vaults/vault-1/wait?cursor=7',
+    );
+  });
+
+  it('applies a bounded delay instead of tight-spinning when the sync never advances the cursor', async () => {
+    // Worst case: syncNow keeps failing to advance the durable cursor (stuck at 5)
+    // while the server keeps resolving cursor 7. The loop must not spin unbounded —
+    // after the single wake it pauses on the bounded settle delay rather than
+    // re-issuing back-to-back fast-path /wait calls.
+    let wakes = 0;
+    let settleDelays = 0;
+    const { fn, calls } = scriptedRequestUrl({
+      script: [ok(7)],
+      onCall: (index) => {
+        if (index >= 10) sub.stop(); // safety net against a regressed tight loop
+      },
+    });
+    const sub = new WakeSubscription({
+      ...baseOptions(),
+      loadCursor: async () => 5, // durable cursor never advances
+      requestUrl: fn,
+      onWake: () => {
+        wakes += 1;
+      },
+      scheduler: (callback) => {
+        settleDelays += 1;
+        if (settleDelays >= 5) sub.stop(); // bound the otherwise-endless settle
+        callback();
+      },
+    });
+
+    sub.start();
+    await sub.whenStopped();
+
+    expect(wakes).toBe(1); // one wake, not dozens
+    expect(calls).toHaveLength(1); // exactly one /wait, then gated — no tight spin
+    expect(settleDelays).toBe(5); // re-checks were spaced by the bounded delay
   });
 
   it('re-issues the long-poll on a heartbeat without forcing a sync', async () => {
