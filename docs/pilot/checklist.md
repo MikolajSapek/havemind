@@ -57,7 +57,30 @@ deliberately NOT deployed — the pilot exercises the stable core only.
 
 | Day | Date | `df -h /` | Sync status | Incidents |
 |-----|------|-----------|-------------|-----------|
-| 1 | 2026-07-24 | | | |
+| 1 | 2026-07-24 | | | | (superseded — real-time push build below) |
+| 2 | | | | |
+| 3 | | | | |
+
+## Daily log — clean 7-day window (restart 2026-07-25, real-time push)
+
+The 2026-07-24 window was superseded: real-time push (1 s sync) was added,
+regressed the owner-connect path, was root-caused and reintroduced cleanly on a
+fresh branch, and the whole sync layer was hardened (resilience audit + /loop
+bug-hunt to a clean iteration). This is the clean window on the hardened build.
+
+Build under test: plugin `main.js` **889022 B** — real-time push (long-poll
+`/wait`, ~1 s) + single-flight refresh rotation + GAP-1 (fail-closed durable
+state, no outbox loss) + GAP-3 (fail-closed producer mappings) + GAP-4 (`/wait`
+rate-limit exempt) + GAP-5 (durable in-flight rotation) + SecretStorage key
+64-char fix. IndexedDB payload store (`db37e96`) is committed but **deliberately
+NOT in the pilot build** — deploy after this window with a smoke test.
+Server = sapserver image rebuilt from `main` (fc2c21b..a231697): `/wait`
+endpoint + wake registry + GAP-4 exemption + prefix-notify + Dockerfile crypto;
+005 quota active; healthz OK. Full suite 1245 green; CI green through fc2c21b.
+
+| Day | Date | `df -h /` | Sync status | Incidents |
+|-----|------|-----------|-------------|-----------|
+| 1 | 2026-07-25 | | | |
 | 2 | | | | |
 | 3 | | | | |
 | 4 | | | | |
