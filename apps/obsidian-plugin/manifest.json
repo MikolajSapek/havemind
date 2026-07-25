@@ -3,7 +3,7 @@
   "name": "Havemind",
   "version": "0.9.0",
   "minAppVersion": "1.11.4",
-  "description": "Private, self-hosted real-time sync for a shared vault — notes and attachments, full authorship history, and zero silent overwrites.",
+  "description": "Real-time, self-hosted sync for a shared vault — one brain for your team and their AIs, full authorship and zero silent overwrites.",
   "author": "Mikolaj Pawel Sapek",
   "isDesktopOnly": true
 }
