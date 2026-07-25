@@ -1,0 +1,1513 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics><meta name="design_doc_mode" content="canvas"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet"><style>
+body{margin:0;background:#EDE8DE;font-family:"Inter Tight",-apple-system,"Segoe UI",Helvetica,sans-serif}
+a{color:#A9750F;text-decoration:none}a:hover{color:#8C5F08}
+@keyframes hm-spin{to{transform:rotate(360deg)}}
+@keyframes hm-comb{to{transform:rotate(360deg)}}
+@keyframes hm-p1{0%,100%{transform:translate(1.8px,-3.1px);opacity:.4}44%,76%{transform:translate(0,0);opacity:1}}
+@keyframes hm-p2{0%,100%{transform:translate(3.6px,0);opacity:.4}44%,76%{transform:translate(0,0);opacity:1}}
+@keyframes hm-p3{0%,100%{transform:translate(1.8px,3.1px);opacity:.4}44%,76%{transform:translate(0,0);opacity:1}}
+@keyframes hm-p4{0%,100%{transform:translate(-1.8px,3.1px);opacity:.4}44%,76%{transform:translate(0,0);opacity:1}}
+@keyframes hm-p5{0%,100%{transform:translate(-3.6px,0);opacity:.4}44%,76%{transform:translate(0,0);opacity:1}}
+@keyframes hm-p6{0%,100%{transform:translate(-1.8px,-3.1px);opacity:.4}44%,76%{transform:translate(0,0);opacity:1}}
+@keyframes hm-track{0%,100%{opacity:.18}50%{opacity:.34}}
+@media (prefers-reduced-motion:reduce){.hm-spin{animation:none!important}}
+.dv-turn{padding:44px 48px 36px;border-bottom:1px solid rgba(0,0,0,.08)}
+.dv-thd{display:flex;align-items:baseline;gap:10px;margin:0 0 24px}
+.dv-tid{font:600 10px "IBM Plex Mono",monospace;padding:3px 7px;background:#23201B;color:#FBF9F5;border-radius:4px;text-decoration:none}
+.dv-tname{font:600 13px/1.2 "Inter Tight",sans-serif;color:#23201B}
+.dv-opts{display:flex;flex-wrap:wrap;gap:32px;align-items:flex-start}
+.dv-opt{flex:none;display:flex;flex-direction:column;gap:10px}
+.dv-oid{font:600 10.5px "IBM Plex Mono",monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#23201B;border-radius:5px;text-decoration:none}
+.dv-olabel{display:flex;align-items:baseline;gap:8px;font:400 11.5px/1.3 "Inter Tight",sans-serif;color:rgba(35,32,27,.6)}
+.dv-opt:target .dv-oid{background:#C98A16;color:#fff}
+.dv-next{margin:26px 0 0;font:12px/1.6 "Inter Tight",sans-serif;color:rgba(35,32,27,.55)}
+</style></helmet>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<symbol id="i-hex" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></symbol>
+<symbol id="i-check" viewBox="0 0 24 24"><circle fill="none" stroke="currentColor" stroke-width="2" cx="12" cy="12" r="10"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="m9 12 2 2 4-4"/></symbol>
+<symbol id="i-loader" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4"/><path d="m16.2 7.8 2.9-2.9"/><path d="M18 12h4"/><path d="m16.2 16.2 2.9 2.9"/><path d="M12 18v4"/><path d="m4.9 19.1 2.9-2.9"/><path d="M2 12h4"/><path d="m4.9 4.9 2.9 2.9"/></g></symbol>
+<symbol id="i-cloud-off" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l18 18"/><path d="M17.5 19H9a7 7 0 0 1-1.35-13.87"/><path d="M10.6 5.2A7 7 0 0 1 15.7 10h1.8a4.5 4.5 0 0 1 3.5 7.3"/></g></symbol>
+<symbol id="i-alert" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></g></symbol>
+<symbol id="i-retry" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3.5-7.1"/><path d="M21 3v6h-6"/></g></symbol>
+<symbol id="i-dot" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="currentColor" stroke="none"/></symbol>
+<symbol id="i-dot-off" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="m9 15 6-6"/></g></symbol>
+<symbol id="i-user-check" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="8" r="4"/><path d="M2 21v-1a7 7 0 0 1 11-5.7"/><path d="m15 19 2 2 4-4"/></g></symbol>
+<symbol id="i-copy" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="14" height="14" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></g></symbol>
+<symbol id="i-pen" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="m16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></g></symbol>
+<symbol id="i-file-plus" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><path d="M14 2v5h5"/><path d="M12 11v6"/><path d="M9 14h6"/></g></symbol>
+<symbol id="i-trash" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></g></symbol>
+<symbol id="i-rename" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 3 4 4-4 4"/><path d="M20 7H4"/><path d="m8 21-4-4 4-4"/><path d="M4 17h16"/></g></symbol>
+<symbol id="i-history" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></g></symbol>
+<symbol id="i-plus" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></g></symbol>
+<symbol id="i-x" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 6-12 12"/><path d="m6 6 12 12"/></g></symbol>
+<symbol id="i-chev" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6"/></symbol>
+<symbol id="i-dots" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.2" fill="currentColor" stroke="none"/></symbol>
+<symbol id="i-users" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="4"/><path d="M2 21v-1a7 7 0 0 1 14 0v1"/><path d="M17 4.5a4 4 0 0 1 0 7"/><path d="M19.5 21v-1a7 7 0 0 0-2-4.9"/></g></symbol>
+<symbol id="i-hex-mark" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="M12 8.2 15.4 10v4L12 15.8 8.6 14v-4z"/></g></symbol>
+</defs></svg>
+
+<section class="dv-turn" id="t2" style="background:#DEDCE0">
+<div class="dv-thd"><a class="dv-tid" href="#t2">2</a><span class="dv-tname">Revision of <a class="dv-oid" href="#t1">1</a> — minimalist, Obsidian dark + violet <code style="font:500 11px 'IBM Plex Mono',monospace">--interactive-accent</code>, list rows, one accent per view</span></div>
+<div class="dv-opts">
+
+<div class="dv-opt" id="2a">
+<div class="dv-olabel"><a class="dv-oid" href="#2a">2a</a>Mark, tokens, status dots</div>
+<div style="width:640px;background:#1e1e1e;border:1px solid #2b2b2b;border-radius:6px;overflow:hidden">
+
+<div style="display:flex;align-items:center;gap:18px;padding:26px 26px 24px">
+<div style="width:52px;height:52px;flex:none;display:grid;place-items:center"><svg style="width:46px;height:46px" viewBox="0 0 24 24" aria-hidden="true"><g fill="none" stroke="#dadada" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></g><path d="M12 8.4 15.2 10.2v3.6L12 15.6 8.8 13.8v-3.6z" fill="none" stroke="#8257e6" stroke-width="1.2" stroke-linejoin="round"/></svg></div>
+<div>
+<div style="font:500 20px/1.2 'Inter Tight';letter-spacing:-.01em;color:#dadada">Havemind</div>
+<div style="font:400 12.5px/1.5 'Inter Tight';color:#999;margin-top:4px">One cell, one comb. Thin line, mono, a single violet centre — the only filled shape in the whole identity.</div>
+</div>
+</div>
+
+<div style="height:1px;background:#262626"></div>
+
+<div style="padding:20px 26px">
+<div style="font:500 10px 'Inter Tight';letter-spacing:.1em;text-transform:uppercase;color:#666;margin-bottom:14px">Ground &amp; accent — Obsidian tokens, never literals</div>
+<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px">
+<div><div style="height:38px;border-radius:4px;background:#1e1e1e;border:1px solid #2b2b2b"></div><div style="font:400 10.5px/1.4 'IBM Plex Mono',monospace;color:#999;margin-top:7px">--background-primary</div></div>
+<div><div style="height:38px;border-radius:4px;background:#161616;border:1px solid #2b2b2b"></div><div style="font:400 10.5px/1.4 'IBM Plex Mono',monospace;color:#999;margin-top:7px">--background-secondary</div></div>
+<div><div style="height:38px;border-radius:4px;background:#2b2b2b"></div><div style="font:400 10.5px/1.4 'IBM Plex Mono',monospace;color:#999;margin-top:7px">--modifier-border</div></div>
+<div><div style="height:38px;border-radius:4px;background:#dadada"></div><div style="font:400 10.5px/1.4 'IBM Plex Mono',monospace;color:#999;margin-top:7px">--text-normal</div></div>
+<div><div style="height:38px;border-radius:4px;background:#8257e6"></div><div style="font:400 10.5px/1.4 'IBM Plex Mono',monospace;color:#999;margin-top:7px">--interactive-accent</div></div>
+</div>
+<div style="margin-top:14px;font:400 12px/1.6 'Inter Tight';color:#999">Change the accent in Obsidian's appearance settings and every violet in the plugin follows. Light theme resolves the same five tokens — no second palette to maintain.</div>
+</div>
+
+<div style="height:1px;background:#262626"></div>
+
+<div style="padding:20px 26px">
+<div style="font:500 10px 'Inter Tight';letter-spacing:.1em;text-transform:uppercase;color:#666;margin-bottom:14px">Status — small dot or icon, always with its word</div>
+<div style="display:flex;flex-direction:column;gap:11px">
+<div style="display:flex;align-items:center;gap:9px"><svg style="width:8px;height:8px;flex:none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#44cf6e"/></svg><span style="font:400 13px 'Inter Tight';color:#dadada;width:150px">Synced</span><span style="font:400 11px 'IBM Plex Mono',monospace;color:#666">--color-green</span></div>
+<div style="display:flex;align-items:center;gap:9px"><svg class="hm-spin" style="width:17px;height:17px;flex:none;margin:0 -4.5px;animation:hm-comb 1.3s linear infinite" viewBox="0 0 24 24" aria-hidden="true"><line class="hm-spin" x1="12" y1="3" x2="19.79" y2="7.5" stroke="#8257e6" stroke-width="2" stroke-linecap="round" style="animation:hm-p1 1.3s cubic-bezier(.45,0,.25,1) infinite"/><line class="hm-spin" x1="19.79" y1="7.5" x2="19.79" y2="16.5" stroke="#8257e6" stroke-width="2" stroke-linecap="round" style="animation:hm-p2 1.3s cubic-bezier(.45,0,.25,1) infinite"/><line class="hm-spin" x1="19.79" y1="16.5" x2="12" y2="21" stroke="#8257e6" stroke-width="2" stroke-linecap="round" style="animation:hm-p3 1.3s cubic-bezier(.45,0,.25,1) infinite"/><line class="hm-spin" x1="12" y1="21" x2="4.21" y2="16.5" stroke="#8257e6" stroke-width="2" stroke-linecap="round" style="animation:hm-p4 1.3s cubic-bezier(.45,0,.25,1) infinite"/><line class="hm-spin" x1="4.21" y1="16.5" x2="4.21" y2="7.5" stroke="#8257e6" stroke-width="2" stroke-linecap="round" style="animation:hm-p5 1.3s cubic-bezier(.45,0,.25,1) infinite"/><line class="hm-spin" x1="4.21" y1="7.5" x2="12" y2="3" stroke="#8257e6" stroke-width="2" stroke-linecap="round" style="animation:hm-p6 1.3s cubic-bezier(.45,0,.25,1) infinite"/></svg><span style="font:400 13px 'Inter Tight';color:#dadada;width:150px">Syncing</span><span style="font:400 11px 'IBM Plex Mono',monospace;color:#666">six edges, then one</span></div>
+<div style="display:flex;align-items:center;gap:9px"><svg style="width:12px;height:12px;flex:none;margin:0 -2px;color:#999" viewBox="0 0 24 24"><path d="M3 3l18 18" fill="none" stroke="#999" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M17.5 19H9a7 7 0 0 1-1.35-13.87" fill="none" stroke="#999" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M10.6 5.2A7 7 0 0 1 15.7 10h1.8a4.5 4.5 0 0 1 3.5 7.3" fill="none" stroke="#999" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span style="font:400 13px 'Inter Tight';color:#dadada;width:150px">Offline</span><span style="font:400 11px 'IBM Plex Mono',monospace;color:#666">--text-muted</span></div>
+<div style="display:flex;align-items:center;gap:9px"><svg style="width:8px;height:8px;flex:none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#e5534b"/></svg><span style="font:400 13px 'Inter Tight';color:#dadada;width:150px">Conflict</span><span style="font:400 11px 'IBM Plex Mono',monospace;color:#666">--color-red</span></div>
+<div style="display:flex;align-items:center;gap:9px"><svg style="width:12px;height:12px;flex:none;margin:0 -2px;color:#e5534b" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" fill="none" stroke="#e5534b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 9v4" fill="none" stroke="#e5534b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 17h.01" fill="none" stroke="#e5534b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span style="font:400 13px 'Inter Tight';color:#dadada;width:150px">Reconnect required</span><span style="font:400 11px 'IBM Plex Mono',monospace;color:#666">--color-red</span></div>
+</div>
+<div style="margin-top:14px;font:400 12px/1.6 'Inter Tight';color:#999">Semantic colour is confined to an 8px dot or a 12px glyph. Violet stays reserved for what you can act on.</div>
+</div>
+
+<div style="height:1px;background:#262626"></div>
+
+<div style="padding:20px 26px">
+<div style="font:500 10px 'Inter Tight';letter-spacing:.1em;text-transform:uppercase;color:#666;margin-bottom:14px">Authors</div>
+<div style="display:flex;flex-wrap:wrap;gap:8px 20px">
+<div style="display:flex;align-items:center;gap:8px"><svg style="width:8px;height:8px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#8257e6"/></svg><span style="font:400 12.5px 'Inter Tight';color:#dadada">you</span></div>
+<div style="display:flex;align-items:center;gap:8px"><svg style="width:8px;height:8px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#7cb6f0"/></svg><span style="font:400 12.5px 'Inter Tight';color:#dadada">author-2</span></div>
+<div style="display:flex;align-items:center;gap:8px"><svg style="width:8px;height:8px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#5fd3ac"/></svg><span style="font:400 12.5px 'Inter Tight';color:#dadada">author-3</span></div>
+<div style="display:flex;align-items:center;gap:8px"><svg style="width:8px;height:8px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#ef92b6"/></svg><span style="font:400 12.5px 'Inter Tight';color:#dadada">author-4</span></div>
+<div style="display:flex;align-items:center;gap:8px"><svg style="width:8px;height:8px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#a3aef0"/></svg><span style="font:400 12.5px 'Inter Tight';color:#dadada">author-5</span></div>
+<div style="display:flex;align-items:center;gap:8px"><svg style="width:8px;height:8px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#666"/></svg><span style="font:400 12.5px 'Inter Tight';color:#dadada">initial import</span></div>
+</div>
+<div style="margin-top:14px;font:400 12px/1.6 'Inter Tight';color:#999">Your own membership takes the accent; peers keep the existing author tokens.</div>
+</div>
+
+</div>
+</div>
+
+<div class="dv-opt" id="2b">
+<div class="dv-olabel"><a class="dv-oid" href="#2b">2b</a>Connect to Havemind — connected · dark &amp; light</div>
+<div style="display:flex;gap:20px">
+
+<div style="width:300px;background:#1e1e1e;border:1px solid #2b2b2b;border-radius:6px;overflow:hidden">
+<div style="display:flex;align-items:center;gap:8px;height:36px;padding:0 8px 0 12px;border-bottom:1px solid #262626">
+<svg style="width:14px;height:14px;flex:none;color:#8257e6" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#8257e6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<span style="font:500 13px 'Inter Tight';color:#dadada;flex:1">Connect to Havemind</span>
+<svg style="width:14px;height:14px;color:#666" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.2" fill="#666"/><circle cx="12" cy="12" r="1.2" fill="#666"/><circle cx="19" cy="12" r="1.2" fill="#666"/></svg>
+</div>
+<div style="padding:16px 14px 18px;display:flex;flex-direction:column;gap:18px">
+
+<div>
+<div style="display:flex;align-items:center;gap:9px">
+<svg style="width:8px;height:8px;flex:none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#44cf6e"/></svg>
+<span style="font:500 13.5px 'Inter Tight';color:#dadada">Synced</span>
+</div>
+<div style="font:400 12px/1.6 'Inter Tight';color:#999;margin-top:6px;padding-left:17px">hive.tail-net · last sync <span style="font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums">15:42</span></div>
+<div style="font:400 11.5px/1.6 'Inter Tight';color:#666;padding-left:17px">No end-to-end encryption in the pilot.</div>
+</div>
+
+<div style="display:flex;align-items:baseline;gap:8px;padding:0 0 0 17px">
+<span style="font:400 12.5px 'Inter Tight';color:#999">3 changes waiting to send</span>
+</div>
+
+<div style="display:flex;gap:9px;padding:10px 12px;border-left:2px solid #e5534b;background:rgba(229,83,75,.07)">
+<div>
+<div style="font:500 12.5px/1.4 'Inter Tight';color:#dadada">Local queue needs recovery</div>
+<div style="font:400 11.5px/1.55 'Inter Tight';color:#999;margin-top:3px">Unsent changes were preserved to a sidecar for manual recovery.</div>
+</div>
+</div>
+
+<div>
+<div style="display:flex;align-items:center;justify-content:space-between;padding-bottom:8px;border-bottom:1px solid #262626">
+<span style="font:500 10px 'Inter Tight';letter-spacing:.1em;text-transform:uppercase;color:#666">Connected</span>
+<span style="font:400 11px 'IBM Plex Mono',monospace;color:#666">3</span>
+</div>
+
+<div style="display:flex;align-items:center;gap:10px;min-height:44px;padding:8px 0;border-bottom:1px solid #262626">
+<svg style="width:8px;height:8px;flex:none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#8257e6"/></svg>
+<div style="flex:1;min-width:0"><div style="font:400 13px/1.35 'Inter Tight';color:#dadada">Tomek</div><div style="font:400 11.5px/1.35 'Inter Tight';color:#666">owner · you</div></div>
+</div>
+
+<div style="display:flex;align-items:center;gap:10px;min-height:44px;padding:8px 0;border-bottom:1px solid #262626">
+<svg style="width:8px;height:8px;flex:none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#7cb6f0"/></svg>
+<div style="flex:1;min-width:0"><div style="font:400 13px/1.35 'Inter Tight';color:#dadada">Magda</div><div style="font:400 11.5px/1.35 'Inter Tight';color:#666">editor · connected</div></div>
+<button style="font:400 11.5px 'Inter Tight';color:#999;background:none;border:none;padding:4px 2px;cursor:pointer">Mark offline</button>
+<button style="display:inline-flex;color:#666;background:none;border:none;padding:4px 2px;cursor:pointer"><svg style="width:13px;height:13px" viewBox="0 0 24 24"><path d="M3 6h18" fill="none" stroke="#666" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" fill="none" stroke="#666" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" fill="none" stroke="#666" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+</div>
+
+<div style="display:flex;align-items:center;gap:10px;min-height:44px;padding:8px 0">
+<svg style="width:8px;height:8px;flex:none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="none" stroke="#666" stroke-width="2"/><path d="m9 15 6-6" fill="none" stroke="#666" stroke-width="2" stroke-linecap="round"/></svg>
+<div style="flex:1;min-width:0"><div style="font:400 13px/1.35 'Inter Tight';color:#999">Claude · agent</div><div style="font:400 11.5px/1.35 'Inter Tight';color:#666">editor · disconnected</div></div>
+<button style="font:500 11.5px 'Inter Tight';color:#8257e6;background:none;border:none;padding:4px 2px;cursor:pointer">Rejoin</button>
+</div>
+</div>
+
+<button style="align-self:flex-start;font:400 12px 'Inter Tight';color:#999;background:none;border:1px solid #2b2b2b;border-radius:4px;padding:5px 12px;cursor:pointer">Disconnect</button>
+
+</div>
+</div>
+
+<div style="width:300px;background:#ffffff;border:1px solid #e0e0e0;border-radius:6px;overflow:hidden">
+<div style="display:flex;align-items:center;gap:8px;height:36px;padding:0 8px 0 12px;border-bottom:1px solid #ebebeb">
+<svg style="width:14px;height:14px;flex:none;color:#7048d8" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#7048d8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<span style="font:500 13px 'Inter Tight';color:#222;flex:1">Connect to Havemind</span>
+<svg style="width:14px;height:14px;color:#999" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.2" fill="#999"/><circle cx="12" cy="12" r="1.2" fill="#999"/><circle cx="19" cy="12" r="1.2" fill="#999"/></svg>
+</div>
+<div style="padding:16px 14px 18px;display:flex;flex-direction:column;gap:18px">
+
+<div>
+<div style="display:flex;align-items:center;gap:9px">
+<svg style="width:8px;height:8px;flex:none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#08a045"/></svg>
+<span style="font:500 13.5px 'Inter Tight';color:#222">Synced</span>
+</div>
+<div style="font:400 12px/1.6 'Inter Tight';color:#5c5c5c;margin-top:6px;padding-left:17px">hive.tail-net · last sync <span style="font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums">15:42</span></div>
+<div style="font:400 11.5px/1.6 'Inter Tight';color:#999;padding-left:17px">No end-to-end encryption in the pilot.</div>
+</div>
+
+<div style="padding-left:17px"><span style="font:400 12.5px 'Inter Tight';color:#5c5c5c">3 changes waiting to send</span></div>
+
+<div style="display:flex;gap:9px;padding:10px 12px;border-left:2px solid #c73a2f;background:rgba(199,58,47,.05)">
+<div>
+<div style="font:500 12.5px/1.4 'Inter Tight';color:#222">Local queue needs recovery</div>
+<div style="font:400 11.5px/1.55 'Inter Tight';color:#5c5c5c;margin-top:3px">Unsent changes were preserved to a sidecar for manual recovery.</div>
+</div>
+</div>
+
+<div>
+<div style="display:flex;align-items:center;justify-content:space-between;padding-bottom:8px;border-bottom:1px solid #ebebeb">
+<span style="font:500 10px 'Inter Tight';letter-spacing:.1em;text-transform:uppercase;color:#999">Connected</span>
+<span style="font:400 11px 'IBM Plex Mono',monospace;color:#999">3</span>
+</div>
+
+<div style="display:flex;align-items:center;gap:10px;min-height:44px;padding:8px 0;border-bottom:1px solid #ebebeb">
+<svg style="width:8px;height:8px;flex:none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#7048d8"/></svg>
+<div style="flex:1;min-width:0"><div style="font:400 13px/1.35 'Inter Tight';color:#222">Tomek</div><div style="font:400 11.5px/1.35 'Inter Tight';color:#999">owner · you</div></div>
+</div>
+
+<div style="display:flex;align-items:center;gap:10px;min-height:44px;padding:8px 0;border-bottom:1px solid #ebebeb">
+<svg style="width:8px;height:8px;flex:none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#1a73c2"/></svg>
+<div style="flex:1;min-width:0"><div style="font:400 13px/1.35 'Inter Tight';color:#222">Magda</div><div style="font:400 11.5px/1.35 'Inter Tight';color:#999">editor · connected</div></div>
+<button style="font:400 11.5px 'Inter Tight';color:#5c5c5c;background:none;border:none;padding:4px 2px;cursor:pointer">Mark offline</button>
+<button style="display:inline-flex;color:#999;background:none;border:none;padding:4px 2px;cursor:pointer"><svg style="width:13px;height:13px" viewBox="0 0 24 24"><path d="M3 6h18" fill="none" stroke="#999" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" fill="none" stroke="#999" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" fill="none" stroke="#999" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+</div>
+
+<div style="display:flex;align-items:center;gap:10px;min-height:44px;padding:8px 0">
+<svg style="width:8px;height:8px;flex:none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="none" stroke="#999" stroke-width="2"/><path d="m9 15 6-6" fill="none" stroke="#999" stroke-width="2" stroke-linecap="round"/></svg>
+<div style="flex:1;min-width:0"><div style="font:400 13px/1.35 'Inter Tight';color:#5c5c5c">Claude · agent</div><div style="font:400 11.5px/1.35 'Inter Tight';color:#999">editor · disconnected</div></div>
+<button style="font:500 11.5px 'Inter Tight';color:#7048d8;background:none;border:none;padding:4px 2px;cursor:pointer">Rejoin</button>
+</div>
+</div>
+
+<button style="align-self:flex-start;font:400 12px 'Inter Tight';color:#5c5c5c;background:none;border:1px solid #e0e0e0;border-radius:4px;padding:5px 12px;cursor:pointer">Disconnect</button>
+
+</div>
+</div>
+
+</div>
+</div>
+
+<div class="dv-opt" id="2c">
+<div class="dv-olabel"><a class="dv-oid" href="#2c">2c</a>States + not-connected form</div>
+<div style="display:flex;gap:20px;align-items:flex-start">
+
+<div style="width:300px;background:#1e1e1e;border:1px solid #2b2b2b;border-radius:6px;padding:16px 14px;display:flex;flex-direction:column;gap:0">
+<div style="font:500 10px 'Inter Tight';letter-spacing:.1em;text-transform:uppercase;color:#666;padding-bottom:14px">States · dark</div>
+
+<div style="padding:14px 0;border-top:1px solid #262626">
+<div style="display:flex;align-items:center;gap:9px"><svg class="hm-spin" style="width:17px;height:17px;flex:none;margin:0 -4.5px;animation:hm-comb 1.3s linear infinite" viewBox="0 0 24 24" aria-hidden="true"><line class="hm-spin" x1="12" y1="3" x2="19.79" y2="7.5" stroke="#8257e6" stroke-width="2" stroke-linecap="round" style="animation:hm-p1 1.3s cubic-bezier(.45,0,.25,1) infinite"/><line class="hm-spin" x1="19.79" y1="7.5" x2="19.79" y2="16.5" stroke="#8257e6" stroke-width="2" stroke-linecap="round" style="animation:hm-p2 1.3s cubic-bezier(.45,0,.25,1) infinite"/><line class="hm-spin" x1="19.79" y1="16.5" x2="12" y2="21" stroke="#8257e6" stroke-width="2" stroke-linecap="round" style="animation:hm-p3 1.3s cubic-bezier(.45,0,.25,1) infinite"/><line class="hm-spin" x1="12" y1="21" x2="4.21" y2="16.5" stroke="#8257e6" stroke-width="2" stroke-linecap="round" style="animation:hm-p4 1.3s cubic-bezier(.45,0,.25,1) infinite"/><line class="hm-spin" x1="4.21" y1="16.5" x2="4.21" y2="7.5" stroke="#8257e6" stroke-width="2" stroke-linecap="round" style="animation:hm-p5 1.3s cubic-bezier(.45,0,.25,1) infinite"/><line class="hm-spin" x1="4.21" y1="7.5" x2="12" y2="3" stroke="#8257e6" stroke-width="2" stroke-linecap="round" style="animation:hm-p6 1.3s cubic-bezier(.45,0,.25,1) infinite"/></svg><span style="font:500 13.5px 'Inter Tight';color:#dadada">Syncing</span></div>
+<div style="font:400 12px/1.6 'Inter Tight';color:#999;margin-top:6px;padding-left:17px">2 revisions in flight</div>
+</div>
+
+<div style="padding:14px 0;border-top:1px solid #262626">
+<div style="display:flex;align-items:center;gap:9px"><svg style="width:12px;height:12px;flex:none;margin:0 -2px;color:#999" viewBox="0 0 24 24"><path d="M3 3l18 18" fill="none" stroke="#999" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M17.5 19H9a7 7 0 0 1-1.35-13.87" fill="none" stroke="#999" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M10.6 5.2A7 7 0 0 1 15.7 10h1.8a4.5 4.5 0 0 1 3.5 7.3" fill="none" stroke="#999" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span style="font:500 13.5px 'Inter Tight';color:#dadada">Offline</span></div>
+<div style="font:400 12px/1.6 'Inter Tight';color:#999;margin-top:6px;padding-left:17px">Retrying in 24 s. Changes queue locally — nothing is lost.</div>
+<button style="margin:8px 0 0 17px;font:500 12px 'Inter Tight';color:#8257e6;background:none;border:none;padding:0;cursor:pointer">Retry now</button>
+</div>
+
+<div style="padding:14px 0;border-top:1px solid #262626">
+<div style="display:flex;align-items:center;gap:9px"><svg style="width:12px;height:12px;flex:none;margin:0 -2px;color:#e5534b" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" fill="none" stroke="#e5534b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 9v4" fill="none" stroke="#e5534b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 17h.01" fill="none" stroke="#e5534b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span style="font:500 13.5px 'Inter Tight';color:#dadada">Reconnect required</span></div>
+<div style="font:400 12px/1.6 'Inter Tight';color:#999;margin-top:6px;padding-left:17px">The server refused the session. Paste a fresh invitation below.</div>
+<button style="margin:8px 0 0 17px;font:500 12px 'Inter Tight';color:#8257e6;background:none;border:none;padding:0;cursor:pointer">Retry now</button>
+</div>
+
+<div style="padding:14px 0 0;border-top:1px solid #262626">
+<div style="display:flex;align-items:center;gap:9px"><svg style="width:8px;height:8px;flex:none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#e5534b"/></svg><span style="font:500 13.5px 'Inter Tight';color:#dadada">Conflict</span><span style="margin-left:auto;font:400 11px 'IBM Plex Mono',monospace;color:#666">2</span></div>
+<div style="font:400 12px/1.6 'Inter Tight';color:#999;margin-top:6px;padding-left:17px">Both versions kept in <span style="font-family:'IBM Plex Mono',monospace;font-size:11px">Havemind Conflicts/</span></div>
+<div style="display:flex;align-items:center;gap:10px;padding:10px 0 0 17px">
+<div style="flex:1;min-width:0"><div style="font:400 12.5px/1.35 'Inter Tight';color:#dadada">Roadmap Q3</div><div style="font:400 11px/1.35 'Inter Tight';color:#666">Magda · 15:39</div></div>
+<button style="font:500 11.5px 'Inter Tight';color:#8257e6;background:none;border:none;padding:4px 2px;cursor:pointer">Resolve</button>
+</div>
+</div>
+</div>
+
+<div style="width:300px;background:#1e1e1e;border:1px solid #2b2b2b;border-radius:6px;overflow:hidden">
+<div style="display:flex;align-items:center;gap:8px;height:36px;padding:0 8px 0 12px;border-bottom:1px solid #262626">
+<svg style="width:14px;height:14px;flex:none;color:#8257e6" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#8257e6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<span style="font:500 13px 'Inter Tight';color:#dadada;flex:1">Connect to Havemind</span>
+</div>
+<div style="padding:20px 14px 18px;display:flex;flex-direction:column;gap:18px">
+
+<div style="display:flex;flex-direction:column;align-items:center;gap:10px;padding:8px 0 4px">
+<svg style="width:34px;height:34px;color:#3a3a3a" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#3a3a3a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<div style="font:500 13.5px 'Inter Tight';color:#dadada">Not connected</div>
+<div style="font:400 12px/1.6 'Inter Tight';color:#999;text-align:center;max-width:230px">Paste the invitation the vault owner sent you. Single-use, valid 15 minutes.</div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:6px">
+<label style="font:400 11.5px 'Inter Tight';color:#999">Invitation or pairing token</label>
+<textarea style="width:100%;box-sizing:border-box;min-height:58px;resize:vertical;font-family:'IBM Plex Mono',monospace;font-size:11.5px;line-height:1.5;color:#dadada;background:#161616;border:1px solid #2b2b2b;border-radius:4px;padding:8px" placeholder="v1.… or hm_pt_…"></textarea>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:6px">
+<label style="font:400 11.5px 'Inter Tight';color:#999">Server URL</label>
+<input type="text" style="width:100%;box-sizing:border-box;font:400 12px 'IBM Plex Mono',monospace;color:#dadada;background:#161616;border:1px solid #2b2b2b;border-radius:4px;padding:7px 8px" placeholder="https://your-server.example">
+</div>
+
+<button style="font:500 13px 'Inter Tight';color:#fff;background:#8257e6;border:none;border-radius:4px;padding:8px 12px;cursor:pointer">Connect</button>
+<div style="font:400 11.5px/1.6 'Inter Tight';color:#666;text-align:center">Nothing leaves your tailnet.</div>
+</div>
+</div>
+
+<div style="width:300px;background:#ffffff;border:1px solid #e0e0e0;border-radius:6px;overflow:hidden">
+<div style="display:flex;align-items:center;gap:8px;height:36px;padding:0 8px 0 12px;border-bottom:1px solid #ebebeb">
+<svg style="width:14px;height:14px;flex:none;color:#7048d8" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#7048d8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<span style="font:500 13px 'Inter Tight';color:#222;flex:1">Connect to Havemind</span>
+</div>
+<div style="padding:20px 14px 18px;display:flex;flex-direction:column;gap:18px">
+
+<div style="display:flex;flex-direction:column;align-items:center;gap:10px;padding:8px 0 4px">
+<svg style="width:34px;height:34px;color:#d4d4d4" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#d4d4d4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<div style="font:500 13.5px 'Inter Tight';color:#222">Not connected</div>
+<div style="font:400 12px/1.6 'Inter Tight';color:#5c5c5c;text-align:center;max-width:230px">Paste the invitation the vault owner sent you. Single-use, valid 15 minutes.</div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:6px">
+<label style="font:400 11.5px 'Inter Tight';color:#5c5c5c">Invitation or pairing token</label>
+<textarea style="width:100%;box-sizing:border-box;min-height:58px;resize:vertical;font-family:'IBM Plex Mono',monospace;font-size:11.5px;line-height:1.5;color:#222;background:#f8f8f8;border:1px solid #e0e0e0;border-radius:4px;padding:8px" placeholder="v1.… or hm_pt_…"></textarea>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:6px">
+<label style="font:400 11.5px 'Inter Tight';color:#5c5c5c">Server URL</label>
+<input type="text" style="width:100%;box-sizing:border-box;font:400 12px 'IBM Plex Mono',monospace;color:#222;background:#f8f8f8;border:1px solid #e0e0e0;border-radius:4px;padding:7px 8px" placeholder="https://your-server.example">
+</div>
+
+<button style="font:500 13px 'Inter Tight';color:#fff;background:#7048d8;border:none;border-radius:4px;padding:8px 12px;cursor:pointer">Connect</button>
+<div style="font:400 11.5px/1.6 'Inter Tight';color:#999;text-align:center">Nothing leaves your tailnet.</div>
+</div>
+</div>
+
+</div>
+</div>
+
+<div class="dv-opt" id="2d">
+<div class="dv-olabel"><a class="dv-oid" href="#2d">2d</a>Creating connection (owner) — dark &amp; light</div>
+<div style="display:flex;gap:20px">
+
+<div style="width:300px;background:#1e1e1e;border:1px solid #2b2b2b;border-radius:6px;overflow:hidden">
+<div style="display:flex;align-items:center;gap:8px;height:36px;padding:0 8px 0 12px;border-bottom:1px solid #262626">
+<svg style="width:14px;height:14px;flex:none;color:#8257e6" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#8257e6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<span style="font:500 13px 'Inter Tight';color:#dadada;flex:1">Creating connection</span>
+<svg style="width:14px;height:14px;color:#666" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.2" fill="#666"/><circle cx="12" cy="12" r="1.2" fill="#666"/><circle cx="19" cy="12" r="1.2" fill="#666"/></svg>
+</div>
+<div style="padding:16px 14px 18px;display:flex;flex-direction:column;gap:18px">
+
+<div style="display:flex;align-items:center;gap:9px"><svg style="width:8px;height:8px;flex:none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#44cf6e"/></svg><span style="font:400 12.5px 'Inter Tight';color:#999">Invitation created</span></div>
+
+<div style="display:flex;flex-direction:column;gap:12px">
+<div style="font:500 10px 'Inter Tight';letter-spacing:.1em;text-transform:uppercase;color:#666">New invitation</div>
+<div style="display:flex;gap:10px">
+<div style="width:96px;display:flex;flex-direction:column;gap:6px">
+<label style="font:400 11.5px 'Inter Tight';color:#999">Role</label>
+<div style="display:flex;align-items:center;gap:4px;background:#161616;border:1px solid #2b2b2b;border-radius:4px;padding:7px 6px 7px 8px"><span style="font:400 12px 'Inter Tight';color:#dadada;flex:1">editor</span><svg style="width:12px;height:12px;color:#666" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" fill="none" stroke="#666" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+</div>
+<div style="flex:1;display:flex;flex-direction:column;gap:6px">
+<label style="font:400 11.5px 'Inter Tight';color:#999">Display name</label>
+<input type="text" style="width:100%;box-sizing:border-box;font:400 12px 'Inter Tight';color:#dadada;background:#161616;border:1px solid #2b2b2b;border-radius:4px;padding:7px 8px" value="Magda">
+</div>
+</div>
+<button style="align-self:flex-start;font:400 12px 'Inter Tight';color:#dadada;background:none;border:1px solid #2b2b2b;border-radius:4px;padding:6px 12px;cursor:pointer">Create invitation</button>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:9px;padding-top:16px;border-top:1px solid #262626">
+<div style="font:400 11.5px/1.6 'Inter Tight';color:#999">Send this to the other device. Single-use, expires <span style="font-family:'IBM Plex Mono',monospace">15:57</span>.</div>
+<code style="display:block;font-family:'IBM Plex Mono',monospace;font-size:11px;line-height:1.6;color:#999;background:#161616;border:1px solid #2b2b2b;border-radius:4px;padding:8px;word-break:break-all;max-height:52px;overflow:hidden">v1.eyJ2IjoxLCJzIjoiaGl2ZS50YWlsLW5ldCIsImkiOiJjNmY4YTJk…</code>
+<div style="display:flex;align-items:center;gap:16px">
+<button style="display:inline-flex;align-items:center;gap:6px;font:500 12px 'Inter Tight';color:#8257e6;background:none;border:none;padding:0;cursor:pointer"><svg style="width:13px;height:13px" viewBox="0 0 24 24"><rect x="8" y="8" width="14" height="14" rx="2" fill="none" stroke="#8257e6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" fill="none" stroke="#8257e6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Copy</button>
+<button style="font:400 12px 'Inter Tight';color:#666;background:none;border:none;padding:0;cursor:pointer">Done</button>
+</div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:12px;padding-top:16px;border-top:1px solid #262626">
+<div style="font:500 10px 'Inter Tight';letter-spacing:.1em;text-transform:uppercase;color:#666">Waiting for the other device</div>
+<div style="display:flex;align-items:center;gap:9px">
+<svg style="width:13px;height:13px;flex:none;color:#999" viewBox="0 0 24 24"><circle cx="10" cy="8" r="4" fill="none" stroke="#999" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 21v-1a7 7 0 0 1 11-5.7" fill="none" stroke="#999" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="m15 19 2 2 4-4" fill="none" stroke="#999" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<span style="font:400 13px 'Inter Tight';color:#dadada;flex:1">Magda</span>
+<span style="font:400 11px 'IBM Plex Mono',monospace;color:#666">expires 15:57</span>
+</div>
+<div style="font:400 11.5px/1.6 'Inter Tight';color:#999">Ask Magda to read the 6-digit code from her screen. 3 attempts.</div>
+<div style="display:flex;align-items:center;gap:10px">
+<input style="flex:1;min-width:0;box-sizing:border-box;font-family:'IBM Plex Mono',monospace;font-size:18px;letter-spacing:.24em;text-align:center;color:#dadada;background:#161616;border:1px solid #2b2b2b;border-radius:4px;padding:8px 4px" value="402913" maxlength="6">
+<button style="font:500 12.5px 'Inter Tight';color:#fff;background:#8257e6;border:none;border-radius:4px;padding:9px 14px;cursor:pointer">Approve</button>
+</div>
+<div style="font:400 11px/1.5 'Inter Tight';color:#666">The code travels by voice only — never over the network.</div>
+</div>
+
+<div style="display:flex;flex-direction:column;padding-top:16px;border-top:1px solid #262626">
+<div style="display:flex;align-items:center;justify-content:space-between;padding-bottom:8px">
+<span style="font:500 10px 'Inter Tight';letter-spacing:.1em;text-transform:uppercase;color:#666">Connected</span>
+<span style="font:400 11px 'IBM Plex Mono',monospace;color:#666">1</span>
+</div>
+<div style="display:flex;align-items:center;gap:10px;min-height:44px;padding:8px 0;border-top:1px solid #262626">
+<svg style="width:8px;height:8px;flex:none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#8257e6"/></svg>
+<div style="flex:1;min-width:0"><div style="font:400 13px/1.35 'Inter Tight';color:#dadada">Tomek</div><div style="font:400 11.5px/1.35 'Inter Tight';color:#666">owner · you</div></div>
+</div>
+</div>
+
+</div>
+</div>
+
+<div style="width:300px;background:#ffffff;border:1px solid #e0e0e0;border-radius:6px;overflow:hidden">
+<div style="display:flex;align-items:center;gap:8px;height:36px;padding:0 8px 0 12px;border-bottom:1px solid #ebebeb">
+<svg style="width:14px;height:14px;flex:none;color:#7048d8" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#7048d8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<span style="font:500 13px 'Inter Tight';color:#222;flex:1">Creating connection</span>
+<svg style="width:14px;height:14px;color:#999" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.2" fill="#999"/><circle cx="12" cy="12" r="1.2" fill="#999"/><circle cx="19" cy="12" r="1.2" fill="#999"/></svg>
+</div>
+<div style="padding:16px 14px 18px;display:flex;flex-direction:column;gap:18px">
+
+<div style="display:flex;align-items:center;gap:9px"><svg style="width:8px;height:8px;flex:none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#08a045"/></svg><span style="font:400 12.5px 'Inter Tight';color:#5c5c5c">Invitation created</span></div>
+
+<div style="display:flex;flex-direction:column;gap:12px">
+<div style="font:500 10px 'Inter Tight';letter-spacing:.1em;text-transform:uppercase;color:#999">New invitation</div>
+<div style="display:flex;gap:10px">
+<div style="width:96px;display:flex;flex-direction:column;gap:6px">
+<label style="font:400 11.5px 'Inter Tight';color:#5c5c5c">Role</label>
+<div style="display:flex;align-items:center;gap:4px;background:#f8f8f8;border:1px solid #e0e0e0;border-radius:4px;padding:7px 6px 7px 8px"><span style="font:400 12px 'Inter Tight';color:#222;flex:1">editor</span><svg style="width:12px;height:12px;color:#999" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" fill="none" stroke="#999" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+</div>
+<div style="flex:1;display:flex;flex-direction:column;gap:6px">
+<label style="font:400 11.5px 'Inter Tight';color:#5c5c5c">Display name</label>
+<input type="text" style="width:100%;box-sizing:border-box;font:400 12px 'Inter Tight';color:#222;background:#f8f8f8;border:1px solid #e0e0e0;border-radius:4px;padding:7px 8px" value="Magda">
+</div>
+</div>
+<button style="align-self:flex-start;font:400 12px 'Inter Tight';color:#222;background:none;border:1px solid #e0e0e0;border-radius:4px;padding:6px 12px;cursor:pointer">Create invitation</button>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:9px;padding-top:16px;border-top:1px solid #ebebeb">
+<div style="font:400 11.5px/1.6 'Inter Tight';color:#5c5c5c">Send this to the other device. Single-use, expires <span style="font-family:'IBM Plex Mono',monospace">15:57</span>.</div>
+<code style="display:block;font-family:'IBM Plex Mono',monospace;font-size:11px;line-height:1.6;color:#5c5c5c;background:#f8f8f8;border:1px solid #e0e0e0;border-radius:4px;padding:8px;word-break:break-all;max-height:52px;overflow:hidden">v1.eyJ2IjoxLCJzIjoiaGl2ZS50YWlsLW5ldCIsImkiOiJjNmY4YTJk…</code>
+<div style="display:flex;align-items:center;gap:16px">
+<button style="display:inline-flex;align-items:center;gap:6px;font:500 12px 'Inter Tight';color:#7048d8;background:none;border:none;padding:0;cursor:pointer"><svg style="width:13px;height:13px" viewBox="0 0 24 24"><rect x="8" y="8" width="14" height="14" rx="2" fill="none" stroke="#7048d8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" fill="none" stroke="#7048d8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Copy</button>
+<button style="font:400 12px 'Inter Tight';color:#999;background:none;border:none;padding:0;cursor:pointer">Done</button>
+</div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:12px;padding-top:16px;border-top:1px solid #ebebeb">
+<div style="font:500 10px 'Inter Tight';letter-spacing:.1em;text-transform:uppercase;color:#999">Waiting for the other device</div>
+<div style="display:flex;align-items:center;gap:9px">
+<svg style="width:13px;height:13px;flex:none;color:#5c5c5c" viewBox="0 0 24 24"><circle cx="10" cy="8" r="4" fill="none" stroke="#5c5c5c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 21v-1a7 7 0 0 1 11-5.7" fill="none" stroke="#5c5c5c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="m15 19 2 2 4-4" fill="none" stroke="#5c5c5c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<span style="font:400 13px 'Inter Tight';color:#222;flex:1">Magda</span>
+<span style="font:400 11px 'IBM Plex Mono',monospace;color:#999">expires 15:57</span>
+</div>
+<div style="font:400 11.5px/1.6 'Inter Tight';color:#5c5c5c">Ask Magda to read the 6-digit code from her screen. 3 attempts.</div>
+<div style="display:flex;align-items:center;gap:10px">
+<input style="flex:1;min-width:0;box-sizing:border-box;font-family:'IBM Plex Mono',monospace;font-size:18px;letter-spacing:.24em;text-align:center;color:#222;background:#f8f8f8;border:1px solid #e0e0e0;border-radius:4px;padding:8px 4px" value="402913" maxlength="6">
+<button style="font:500 12.5px 'Inter Tight';color:#fff;background:#7048d8;border:none;border-radius:4px;padding:9px 14px;cursor:pointer">Approve</button>
+</div>
+<div style="font:400 11px/1.5 'Inter Tight';color:#999">The code travels by voice only — never over the network.</div>
+</div>
+
+<div style="display:flex;flex-direction:column;padding-top:16px;border-top:1px solid #ebebeb">
+<div style="display:flex;align-items:center;justify-content:space-between;padding-bottom:8px">
+<span style="font:500 10px 'Inter Tight';letter-spacing:.1em;text-transform:uppercase;color:#999">Connected</span>
+<span style="font:400 11px 'IBM Plex Mono',monospace;color:#999">1</span>
+</div>
+<div style="display:flex;align-items:center;gap:10px;min-height:44px;padding:8px 0;border-top:1px solid #ebebeb">
+<svg style="width:8px;height:8px;flex:none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#7048d8"/></svg>
+<div style="flex:1;min-width:0"><div style="font:400 13px/1.35 'Inter Tight';color:#222">Tomek</div><div style="font:400 11.5px/1.35 'Inter Tight';color:#999">owner · you</div></div>
+</div>
+</div>
+
+</div>
+</div>
+
+</div>
+</div>
+
+<div class="dv-opt" id="2e">
+<div class="dv-olabel"><a class="dv-oid" href="#2e">2e</a>Havemind activity — list feed &amp; empty state</div>
+<div style="display:flex;gap:20px;align-items:flex-start">
+
+<div style="width:300px;background:#1e1e1e;border:1px solid #2b2b2b;border-radius:6px;overflow:hidden">
+<div style="display:flex;align-items:center;gap:8px;height:36px;padding:0 8px 0 12px;border-bottom:1px solid #262626">
+<svg style="width:14px;height:14px;flex:none;color:#8257e6" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#8257e6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<span style="font:500 13px 'Inter Tight';color:#dadada;flex:1">Havemind activity</span>
+<svg style="width:13px;height:13px;color:#666" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3.5-7.1" fill="none" stroke="#666" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M21 3v6h-6" fill="none" stroke="#666" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+</div>
+<div style="padding:14px 14px 16px">
+
+<div style="font:500 10px 'Inter Tight';letter-spacing:.1em;text-transform:uppercase;color:#666;padding-bottom:10px">Today</div>
+
+<div style="display:flex;gap:10px;padding:11px 0;border-top:1px solid #262626">
+<svg style="width:8px;height:8px;flex:none;margin-top:5px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#7cb6f0"/></svg>
+<div style="flex:1;min-width:0">
+<div style="font:400 12.5px/1.45 'Inter Tight';color:#dadada"><span style="font-weight:500">Magda</span> <span style="color:#999">edited</span></div>
+<div style="font:400 12px/1.45 'Inter Tight';color:#999;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Roadmap Q3.md</div>
+</div>
+<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex:none">
+<span style="font:400 11px 'IBM Plex Mono',monospace;color:#666;font-variant-numeric:tabular-nums">15:42</span>
+<button style="font:400 11.5px 'Inter Tight';color:#8257e6;background:none;border:none;padding:0;cursor:pointer">Restore</button>
+</div>
+</div>
+
+<div style="display:flex;gap:10px;padding:11px 0;border-top:1px solid #262626">
+<svg style="width:8px;height:8px;flex:none;margin-top:5px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#5fd3ac"/></svg>
+<div style="flex:1;min-width:0">
+<div style="font:400 12.5px/1.45 'Inter Tight';color:#dadada"><span style="font-weight:500">Claude · agent</span> <span style="color:#999">created</span></div>
+<div style="font:400 12px/1.45 'Inter Tight';color:#999;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Research/Conflict models.md</div>
+</div>
+<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex:none">
+<span style="font:400 11px 'IBM Plex Mono',monospace;color:#666;font-variant-numeric:tabular-nums">15:38</span>
+<button style="font:400 11.5px 'Inter Tight';color:#8257e6;background:none;border:none;padding:0;cursor:pointer">Restore</button>
+</div>
+</div>
+
+<div style="display:flex;gap:10px;padding:11px 0;border-top:1px solid #262626">
+<svg style="width:8px;height:8px;flex:none;margin-top:5px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#8257e6"/></svg>
+<div style="flex:1;min-width:0">
+<div style="font:400 12.5px/1.45 'Inter Tight';color:#dadada"><span style="font-weight:500">Tomek</span> <span style="color:#999">renamed</span></div>
+<div style="font:400 12px/1.45 'Inter Tight';color:#999;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Inbox → Inbox 2026.md</div>
+</div>
+<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex:none">
+<span style="font:400 11px 'IBM Plex Mono',monospace;color:#666;font-variant-numeric:tabular-nums">15:31</span>
+<button style="font:400 11.5px 'Inter Tight';color:#8257e6;background:none;border:none;padding:0;cursor:pointer">Restore</button>
+</div>
+</div>
+
+<div style="display:flex;gap:10px;padding:11px 0;border-top:1px solid #262626">
+<svg style="width:8px;height:8px;flex:none;margin-top:5px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#ef92b6"/></svg>
+<div style="flex:1;min-width:0">
+<div style="font:400 12.5px/1.45 'Inter Tight';color:#dadada"><span style="font-weight:500">Magda</span> <span style="color:#999">deleted</span></div>
+<div style="font:400 12px/1.45 'Inter Tight';color:#999;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Scratch/old notes.md</div>
+</div>
+<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex:none">
+<span style="font:400 11px 'IBM Plex Mono',monospace;color:#666;font-variant-numeric:tabular-nums">14:07</span>
+<button style="font:400 11.5px 'Inter Tight';color:#8257e6;background:none;border:none;padding:0;cursor:pointer">Restore</button>
+</div>
+</div>
+
+<div style="font:500 10px 'Inter Tight';letter-spacing:.1em;text-transform:uppercase;color:#666;padding:14px 0 10px;border-top:1px solid #262626">Yesterday</div>
+
+<div style="display:flex;gap:10px;padding:11px 0;border-top:1px solid #262626">
+<svg style="width:8px;height:8px;flex:none;margin-top:5px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#666"/></svg>
+<div style="flex:1;min-width:0">
+<div style="font:400 12.5px/1.45 'Inter Tight';color:#999"><span style="font-weight:500">Initial import</span> created</div>
+<div style="font:400 12px/1.45 'Inter Tight';color:#666">124 notes</div>
+</div>
+<span style="font:400 11px 'IBM Plex Mono',monospace;color:#666;flex:none;font-variant-numeric:tabular-nums">09:12</span>
+</div>
+
+</div>
+</div>
+
+<div style="width:300px;background:#1e1e1e;border:1px solid #2b2b2b;border-radius:6px;overflow:hidden">
+<div style="display:flex;align-items:center;gap:8px;height:36px;padding:0 8px 0 12px;border-bottom:1px solid #262626">
+<svg style="width:14px;height:14px;flex:none;color:#8257e6" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#8257e6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<span style="font:500 13px 'Inter Tight';color:#dadada;flex:1">Havemind activity</span>
+</div>
+<div style="padding:56px 26px 60px;display:flex;flex-direction:column;align-items:center;gap:12px;text-align:center">
+<div style="display:flex;gap:5px;align-items:center;color:#333">
+<svg style="width:22px;height:22px" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#333" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<svg style="width:30px;height:30px;color:#8257e6;opacity:.55" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#8257e6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<svg style="width:22px;height:22px" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#333" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+</div>
+<div style="font:500 13.5px 'Inter Tight';color:#dadada;margin-top:4px">Nothing yet</div>
+<div style="font:400 12px/1.7 'Inter Tight';color:#999">Every change — yours, your peers', your agents' — lands here with its author and a one-click restore.</div>
+</div>
+</div>
+
+<div style="width:300px;background:#ffffff;border:1px solid #e0e0e0;border-radius:6px;overflow:hidden">
+<div style="display:flex;align-items:center;gap:8px;height:36px;padding:0 8px 0 12px;border-bottom:1px solid #ebebeb">
+<svg style="width:14px;height:14px;flex:none;color:#7048d8" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#7048d8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<span style="font:500 13px 'Inter Tight';color:#222;flex:1">Havemind activity</span>
+<svg style="width:13px;height:13px;color:#999" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3.5-7.1" fill="none" stroke="#999" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M21 3v6h-6" fill="none" stroke="#999" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+</div>
+<div style="padding:14px 14px 16px">
+
+<div style="font:500 10px 'Inter Tight';letter-spacing:.1em;text-transform:uppercase;color:#999;padding-bottom:10px">Today</div>
+
+<div style="display:flex;gap:10px;padding:11px 0;border-top:1px solid #ebebeb">
+<svg style="width:8px;height:8px;flex:none;margin-top:5px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#1a73c2"/></svg>
+<div style="flex:1;min-width:0">
+<div style="font:400 12.5px/1.45 'Inter Tight';color:#222"><span style="font-weight:500">Magda</span> <span style="color:#5c5c5c">edited</span></div>
+<div style="font:400 12px/1.45 'Inter Tight';color:#5c5c5c;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Roadmap Q3.md</div>
+</div>
+<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex:none">
+<span style="font:400 11px 'IBM Plex Mono',monospace;color:#999;font-variant-numeric:tabular-nums">15:42</span>
+<button style="font:400 11.5px 'Inter Tight';color:#7048d8;background:none;border:none;padding:0;cursor:pointer">Restore</button>
+</div>
+</div>
+
+<div style="display:flex;gap:10px;padding:11px 0;border-top:1px solid #ebebeb">
+<svg style="width:8px;height:8px;flex:none;margin-top:5px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#0f8a6a"/></svg>
+<div style="flex:1;min-width:0">
+<div style="font:400 12.5px/1.45 'Inter Tight';color:#222"><span style="font-weight:500">Claude · agent</span> <span style="color:#5c5c5c">created</span></div>
+<div style="font:400 12px/1.45 'Inter Tight';color:#5c5c5c;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Research/Conflict models.md</div>
+</div>
+<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex:none">
+<span style="font:400 11px 'IBM Plex Mono',monospace;color:#999;font-variant-numeric:tabular-nums">15:38</span>
+<button style="font:400 11.5px 'Inter Tight';color:#7048d8;background:none;border:none;padding:0;cursor:pointer">Restore</button>
+</div>
+</div>
+
+<div style="display:flex;gap:10px;padding:11px 0;border-top:1px solid #ebebeb">
+<svg style="width:8px;height:8px;flex:none;margin-top:5px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#7048d8"/></svg>
+<div style="flex:1;min-width:0">
+<div style="font:400 12.5px/1.45 'Inter Tight';color:#222"><span style="font-weight:500">Tomek</span> <span style="color:#5c5c5c">renamed</span></div>
+<div style="font:400 12px/1.45 'Inter Tight';color:#5c5c5c;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Inbox → Inbox 2026.md</div>
+</div>
+<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex:none">
+<span style="font:400 11px 'IBM Plex Mono',monospace;color:#999;font-variant-numeric:tabular-nums">15:31</span>
+<button style="font:400 11.5px 'Inter Tight';color:#7048d8;background:none;border:none;padding:0;cursor:pointer">Restore</button>
+</div>
+</div>
+
+<div style="display:flex;gap:10px;padding:11px 0;border-top:1px solid #ebebeb">
+<svg style="width:8px;height:8px;flex:none;margin-top:5px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#b03060"/></svg>
+<div style="flex:1;min-width:0">
+<div style="font:400 12.5px/1.45 'Inter Tight';color:#222"><span style="font-weight:500">Magda</span> <span style="color:#5c5c5c">deleted</span></div>
+<div style="font:400 12px/1.45 'Inter Tight';color:#5c5c5c;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Scratch/old notes.md</div>
+</div>
+<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex:none">
+<span style="font:400 11px 'IBM Plex Mono',monospace;color:#999;font-variant-numeric:tabular-nums">14:07</span>
+<button style="font:400 11.5px 'Inter Tight';color:#7048d8;background:none;border:none;padding:0;cursor:pointer">Restore</button>
+</div>
+</div>
+
+<div style="font:500 10px 'Inter Tight';letter-spacing:.1em;text-transform:uppercase;color:#999;padding:14px 0 10px;border-top:1px solid #ebebeb">Yesterday</div>
+
+<div style="display:flex;gap:10px;padding:11px 0;border-top:1px solid #ebebeb">
+<svg style="width:8px;height:8px;flex:none;margin-top:5px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#999"/></svg>
+<div style="flex:1;min-width:0">
+<div style="font:400 12.5px/1.45 'Inter Tight';color:#5c5c5c"><span style="font-weight:500">Initial import</span> created</div>
+<div style="font:400 12px/1.45 'Inter Tight';color:#999">124 notes</div>
+</div>
+<span style="font:400 11px 'IBM Plex Mono',monospace;color:#999;flex:none;font-variant-numeric:tabular-nums">09:12</span>
+</div>
+
+</div>
+</div>
+
+</div>
+</div>
+
+<div class="dv-opt" id="2f">
+<div class="dv-olabel"><a class="dv-oid" href="#2f">2f</a>Ribbon, status bar, notes</div>
+<div style="display:flex;gap:20px;align-items:flex-start">
+
+<div style="width:250px;padding:18px;background:#1e1e1e;border:1px solid #2b2b2b;border-radius:6px;display:flex;flex-direction:column;gap:16px">
+<div style="font:500 10px 'Inter Tight';letter-spacing:.1em;text-transform:uppercase;color:#666">Ribbon</div>
+<div style="display:flex;gap:16px;align-items:flex-start">
+<div style="width:40px;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 0;background:#161616;border-radius:4px">
+<span style="display:grid;place-items:center;width:28px;height:28px;color:#666"><svg style="width:16px;height:16px" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z" fill="none" stroke="#666" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 2v5h5" fill="none" stroke="#666" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 11v6" fill="none" stroke="#666" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M9 14h6" fill="none" stroke="#666" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+<span style="display:grid;place-items:center;width:28px;height:28px;color:#8257e6"><svg style="width:16px;height:16px" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#8257e6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+<span style="display:grid;place-items:center;width:28px;height:28px;color:#666"><svg style="width:16px;height:16px" viewBox="0 0 24 24"><circle cx="9" cy="8" r="4" fill="none" stroke="#666" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 21v-1a7 7 0 0 1 14 0v1" fill="none" stroke="#666" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M17 4.5a4 4 0 0 1 0 7" fill="none" stroke="#666" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M19.5 21v-1a7 7 0 0 0-2-4.9" fill="none" stroke="#666" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+</div>
+<div style="flex:1;font:400 11.5px/1.65 'Inter Tight';color:#999">Thin-line hexagon, accent-coloured while the view is open, muted otherwise. Tooltip: <span style="color:#dadada">Open Havemind</span>.</div>
+</div>
+
+<div style="height:1px;background:#262626"></div>
+<div style="font:500 10px 'Inter Tight';letter-spacing:.1em;text-transform:uppercase;color:#666">Status bar</div>
+<div style="display:flex;flex-direction:column;gap:10px">
+<div style="display:inline-flex;align-items:center;gap:7px;align-self:flex-start;cursor:pointer">
+<svg style="width:12px;height:12px;color:#8257e6" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#8257e6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<span style="font:400 12px 'Inter Tight';color:#999">Havemind:</span>
+<span style="font:400 12px 'Inter Tight';color:#dadada">Synced</span>
+<svg style="width:7px;height:7px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#44cf6e"/></svg>
+</div>
+<div style="display:inline-flex;align-items:center;gap:7px;align-self:flex-start">
+<svg style="width:12px;height:12px;color:#8257e6" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#8257e6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<span style="font:400 12px 'Inter Tight';color:#999">Havemind:</span>
+<span style="font:400 12px 'Inter Tight';color:#dadada">Offline</span>
+<svg style="width:11px;height:11px;color:#999" viewBox="0 0 24 24"><path d="M3 3l18 18" fill="none" stroke="#999" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M17.5 19H9a7 7 0 0 1-1.35-13.87" fill="none" stroke="#999" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M10.6 5.2A7 7 0 0 1 15.7 10h1.8a4.5 4.5 0 0 1 3.5 7.3" fill="none" stroke="#999" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+</div>
+<div style="display:inline-flex;align-items:center;gap:7px;align-self:flex-start">
+<svg style="width:12px;height:12px;color:#8257e6" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#8257e6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<span style="font:400 12px 'Inter Tight';color:#999">Havemind:</span>
+<span style="font:400 12px 'Inter Tight';color:#dadada">Conflict</span>
+<svg style="width:7px;height:7px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#e5534b"/></svg>
+</div>
+</div>
+</div>
+
+<div style="width:250px;padding:18px;background:#ffffff;border:1px solid #e0e0e0;border-radius:6px;display:flex;flex-direction:column;gap:16px">
+<div style="font:500 10px 'Inter Tight';letter-spacing:.1em;text-transform:uppercase;color:#999">Ribbon · light</div>
+<div style="display:flex;gap:16px;align-items:flex-start">
+<div style="width:40px;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 0;background:#f8f8f8;border-radius:4px">
+<span style="display:grid;place-items:center;width:28px;height:28px;color:#999"><svg style="width:16px;height:16px" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z" fill="none" stroke="#999" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 2v5h5" fill="none" stroke="#999" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 11v6" fill="none" stroke="#999" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M9 14h6" fill="none" stroke="#999" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+<span style="display:grid;place-items:center;width:28px;height:28px;color:#7048d8"><svg style="width:16px;height:16px" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#7048d8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+<span style="display:grid;place-items:center;width:28px;height:28px;color:#999"><svg style="width:16px;height:16px" viewBox="0 0 24 24"><circle cx="9" cy="8" r="4" fill="none" stroke="#999" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 21v-1a7 7 0 0 1 14 0v1" fill="none" stroke="#999" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M17 4.5a4 4 0 0 1 0 7" fill="none" stroke="#999" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M19.5 21v-1a7 7 0 0 0-2-4.9" fill="none" stroke="#999" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+</div>
+<div style="flex:1;font:400 11.5px/1.65 'Inter Tight';color:#5c5c5c">The same five tokens resolve in light — no second palette.</div>
+</div>
+<div style="height:1px;background:#ebebeb"></div>
+<div style="font:500 10px 'Inter Tight';letter-spacing:.1em;text-transform:uppercase;color:#999">Status bar · light</div>
+<div style="display:flex;flex-direction:column;gap:10px">
+<div style="display:inline-flex;align-items:center;gap:7px;align-self:flex-start;cursor:pointer">
+<svg style="width:12px;height:12px;color:#7048d8" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#7048d8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<span style="font:400 12px 'Inter Tight';color:#5c5c5c">Havemind:</span>
+<span style="font:400 12px 'Inter Tight';color:#222">Synced</span>
+<svg style="width:7px;height:7px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#08a045"/></svg>
+</div>
+<div style="display:inline-flex;align-items:center;gap:7px;align-self:flex-start">
+<svg style="width:12px;height:12px;color:#7048d8" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#7048d8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<span style="font:400 12px 'Inter Tight';color:#5c5c5c">Havemind:</span>
+<span style="font:400 12px 'Inter Tight';color:#222">Offline</span>
+<svg style="width:11px;height:11px;color:#5c5c5c" viewBox="0 0 24 24"><path d="M3 3l18 18" fill="none" stroke="#5c5c5c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M17.5 19H9a7 7 0 0 1-1.35-13.87" fill="none" stroke="#5c5c5c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M10.6 5.2A7 7 0 0 1 15.7 10h1.8a4.5 4.5 0 0 1 3.5 7.3" fill="none" stroke="#5c5c5c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+</div>
+<div style="display:inline-flex;align-items:center;gap:7px;align-self:flex-start">
+<svg style="width:12px;height:12px;color:#7048d8" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#7048d8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<span style="font:400 12px 'Inter Tight';color:#5c5c5c">Havemind:</span>
+<span style="font:400 12px 'Inter Tight';color:#222">Conflict</span>
+<svg style="width:7px;height:7px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#c73a2f"/></svg>
+</div>
+</div>
+</div>
+
+<div style="width:280px;padding:18px;background:#1e1e1e;border:1px solid #2b2b2b;border-radius:6px">
+<div style="font:500 10px 'Inter Tight';letter-spacing:.1em;text-transform:uppercase;color:#666;margin-bottom:12px">What changed from turn 1</div>
+<ul style="margin:0;padding-left:16px;font:400 11.5px/1.75 'Inter Tight';color:#999">
+<li>No own background, no cards: grounds come from <code style="font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:#dadada">--background-primary/-secondary</code>, rows are hairline-separated list items.</li>
+<li>One accent per view: violet marks exactly what you can act on — Connect, Approve, Retry now, Rejoin, Restore, Copy.</li>
+<li>Status banners collapse to a single line: dot or 12px glyph + word, detail muted underneath.</li>
+<li>Every function from <code style="font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:#dadada">main.ts</code> is still present in the same render order.</li>
+<li>Roster rows keep a 44px hit target despite the tighter look.</li>
+</ul>
+</div>
+
+</div>
+</div>
+
+</div>
+<p class="dv-next">Try next: "write the styles.css + render tweaks for <a class="dv-oid" href="#2b">2b</a>–<a class="dv-oid" href="#2e">2e</a>" · "drop the violet from the hex mark, mono only" · "show the conflict resolve modal in this language"</p>
+</section>
+
+<section class="dv-turn" id="t1">
+<div class="dv-thd"><a class="dv-tid" href="#t1">1</a><span class="dv-tname">Havemind for Obsidian — hive-mind identity, three sidebar panels, light + dark</span></div>
+
+<div class="dv-opts">
+
+<div class="dv-opt" id="1a">
+<div class="dv-olabel"><a class="dv-oid" href="#1a">1a</a>Brand sheet — mark, tokens, status legend, author dots</div>
+<div style="width:760px;background:#FBF9F5;border:1px solid #E4DED1;border-radius:10px;overflow:hidden">
+
+<div style="display:flex;align-items:center;gap:20px;padding:26px 28px;background:#F4F1EA url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='138' viewBox='0 0 60 69'%3E%3Cg fill='none' stroke='%23C98A16' stroke-opacity='.22'%3E%3Cpath d='M30 1.5 52.6 14.6v26.2L30 53.9 7.4 40.8V14.6z'/%3E%3Cpath d='M60 18.6v26.2L37.4 57.9 14.8 44.8'/%3E%3C/g%3E%3C/svg%3E&quot;) no-repeat right -18px top -12px;border-bottom:1px solid #E4DED1">
+<div style="width:56px;height:56px;flex:none;display:grid;place-items:center;background:#23201B;border-radius:12px;color:#E6B34A"><svg style="width:32px;height:32px" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#E6B34A" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 8.2 15.4 10v4L12 15.8 8.6 14v-4z" fill="none" stroke="#E6B34A" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+<div>
+<div style="font-size:22px;font-weight:700;letter-spacing:-.015em;color:#23201B">Havemind</div>
+<div style="font-size:13px;color:#6E675C;margin-top:3px">The living knowledge base your team and your agents both write to.</div>
+</div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:0;border-bottom:1px solid #E4DED1">
+<div style="padding:20px 28px;border-right:1px solid #E4DED1">
+<div style="font:600 10.5px/1 'IBM Plex Mono',monospace;letter-spacing:.08em;text-transform:uppercase;color:#9C9488;margin-bottom:14px">Mark — nested hexagon</div>
+<div style="display:flex;align-items:flex-end;gap:18px">
+<div style="display:grid;place-items:center;width:40px;height:40px;background:#C98A16;border-radius:9px;color:#FBF9F5"><svg style="width:24px;height:24px" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#FBF9F5" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 8.2 15.4 10v4L12 15.8 8.6 14v-4z" fill="none" stroke="#FBF9F5" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+<div style="display:grid;place-items:center;width:28px;height:28px;color:#C98A16"><svg style="width:20px;height:20px" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#C98A16" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+<div style="display:grid;place-items:center;width:20px;height:20px;color:#C98A16"><svg style="width:14px;height:14px" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#C98A16" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+</div>
+<div style="margin-top:12px;font-size:11.5px;line-height:1.5;color:#6E675C">One cell (you) inside the comb (the vault). Ribbon and status bar use the plain outline hexagon at 14–20px; the filled tile is app-icon only.</div>
+</div>
+<div style="padding:20px 28px">
+<div style="font:600 10.5px/1 'IBM Plex Mono',monospace;letter-spacing:.08em;text-transform:uppercase;color:#9C9488;margin-bottom:14px">Type</div>
+<div style="font-size:15px;font-weight:600;color:#23201B">Inter Tight · UI</div>
+<div style="font-size:11.5px;color:#6E675C;margin-top:2px">Falls back to Obsidian's own <span style="font-family:'IBM Plex Mono',monospace">--font-interface</span> in-app; sizes stay native: 15 / 13 / 12px.</div>
+<div style="font-family:'IBM Plex Mono',monospace;font-size:15px;margin-top:12px;color:#23201B">IBM Plex Mono · 402 913</div>
+<div style="font-size:11.5px;color:#6E675C;margin-top:2px">Invitation envelopes, verification phrase, timestamps.</div>
+</div>
+</div>
+
+<div style="padding:20px 28px;border-bottom:1px solid #E4DED1">
+<div style="font:600 10.5px/1 'IBM Plex Mono',monospace;letter-spacing:.08em;text-transform:uppercase;color:#9C9488;margin-bottom:14px">Brand tokens — warm neutrals + one honey accent</div>
+<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px">
+<div><div style="height:44px;border-radius:6px;background:#FBF9F5;border:1px solid #E4DED1"></div><div style="font:500 11px/1.4 'Inter Tight';margin-top:6px;color:#23201B">Paper</div><div style="font:400 10px/1.3 'IBM Plex Mono',monospace;color:#9C9488">#FBF9F5 / #1A1815</div></div>
+<div><div style="height:44px;border-radius:6px;background:#F4F1EA;border:1px solid #E4DED1"></div><div style="font:500 11px/1.4 'Inter Tight';margin-top:6px;color:#23201B">Panel</div><div style="font:400 10px/1.3 'IBM Plex Mono',monospace;color:#9C9488">#F4F1EA / #151311</div></div>
+<div><div style="height:44px;border-radius:6px;background:#E4DED1"></div><div style="font:500 11px/1.4 'Inter Tight';margin-top:6px;color:#23201B">Border</div><div style="font:400 10px/1.3 'IBM Plex Mono',monospace;color:#9C9488">#E4DED1 / #302B25</div></div>
+<div><div style="height:44px;border-radius:6px;background:#23201B"></div><div style="font:500 11px/1.4 'Inter Tight';margin-top:6px;color:#23201B">Ink</div><div style="font:400 10px/1.3 'IBM Plex Mono',monospace;color:#9C9488">#23201B / #E8E2D6</div></div>
+<div><div style="height:44px;border-radius:6px;background:#C98A16"></div><div style="font:500 11px/1.4 'Inter Tight';margin-top:6px;color:#23201B">Honey</div><div style="font:400 10px/1.3 'IBM Plex Mono',monospace;color:#9C9488">#C98A16 / #E6B34A</div></div>
+<div><div style="height:44px;border-radius:6px;background:#FDF3DE;border:1px solid #EFD9A6"></div><div style="font:500 11px/1.4 'Inter Tight';margin-top:6px;color:#23201B">Honey wash</div><div style="font:400 10px/1.3 'IBM Plex Mono',monospace;color:#9C9488">#FDF3DE / #2A2113</div></div>
+</div>
+<div style="margin-top:12px;font-size:11.5px;line-height:1.5;color:#6E675C">Honey is the <strong style="font-weight:600;color:#23201B">brand</strong> accent only: ribbon glyph, panel title hex, primary buttons, focus ring. It never carries state.</div>
+</div>
+
+<div style="padding:20px 28px;border-bottom:1px solid #E4DED1">
+<div style="font:600 10.5px/1 'IBM Plex Mono',monospace;letter-spacing:.08em;text-transform:uppercase;color:#9C9488;margin-bottom:14px">Status legend — semantic, never colour alone</div>
+<div style="display:flex;flex-wrap:wrap;gap:8px 10px">
+<div style="display:flex;align-items:center;gap:7px;padding:6px 10px 6px 8px;border:1px solid #E4DED1;border-left:3px solid #1E7F5C;border-radius:6px;background:#fff;color:#1E7F5C"><svg style="width:15px;height:15px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="#1E7F5C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="m9 12 2 2 4-4" fill="none" stroke="#1E7F5C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span style="font:600 12px 'Inter Tight'">Synced</span><span style="font:400 11px 'IBM Plex Mono',monospace;color:#9C9488">#1E7F5C</span></div>
+<div style="display:flex;align-items:center;gap:7px;padding:6px 10px 6px 8px;border:1px solid #E4DED1;border-left:3px solid #2A6FBF;border-radius:6px;background:#fff;color:#2A6FBF"><svg class="hm-spin" style="width:15px;height:15px;animation:hm-spin 1s linear infinite" viewBox="0 0 24 24"><path d="M12 2v4" fill="none" stroke="#2A6FBF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="m16.2 7.8 2.9-2.9" fill="none" stroke="#2A6FBF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M18 12h4" fill="none" stroke="#2A6FBF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="m16.2 16.2 2.9 2.9" fill="none" stroke="#2A6FBF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 18v4" fill="none" stroke="#2A6FBF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="m4.9 19.1 2.9-2.9" fill="none" stroke="#2A6FBF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 12h4" fill="none" stroke="#2A6FBF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="m4.9 4.9 2.9 2.9" fill="none" stroke="#2A6FBF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span style="font:600 12px 'Inter Tight'">Syncing</span><span style="font:400 11px 'IBM Plex Mono',monospace;color:#9C9488">#2A6FBF</span></div>
+<div style="display:flex;align-items:center;gap:7px;padding:6px 10px 6px 8px;border:1px solid #E4DED1;border-left:3px solid #6B7280;border-radius:6px;background:#fff;color:#6B7280"><svg style="width:15px;height:15px" viewBox="0 0 24 24"><path d="M3 3l18 18" fill="none" stroke="#6B7280" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M17.5 19H9a7 7 0 0 1-1.35-13.87" fill="none" stroke="#6B7280" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M10.6 5.2A7 7 0 0 1 15.7 10h1.8a4.5 4.5 0 0 1 3.5 7.3" fill="none" stroke="#6B7280" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span style="font:600 12px 'Inter Tight'">Offline</span><span style="font:400 11px 'IBM Plex Mono',monospace;color:#9C9488">#6B7280</span></div>
+<div style="display:flex;align-items:center;gap:7px;padding:6px 10px 6px 8px;border:1px solid #E4DED1;border-left:3px solid #A8452F;border-radius:6px;background:#fff;color:#A8452F"><svg style="width:15px;height:15px" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" fill="none" stroke="#A8452F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 9v4" fill="none" stroke="#A8452F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 17h.01" fill="none" stroke="#A8452F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span style="font:600 12px 'Inter Tight'">Conflict</span><span style="font:400 11px 'IBM Plex Mono',monospace;color:#9C9488">#A8452F</span></div>
+<div style="display:flex;align-items:center;gap:7px;padding:6px 10px 6px 8px;border:1px solid #E4DED1;border-left:3px solid #B3261E;border-radius:6px;background:#fff;color:#B3261E"><svg style="width:15px;height:15px" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" fill="none" stroke="#B3261E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 9v4" fill="none" stroke="#B3261E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 17h.01" fill="none" stroke="#B3261E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span style="font:600 12px 'Inter Tight'">Reconnect required</span><span style="font:400 11px 'IBM Plex Mono',monospace;color:#9C9488">#B3261E</span></div>
+</div>
+<div style="margin-top:12px;font-size:11.5px;line-height:1.5;color:#6E675C">Each state = Lucide icon + text label + 3px leading rule. Dark tints: <span style="font-family:'IBM Plex Mono',monospace">#4FC79A · #74AEEF · #9AA1AC · #E08C74 · #F2837B</span>.</div>
+</div>
+
+<div style="padding:20px 28px">
+<div style="font:600 10.5px/1 'IBM Plex Mono',monospace;letter-spacing:.08em;text-transform:uppercase;color:#9C9488;margin-bottom:14px">Author dots — one cell per member</div>
+<div style="display:flex;flex-wrap:wrap;gap:16px">
+<div style="display:flex;align-items:center;gap:6px;color:#1A73C2"><svg style="width:12px;height:12px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#1A73C2"/></svg><span style="font:500 12px 'Inter Tight';color:#23201B">author-1</span></div>
+<div style="display:flex;align-items:center;gap:6px;color:#7C3FC0"><svg style="width:12px;height:12px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#7C3FC0"/></svg><span style="font:500 12px 'Inter Tight';color:#23201B">author-2</span></div>
+<div style="display:flex;align-items:center;gap:6px;color:#0F8A6A"><svg style="width:12px;height:12px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#0F8A6A"/></svg><span style="font:500 12px 'Inter Tight';color:#23201B">author-3</span></div>
+<div style="display:flex;align-items:center;gap:6px;color:#B03060"><svg style="width:12px;height:12px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#B03060"/></svg><span style="font:500 12px 'Inter Tight';color:#23201B">author-4</span></div>
+<div style="display:flex;align-items:center;gap:6px;color:#4A5AC0"><svg style="width:12px;height:12px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#4A5AC0"/></svg><span style="font:500 12px 'Inter Tight';color:#23201B">author-5</span></div>
+<div style="display:flex;align-items:center;gap:6px;color:#6B7280"><svg style="width:12px;height:12px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#6B7280"/></svg><span style="font:500 12px 'Inter Tight';color:#23201B">initial import</span></div>
+</div>
+<div style="margin-top:12px;font-size:11.5px;line-height:1.5;color:#6E675C">Same six tokens as today, minus the orange one — it read as the accent. Author-4 becomes rose so honey stays unmistakably brand.</div>
+</div>
+
+</div>
+</div>
+
+<div class="dv-opt" id="1b">
+<div class="dv-olabel"><a class="dv-oid" href="#1b">1b</a>Connect to Havemind — connected · light &amp; dark</div>
+<div style="display:flex;gap:20px">
+
+<div style="width:300px;background:#F4F1EA;border:1px solid #E4DED1;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(35,32,27,.07)">
+<div style="display:flex;align-items:center;gap:7px;height:34px;padding:0 6px 0 10px;background:#EFEBE1;border-bottom:1px solid #E4DED1;background-image:url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='46' height='53' viewBox='0 0 46 53'%3E%3Cg fill='none' stroke='%23C98A16' stroke-opacity='.2'%3E%3Cpath d='M23 1.5 44 13.6v24.3L23 50 2 37.9V13.6z'/%3E%3C/g%3E%3C/svg%3E&quot;);background-repeat:no-repeat;background-position:right -10px center">
+<span style="color:#C98A16;display:inline-flex"><svg style="width:15px;height:15px" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#C98A16" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+<span style="font:600 13.5px 'Inter Tight';color:#23201B;flex:1">Connect to Havemind</span>
+<span style="color:#9C9488;display:inline-flex;padding:4px;border-radius:4px"><svg style="width:15px;height:15px" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.2" fill="#9C9488"/><circle cx="12" cy="12" r="1.2" fill="#9C9488"/><circle cx="19" cy="12" r="1.2" fill="#9C9488"/></svg></span>
+</div>
+<div style="padding:12px 12px 14px;display:flex;flex-direction:column;gap:10px">
+
+<div style="border:1px solid #E4DED1;border-left:3px solid #1E7F5C;border-radius:6px;background:#FFFFFF;padding:9px 10px;display:flex;flex-direction:column;gap:5px">
+<div style="display:flex;align-items:center;gap:6px;color:#1E7F5C"><svg style="width:16px;height:16px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="#1E7F5C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="m9 12 2 2 4-4" fill="none" stroke="#1E7F5C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span style="font:600 13px 'Inter Tight'">Connected — synced</span></div>
+<div style="font:400 12px/1.5 'Inter Tight';color:#6E675C">Server: hive.tail-net · Last sync <span style="font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums">15:42:08</span></div>
+<div style="font:400 11.5px/1.45 'Inter Tight';color:#9C9488">Pilot data: no end-to-end encryption.</div>
+</div>
+
+<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:6px;background:#FDF3DE;border:1px solid #EFD9A6">
+<span style="display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:18px;padding:0 5px;border-radius:9px;background:#C98A16;color:#FFF;font:600 11px 'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums">3</span>
+<span style="font:400 12px/1.4 'Inter Tight';color:#6B4E0B">changes waiting to send</span>
+</div>
+
+<div style="border:1px solid #E7C3BC;border-left:3px solid #B3261E;border-radius:6px;background:#FCF1EF;padding:9px 10px;display:flex;gap:7px">
+<span style="color:#B3261E;display:inline-flex;flex:none;margin-top:1px"><svg style="width:15px;height:15px" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" fill="none" stroke="#B3261E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 9v4" fill="none" stroke="#B3261E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 17h.01" fill="none" stroke="#B3261E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+<div>
+<div style="font:600 12px/1.35 'Inter Tight';color:#8E2018">Local queue needs recovery</div>
+<div style="font:400 11.5px/1.45 'Inter Tight';color:#6E675C;margin-top:2px">Some unsent changes could not be read and were preserved for manual recovery.</div>
+</div>
+</div>
+
+<div style="height:1px;background:#E4DED1;margin:2px 0"></div>
+
+<div style="display:flex;align-items:center;gap:6px">
+<span style="font:600 10.5px 'Inter Tight';letter-spacing:.07em;text-transform:uppercase;color:#9C9488">Connected</span>
+<span style="font:500 10.5px 'IBM Plex Mono',monospace;color:#9C9488">3</span>
+<span style="flex:1;height:1px;background:#E4DED1"></span>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:2px">
+<div style="display:flex;align-items:center;gap:8px;min-height:34px;padding:5px 8px;border-radius:6px;background:#FFFFFF;border:1px solid #EDE7DB">
+<span style="display:inline-flex;flex:none"><svg style="width:11px;height:11px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#1A73C2"/></svg></span>
+<div style="flex:1;min-width:0">
+<div style="font:500 12.5px/1.3 'Inter Tight';color:#23201B">Tomek <span style="color:#9C9488;font-weight:400">(you)</span></div>
+<div style="font:400 11px/1.3 'Inter Tight';color:#9C9488">owner · connected</div>
+</div>
+</div>
+
+<div style="display:flex;align-items:center;gap:8px;min-height:34px;padding:5px 8px;border-radius:6px;background:#FFFFFF;border:1px solid #EDE7DB">
+<span style="display:inline-flex;flex:none"><svg style="width:11px;height:11px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#7C3FC0"/></svg></span>
+<div style="flex:1;min-width:0">
+<div style="font:500 12.5px/1.3 'Inter Tight';color:#23201B">Magda</div>
+<div style="font:400 11px/1.3 'Inter Tight';color:#9C9488">editor · connected</div>
+</div>
+<button style="font:500 11.5px 'Inter Tight';color:#6E675C;background:#EDE7DB;border:1px solid #E0D8C8;border-radius:4px;padding:3px 7px;cursor:pointer">Mark offline</button>
+<button style="font:500 11.5px 'Inter Tight';color:#8E2018;background:transparent;border:1px solid transparent;border-radius:4px;padding:3px 5px;cursor:pointer;display:inline-flex"><svg style="width:13px;height:13px" viewBox="0 0 24 24"><path d="M3 6h18" fill="none" stroke="#8E2018" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" fill="none" stroke="#8E2018" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" fill="none" stroke="#8E2018" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+</div>
+
+<div style="display:flex;align-items:center;gap:8px;min-height:34px;padding:5px 8px;border-radius:6px;background:#F8F5EE;border:1px dashed #E0D8C8">
+<span style="display:inline-flex;flex:none"><svg style="width:11px;height:11px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="none" stroke="#9C9488" stroke-width="2"/><path d="m9 15 6-6" fill="none" stroke="#9C9488" stroke-width="2" stroke-linecap="round"/></svg></span>
+<div style="flex:1;min-width:0">
+<div style="font:500 12.5px/1.3 'Inter Tight';color:#6E675C">Claude · agent</div>
+<div style="font:400 11px/1.3 'Inter Tight';color:#9C9488">editor · disconnected</div>
+</div>
+<button style="font:600 11.5px 'Inter Tight';color:#FFFFFF;background:#C98A16;border:1px solid #B47C10;border-radius:4px;padding:3px 9px;cursor:pointer">Rejoin</button>
+</div>
+</div>
+
+<div style="display:flex;justify-content:flex-end;padding-top:4px">
+<button style="font:500 12px 'Inter Tight';color:#6E675C;background:#EDE7DB;border:1px solid #E0D8C8;border-radius:4px;padding:5px 12px;cursor:pointer">Disconnect</button>
+</div>
+
+</div>
+</div>
+
+<div style="width:300px;background:#151311;border:1px solid #302B25;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.4)">
+<div style="display:flex;align-items:center;gap:7px;height:34px;padding:0 6px 0 10px;background:#1A1815;border-bottom:1px solid #302B25;background-image:url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='46' height='53' viewBox='0 0 46 53'%3E%3Cg fill='none' stroke='%23E6B34A' stroke-opacity='.22'%3E%3Cpath d='M23 1.5 44 13.6v24.3L23 50 2 37.9V13.6z'/%3E%3C/g%3E%3C/svg%3E&quot;);background-repeat:no-repeat;background-position:right -10px center">
+<span style="color:#E6B34A;display:inline-flex"><svg style="width:15px;height:15px" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#E6B34A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+<span style="font:600 13.5px 'Inter Tight';color:#E8E2D6;flex:1">Connect to Havemind</span>
+<span style="color:#736B5E;display:inline-flex;padding:4px"><svg style="width:15px;height:15px" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.2" fill="#736B5E"/><circle cx="12" cy="12" r="1.2" fill="#736B5E"/><circle cx="19" cy="12" r="1.2" fill="#736B5E"/></svg></span>
+</div>
+<div style="padding:12px 12px 14px;display:flex;flex-direction:column;gap:10px">
+
+<div style="border:1px solid #302B25;border-left:3px solid #4FC79A;border-radius:6px;background:#211E1A;padding:9px 10px;display:flex;flex-direction:column;gap:5px">
+<div style="display:flex;align-items:center;gap:6px;color:#4FC79A"><svg style="width:16px;height:16px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="#4FC79A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="m9 12 2 2 4-4" fill="none" stroke="#4FC79A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span style="font:600 13px 'Inter Tight'">Connected — synced</span></div>
+<div style="font:400 12px/1.5 'Inter Tight';color:#A49B8C">Server: hive.tail-net · Last sync <span style="font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums">15:42:08</span></div>
+<div style="font:400 11.5px/1.45 'Inter Tight';color:#736B5E">Pilot data: no end-to-end encryption.</div>
+</div>
+
+<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:6px;background:#2A2113;border:1px solid #46381E">
+<span style="display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:18px;padding:0 5px;border-radius:9px;background:#E6B34A;color:#241C05;font:600 11px 'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums">3</span>
+<span style="font:400 12px/1.4 'Inter Tight';color:#EBCE93">changes waiting to send</span>
+</div>
+
+<div style="border:1px solid #5A2A25;border-left:3px solid #F2837B;border-radius:6px;background:#251715;padding:9px 10px;display:flex;gap:7px">
+<span style="color:#F2837B;display:inline-flex;flex:none;margin-top:1px"><svg style="width:15px;height:15px" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" fill="none" stroke="#F2837B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 9v4" fill="none" stroke="#F2837B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 17h.01" fill="none" stroke="#F2837B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+<div>
+<div style="font:600 12px/1.35 'Inter Tight';color:#F2A69F">Local queue needs recovery</div>
+<div style="font:400 11.5px/1.45 'Inter Tight';color:#A49B8C;margin-top:2px">Some unsent changes could not be read and were preserved for manual recovery.</div>
+</div>
+</div>
+
+<div style="height:1px;background:#302B25;margin:2px 0"></div>
+
+<div style="display:flex;align-items:center;gap:6px">
+<span style="font:600 10.5px 'Inter Tight';letter-spacing:.07em;text-transform:uppercase;color:#736B5E">Connected</span>
+<span style="font:500 10.5px 'IBM Plex Mono',monospace;color:#736B5E">3</span>
+<span style="flex:1;height:1px;background:#302B25"></span>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:2px">
+<div style="display:flex;align-items:center;gap:8px;min-height:34px;padding:5px 8px;border-radius:6px;background:#211E1A;border:1px solid #2B2620">
+<span style="display:inline-flex;flex:none"><svg style="width:11px;height:11px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#7CB6F0"/></svg></span>
+<div style="flex:1;min-width:0">
+<div style="font:500 12.5px/1.3 'Inter Tight';color:#E8E2D6">Tomek <span style="color:#736B5E;font-weight:400">(you)</span></div>
+<div style="font:400 11px/1.3 'Inter Tight';color:#736B5E">owner · connected</div>
+</div>
+</div>
+
+<div style="display:flex;align-items:center;gap:8px;min-height:34px;padding:5px 8px;border-radius:6px;background:#211E1A;border:1px solid #2B2620">
+<span style="display:inline-flex;flex:none"><svg style="width:11px;height:11px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#C99BF0"/></svg></span>
+<div style="flex:1;min-width:0">
+<div style="font:500 12.5px/1.3 'Inter Tight';color:#E8E2D6">Magda</div>
+<div style="font:400 11px/1.3 'Inter Tight';color:#736B5E">editor · connected</div>
+</div>
+<button style="font:500 11.5px 'Inter Tight';color:#A49B8C;background:#2B2620;border:1px solid #3A342C;border-radius:4px;padding:3px 7px;cursor:pointer">Mark offline</button>
+<button style="font:500 11.5px 'Inter Tight';color:#F2837B;background:transparent;border:1px solid transparent;border-radius:4px;padding:3px 5px;cursor:pointer;display:inline-flex"><svg style="width:13px;height:13px" viewBox="0 0 24 24"><path d="M3 6h18" fill="none" stroke="#F2837B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" fill="none" stroke="#F2837B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" fill="none" stroke="#F2837B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+</div>
+
+<div style="display:flex;align-items:center;gap:8px;min-height:34px;padding:5px 8px;border-radius:6px;background:#1B1916;border:1px dashed #3A342C">
+<span style="display:inline-flex;flex:none"><svg style="width:11px;height:11px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="none" stroke="#736B5E" stroke-width="2"/><path d="m9 15 6-6" fill="none" stroke="#736B5E" stroke-width="2" stroke-linecap="round"/></svg></span>
+<div style="flex:1;min-width:0">
+<div style="font:500 12.5px/1.3 'Inter Tight';color:#A49B8C">Claude · agent</div>
+<div style="font:400 11px/1.3 'Inter Tight';color:#736B5E">editor · disconnected</div>
+</div>
+<button style="font:600 11.5px 'Inter Tight';color:#241C05;background:#E6B34A;border:1px solid #C99A38;border-radius:4px;padding:3px 9px;cursor:pointer">Rejoin</button>
+</div>
+</div>
+
+<div style="display:flex;justify-content:flex-end;padding-top:4px">
+<button style="font:500 12px 'Inter Tight';color:#A49B8C;background:#2B2620;border:1px solid #3A342C;border-radius:4px;padding:5px 12px;cursor:pointer">Disconnect</button>
+</div>
+
+</div>
+</div>
+
+</div>
+</div>
+
+<div class="dv-opt" id="1c">
+<div class="dv-olabel"><a class="dv-oid" href="#1c">1c</a>Status banner states + disconnected form</div>
+<div style="display:flex;gap:20px;align-items:flex-start">
+
+<div style="width:300px;display:flex;flex-direction:column;gap:10px;padding:12px;background:#F4F1EA;border:1px solid #E4DED1;border-radius:8px">
+<div style="font:600 10.5px 'Inter Tight';letter-spacing:.07em;text-transform:uppercase;color:#9C9488">Banner states · light</div>
+
+<div style="border:1px solid #E4DED1;border-left:3px solid #2A6FBF;border-radius:6px;background:#fff;padding:9px 10px;display:flex;flex-direction:column;gap:4px">
+<div style="display:flex;align-items:center;gap:6px;color:#2A6FBF"><svg class="hm-spin" style="width:16px;height:16px;animation:hm-spin 1s linear infinite" viewBox="0 0 24 24"><path d="M12 2v4" fill="none" stroke="#2A6FBF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="m16.2 7.8 2.9-2.9" fill="none" stroke="#2A6FBF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M18 12h4" fill="none" stroke="#2A6FBF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="m16.2 16.2 2.9 2.9" fill="none" stroke="#2A6FBF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 18v4" fill="none" stroke="#2A6FBF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="m4.9 19.1 2.9-2.9" fill="none" stroke="#2A6FBF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 12h4" fill="none" stroke="#2A6FBF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="m4.9 4.9 2.9 2.9" fill="none" stroke="#2A6FBF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span style="font:600 13px 'Inter Tight'">Syncing…</span></div>
+<div style="font:400 12px/1.5 'Inter Tight';color:#6E675C">Server: hive.tail-net · 2 revisions in flight</div>
+</div>
+
+<div style="border:1px solid #E4DED1;border-left:3px solid #6B7280;border-radius:6px;background:#fff;padding:9px 10px;display:flex;flex-direction:column;gap:6px">
+<div style="display:flex;align-items:center;gap:6px;color:#6B7280"><svg style="width:16px;height:16px" viewBox="0 0 24 24"><path d="M3 3l18 18" fill="none" stroke="#6B7280" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M17.5 19H9a7 7 0 0 1-1.35-13.87" fill="none" stroke="#6B7280" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M10.6 5.2A7 7 0 0 1 15.7 10h1.8a4.5 4.5 0 0 1 3.5 7.3" fill="none" stroke="#6B7280" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span style="font:600 13px 'Inter Tight'">Offline — will retry</span></div>
+<div style="font:400 12px/1.5 'Inter Tight';color:#6E675C">Next attempt in 24 s. Nothing is lost; changes queue locally.</div>
+<button style="align-self:flex-start;display:inline-flex;align-items:center;gap:5px;font:600 12px 'Inter Tight';color:#fff;background:#C98A16;border:1px solid #B47C10;border-radius:4px;padding:4px 10px;cursor:pointer"><svg style="width:13px;height:13px" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3.5-7.1" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M21 3v6h-6" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Retry now</button>
+</div>
+
+<div style="border:1px solid #E4DED1;border-left:3px solid #B3261E;border-radius:6px;background:#fff;padding:9px 10px;display:flex;flex-direction:column;gap:6px">
+<div style="display:flex;align-items:center;gap:6px;color:#B3261E"><svg style="width:16px;height:16px" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" fill="none" stroke="#B3261E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 9v4" fill="none" stroke="#B3261E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 17h.01" fill="none" stroke="#B3261E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span style="font:600 13px 'Inter Tight'">Reconnect required</span></div>
+<div style="font:400 12px/1.5 'Inter Tight';color:#6E675C">The server refused the session. Paste a fresh invitation below.</div>
+<button style="align-self:flex-start;display:inline-flex;align-items:center;gap:5px;font:600 12px 'Inter Tight';color:#fff;background:#C98A16;border:1px solid #B47C10;border-radius:4px;padding:4px 10px;cursor:pointer"><svg style="width:13px;height:13px" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3.5-7.1" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M21 3v6h-6" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Retry now</button>
+</div>
+
+<div style="border:1px solid #E4DED1;border-left:3px solid #A8452F;border-radius:6px;background:#fff;padding:9px 10px;display:flex;flex-direction:column;gap:6px">
+<div style="display:flex;align-items:center;gap:6px;color:#A8452F"><svg style="width:16px;height:16px" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" fill="none" stroke="#A8452F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 9v4" fill="none" stroke="#A8452F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 17h.01" fill="none" stroke="#A8452F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span style="font:600 13px 'Inter Tight'">Conflict</span><span style="margin-left:auto;font:600 11px 'IBM Plex Mono',monospace;background:#F6E3DE;color:#8E2018;padding:1px 6px;border-radius:9px">2</span></div>
+<div style="font:400 12px/1.5 'Inter Tight';color:#6E675C">Both versions kept in <span style="font-family:'IBM Plex Mono',monospace;font-size:11px">Havemind Conflicts/</span></div>
+<div style="border:1px solid #EDE7DB;border-radius:5px;background:#F8F5EE;padding:7px 8px;display:flex;align-items:center;gap:8px">
+<div style="flex:1;min-width:0"><div style="font:500 12px/1.3 'Inter Tight';color:#23201B">Roadmap Q3</div><div style="font:400 11px/1.3 'Inter Tight';color:#9C9488">Magda · 15:39</div></div>
+<button style="font:600 11.5px 'Inter Tight';color:#fff;background:#C98A16;border:1px solid #B47C10;border-radius:4px;padding:3px 9px;cursor:pointer">Resolve</button>
+</div>
+</div>
+</div>
+
+<div style="width:300px;display:flex;flex-direction:column;gap:10px;padding:12px;background:#151311;border:1px solid #302B25;border-radius:8px">
+<div style="font:600 10.5px 'Inter Tight';letter-spacing:.07em;text-transform:uppercase;color:#736B5E">Banner states · dark</div>
+
+<div style="border:1px solid #302B25;border-left:3px solid #74AEEF;border-radius:6px;background:#211E1A;padding:9px 10px;display:flex;flex-direction:column;gap:4px">
+<div style="display:flex;align-items:center;gap:6px;color:#74AEEF"><svg class="hm-spin" style="width:16px;height:16px;animation:hm-spin 1s linear infinite" viewBox="0 0 24 24"><path d="M12 2v4" fill="none" stroke="#74AEEF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="m16.2 7.8 2.9-2.9" fill="none" stroke="#74AEEF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M18 12h4" fill="none" stroke="#74AEEF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="m16.2 16.2 2.9 2.9" fill="none" stroke="#74AEEF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 18v4" fill="none" stroke="#74AEEF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="m4.9 19.1 2.9-2.9" fill="none" stroke="#74AEEF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 12h4" fill="none" stroke="#74AEEF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="m4.9 4.9 2.9 2.9" fill="none" stroke="#74AEEF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span style="font:600 13px 'Inter Tight'">Syncing…</span></div>
+<div style="font:400 12px/1.5 'Inter Tight';color:#A49B8C">Server: hive.tail-net · 2 revisions in flight</div>
+</div>
+
+<div style="border:1px solid #302B25;border-left:3px solid #9AA1AC;border-radius:6px;background:#211E1A;padding:9px 10px;display:flex;flex-direction:column;gap:6px">
+<div style="display:flex;align-items:center;gap:6px;color:#9AA1AC"><svg style="width:16px;height:16px" viewBox="0 0 24 24"><path d="M3 3l18 18" fill="none" stroke="#9AA1AC" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M17.5 19H9a7 7 0 0 1-1.35-13.87" fill="none" stroke="#9AA1AC" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M10.6 5.2A7 7 0 0 1 15.7 10h1.8a4.5 4.5 0 0 1 3.5 7.3" fill="none" stroke="#9AA1AC" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span style="font:600 13px 'Inter Tight'">Offline — will retry</span></div>
+<div style="font:400 12px/1.5 'Inter Tight';color:#A49B8C">Next attempt in 24 s. Nothing is lost; changes queue locally.</div>
+<button style="align-self:flex-start;display:inline-flex;align-items:center;gap:5px;font:600 12px 'Inter Tight';color:#241C05;background:#E6B34A;border:1px solid #C99A38;border-radius:4px;padding:4px 10px;cursor:pointer"><svg style="width:13px;height:13px" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3.5-7.1" fill="none" stroke="#241C05" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M21 3v6h-6" fill="none" stroke="#241C05" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Retry now</button>
+</div>
+
+<div style="border:1px solid #302B25;border-left:3px solid #F2837B;border-radius:6px;background:#211E1A;padding:9px 10px;display:flex;flex-direction:column;gap:6px">
+<div style="display:flex;align-items:center;gap:6px;color:#F2837B"><svg style="width:16px;height:16px" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" fill="none" stroke="#F2837B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 9v4" fill="none" stroke="#F2837B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 17h.01" fill="none" stroke="#F2837B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span style="font:600 13px 'Inter Tight'">Reconnect required</span></div>
+<div style="font:400 12px/1.5 'Inter Tight';color:#A49B8C">The server refused the session. Paste a fresh invitation below.</div>
+<button style="align-self:flex-start;display:inline-flex;align-items:center;gap:5px;font:600 12px 'Inter Tight';color:#241C05;background:#E6B34A;border:1px solid #C99A38;border-radius:4px;padding:4px 10px;cursor:pointer"><svg style="width:13px;height:13px" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3.5-7.1" fill="none" stroke="#241C05" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M21 3v6h-6" fill="none" stroke="#241C05" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Retry now</button>
+</div>
+
+<div style="border:1px solid #302B25;border-left:3px solid #E08C74;border-radius:6px;background:#211E1A;padding:9px 10px;display:flex;flex-direction:column;gap:6px">
+<div style="display:flex;align-items:center;gap:6px;color:#E08C74"><svg style="width:16px;height:16px" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" fill="none" stroke="#E08C74" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 9v4" fill="none" stroke="#E08C74" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 17h.01" fill="none" stroke="#E08C74" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span style="font:600 13px 'Inter Tight'">Conflict</span><span style="margin-left:auto;font:600 11px 'IBM Plex Mono',monospace;background:#3A211C;color:#F2A69F;padding:1px 6px;border-radius:9px">2</span></div>
+<div style="font:400 12px/1.5 'Inter Tight';color:#A49B8C">Both versions kept in <span style="font-family:'IBM Plex Mono',monospace;font-size:11px">Havemind Conflicts/</span></div>
+<div style="border:1px solid #2B2620;border-radius:5px;background:#1B1916;padding:7px 8px;display:flex;align-items:center;gap:8px">
+<div style="flex:1;min-width:0"><div style="font:500 12px/1.3 'Inter Tight';color:#E8E2D6">Roadmap Q3</div><div style="font:400 11px/1.3 'Inter Tight';color:#736B5E">Magda · 15:39</div></div>
+<button style="font:600 11.5px 'Inter Tight';color:#241C05;background:#E6B34A;border:1px solid #C99A38;border-radius:4px;padding:3px 9px;cursor:pointer">Resolve</button>
+</div>
+</div>
+</div>
+
+<div style="width:300px;background:#F4F1EA;border:1px solid #E4DED1;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(35,32,27,.07)">
+<div style="display:flex;align-items:center;gap:7px;height:34px;padding:0 6px 0 10px;background:#EFEBE1;border-bottom:1px solid #E4DED1">
+<span style="color:#C98A16;display:inline-flex"><svg style="width:15px;height:15px" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#C98A16" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+<span style="font:600 13.5px 'Inter Tight';color:#23201B;flex:1">Connect to Havemind</span>
+</div>
+<div style="padding:12px 12px 14px;display:flex;flex-direction:column;gap:12px">
+
+<div style="display:flex;flex-direction:column;align-items:center;gap:8px;padding:16px 12px 14px;border:1px dashed #E0D8C8;border-radius:8px;background:#FBF9F5">
+<div style="display:flex;gap:4px;color:#C98A16;opacity:.9">
+<svg style="width:20px;height:20px" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#C98A16" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<svg style="width:20px;height:20px;margin-top:9px" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#C98A16" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<svg style="width:20px;height:20px" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#C98A16" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+</div>
+<div style="font:600 13px 'Inter Tight';color:#23201B;margin-top:2px">Not connected</div>
+<div style="font:400 12px/1.5 'Inter Tight';color:#6E675C;text-align:center">Paste the invitation the vault owner sent you. Single-use, valid 15 minutes.</div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:4px">
+<label style="font:500 11.5px 'Inter Tight';color:#6E675C">Invitation or owner pairing token</label>
+<textarea style="width:100%;box-sizing:border-box;min-height:62px;resize:vertical;font-family:'IBM Plex Mono',monospace;font-size:11.5px;line-height:1.5;color:#23201B;background:#FFFFFF;border:1px solid #E0D8C8;border-radius:5px;padding:7px 8px" placeholder="v1.… or hm_pt_…"></textarea>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:4px">
+<label style="font:500 11.5px 'Inter Tight';color:#6E675C">Server URL</label>
+<input type="text" style="width:100%;box-sizing:border-box;font:400 12px 'IBM Plex Mono',monospace;color:#23201B;background:#FFFFFF;border:1px solid #E0D8C8;border-radius:5px;padding:6px 8px" placeholder="https://your-server.example" value="">
+</div>
+
+<div style="font:400 11.5px 'Inter Tight';color:#9C9488;min-height:14px">Nothing leaves your tailnet.</div>
+<button style="display:flex;align-items:center;justify-content:center;gap:6px;font:600 13px 'Inter Tight';color:#fff;background:#C98A16;border:1px solid #B47C10;border-radius:5px;padding:7px 12px;cursor:pointer"><svg style="width:14px;height:14px" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Connect</button>
+</div>
+</div>
+
+<div style="width:300px;background:#151311;border:1px solid #302B25;border-radius:8px;overflow:hidden">
+<div style="display:flex;align-items:center;gap:7px;height:34px;padding:0 6px 0 10px;background:#1A1815;border-bottom:1px solid #302B25">
+<span style="color:#E6B34A;display:inline-flex"><svg style="width:15px;height:15px" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#E6B34A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+<span style="font:600 13.5px 'Inter Tight';color:#E8E2D6;flex:1">Connect to Havemind</span>
+</div>
+<div style="padding:12px 12px 14px;display:flex;flex-direction:column;gap:12px">
+
+<div style="display:flex;flex-direction:column;align-items:center;gap:8px;padding:16px 12px 14px;border:1px dashed #3A342C;border-radius:8px;background:#1B1916">
+<div style="display:flex;gap:4px;color:#E6B34A;opacity:.85">
+<svg style="width:20px;height:20px" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#E6B34A" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<svg style="width:20px;height:20px;margin-top:9px" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#E6B34A" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<svg style="width:20px;height:20px" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#E6B34A" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+</div>
+<div style="font:600 13px 'Inter Tight';color:#E8E2D6;margin-top:2px">Not connected</div>
+<div style="font:400 12px/1.5 'Inter Tight';color:#A49B8C;text-align:center">Paste the invitation the vault owner sent you. Single-use, valid 15 minutes.</div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:4px">
+<label style="font:500 11.5px 'Inter Tight';color:#A49B8C">Invitation or owner pairing token</label>
+<textarea style="width:100%;box-sizing:border-box;min-height:62px;resize:vertical;font-family:'IBM Plex Mono',monospace;font-size:11.5px;line-height:1.5;color:#E8E2D6;background:#100F0D;border:1px solid #3A342C;border-radius:5px;padding:7px 8px" placeholder="v1.… or hm_pt_…"></textarea>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:4px">
+<label style="font:500 11.5px 'Inter Tight';color:#A49B8C">Server URL</label>
+<input type="text" style="width:100%;box-sizing:border-box;font:400 12px 'IBM Plex Mono',monospace;color:#E8E2D6;background:#100F0D;border:1px solid #3A342C;border-radius:5px;padding:6px 8px" placeholder="https://your-server.example" value="">
+</div>
+
+<div style="font:400 11.5px 'Inter Tight';color:#736B5E;min-height:14px">Nothing leaves your tailnet.</div>
+<button style="display:flex;align-items:center;justify-content:center;gap:6px;font:600 13px 'Inter Tight';color:#241C05;background:#E6B34A;border:1px solid #C99A38;border-radius:5px;padding:7px 12px;cursor:pointer"><svg style="width:14px;height:14px" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#241C05" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Connect</button>
+</div>
+</div>
+
+</div>
+</div>
+
+<div class="dv-opt" id="1d">
+<div class="dv-olabel"><a class="dv-oid" href="#1d">1d</a>Creating connection (owner) — light &amp; dark</div>
+<div style="display:flex;gap:20px">
+
+<div style="width:300px;background:#F4F1EA;border:1px solid #E4DED1;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(35,32,27,.07)">
+<div style="display:flex;align-items:center;gap:7px;height:34px;padding:0 6px 0 10px;background:#EFEBE1;border-bottom:1px solid #E4DED1;background-image:url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='46' height='53' viewBox='0 0 46 53'%3E%3Cg fill='none' stroke='%23C98A16' stroke-opacity='.2'%3E%3Cpath d='M23 1.5 44 13.6v24.3L23 50 2 37.9V13.6z'/%3E%3C/g%3E%3C/svg%3E&quot;);background-repeat:no-repeat;background-position:right -10px center">
+<span style="color:#C98A16;display:inline-flex"><svg style="width:15px;height:15px" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#C98A16" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+<span style="font:600 13.5px 'Inter Tight';color:#23201B;flex:1">Creating connection</span>
+<span style="color:#9C9488;display:inline-flex;padding:4px"><svg style="width:15px;height:15px" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.2" fill="#9C9488"/><circle cx="12" cy="12" r="1.2" fill="#9C9488"/><circle cx="19" cy="12" r="1.2" fill="#9C9488"/></svg></span>
+</div>
+<div style="padding:12px 12px 14px;display:flex;flex-direction:column;gap:10px">
+
+<div style="display:flex;align-items:center;gap:6px;color:#1E7F5C;padding:6px 8px;border-radius:5px;background:#EAF5F0">
+<svg style="width:15px;height:15px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="#1E7F5C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="m9 12 2 2 4-4" fill="none" stroke="#1E7F5C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span style="font:500 12px 'Inter Tight'">Invitation created.</span>
+</div>
+
+<div style="display:flex;align-items:center;gap:6px">
+<span style="font:600 10.5px 'Inter Tight';letter-spacing:.07em;text-transform:uppercase;color:#9C9488">Create invitation</span>
+<span style="flex:1;height:1px;background:#E4DED1"></span>
+</div>
+
+<div style="display:flex;gap:8px">
+<div style="width:104px;display:flex;flex-direction:column;gap:4px">
+<label style="font:500 11.5px 'Inter Tight';color:#6E675C">Role</label>
+<div style="display:flex;align-items:center;gap:4px;background:#FFFFFF;border:1px solid #E0D8C8;border-radius:5px;padding:6px 6px 6px 8px"><span style="font:400 12px 'Inter Tight';color:#23201B;flex:1">editor</span><svg style="width:13px;height:13px;color:#9C9488" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" fill="none" stroke="#9C9488" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+</div>
+<div style="flex:1;display:flex;flex-direction:column;gap:4px">
+<label style="font:500 11.5px 'Inter Tight';color:#6E675C">Display name</label>
+<input type="text" style="width:100%;box-sizing:border-box;font:400 12px 'Inter Tight';color:#23201B;background:#FFFFFF;border:1px solid #E0D8C8;border-radius:5px;padding:6px 8px" value="Magda">
+</div>
+</div>
+<button style="display:flex;align-items:center;justify-content:center;gap:6px;font:600 12.5px 'Inter Tight';color:#fff;background:#C98A16;border:1px solid #B47C10;border-radius:5px;padding:6px 12px;cursor:pointer"><svg style="width:14px;height:14px" viewBox="0 0 24 24"><path d="M5 12h14" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 5v14" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Create invitation</button>
+
+<div style="border:1px solid #EFD9A6;border-radius:7px;background:#FDF3DE;padding:9px 10px;display:flex;flex-direction:column;gap:7px">
+<div style="font:400 11.5px/1.5 'Inter Tight';color:#6B4E0B">Copy it and send it to the other device. Single-use, expires in 15 minutes.</div>
+<code style="display:block;font-family:'IBM Plex Mono',monospace;font-size:11px;line-height:1.5;color:#23201B;background:#FFFFFF;border:1px solid #EFD9A6;border-radius:5px;padding:7px 8px;word-break:break-all;max-height:56px;overflow:hidden">v1.eyJ2IjoxLCJzIjoiaGl2ZS50YWlsLW5ldCIsImkiOiJjNmY4YTJk…</code>
+<div style="display:flex;align-items:center;gap:8px">
+<button style="display:inline-flex;align-items:center;gap:5px;font:600 12px 'Inter Tight';color:#fff;background:#C98A16;border:1px solid #B47C10;border-radius:4px;padding:4px 10px;cursor:pointer"><svg style="width:13px;height:13px" viewBox="0 0 24 24"><rect x="8" y="8" width="14" height="14" rx="2" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Copy</button>
+<button style="font:500 12px 'Inter Tight';color:#6E675C;background:transparent;border:1px solid #E0D8C8;border-radius:4px;padding:4px 10px;cursor:pointer">Done</button>
+<span style="margin-left:auto;font:400 11px 'IBM Plex Mono',monospace;color:#9C9488">15:57</span>
+</div>
+</div>
+
+<div style="height:1px;background:#E4DED1"></div>
+
+<div style="display:flex;align-items:center;gap:6px">
+<span style="font:600 10.5px 'Inter Tight';letter-spacing:.07em;text-transform:uppercase;color:#9C9488">Waiting for the other device</span>
+<span style="flex:1;height:1px;background:#E4DED1"></span>
+</div>
+
+<div style="border:1px solid #E4DED1;border-radius:7px;background:#FFFFFF;padding:10px;display:flex;flex-direction:column;gap:8px">
+<div style="display:flex;align-items:center;gap:7px;color:#C98A16">
+<svg style="width:16px;height:16px" viewBox="0 0 24 24"><circle cx="10" cy="8" r="4" fill="none" stroke="#C98A16" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 21v-1a7 7 0 0 1 11-5.7" fill="none" stroke="#C98A16" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="m15 19 2 2 4-4" fill="none" stroke="#C98A16" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<span style="font:600 12.5px 'Inter Tight';color:#23201B;flex:1">Magda</span>
+<span style="font:400 11px 'IBM Plex Mono',monospace;color:#9C9488">expires 15:57</span>
+</div>
+<div style="font:400 11.5px/1.5 'Inter Tight';color:#6E675C">Ask Magda to read the 6-digit code shown on her device, then type it here. 3 attempts.</div>
+<div style="display:flex;align-items:center;gap:6px">
+<input style="flex:1;min-width:0;box-sizing:border-box;font-family:'IBM Plex Mono',monospace;font-size:19px;font-weight:600;letter-spacing:.22em;text-align:center;color:#23201B;background:#FBF9F5;border:1px solid #E0D8C8;border-radius:5px;padding:7px 6px" value="402913" maxlength="6">
+<button style="font:600 12.5px 'Inter Tight';color:#fff;background:#C98A16;border:1px solid #B47C10;border-radius:4px;padding:8px 12px;cursor:pointer">Approve</button>
+</div>
+<div style="font:400 11px 'Inter Tight';color:#9C9488">The code never travels over the network — voice only.</div>
+</div>
+
+<div style="height:1px;background:#E4DED1"></div>
+
+<div style="display:flex;align-items:center;gap:6px">
+<span style="font:600 10.5px 'Inter Tight';letter-spacing:.07em;text-transform:uppercase;color:#9C9488">Connected</span>
+<span style="font:500 10.5px 'IBM Plex Mono',monospace;color:#9C9488">1</span>
+<span style="flex:1;height:1px;background:#E4DED1"></span>
+</div>
+<div style="display:flex;align-items:center;gap:8px;min-height:34px;padding:5px 8px;border-radius:6px;background:#FFFFFF;border:1px solid #EDE7DB">
+<span style="display:inline-flex;flex:none"><svg style="width:11px;height:11px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#1A73C2"/></svg></span>
+<div style="flex:1;min-width:0"><div style="font:500 12.5px/1.3 'Inter Tight';color:#23201B">Tomek <span style="color:#9C9488;font-weight:400">(you)</span></div><div style="font:400 11px/1.3 'Inter Tight';color:#9C9488">owner · connected</div></div>
+</div>
+
+</div>
+</div>
+
+<div style="width:300px;background:#151311;border:1px solid #302B25;border-radius:8px;overflow:hidden">
+<div style="display:flex;align-items:center;gap:7px;height:34px;padding:0 6px 0 10px;background:#1A1815;border-bottom:1px solid #302B25;background-image:url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='46' height='53' viewBox='0 0 46 53'%3E%3Cg fill='none' stroke='%23E6B34A' stroke-opacity='.22'%3E%3Cpath d='M23 1.5 44 13.6v24.3L23 50 2 37.9V13.6z'/%3E%3C/g%3E%3C/svg%3E&quot;);background-repeat:no-repeat;background-position:right -10px center">
+<span style="color:#E6B34A;display:inline-flex"><svg style="width:15px;height:15px" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#E6B34A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+<span style="font:600 13.5px 'Inter Tight';color:#E8E2D6;flex:1">Creating connection</span>
+<span style="color:#736B5E;display:inline-flex;padding:4px"><svg style="width:15px;height:15px" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.2" fill="#736B5E"/><circle cx="12" cy="12" r="1.2" fill="#736B5E"/><circle cx="19" cy="12" r="1.2" fill="#736B5E"/></svg></span>
+</div>
+<div style="padding:12px 12px 14px;display:flex;flex-direction:column;gap:10px">
+
+<div style="display:flex;align-items:center;gap:6px;color:#4FC79A;padding:6px 8px;border-radius:5px;background:#16241F">
+<svg style="width:15px;height:15px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="#4FC79A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="m9 12 2 2 4-4" fill="none" stroke="#4FC79A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span style="font:500 12px 'Inter Tight'">Invitation created.</span>
+</div>
+
+<div style="display:flex;align-items:center;gap:6px">
+<span style="font:600 10.5px 'Inter Tight';letter-spacing:.07em;text-transform:uppercase;color:#736B5E">Create invitation</span>
+<span style="flex:1;height:1px;background:#302B25"></span>
+</div>
+
+<div style="display:flex;gap:8px">
+<div style="width:104px;display:flex;flex-direction:column;gap:4px">
+<label style="font:500 11.5px 'Inter Tight';color:#A49B8C">Role</label>
+<div style="display:flex;align-items:center;gap:4px;background:#100F0D;border:1px solid #3A342C;border-radius:5px;padding:6px 6px 6px 8px"><span style="font:400 12px 'Inter Tight';color:#E8E2D6;flex:1">editor</span><svg style="width:13px;height:13px;color:#736B5E" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" fill="none" stroke="#736B5E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+</div>
+<div style="flex:1;display:flex;flex-direction:column;gap:4px">
+<label style="font:500 11.5px 'Inter Tight';color:#A49B8C">Display name</label>
+<input type="text" style="width:100%;box-sizing:border-box;font:400 12px 'Inter Tight';color:#E8E2D6;background:#100F0D;border:1px solid #3A342C;border-radius:5px;padding:6px 8px" value="Magda">
+</div>
+</div>
+<button style="display:flex;align-items:center;justify-content:center;gap:6px;font:600 12.5px 'Inter Tight';color:#241C05;background:#E6B34A;border:1px solid #C99A38;border-radius:5px;padding:6px 12px;cursor:pointer"><svg style="width:14px;height:14px" viewBox="0 0 24 24"><path d="M5 12h14" fill="none" stroke="#241C05" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 5v14" fill="none" stroke="#241C05" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Create invitation</button>
+
+<div style="border:1px solid #46381E;border-radius:7px;background:#2A2113;padding:9px 10px;display:flex;flex-direction:column;gap:7px">
+<div style="font:400 11.5px/1.5 'Inter Tight';color:#EBCE93">Copy it and send it to the other device. Single-use, expires in 15 minutes.</div>
+<code style="display:block;font-family:'IBM Plex Mono',monospace;font-size:11px;line-height:1.5;color:#E8E2D6;background:#161310;border:1px solid #46381E;border-radius:5px;padding:7px 8px;word-break:break-all;max-height:56px;overflow:hidden">v1.eyJ2IjoxLCJzIjoiaGl2ZS50YWlsLW5ldCIsImkiOiJjNmY4YTJk…</code>
+<div style="display:flex;align-items:center;gap:8px">
+<button style="display:inline-flex;align-items:center;gap:5px;font:600 12px 'Inter Tight';color:#241C05;background:#E6B34A;border:1px solid #C99A38;border-radius:4px;padding:4px 10px;cursor:pointer"><svg style="width:13px;height:13px" viewBox="0 0 24 24"><rect x="8" y="8" width="14" height="14" rx="2" fill="none" stroke="#241C05" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" fill="none" stroke="#241C05" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Copy</button>
+<button style="font:500 12px 'Inter Tight';color:#A49B8C;background:transparent;border:1px solid #3A342C;border-radius:4px;padding:4px 10px;cursor:pointer">Done</button>
+<span style="margin-left:auto;font:400 11px 'IBM Plex Mono',monospace;color:#736B5E">15:57</span>
+</div>
+</div>
+
+<div style="height:1px;background:#302B25"></div>
+
+<div style="display:flex;align-items:center;gap:6px">
+<span style="font:600 10.5px 'Inter Tight';letter-spacing:.07em;text-transform:uppercase;color:#736B5E">Waiting for the other device</span>
+<span style="flex:1;height:1px;background:#302B25"></span>
+</div>
+
+<div style="border:1px solid #302B25;border-radius:7px;background:#211E1A;padding:10px;display:flex;flex-direction:column;gap:8px">
+<div style="display:flex;align-items:center;gap:7px;color:#E6B34A">
+<svg style="width:16px;height:16px" viewBox="0 0 24 24"><circle cx="10" cy="8" r="4" fill="none" stroke="#E6B34A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 21v-1a7 7 0 0 1 11-5.7" fill="none" stroke="#E6B34A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="m15 19 2 2 4-4" fill="none" stroke="#E6B34A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<span style="font:600 12.5px 'Inter Tight';color:#E8E2D6;flex:1">Magda</span>
+<span style="font:400 11px 'IBM Plex Mono',monospace;color:#736B5E">expires 15:57</span>
+</div>
+<div style="font:400 11.5px/1.5 'Inter Tight';color:#A49B8C">Ask Magda to read the 6-digit code shown on her device, then type it here. 3 attempts.</div>
+<div style="display:flex;align-items:center;gap:6px">
+<input style="flex:1;min-width:0;box-sizing:border-box;font-family:'IBM Plex Mono',monospace;font-size:19px;font-weight:600;letter-spacing:.22em;text-align:center;color:#E8E2D6;background:#100F0D;border:1px solid #3A342C;border-radius:5px;padding:7px 6px" value="402913" maxlength="6">
+<button style="font:600 12.5px 'Inter Tight';color:#241C05;background:#E6B34A;border:1px solid #C99A38;border-radius:4px;padding:8px 12px;cursor:pointer">Approve</button>
+</div>
+<div style="font:400 11px 'Inter Tight';color:#736B5E">The code never travels over the network — voice only.</div>
+</div>
+
+<div style="height:1px;background:#302B25"></div>
+
+<div style="display:flex;align-items:center;gap:6px">
+<span style="font:600 10.5px 'Inter Tight';letter-spacing:.07em;text-transform:uppercase;color:#736B5E">Connected</span>
+<span style="font:500 10.5px 'IBM Plex Mono',monospace;color:#736B5E">1</span>
+<span style="flex:1;height:1px;background:#302B25"></span>
+</div>
+<div style="display:flex;align-items:center;gap:8px;min-height:34px;padding:5px 8px;border-radius:6px;background:#211E1A;border:1px solid #2B2620">
+<span style="display:inline-flex;flex:none"><svg style="width:11px;height:11px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#7CB6F0"/></svg></span>
+<div style="flex:1;min-width:0"><div style="font:500 12.5px/1.3 'Inter Tight';color:#E8E2D6">Tomek <span style="color:#736B5E;font-weight:400">(you)</span></div><div style="font:400 11px/1.3 'Inter Tight';color:#736B5E">owner · connected</div></div>
+</div>
+
+</div>
+</div>
+
+</div>
+</div>
+
+<div class="dv-opt" id="1e">
+<div class="dv-olabel"><a class="dv-oid" href="#1e">1e</a>Havemind activity — feed, and the empty state</div>
+<div style="display:flex;gap:20px;align-items:flex-start">
+
+<div style="width:300px;background:#F4F1EA;border:1px solid #E4DED1;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(35,32,27,.07)">
+<div style="display:flex;align-items:center;gap:7px;height:34px;padding:0 6px 0 10px;background:#EFEBE1;border-bottom:1px solid #E4DED1;background-image:url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='46' height='53' viewBox='0 0 46 53'%3E%3Cg fill='none' stroke='%23C98A16' stroke-opacity='.2'%3E%3Cpath d='M23 1.5 44 13.6v24.3L23 50 2 37.9V13.6z'/%3E%3C/g%3E%3C/svg%3E&quot;);background-repeat:no-repeat;background-position:right -10px center">
+<span style="color:#C98A16;display:inline-flex"><svg style="width:15px;height:15px" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#C98A16" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+<span style="font:600 13.5px 'Inter Tight';color:#23201B;flex:1">Havemind activity</span>
+<span style="color:#9C9488;display:inline-flex;padding:4px"><svg style="width:15px;height:15px" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3.5-7.1" fill="none" stroke="#9C9488" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M21 3v6h-6" fill="none" stroke="#9C9488" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+</div>
+<div style="padding:10px 10px 14px;display:flex;flex-direction:column;gap:8px">
+
+<div style="display:flex;align-items:center;gap:6px;padding:0 2px">
+<span style="font:600 10.5px 'Inter Tight';letter-spacing:.07em;text-transform:uppercase;color:#9C9488">Today</span>
+<span style="flex:1;height:1px;background:#E4DED1"></span>
+</div>
+
+<div style="display:flex;gap:8px;padding:8px 9px;border-radius:6px;background:#FFFFFF;border:1px solid #EDE7DB;border-left:3px solid #7C3FC0">
+<span style="color:#7C3FC0;display:inline-flex;flex:none;margin-top:2px"><svg style="width:14px;height:14px" viewBox="0 0 24 24"><path d="M12 20h9" fill="none" stroke="#7C3FC0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="m16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" fill="none" stroke="#7C3FC0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+<div style="flex:1;min-width:0">
+<div style="font:400 12px/1.4 'Inter Tight';color:#6E675C"><span style="font-weight:600;color:#7C3FC0">Magda</span> edited</div>
+<div style="font:500 12.5px/1.4 'Inter Tight';color:#23201B;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Roadmap Q3.md</div>
+<div style="display:flex;align-items:center;gap:8px;margin-top:5px">
+<span style="font:400 11px 'IBM Plex Mono',monospace;color:#9C9488;font-variant-numeric:tabular-nums">15:42</span>
+<button style="display:inline-flex;align-items:center;gap:4px;font:500 11.5px 'Inter Tight';color:#6E675C;background:#F4F1EA;border:1px solid #E0D8C8;border-radius:4px;padding:2px 8px;cursor:pointer"><svg style="width:12px;height:12px" viewBox="0 0 24 24"><path d="M3 3v5h5" fill="none" stroke="#6E675C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8" fill="none" stroke="#6E675C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 7v5l4 2" fill="none" stroke="#6E675C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Restore</button>
+</div>
+</div>
+</div>
+
+<div style="display:flex;gap:8px;padding:8px 9px;border-radius:6px;background:#FFFFFF;border:1px solid #EDE7DB;border-left:3px solid #0F8A6A">
+<span style="color:#0F8A6A;display:inline-flex;flex:none;margin-top:2px"><svg style="width:14px;height:14px" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z" fill="none" stroke="#0F8A6A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 2v5h5" fill="none" stroke="#0F8A6A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 11v6" fill="none" stroke="#0F8A6A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M9 14h6" fill="none" stroke="#0F8A6A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+<div style="flex:1;min-width:0">
+<div style="font:400 12px/1.4 'Inter Tight';color:#6E675C"><span style="font-weight:600;color:#0F8A6A">Claude · agent</span> created</div>
+<div style="font:500 12.5px/1.4 'Inter Tight';color:#23201B;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Research/Conflict models.md</div>
+<div style="display:flex;align-items:center;gap:8px;margin-top:5px">
+<span style="font:400 11px 'IBM Plex Mono',monospace;color:#9C9488;font-variant-numeric:tabular-nums">15:38</span>
+<button style="display:inline-flex;align-items:center;gap:4px;font:500 11.5px 'Inter Tight';color:#6E675C;background:#F4F1EA;border:1px solid #E0D8C8;border-radius:4px;padding:2px 8px;cursor:pointer"><svg style="width:12px;height:12px" viewBox="0 0 24 24"><path d="M3 3v5h5" fill="none" stroke="#6E675C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8" fill="none" stroke="#6E675C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 7v5l4 2" fill="none" stroke="#6E675C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Restore</button>
+</div>
+</div>
+</div>
+
+<div style="display:flex;gap:8px;padding:8px 9px;border-radius:6px;background:#FFFFFF;border:1px solid #EDE7DB;border-left:3px solid #1A73C2">
+<span style="color:#1A73C2;display:inline-flex;flex:none;margin-top:2px"><svg style="width:14px;height:14px" viewBox="0 0 24 24"><path d="m16 3 4 4-4 4" fill="none" stroke="#1A73C2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M20 7H4" fill="none" stroke="#1A73C2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="m8 21-4-4 4-4" fill="none" stroke="#1A73C2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 17h16" fill="none" stroke="#1A73C2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+<div style="flex:1;min-width:0">
+<div style="font:400 12px/1.4 'Inter Tight';color:#6E675C"><span style="font-weight:600;color:#1A73C2">Tomek</span> renamed</div>
+<div style="font:500 12.5px/1.4 'Inter Tight';color:#23201B;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Inbox → Inbox 2026.md</div>
+<div style="display:flex;align-items:center;gap:8px;margin-top:5px">
+<span style="font:400 11px 'IBM Plex Mono',monospace;color:#9C9488;font-variant-numeric:tabular-nums">15:31</span>
+<button style="display:inline-flex;align-items:center;gap:4px;font:500 11.5px 'Inter Tight';color:#6E675C;background:#F4F1EA;border:1px solid #E0D8C8;border-radius:4px;padding:2px 8px;cursor:pointer"><svg style="width:12px;height:12px" viewBox="0 0 24 24"><path d="M3 3v5h5" fill="none" stroke="#6E675C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8" fill="none" stroke="#6E675C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 7v5l4 2" fill="none" stroke="#6E675C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Restore</button>
+</div>
+</div>
+</div>
+
+<div style="display:flex;gap:8px;padding:8px 9px;border-radius:6px;background:#FFFFFF;border:1px solid #EDE7DB;border-left:3px solid #B03060">
+<span style="color:#B03060;display:inline-flex;flex:none;margin-top:2px"><svg style="width:14px;height:14px" viewBox="0 0 24 24"><path d="M3 6h18" fill="none" stroke="#B03060" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" fill="none" stroke="#B03060" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" fill="none" stroke="#B03060" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+<div style="flex:1;min-width:0">
+<div style="font:400 12px/1.4 'Inter Tight';color:#6E675C"><span style="font-weight:600;color:#B03060">Magda</span> deleted</div>
+<div style="font:500 12.5px/1.4 'Inter Tight';color:#23201B;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Scratch/old notes.md</div>
+<div style="display:flex;align-items:center;gap:8px;margin-top:5px">
+<span style="font:400 11px 'IBM Plex Mono',monospace;color:#9C9488;font-variant-numeric:tabular-nums">14:07</span>
+<button style="display:inline-flex;align-items:center;gap:4px;font:500 11.5px 'Inter Tight';color:#6E675C;background:#F4F1EA;border:1px solid #E0D8C8;border-radius:4px;padding:2px 8px;cursor:pointer"><svg style="width:12px;height:12px" viewBox="0 0 24 24"><path d="M3 3v5h5" fill="none" stroke="#6E675C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8" fill="none" stroke="#6E675C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 7v5l4 2" fill="none" stroke="#6E675C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Restore</button>
+</div>
+</div>
+</div>
+
+<div style="display:flex;align-items:center;gap:6px;padding:2px 2px 0">
+<span style="font:600 10.5px 'Inter Tight';letter-spacing:.07em;text-transform:uppercase;color:#9C9488">Yesterday</span>
+<span style="flex:1;height:1px;background:#E4DED1"></span>
+</div>
+
+<div style="display:flex;gap:8px;padding:8px 9px;border-radius:6px;background:#F8F5EE;border:1px solid #EDE7DB;border-left:3px solid #6B7280">
+<span style="color:#6B7280;display:inline-flex;flex:none;margin-top:2px"><svg style="width:14px;height:14px" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#6B7280" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+<div style="flex:1;min-width:0">
+<div style="font:400 12px/1.4 'Inter Tight';color:#6E675C"><span style="font-weight:600;color:#6B7280">Initial import</span> created</div>
+<div style="font:500 12.5px/1.4 'Inter Tight';color:#23201B">124 notes</div>
+<div style="font:400 11px 'IBM Plex Mono',monospace;color:#9C9488;margin-top:5px;font-variant-numeric:tabular-nums">24 Jul, 09:12</div>
+</div>
+</div>
+
+</div>
+</div>
+
+<div style="width:300px;background:#151311;border:1px solid #302B25;border-radius:8px;overflow:hidden">
+<div style="display:flex;align-items:center;gap:7px;height:34px;padding:0 6px 0 10px;background:#1A1815;border-bottom:1px solid #302B25;background-image:url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='46' height='53' viewBox='0 0 46 53'%3E%3Cg fill='none' stroke='%23E6B34A' stroke-opacity='.22'%3E%3Cpath d='M23 1.5 44 13.6v24.3L23 50 2 37.9V13.6z'/%3E%3C/g%3E%3C/svg%3E&quot;);background-repeat:no-repeat;background-position:right -10px center">
+<span style="color:#E6B34A;display:inline-flex"><svg style="width:15px;height:15px" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#E6B34A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+<span style="font:600 13.5px 'Inter Tight';color:#E8E2D6;flex:1">Havemind activity</span>
+<span style="color:#736B5E;display:inline-flex;padding:4px"><svg style="width:15px;height:15px" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3.5-7.1" fill="none" stroke="#736B5E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M21 3v6h-6" fill="none" stroke="#736B5E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+</div>
+<div style="padding:10px 10px 14px;display:flex;flex-direction:column;gap:8px">
+
+<div style="display:flex;align-items:center;gap:6px;padding:0 2px">
+<span style="font:600 10.5px 'Inter Tight';letter-spacing:.07em;text-transform:uppercase;color:#736B5E">Today</span>
+<span style="flex:1;height:1px;background:#302B25"></span>
+</div>
+
+<div style="display:flex;gap:8px;padding:8px 9px;border-radius:6px;background:#211E1A;border:1px solid #2B2620;border-left:3px solid #C99BF0">
+<span style="color:#C99BF0;display:inline-flex;flex:none;margin-top:2px"><svg style="width:14px;height:14px" viewBox="0 0 24 24"><path d="M12 20h9" fill="none" stroke="#C99BF0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="m16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" fill="none" stroke="#C99BF0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+<div style="flex:1;min-width:0">
+<div style="font:400 12px/1.4 'Inter Tight';color:#A49B8C"><span style="font-weight:600;color:#C99BF0">Magda</span> edited</div>
+<div style="font:500 12.5px/1.4 'Inter Tight';color:#E8E2D6;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Roadmap Q3.md</div>
+<div style="display:flex;align-items:center;gap:8px;margin-top:5px">
+<span style="font:400 11px 'IBM Plex Mono',monospace;color:#736B5E;font-variant-numeric:tabular-nums">15:42</span>
+<button style="display:inline-flex;align-items:center;gap:4px;font:500 11.5px 'Inter Tight';color:#A49B8C;background:#2B2620;border:1px solid #3A342C;border-radius:4px;padding:2px 8px;cursor:pointer"><svg style="width:12px;height:12px" viewBox="0 0 24 24"><path d="M3 3v5h5" fill="none" stroke="#A49B8C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8" fill="none" stroke="#A49B8C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 7v5l4 2" fill="none" stroke="#A49B8C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Restore</button>
+</div>
+</div>
+</div>
+
+<div style="display:flex;gap:8px;padding:8px 9px;border-radius:6px;background:#211E1A;border:1px solid #2B2620;border-left:3px solid #5FD3AC">
+<span style="color:#5FD3AC;display:inline-flex;flex:none;margin-top:2px"><svg style="width:14px;height:14px" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z" fill="none" stroke="#5FD3AC" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 2v5h5" fill="none" stroke="#5FD3AC" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 11v6" fill="none" stroke="#5FD3AC" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M9 14h6" fill="none" stroke="#5FD3AC" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+<div style="flex:1;min-width:0">
+<div style="font:400 12px/1.4 'Inter Tight';color:#A49B8C"><span style="font-weight:600;color:#5FD3AC">Claude · agent</span> created</div>
+<div style="font:500 12.5px/1.4 'Inter Tight';color:#E8E2D6;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Research/Conflict models.md</div>
+<div style="display:flex;align-items:center;gap:8px;margin-top:5px">
+<span style="font:400 11px 'IBM Plex Mono',monospace;color:#736B5E;font-variant-numeric:tabular-nums">15:38</span>
+<button style="display:inline-flex;align-items:center;gap:4px;font:500 11.5px 'Inter Tight';color:#A49B8C;background:#2B2620;border:1px solid #3A342C;border-radius:4px;padding:2px 8px;cursor:pointer"><svg style="width:12px;height:12px" viewBox="0 0 24 24"><path d="M3 3v5h5" fill="none" stroke="#A49B8C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8" fill="none" stroke="#A49B8C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 7v5l4 2" fill="none" stroke="#A49B8C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Restore</button>
+</div>
+</div>
+</div>
+
+<div style="display:flex;gap:8px;padding:8px 9px;border-radius:6px;background:#211E1A;border:1px solid #2B2620;border-left:3px solid #7CB6F0">
+<span style="color:#7CB6F0;display:inline-flex;flex:none;margin-top:2px"><svg style="width:14px;height:14px" viewBox="0 0 24 24"><path d="m16 3 4 4-4 4" fill="none" stroke="#7CB6F0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M20 7H4" fill="none" stroke="#7CB6F0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="m8 21-4-4 4-4" fill="none" stroke="#7CB6F0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 17h16" fill="none" stroke="#7CB6F0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+<div style="flex:1;min-width:0">
+<div style="font:400 12px/1.4 'Inter Tight';color:#A49B8C"><span style="font-weight:600;color:#7CB6F0">Tomek</span> renamed</div>
+<div style="font:500 12.5px/1.4 'Inter Tight';color:#E8E2D6;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Inbox → Inbox 2026.md</div>
+<div style="display:flex;align-items:center;gap:8px;margin-top:5px">
+<span style="font:400 11px 'IBM Plex Mono',monospace;color:#736B5E;font-variant-numeric:tabular-nums">15:31</span>
+<button style="display:inline-flex;align-items:center;gap:4px;font:500 11.5px 'Inter Tight';color:#A49B8C;background:#2B2620;border:1px solid #3A342C;border-radius:4px;padding:2px 8px;cursor:pointer"><svg style="width:12px;height:12px" viewBox="0 0 24 24"><path d="M3 3v5h5" fill="none" stroke="#A49B8C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8" fill="none" stroke="#A49B8C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 7v5l4 2" fill="none" stroke="#A49B8C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Restore</button>
+</div>
+</div>
+</div>
+
+<div style="display:flex;gap:8px;padding:8px 9px;border-radius:6px;background:#211E1A;border:1px solid #2B2620;border-left:3px solid #EF92B6">
+<span style="color:#EF92B6;display:inline-flex;flex:none;margin-top:2px"><svg style="width:14px;height:14px" viewBox="0 0 24 24"><path d="M3 6h18" fill="none" stroke="#EF92B6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" fill="none" stroke="#EF92B6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" fill="none" stroke="#EF92B6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+<div style="flex:1;min-width:0">
+<div style="font:400 12px/1.4 'Inter Tight';color:#A49B8C"><span style="font-weight:600;color:#EF92B6">Magda</span> deleted</div>
+<div style="font:500 12.5px/1.4 'Inter Tight';color:#E8E2D6;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Scratch/old notes.md</div>
+<div style="display:flex;align-items:center;gap:8px;margin-top:5px">
+<span style="font:400 11px 'IBM Plex Mono',monospace;color:#736B5E;font-variant-numeric:tabular-nums">14:07</span>
+<button style="display:inline-flex;align-items:center;gap:4px;font:500 11.5px 'Inter Tight';color:#A49B8C;background:#2B2620;border:1px solid #3A342C;border-radius:4px;padding:2px 8px;cursor:pointer"><svg style="width:12px;height:12px" viewBox="0 0 24 24"><path d="M3 3v5h5" fill="none" stroke="#A49B8C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8" fill="none" stroke="#A49B8C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 7v5l4 2" fill="none" stroke="#A49B8C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Restore</button>
+</div>
+</div>
+</div>
+
+<div style="display:flex;align-items:center;gap:6px;padding:2px 2px 0">
+<span style="font:600 10.5px 'Inter Tight';letter-spacing:.07em;text-transform:uppercase;color:#736B5E">Yesterday</span>
+<span style="flex:1;height:1px;background:#302B25"></span>
+</div>
+
+<div style="display:flex;gap:8px;padding:8px 9px;border-radius:6px;background:#1B1916;border:1px solid #2B2620;border-left:3px solid #9AA1AC">
+<span style="color:#9AA1AC;display:inline-flex;flex:none;margin-top:2px"><svg style="width:14px;height:14px" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#9AA1AC" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+<div style="flex:1;min-width:0">
+<div style="font:400 12px/1.4 'Inter Tight';color:#A49B8C"><span style="font-weight:600;color:#9AA1AC">Initial import</span> created</div>
+<div style="font:500 12.5px/1.4 'Inter Tight';color:#E8E2D6">124 notes</div>
+<div style="font:400 11px 'IBM Plex Mono',monospace;color:#736B5E;margin-top:5px;font-variant-numeric:tabular-nums">24 Jul, 09:12</div>
+</div>
+</div>
+
+</div>
+</div>
+
+<div style="width:300px;background:#F4F1EA;border:1px solid #E4DED1;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(35,32,27,.07)">
+<div style="display:flex;align-items:center;gap:7px;height:34px;padding:0 6px 0 10px;background:#EFEBE1;border-bottom:1px solid #E4DED1">
+<span style="color:#C98A16;display:inline-flex"><svg style="width:15px;height:15px" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#C98A16" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+<span style="font:600 13.5px 'Inter Tight';color:#23201B;flex:1">Havemind activity</span>
+</div>
+<div style="padding:40px 22px 44px;display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center">
+<div style="position:relative;width:96px;height:80px;color:#C98A16">
+<svg style="position:absolute;left:26px;top:0;width:44px;height:44px;opacity:.85" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#C98A16" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<svg style="position:absolute;left:0;top:22px;width:44px;height:44px;opacity:.4" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#C98A16" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<svg style="position:absolute;left:52px;top:22px;width:44px;height:44px;opacity:.4" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#C98A16" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+</div>
+<div style="font:600 13.5px 'Inter Tight';color:#23201B">The comb is empty</div>
+<div style="font:400 12px/1.6 'Inter Tight';color:#6E675C">Every change you or your peers make lands here — with the author, the note and one-click restore.</div>
+<button style="display:inline-flex;align-items:center;gap:6px;font:600 12.5px 'Inter Tight';color:#fff;background:#C98A16;border:1px solid #B47C10;border-radius:5px;padding:6px 12px;cursor:pointer;margin-top:2px"><svg style="width:14px;height:14px" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Connect a vault</button>
+</div>
+</div>
+
+<div style="width:300px;background:#151311;border:1px solid #302B25;border-radius:8px;overflow:hidden">
+<div style="display:flex;align-items:center;gap:7px;height:34px;padding:0 6px 0 10px;background:#1A1815;border-bottom:1px solid #302B25">
+<span style="color:#E6B34A;display:inline-flex"><svg style="width:15px;height:15px" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#E6B34A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+<span style="font:600 13.5px 'Inter Tight';color:#E8E2D6;flex:1">Havemind activity</span>
+</div>
+<div style="padding:40px 22px 44px;display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center">
+<div style="position:relative;width:96px;height:80px;color:#E6B34A">
+<svg style="position:absolute;left:26px;top:0;width:44px;height:44px;opacity:.85" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#E6B34A" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<svg style="position:absolute;left:0;top:22px;width:44px;height:44px;opacity:.35" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#E6B34A" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<svg style="position:absolute;left:52px;top:22px;width:44px;height:44px;opacity:.35" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#E6B34A" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+</div>
+<div style="font:600 13.5px 'Inter Tight';color:#E8E2D6">The comb is empty</div>
+<div style="font:400 12px/1.6 'Inter Tight';color:#A49B8C">Every change you or your peers make lands here — with the author, the note and one-click restore.</div>
+<button style="display:inline-flex;align-items:center;gap:6px;font:600 12.5px 'Inter Tight';color:#241C05;background:#E6B34A;border:1px solid #C99A38;border-radius:5px;padding:6px 12px;cursor:pointer;margin-top:2px"><svg style="width:14px;height:14px" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#241C05" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Connect a vault</button>
+</div>
+</div>
+
+</div>
+</div>
+
+<div class="dv-opt" id="1f">
+<div class="dv-olabel"><a class="dv-oid" href="#1f">1f</a>Ribbon icon &amp; status-bar item</div>
+<div style="display:flex;gap:20px;align-items:flex-start">
+
+<div style="display:flex;flex-direction:column;gap:14px;padding:16px;width:236px;background:#FBF9F5;border:1px solid #E4DED1;border-radius:8px">
+<div style="font:600 10.5px 'Inter Tight';letter-spacing:.07em;text-transform:uppercase;color:#9C9488">Ribbon · light</div>
+<div style="display:flex;gap:14px;align-items:flex-start">
+<div style="width:44px;display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 0;background:#F4F1EA;border:1px solid #E4DED1;border-radius:7px">
+<span style="display:grid;place-items:center;width:30px;height:30px;border-radius:6px;color:#9C9488"><svg style="width:17px;height:17px" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z" fill="none" stroke="#9C9488" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 2v5h5" fill="none" stroke="#9C9488" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 11v6" fill="none" stroke="#9C9488" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M9 14h6" fill="none" stroke="#9C9488" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+<span style="display:grid;place-items:center;width:30px;height:30px;border-radius:6px;background:#FDF3DE;color:#C98A16;box-shadow:inset 0 0 0 1px #EFD9A6"><svg style="width:17px;height:17px" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#C98A16" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+<span style="display:grid;place-items:center;width:30px;height:30px;border-radius:6px;color:#9C9488"><svg style="width:17px;height:17px" viewBox="0 0 24 24"><circle cx="9" cy="8" r="4" fill="none" stroke="#9C9488" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 21v-1a7 7 0 0 1 14 0v1" fill="none" stroke="#9C9488" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M17 4.5a4 4 0 0 1 0 7" fill="none" stroke="#9C9488" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M19.5 21v-1a7 7 0 0 0-2-4.9" fill="none" stroke="#9C9488" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+</div>
+<div style="flex:1;font:400 11.5px/1.55 'Inter Tight';color:#6E675C">A single outline hexagon, honey-tinted when the panel is open. Tooltip: <span style="font-weight:600;color:#23201B">Open Havemind</span>.</div>
+</div>
+<div style="height:1px;background:#E4DED1"></div>
+<div style="font:600 10.5px 'Inter Tight';letter-spacing:.07em;text-transform:uppercase;color:#9C9488">Status bar · light</div>
+<div style="display:flex;flex-direction:column;gap:6px">
+<div style="display:inline-flex;align-items:center;gap:6px;align-self:flex-start;padding:3px 8px;border-radius:5px;background:#F4F1EA;border:1px solid #E4DED1;cursor:pointer">
+<span style="color:#C98A16;display:inline-flex"><svg style="width:13px;height:13px" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#C98A16" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+<span style="font:500 12px 'Inter Tight';color:#23201B">Havemind:</span>
+<span style="display:inline-flex;align-items:center;gap:4px;color:#1E7F5C"><svg style="width:11px;height:11px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#1E7F5C"/></svg><span style="font:600 12px 'Inter Tight'">Synced</span></span>
+</div>
+<div style="display:inline-flex;align-items:center;gap:6px;align-self:flex-start;padding:3px 8px;border-radius:5px;background:#F4F1EA;border:1px solid #E4DED1">
+<span style="color:#C98A16;display:inline-flex"><svg style="width:13px;height:13px" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#C98A16" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+<span style="font:500 12px 'Inter Tight';color:#23201B">Havemind:</span>
+<span style="display:inline-flex;align-items:center;gap:4px;color:#6B7280"><svg style="width:12px;height:12px" viewBox="0 0 24 24"><path d="M3 3l18 18" fill="none" stroke="#6B7280" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M17.5 19H9a7 7 0 0 1-1.35-13.87" fill="none" stroke="#6B7280" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M10.6 5.2A7 7 0 0 1 15.7 10h1.8a4.5 4.5 0 0 1 3.5 7.3" fill="none" stroke="#6B7280" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span style="font:600 12px 'Inter Tight'">Offline</span></span>
+</div>
+<div style="font:400 11px/1.5 'Inter Tight';color:#9C9488">Tooltip keeps today's text: state · last sync · no-E2EE note.</div>
+</div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:14px;padding:16px;width:236px;background:#1A1815;border:1px solid #302B25;border-radius:8px">
+<div style="font:600 10.5px 'Inter Tight';letter-spacing:.07em;text-transform:uppercase;color:#736B5E">Ribbon · dark</div>
+<div style="display:flex;gap:14px;align-items:flex-start">
+<div style="width:44px;display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 0;background:#151311;border:1px solid #302B25;border-radius:7px">
+<span style="display:grid;place-items:center;width:30px;height:30px;border-radius:6px;color:#736B5E"><svg style="width:17px;height:17px" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z" fill="none" stroke="#736B5E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 2v5h5" fill="none" stroke="#736B5E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 11v6" fill="none" stroke="#736B5E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M9 14h6" fill="none" stroke="#736B5E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+<span style="display:grid;place-items:center;width:30px;height:30px;border-radius:6px;background:#2A2113;color:#E6B34A;box-shadow:inset 0 0 0 1px #46381E"><svg style="width:17px;height:17px" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#E6B34A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+<span style="display:grid;place-items:center;width:30px;height:30px;border-radius:6px;color:#736B5E"><svg style="width:17px;height:17px" viewBox="0 0 24 24"><circle cx="9" cy="8" r="4" fill="none" stroke="#736B5E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 21v-1a7 7 0 0 1 14 0v1" fill="none" stroke="#736B5E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M17 4.5a4 4 0 0 1 0 7" fill="none" stroke="#736B5E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M19.5 21v-1a7 7 0 0 0-2-4.9" fill="none" stroke="#736B5E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+</div>
+<div style="flex:1;font:400 11.5px/1.55 'Inter Tight';color:#A49B8C">A single outline hexagon, honey-tinted when the panel is open. Tooltip: <span style="font-weight:600;color:#E8E2D6">Open Havemind</span>.</div>
+</div>
+<div style="height:1px;background:#302B25"></div>
+<div style="font:600 10.5px 'Inter Tight';letter-spacing:.07em;text-transform:uppercase;color:#736B5E">Status bar · dark</div>
+<div style="display:flex;flex-direction:column;gap:6px">
+<div style="display:inline-flex;align-items:center;gap:6px;align-self:flex-start;padding:3px 8px;border-radius:5px;background:#211E1A;border:1px solid #302B25;cursor:pointer">
+<span style="color:#E6B34A;display:inline-flex"><svg style="width:13px;height:13px" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#E6B34A" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+<span style="font:500 12px 'Inter Tight';color:#E8E2D6">Havemind:</span>
+<span style="display:inline-flex;align-items:center;gap:4px;color:#4FC79A"><svg style="width:11px;height:11px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#4FC79A"/></svg><span style="font:600 12px 'Inter Tight'">Synced</span></span>
+</div>
+<div style="display:inline-flex;align-items:center;gap:6px;align-self:flex-start;padding:3px 8px;border-radius:5px;background:#211E1A;border:1px solid #302B25">
+<span style="color:#E6B34A;display:inline-flex"><svg style="width:13px;height:13px" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" fill="none" stroke="#E6B34A" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+<span style="font:500 12px 'Inter Tight';color:#E8E2D6">Havemind:</span>
+<span style="display:inline-flex;align-items:center;gap:4px;color:#9AA1AC"><svg style="width:12px;height:12px" viewBox="0 0 24 24"><path d="M3 3l18 18" fill="none" stroke="#9AA1AC" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M17.5 19H9a7 7 0 0 1-1.35-13.87" fill="none" stroke="#9AA1AC" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M10.6 5.2A7 7 0 0 1 15.7 10h1.8a4.5 4.5 0 0 1 3.5 7.3" fill="none" stroke="#9AA1AC" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span style="font:600 12px 'Inter Tight'">Offline</span></span>
+</div>
+<div style="font:400 11px/1.5 'Inter Tight';color:#736B5E">Tooltip keeps today's text: state · last sync · no-E2EE note.</div>
+</div>
+</div>
+
+<div style="width:300px;padding:16px 18px;background:#FBF9F5;border:1px solid #E4DED1;border-radius:8px">
+<div style="font:600 10.5px 'Inter Tight';letter-spacing:.07em;text-transform:uppercase;color:#9C9488;margin-bottom:10px">Design notes</div>
+<ul style="margin:0;padding-left:16px;font:400 11.5px/1.65 'Inter Tight';color:#6E675C">
+<li>Every function in <code style="font-family:'IBM Plex Mono',monospace;font-size:11px">main.ts</code> is preserved — nothing added, nothing removed. Section order matches the render order: status → send queue → conflicts → connection.</li>
+<li>"Mark disconnected" shortens to <strong style="color:#23201B;font-weight:600">Mark offline</strong> to fit 300px; Remove becomes an icon button that still arms to "Confirm remove" on first click.</li>
+<li>Activity rows keep the author colour as a left rule and add a Lucide verb icon (edited / created / deleted / renamed) — colour is never the only signal.</li>
+<li>All colours map to Obsidian semantic vars first (<code style="font-family:'IBM Plex Mono',monospace;font-size:11px">--background-secondary</code>, <code style="font-family:'IBM Plex Mono',monospace;font-size:11px">--text-muted</code>…) with the honey accent and warm tints layered as <code style="font-family:'IBM Plex Mono',monospace;font-size:11px">--havemind-*</code> tokens, so third-party themes still win where it matters.</li>
+</ul>
+</div>
+
+</div>
+</div>
+
+</div>
+<p class="dv-next">Try next: "write the styles.css + render tweaks for this" · "show the conflict resolve modal too" · "try a denser roster row"</p>
+</section>
+</x-dc>
+</body>
+</html>
