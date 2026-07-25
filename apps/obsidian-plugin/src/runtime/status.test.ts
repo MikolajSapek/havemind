@@ -45,6 +45,8 @@ describe('buildConnectionPanel', () => {
   });
 
   it('animates the spinner only while syncing and not under reduced motion', () => {
+    // The syncing glyph is the hive hexagon (rotated by CSS), not a loader.
+    expect(buildConnectionPanel({ status: 'syncing' }).icon).toBe('hexagon');
     expect(buildConnectionPanel({ status: 'syncing' }).spin).toBe(true);
     expect(
       buildConnectionPanel({ status: 'syncing', reducedMotion: true }).spin,

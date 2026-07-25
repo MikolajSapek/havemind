@@ -188,12 +188,21 @@ function renderRejoinRoster(
     // status label below so colour is never the only signal.
     const dot = item.createEl('span');
     dot.addClass('havemind-roster-dot');
-    dot.style.setProperty('color', `var(${row.colorToken})`);
+    if (!row.connected) dot.addClass('is-disconnected');
+    // The owner's own row uses the theme accent; other members keep their stable
+    // author colour. Colour is always paired with the name + status text below.
+    dot.style.setProperty(
+      'color',
+      row.self ? 'var(--interactive-accent)' : `var(${row.colorToken})`,
+    );
     setIcon(dot, row.connected ? 'circle' : 'circle-off');
-    const name = row.self ? `${row.displayName} (you)` : row.displayName;
-    item.createEl('span', {
-      text: ` ${name} · ${row.role} · ${row.statusLabel}`,
-    });
+    const text = item.createDiv();
+    text.createDiv({ text: row.displayName });
+    text.createDiv({
+      text: row.self
+        ? `${row.role} · you`
+        : `${row.role} · ${row.statusLabel}`,
+    }).addClass('havemind-hint');
 
     if (row.rejoinable && actions.onRejoin) {
       if (actions.waiting.has(row.membershipId)) {
@@ -209,7 +218,7 @@ function renderRejoinRoster(
       }
     } else if (row.connected && !row.self && actions.onMarkDisconnected) {
       // Owner-asserted disconnect: clicking arms this contact's Rejoin button.
-      const mark = item.createEl('button', { text: 'Mark disconnected' });
+      const mark = item.createEl('button', { text: 'Mark offline' });
       mark.addClass('havemind-roster-action');
       mark.onClickEvent(() => actions.onMarkDisconnected?.(row.membershipId));
     }
@@ -578,10 +587,16 @@ class HavemindActivityView extends ItemView {
       }
 
       for (const row of model.rows) {
-        const entry = content.createDiv({ text: row.label });
+        const entry = content.createDiv();
         entry.addClass('havemind-activity-row');
+        // Two-line row: `author verb` headline over the vault path. The full
+        // `kind · path · actor` string still lives on `row.label` for anything
+        // that reads it; nothing about the data changes.
+        const text = entry.createDiv();
+        text.createDiv({ text: row.headline });
+        text.createDiv({ text: row.pathLabel }).addClass('havemind-hint');
         // Author colour as a left accent, paired with the author name already in
-        // the label — colour is never the only signal (accessibility rule).
+        // the headline — colour is never the only signal (accessibility rule).
         entry.style.setProperty('--havemind-row-color', `var(${row.colorToken})`);
         // The Restore button stays the first child so the F5 restore contract is
         // unchanged; the time is appended after it.
@@ -862,6 +877,11 @@ export class HavemindOnboardingView extends ItemView {
     const row = content.createDiv({ text: '' });
     row.addClass('havemind-status');
     if (panel.spin) row.addClass('havemind-status-spin');
+    // synced / conflict read as a small filled dot; the icon name, label and
+    // colour token stay exactly as status.ts provides them.
+    if (panel.status === 'synced' || panel.status === 'conflict') {
+      row.addClass('havemind-status-dot');
+    }
     row.style.setProperty('color', `var(${panel.colorToken})`);
     const icon = row.createEl('span');
     setIcon(icon, panel.icon);
@@ -2497,7 +2517,15 @@ export default class HavemindPlugin extends Plugin {
   }
 
   private setStatus(view: StatusBarView): void {
-    this.statusItem?.setText(view.text);
+    const item = this.statusItem;
+    if (item === null) return;
+    // A leading hive-hexagon glyph precedes the stable label. setText would
+    // clobber the glyph, so rebuild the item: glyph first, then the same text
+    // in a trailing span. The label string and tooltip are unchanged.
+    item.empty();
+    const glyph = item.createEl('span');
+    setIcon(glyph, 'hexagon');
+    item.createEl('span', { text: view.text });
   }
 
   /** Supplies the Activity view with a live feed and a restore action. */

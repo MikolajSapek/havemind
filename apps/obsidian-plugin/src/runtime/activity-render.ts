@@ -23,6 +23,10 @@ export interface ActivityRowView {
   readonly fileId: string;
   /** `kind · path · author` — author is paired with the colour token below. */
   readonly label: string;
+  /** `author verb` — the row's first line. `label` stays the full string. */
+  readonly headline: string;
+  /** Vault path — the row's second line. */
+  readonly pathLabel: string;
   readonly timestamp: number;
   /** Human-readable time shown alongside each entry (author + file + time). */
   readonly timeLabel: string;
@@ -60,6 +64,8 @@ export function buildActivityViewModel(
       revisionId: entry.revisionId,
       fileId: entry.fileId,
       label: `${entry.kind} · ${entry.path} · ${entry.actorLabel}`,
+      headline: `${entry.actorLabel} ${entry.kind}`,
+      pathLabel: entry.path,
       timestamp: entry.timestamp,
       timeLabel: format(entry.timestamp),
       colorToken:

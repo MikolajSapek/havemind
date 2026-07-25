@@ -41,6 +41,9 @@ describe('buildActivityViewModel', () => {
       'rev-old',
     ]);
     expect(model.rows[0]?.label).toBe('edit · Notes/b.md · Alice');
+    // Two-line presentation: `author verb` headline over the vault path.
+    expect(model.rows[0]?.headline).toBe('Alice edit');
+    expect(model.rows[0]?.pathLabel).toBe('Notes/b.md');
     expect(model.rows[0]?.canRestore).toBe(true);
   });
 

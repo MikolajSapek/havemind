@@ -664,9 +664,12 @@ describe('plugin lifecycle', () => {
     const container = view?.containerEl as unknown as MockElement;
     const rows = container.children[1]?.children ?? [];
     expect(rows[0]?.text).toBe('Havemind activity');
-    expect(rows[1]?.text).toBe('edit · Notes/a.md · Alice');
+    // Two-line row: `author verb` headline over the vault path (in a text block).
+    const textBlock = rows[1]?.children[0];
+    expect(textBlock?.children[0]?.text).toBe('Alice edit');
+    expect(textBlock?.children[1]?.text).toBe('Notes/a.md');
 
-    const restoreButton = rows[1]?.children[0];
+    const restoreButton = rows[1]?.children[1];
     restoreButton?.triggerClick();
     expect(restored).toEqual(['rev-1']);
   });
@@ -703,7 +706,7 @@ describe('plugin lifecycle', () => {
       ?.(new WorkspaceLeaf());
     await view?.onOpen();
     const container = view?.containerEl as unknown as MockElement;
-    const restoreButton = container.children[1]?.children[1]?.children[0];
+    const restoreButton = container.children[1]?.children[1]?.children[1];
     expect(restoreButton?.text).toBe('Restore');
 
     restoreButton?.triggerClick();
@@ -738,7 +741,7 @@ describe('plugin lifecycle', () => {
       ?.(new WorkspaceLeaf());
     await view?.onOpen();
     const container = view?.containerEl as unknown as MockElement;
-    const restoreButton = container.children[1]?.children[1]?.children[0];
+    const restoreButton = container.children[1]?.children[1]?.children[1];
 
     expect(() => restoreButton?.triggerClick()).not.toThrow();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1061,14 +1064,12 @@ describe('plugin lifecycle', () => {
 
     const content = (view.containerEl as unknown as MockElement).children[1];
     const all = flatten(content as MockElement);
-    // The owner is connected (green dot + "connected" label, never colour alone).
-    expect(
-      all.some(({ text }) => text === ' You (you) · owner · connected'),
-    ).toBe(true);
+    // The owner is connected: name over `role · you` (never colour alone).
+    expect(all.some(({ text }) => text === 'You')).toBe(true);
+    expect(all.some(({ text }) => text === 'owner · you')).toBe(true);
     // The known-dead contact is disconnected and offers a Rejoin button.
-    expect(
-      all.some(({ text }) => text === ' Magda · editor · disconnected'),
-    ).toBe(true);
+    expect(all.some(({ text }) => text === 'Magda')).toBe(true);
+    expect(all.some(({ text }) => text === 'editor · disconnected')).toBe(true);
     expect(all.some(({ text }) => text === 'Rejoin')).toBe(true);
     // A connected member never offers Rejoin.
     expect(all.filter(({ text }) => text === 'Rejoin')).toHaveLength(1);
@@ -1119,7 +1120,7 @@ describe('plugin lifecycle', () => {
     expect(all.some(({ text }) => text === 'Rejoin')).toBe(false);
   });
 
-  it('offers "Mark disconnected" on a connected non-self member and forwards its id', async () => {
+  it('offers "Mark offline" on a connected non-self member and forwards its id', async () => {
     const marked: string[] = [];
     const view = new HavemindOnboardingView(new WorkspaceLeaf(), {
       panelProvider: () =>
@@ -1139,7 +1140,7 @@ describe('plugin lifecycle', () => {
     const all = flatten(content as MockElement);
     // Everyone is connected, so no Rejoin yet — only the owner-assert affordance.
     expect(all.some(({ text }) => text === 'Rejoin')).toBe(false);
-    all.find(({ text }) => text === 'Mark disconnected')?.triggerClick();
+    all.find(({ text }) => text === 'Mark offline')?.triggerClick();
     expect(marked).toEqual(['m-magda']);
   });
 

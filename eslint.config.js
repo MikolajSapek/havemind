@@ -11,6 +11,8 @@ export default tseslint.config(
       '**/*.d.ts',
       // Built plugin bundle (gitignored, esbuild output) — not source.
       'apps/obsidian-plugin/main.js',
+      // Claude Design export bundle — reference artefacts, not linted source.
+      'design/**',
     ],
   },
   eslint.configs.recommended,

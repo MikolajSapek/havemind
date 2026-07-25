@@ -119,7 +119,7 @@ const PANEL_STYLES: Readonly<Record<ConnectionStatus, PanelStyle>> = {
     showForm: true,
   },
   syncing: {
-    icon: 'loader',
+    icon: 'hexagon',
     label: 'Syncing…',
     colorToken: '--text-accent',
     spin: true,
