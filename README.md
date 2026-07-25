@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="design/brand/havemind-banner-white.png" alt="Havemind — one shared brain for your team and their AIs" width="100%">
+</p>
+
 # Havemind
 
 ### The living knowledge base your team and your agents both write to.
