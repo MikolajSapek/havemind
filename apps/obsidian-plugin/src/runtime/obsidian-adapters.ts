@@ -29,6 +29,7 @@ import {
 } from '@havemind/sync-core';
 
 import {
+  classifyVaultPath,
   pathExtension,
   SYNCABLE_BINARY_EXTENSIONS,
   VaultChangeObserver,
@@ -81,6 +82,7 @@ import {
   type VaultFilePort,
 } from './vault-apply';
 import { createRemoteApplyProducerSync } from './remote-apply-coordinator';
+import { KeyedMutex } from './keyed-mutex';
 import {
   applyLocalMaterialization,
   forgetLocalMaterialization,
@@ -678,6 +680,7 @@ export function buildSyncController(
   onStatus: StatusListener,
   hooks?: RuntimeHooks,
   producerSync?: RemoteApplyProducerSync,
+  fileApplyLock?: KeyedMutex,
 ): BuiltSyncController {
   const state = new DurableSyncState({
     persist: createPersistPort(plugin),
@@ -740,6 +743,10 @@ export function buildSyncController(
     ...(hooks?.onConflictWritten === undefined
       ? {}
       : { onConflictWritten: hooks.onConflictWritten }),
+    // TOCTOU close (rule 3): the SAME per-file lock the push producer holds, so
+    // a local write can never land and be clobbered between apply's read and its
+    // write for one file. Different files still apply/produce concurrently.
+    ...(fileApplyLock === undefined ? {} : { lock: fileApplyLock }),
   });
 
   // Late-bound so the runner can report every cycle — including the retries it
@@ -1099,6 +1106,10 @@ async function startSyncLoop(
     current: null,
   };
   const producerSync = createRemoteApplyProducerSync(() => producerRef.current);
+  // ONE per-file lock shared by remote apply (in the controller) and the local
+  // change producer, so a file can never be produced and applied concurrently
+  // (rule 3 TOCTOU close). Distinct files still sync in parallel.
+  const fileApplyLock = new KeyedMutex();
   const { controller, state } = buildSyncController(
     plugin,
     {
@@ -1120,6 +1131,7 @@ async function startSyncLoop(
     onStatus,
     extras.hooks,
     producerSync,
+    fileApplyLock,
   );
 
   // AUD-03 PART 2 — one-time migration. BEFORE the first sync cycle, rebase any
@@ -1153,6 +1165,7 @@ async function startSyncLoop(
       },
       producerRef,
       extras.hooks,
+      fileApplyLock,
     );
   }
 
@@ -1221,6 +1234,7 @@ function startPushProducer(
   triggerSync: () => void,
   producerRef: { current: OutboxLocalChangeRepository | null },
   hooks?: RuntimeHooks,
+  fileApplyLock?: KeyedMutex,
 ): PushProducerHandle {
   const vault = (plugin.app as unknown as AppWithVault).vault;
   const store: ProducerStorePort = {
@@ -1328,6 +1342,20 @@ function startPushProducer(
     vault: snapshot,
   });
 
+  // TOCTOU close (rule 3): route each SINGLE-file observe (create/modify/delete)
+  // through the SAME per-file lock remote apply holds, keyed by the file's
+  // canonical collision key. This makes producing and applying one file mutually
+  // exclusive, so a local edit can neither be observed mid-apply nor clobbered
+  // by an apply that read the file before the edit landed. Multi-key folder and
+  // rename events keep the observer's own global ordering (they span several
+  // files); the on-disk re-read in `applyRemote` still guards those.
+  const lockedObserve = <T>(path: string, run: () => Promise<T>): Promise<T> => {
+    if (fileApplyLock === undefined) return run();
+    const classified = classifyVaultPath(path);
+    const key = classified.eligible ? classified.collisionKey : path;
+    return fileApplyLock.runExclusive(key, run);
+  };
+
   const afterChange = (task: Promise<unknown>): void => {
     void task.then(
       () => triggerSync(),
@@ -1432,7 +1460,7 @@ function startPushProducer(
     },
   });
   const observeSettledModify = (path: string): void => {
-    void observer.observeModify(path).then(
+    void lockedObserve(path, () => observer.observeModify(path)).then(
       (op) => {
         recordActivity(op);
         commitPathRecovery.onCommitSuccess(path);
@@ -1453,14 +1481,15 @@ function startPushProducer(
     onSettled: (path) => observeSettledModify(path),
   });
   const disposeListeners = registerVaultChangeListeners(vault, {
-    onCreate: (path) => observed(observer.observeCreate(path)),
+    onCreate: (path) =>
+      observed(lockedObserve(path, () => observer.observeCreate(path))),
     onModify: (path) => modifyDebouncer.trigger(path),
     onDelete: (path) => {
       // Cancel any pending settled modify for this path first: the delete
       // tombstone already carries the outcome, and a later modify would find no
       // mapping and push a phantom empty create for the vacated path.
       modifyDebouncer.cancel(path);
-      observed(observer.observeDelete(path));
+      observed(lockedObserve(path, () => observer.observeDelete(path)));
     },
     onRename: (oldPath, newPath) => {
       // The rename commit carries the file's content to the new path; cancel the

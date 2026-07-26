@@ -18,9 +18,12 @@ import { mergeText, type DecodedRevisionPayload } from '@havemind/sync-core';
 
 import {
   bytesToBase64,
+  classifyVaultPath,
   pathExtension,
   type SyncContentKind,
 } from '../obsidian/vault-adapter';
+
+import { KeyedMutex, type KeyedLock } from './keyed-mutex';
 
 import type {
   OpenBuffer,
@@ -199,6 +202,16 @@ export interface VaultApplyAdapterOptions {
   /** Readable conflict-copy naming (MRG-02). Sensible defaults when omitted. */
   readonly conflictNaming?: ConflictNaming;
   /**
+   * Per-file async lock serialising remote apply against the LOCAL change
+   * producer (the vault observer → hash → outbox enqueue) for the SAME file, so
+   * a local write can never land and be clobbered between apply's on-disk read
+   * and its write (the rule-3 TOCTOU window). Production wiring passes the SAME
+   * {@link KeyedMutex} instance to both this adapter and the producer, keyed by
+   * the file's canonical collision key. Omitted in unit tests → a private
+   * instance is created so concurrent applies to one file still serialise.
+   */
+  readonly lock?: KeyedLock;
+  /**
    * Fired once each time a genuinely NEW conflict copy is written to the reserved
    * folder (MRG-05). Never fired when a re-delivered revision reuses its existing
    * copy path (the cascade guard), so it can safely schedule an auto-repair sweep
@@ -220,6 +233,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
   private readonly resolveAuthorName?: (event: RemoteEvent) => string | undefined;
   private readonly fallbackAuthorName: string;
   private readonly onConflictWritten?: () => void;
+  private readonly lock: KeyedLock;
 
   constructor(options: VaultApplyAdapterOptions) {
     this.files = options.files;
@@ -241,16 +255,40 @@ export class VaultApplyAdapter implements VaultApplyPort {
     if (options.onConflictWritten !== undefined) {
       this.onConflictWritten = options.onConflictWritten;
     }
+    this.lock = options.lock ?? new KeyedMutex();
   }
 
   async openBuffers(fileId: string): Promise<readonly OpenBuffer[]> {
     return this.files.openBufferStates(fileId);
   }
 
+  /**
+   * The per-file lock key: the file's canonical collision key, so remote apply
+   * and the local producer (which keys on the same collision key) share ONE
+   * critical section per file. Falls back to the raw path for a non-syncable
+   * path (never reached in practice — apply only sees syncable revisions).
+   */
+  private lockKey(path: string): string {
+    const classified = classifyVaultPath(path);
+    return classified.eligible ? classified.collisionKey : path;
+  }
+
   async applyRemote(event: RemoteEvent): Promise<RemoteApplyOutcome> {
     const decoded = await this.resolveRevision(event);
     const fileId = event.revision.fileId;
+    // Hold the per-file lock across the WHOLE read→decide→write so the local
+    // producer cannot observe+enqueue a concurrent edit to this file mid-apply
+    // (rule 3). Distinct files keep syncing in parallel (no global lock).
+    return this.lock.runExclusive(this.lockKey(decoded.path), () =>
+      this.applyDecoded(event, decoded, fileId),
+    );
+  }
 
+  private async applyDecoded(
+    event: RemoteEvent,
+    decoded: DecodedRevisionPayload,
+    fileId: string,
+  ): Promise<RemoteApplyOutcome> {
     if (decoded.operation === 'delete') {
       // Only remove a file this revision actually owns.
       if (this.files.fileIdAtPath(decoded.path) === fileId) {
@@ -458,6 +496,36 @@ export class VaultApplyAdapter implements VaultApplyPort {
       contentKind: 'markdown',
       revisionId: event.revision.revisionId,
     });
+    // TOCTOU close (rule 3): re-read the file's CURRENT on-disk content
+    // immediately before the write. The first `readByPath` above happened
+    // several awaits ago; a local edit to the (closed) file could have landed on
+    // disk since — the shared per-file lock keeps OUR producer out, but an
+    // external editor save is only caught here. If the disk now diverges from
+    // the recorded base, this is a genuine concurrent edit: roll back the
+    // pre-write producer adoption and merge (or preserve both in a conflict
+    // copy) instead of clobbering it. No `await` separates this read from the
+    // write below, so nothing can interleave between them.
+    const preWriteOnDisk = await this.files.readByPath(decoded.path);
+    if (preWriteOnDisk !== null && !contentMatches(preWriteOnDisk, text)) {
+      const preWriteBase = this.files.baseHashFor(fileId);
+      const preWriteHash = await this.hashContent(preWriteOnDisk);
+      if (preWriteBase === null || preWriteHash !== preWriteBase) {
+        await this.producerSync?.onRemoteDelete({ fileId, path: decoded.path });
+        const merged = await this.tryMergeApply(
+          event,
+          decoded,
+          fileId,
+          preWriteOnDisk,
+          text,
+          preWriteBase,
+        );
+        if (merged !== null) {
+          return merged;
+        }
+        await this.writeConflict(event, decoded);
+        return 'conflict';
+      }
+    }
     try {
       await this.files.writeByPath(decoded.path, text);
     } catch (error) {
@@ -694,6 +762,21 @@ export class VaultApplyAdapter implements VaultApplyPort {
       contentKind: 'binary',
       revisionId: event.revision.revisionId,
     });
+    // TOCTOU close (rule 3), binary analogue of the markdown path: re-read the
+    // current on-disk bytes immediately before the write. A local edit that
+    // landed since the first read above (external editor) is caught here —
+    // diverged bytes are preserved in a conflict artifact, never overwritten
+    // (binaries never merge). No `await` separates this read from the write.
+    const preWriteOnDisk = await this.files.readBinaryByPath(decoded.path);
+    if (preWriteOnDisk !== null && !bytesEqual(preWriteOnDisk, bytes)) {
+      const preWriteBase = this.files.baseHashFor(fileId);
+      const preWriteHash = await hashBlob(preWriteOnDisk);
+      if (preWriteBase === null || preWriteHash !== preWriteBase) {
+        await this.producerSync?.onRemoteDelete({ fileId, path: decoded.path });
+        await this.writeConflict(event, decoded);
+        return 'conflict';
+      }
+    }
     try {
       await this.files.writeBinaryByPath(decoded.path, bytes);
     } catch (error) {

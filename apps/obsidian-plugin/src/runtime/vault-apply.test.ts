@@ -1277,3 +1277,197 @@ describe('VaultApplyAdapter', () => {
     });
   });
 });
+
+/**
+ * TOCTOU close (rule 3): a local write that lands between apply's on-disk read
+ * and its write must never be silently overwritten. `applyRemote` re-reads the
+ * file immediately before writing and re-runs the divergence check inside the
+ * per-file lock, so the local revision survives (merge/conflict), never a
+ * clobber.
+ */
+describe('VaultApplyAdapter — pre-write re-read (TOCTOU)', () => {
+  /** Injects a divergent local write on the Nth `readByPath` for a path. */
+  class ToctouFiles extends FakeFiles {
+    private reads = 0;
+    constructor(
+      private readonly injectPath: string,
+      private readonly injectOnRead: number,
+      private readonly injectContent: string,
+    ) {
+      super();
+    }
+
+    override async readByPath(path: string): Promise<string | null> {
+      this.reads += 1;
+      if (path === this.injectPath && this.reads === this.injectOnRead) {
+        // A local edit lands on disk after apply's first read, before its write.
+        this.onDisk.set(path, this.injectContent);
+      }
+      return super.readByPath(path);
+    }
+  }
+
+  function buildWith(files: FakeFiles): VaultApplyAdapter {
+    return new VaultApplyAdapter({
+      files,
+      conflictFolder: 'Havemind Conflicts',
+      resolveRevision: async () => content('Notes/a.md', 'REMOTE\n'),
+      hashContent: fakeHash,
+      conflictNaming: {
+        now: () => new Date(2026, 6, 22, 21, 56),
+        resolveAuthorName: () => 'Windows',
+      },
+    });
+  }
+
+  it('preserves a local write that landed after the first read (remote-only create)', async () => {
+    // Read #1 (the clean-apply probe) returns null → clean-apply path; read #2
+    // (the pre-write re-read) sees the freshly-landed local content.
+    const files = new ToctouFiles('Notes/a.md', 2, 'LOCAL\n');
+    const adapter = buildWith(files);
+
+    const outcome = await adapter.applyRemote(event('rev-1', 'file-1'));
+
+    expect(outcome).toBe('conflict');
+    // The live file was NOT overwritten with the peer content...
+    expect(files.writes).toEqual([]);
+    expect(files.onDisk.get('Notes/a.md')).toBe('LOCAL\n');
+    // ...and the peer revision survives in a conflict copy (both preserved).
+    expect(files.conflicts).toEqual([
+      {
+        path: 'Havemind Conflicts/a (conflict Windows 2026-07-22 2156).md',
+        content: 'REMOTE\n',
+      },
+    ]);
+  });
+
+  it('rolls back the pre-write producer adoption when the re-read diverges', async () => {
+    const files = new ToctouFiles('Notes/a.md', 2, 'LOCAL\n');
+    const adoptions: string[] = [];
+    const forgets: string[] = [];
+    const adapter = new VaultApplyAdapter({
+      files,
+      conflictFolder: 'Havemind Conflicts',
+      resolveRevision: async () => content('Notes/a.md', 'REMOTE\n'),
+      hashContent: fakeHash,
+      conflictNaming: {
+        now: () => new Date(2026, 6, 22, 21, 56),
+        resolveAuthorName: () => 'Windows',
+      },
+      producerSync: {
+        onRemoteWrite: async ({ fileId }) => {
+          adoptions.push(fileId);
+        },
+        onRemoteDelete: async ({ fileId }) => {
+          forgets.push(fileId);
+        },
+        localHeadFor: async () => null,
+      },
+    });
+
+    const outcome = await adapter.applyRemote(event('rev-1', 'file-1'));
+
+    expect(outcome).toBe('conflict');
+    // The pre-write adoption happened, then was rolled back on divergence, so
+    // the reflected local edit is never deduped away.
+    expect(adoptions).toEqual(['file-1']);
+    expect(forgets).toEqual(['file-1']);
+  });
+
+  it('still writes cleanly when the re-read content is unchanged (no false conflict)', async () => {
+    // No injection: the pre-write re-read sees exactly what the first read saw,
+    // so the clean apply proceeds and the peer content is written.
+    const files = new FakeFiles();
+    const adapter = buildWith(files);
+
+    const outcome = await adapter.applyRemote(event('rev-1', 'file-1'));
+
+    expect(outcome).toBe('applied');
+    expect(files.writes).toEqual([{ path: 'Notes/a.md', content: 'REMOTE\n' }]);
+    expect(files.conflicts).toEqual([]);
+  });
+});
+
+/**
+ * The per-file lock is actually acquired by `applyRemote`: two applies for the
+ * SAME file run strictly one-after-another, while two applies for DIFFERENT
+ * files overlap (no global lock).
+ */
+describe('VaultApplyAdapter — per-file apply serialisation', () => {
+  class GatedFiles extends FakeFiles {
+    started: string[] = [];
+    private readonly gates = new Map<string, Promise<void>>();
+    private readonly releases = new Map<string, () => void>();
+
+    gate(path: string): void {
+      let release!: () => void;
+      const promise = new Promise<void>((res) => {
+        release = res;
+      });
+      this.gates.set(path, promise);
+      this.releases.set(path, release);
+    }
+
+    release(path: string): void {
+      this.releases.get(path)?.();
+    }
+
+    override async writeByPath(path: string, text: string): Promise<void> {
+      this.started.push(path);
+      const g = this.gates.get(path);
+      if (g !== undefined) await g;
+      await super.writeByPath(path, text);
+    }
+  }
+
+  function pathForEvent(e: RemoteEvent): string {
+    return e.revision.fileId === 'file-b' ? 'Notes/b.md' : 'Notes/a.md';
+  }
+
+  function buildGated(files: GatedFiles): VaultApplyAdapter {
+    return new VaultApplyAdapter({
+      files,
+      conflictFolder: 'Havemind Conflicts',
+      resolveRevision: async (e) =>
+        content(pathForEvent(e), e.revision.revisionId === 'rev-2' ? 'X2\n' : 'X1\n'),
+      hashContent: fakeHash,
+    });
+  }
+
+  const flush = async (): Promise<void> => {
+    for (let i = 0; i < 5; i += 1) await Promise.resolve();
+  };
+
+  it('serialises two applies for the same file (second waits for the first)', async () => {
+    const files = new GatedFiles();
+    files.gate('Notes/a.md');
+    const adapter = buildGated(files);
+
+    const first = adapter.applyRemote(event('rev-1', 'file-1'));
+    const second = adapter.applyRemote(event('rev-2', 'file-1'));
+
+    await flush();
+    // The first holds the lock at its (gated) write; the second cannot start.
+    expect(files.started).toEqual(['Notes/a.md']);
+
+    files.release('Notes/a.md');
+    await Promise.all([first, second]);
+    expect(files.started).toEqual(['Notes/a.md', 'Notes/a.md']);
+  });
+
+  it('runs applies for different files concurrently (no global lock)', async () => {
+    const files = new GatedFiles();
+    files.gate('Notes/a.md');
+    const adapter = buildGated(files);
+
+    const a = adapter.applyRemote(event('rev-1', 'file-1'));
+    const b = adapter.applyRemote(event('rev-2', 'file-b'));
+
+    await flush();
+    // File B is not blocked by file A's still-open write.
+    expect(files.started).toEqual(['Notes/a.md', 'Notes/b.md']);
+
+    files.release('Notes/a.md');
+    await Promise.all([a, b]);
+  });
+});
