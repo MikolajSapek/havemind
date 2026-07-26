@@ -243,6 +243,7 @@ describe('RevisionRepository', () => {
         revisionId: REVISION_1,
         serverSequence: 1,
         serverTime: SERVER_TIME,
+        parentRevisionIds: [],
       },
       status: 'accepted',
     });

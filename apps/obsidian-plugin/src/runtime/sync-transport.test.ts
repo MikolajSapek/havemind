@@ -252,6 +252,32 @@ describe('RequestUrlTransport', () => {
     expect(call?.url).toBe(`${API}/vaults/${VAULT}/events?after=5`);
   });
 
+  it('surfaces the incoming revision parents so apply can prove a causal fast-forward', async () => {
+    const { transport } = build(() => ({
+      status: 200,
+      json: {
+        cursor: 12,
+        events: [
+          {
+            type: 'revision-accepted',
+            revisionId: 'rev-2',
+            fileId: 'file-2',
+            serverSequence: 12,
+            receipt: {
+              blobHash: 'blob-2',
+              serverSequence: 12,
+              parentRevisionIds: ['rev-1'],
+            },
+          },
+        ],
+      },
+    }));
+
+    const result = await transport.pull(5);
+
+    expect(result.events[0]?.revision.parentRevisionIds).toEqual(['rev-1']);
+  });
+
   it('throws on a malformed pull body', async () => {
     const { transport } = build(() => ({ status: 200, json: { cursor: 'x' } }));
     await expect(transport.pull(0)).rejects.toBeInstanceOf(

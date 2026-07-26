@@ -132,6 +132,35 @@ describe('revision-schema', () => {
     expect(receipt.serverSequence).toBe(12);
   });
 
+  it('relays the revision parents on the receipt so apply can prove causal fast-forward', () => {
+    const receipt = opaqueBlobReceiptSchema.parse({
+      revisionId,
+      memberId,
+      deviceId,
+      serverSequence: 12,
+      serverTime: '2026-07-15T12:34:56.000Z',
+      blobHash: hash,
+      byteLength: 42,
+      parentRevisionIds: [parentRevisionId],
+    });
+
+    expect(receipt.parentRevisionIds).toEqual([parentRevisionId]);
+  });
+
+  it('accepts a legacy receipt with no parents (backward compatible)', () => {
+    const receipt = opaqueBlobReceiptSchema.parse({
+      revisionId,
+      memberId,
+      deviceId,
+      serverSequence: 12,
+      serverTime: '2026-07-15T12:34:56.000Z',
+      blobHash: hash,
+      byteLength: 42,
+    });
+
+    expect(receipt.parentRevisionIds).toBeUndefined();
+  });
+
   it('uses the same source-range recipe shape as sync-core', () => {
     expect(reconstructionRecipeSchema.parse(recipe)).toEqual(recipe);
     expect(reconstructionRecipeSchema.parse({ version: 1, parts: [] })).toEqual({

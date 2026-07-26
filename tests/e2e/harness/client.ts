@@ -486,7 +486,7 @@ export class HarnessClient {
       epoch?: string;
       events: Array<{
         fileId: string;
-        receipt: { blobHash: string };
+        receipt: { blobHash: string; parentRevisionIds?: string[] };
         revisionId: string;
         serverSequence: number;
       }>;
@@ -499,6 +499,11 @@ export class HarnessClient {
         contentHash: event.receipt.blobHash,
         fileId: event.fileId,
         revisionId: event.revisionId,
+        // Carry the relayed DAG parents so the runner's apply side can prove a
+        // causal fast-forward exactly as production does (rule 3).
+        ...(event.receipt.parentRevisionIds === undefined
+          ? {}
+          : { parentRevisionIds: event.receipt.parentRevisionIds }),
       },
       serverSequence: event.serverSequence,
     }));

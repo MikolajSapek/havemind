@@ -86,6 +86,17 @@ export const opaqueBlobReceiptSchema = z
     serverTime: z.string().datetime({ offset: true }),
     blobHash: blobHashSchema,
     byteLength: z.number().int().nonnegative().safe(),
+    /**
+     * The DAG parents of this revision, copied verbatim from the stored
+     * protected header. Carried on the receipt so the client's apply side can
+     * prove whether an incoming revision is a causal fast-forward from its local
+     * head (rule 3, no silent overwrite of a concurrent fork). The server merely
+     * relays the metadata it already stored — it never computes lineage, so the
+     * opaque boundary is intact. Optional for backward compatibility: receipts
+     * committed before this field existed decode with no parents, in which case
+     * apply falls back to its pre-existing best-effort clean apply.
+     */
+    parentRevisionIds: parentRevisionIdsSchema.optional(),
   })
   .strict();
 

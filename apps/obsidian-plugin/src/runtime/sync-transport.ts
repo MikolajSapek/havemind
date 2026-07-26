@@ -295,12 +295,24 @@ function parsePullResponse(response: RequestUrlResponseLike): PullResult {
     ) {
       throw malformed('pull event is malformed');
     }
+    // Surface the incoming revision's DAG parents (relayed on the receipt) so
+    // the apply side can prove a causal fast-forward from the local head instead
+    // of falling back to the permissive no-parents path (rule 3). Absent or
+    // malformed parents decode to `undefined` — the pre-existing best-effort
+    // behaviour, never a hard failure.
+    const rawParents = raw.receipt.parentRevisionIds;
+    const parentRevisionIds =
+      Array.isArray(rawParents) &&
+      rawParents.every((parent) => typeof parent === 'string')
+        ? (rawParents as string[])
+        : undefined;
     return {
       serverSequence: raw.serverSequence as number,
       revision: {
         revisionId: raw.revisionId,
         fileId: raw.fileId,
         contentHash: raw.receipt.blobHash,
+        ...(parentRevisionIds === undefined ? {} : { parentRevisionIds }),
       },
     };
   });

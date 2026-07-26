@@ -260,6 +260,13 @@ function receiptFromStoredRevision(
   stored: ExistingRevisionRow,
 ): OpaqueBlobReceipt {
   try {
+    // Recover the stored header's DAG parents so a replayed receipt is
+    // byte-identical to the receipt returned when the revision was first
+    // accepted (both now relay parentRevisionIds). Parsing the stored protected
+    // header is metadata relay only — the server computes no lineage.
+    const header = protectedRevisionHeaderSchema.parse(
+      JSON.parse(stored.protectedHeader.toString('utf8')),
+    );
     return opaqueBlobReceiptSchema.parse({
       blobHash: stored.blobHash,
       byteLength: stored.blobSize,
@@ -268,6 +275,7 @@ function receiptFromStoredRevision(
       revisionId: stored.revisionId,
       serverSequence: stored.serverSequence,
       serverTime: stored.acceptedAt,
+      parentRevisionIds: [...header.parentRevisionIds],
     });
   } catch (error) {
     throw new RevisionRepositoryError(
@@ -630,6 +638,10 @@ export class RevisionRepository {
       revisionId: prepared.header.revisionId,
       serverSequence,
       serverTime,
+      // Relay the stored header's DAG parents so the client's apply side can
+      // prove a causal fast-forward (rule 3). The server only copies metadata it
+      // already validated and stored; it computes no lineage, so it stays opaque.
+      parentRevisionIds: [...prepared.header.parentRevisionIds],
     });
     this.#insertRevisionEvent(prepared, receipt, serverTime);
     this.#advanceCursor(prepared.header.vaultId, serverSequence);
