@@ -169,6 +169,24 @@ describe('DurableSyncState', () => {
     });
   });
 
+  it('surfaces a revision’s parent ids from its header so the runner can resolve lineage', async () => {
+    await state.enqueue(
+      envelope({
+        revisionId: 'rev-child',
+        header: { revisionId: 'rev-child', parentRevisionIds: ['rev-parent'] },
+      }),
+    );
+    expect(await state.listOutbox()).toEqual([
+      {
+        revisionId: 'rev-child',
+        fileId: 'file-1',
+        contentHash: 'hash-1',
+        payloadBytes: 3,
+        parentRevisionIds: ['rev-parent'],
+      },
+    ]);
+  });
+
   it('removes the outbox entry and remembers local authorship on receipt', async () => {
     await state.enqueue(envelope());
     await state.recordPushReceipt({ revisionId: 'rev-1', serverSequence: 5 });

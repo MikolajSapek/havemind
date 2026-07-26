@@ -207,6 +207,20 @@ describe('RequestUrlTransport', () => {
     ]);
   });
 
+  it('flags a MISSING_PARENT rejection so the runner can resolve the lineage (transient by code)', async () => {
+    const missingParent = build(() => ({
+      status: 200,
+      json: { results: [{ revisionId: 'rev-1', status: 'rejected', code: 'MISSING_PARENT' }] },
+    }));
+
+    // MISSING_PARENT stays retryable-by-code (not permanent) but is surfaced as
+    // `missingParent` so the runner can quarantine an orphaned child terminally
+    // while keeping a child whose parent is still pending retryable.
+    expect(await missingParent.transport.push([pushRevision])).toEqual([
+      { revisionId: 'rev-1', outcome: 'rejected', permanent: false, missingParent: true },
+    ]);
+  });
+
   it('pulls ordered remote events shaped for the runner', async () => {
     const { transport, calls } = build(() => ({
       status: 200,

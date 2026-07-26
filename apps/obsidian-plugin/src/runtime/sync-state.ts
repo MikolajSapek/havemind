@@ -257,6 +257,19 @@ function emptyState(): PersistedSyncState {
  * that drives push batching — computed without `Buffer` so it also runs in the
  * browser-flavoured Obsidian runtime.
  */
+/**
+ * The DAG parent revision ids carried on an outbox envelope's (opaque) header.
+ * The header is untrusted JSON, so this narrows defensively: a missing or
+ * malformed `parentRevisionIds` degrades to `[]` (no dependency) rather than
+ * throwing, keeping a corrupt header from wedging the push cycle.
+ */
+function parentIdsFromHeader(header: unknown): readonly string[] {
+  if (!isRecord(header)) return [];
+  const ids = header.parentRevisionIds;
+  if (!Array.isArray(ids)) return [];
+  return ids.filter((id): id is string => typeof id === 'string');
+}
+
 function base64ByteLength(base64: string): number {
   const length = base64.length;
   if (length === 0) return 0;
@@ -362,12 +375,21 @@ export class DurableSyncState implements SyncStatePort {
 
   async listOutbox(): Promise<readonly PushRevision[]> {
     const state = await this.ensureLoaded();
-    return state.outbox.map((envelope) => ({
-      revisionId: envelope.revisionId,
-      fileId: envelope.fileId,
-      contentHash: envelope.contentHash,
-      payloadBytes: base64ByteLength(envelope.payloadBase64),
-    }));
+    return state.outbox.map((envelope) => {
+      // Surface the revision's DAG parents from its header so the runner can model
+      // the parent→child lineage among queued revisions (cascade a quarantine down
+      // a dead lineage; make a MISSING_PARENT terminal for an orphaned child).
+      const parentRevisionIds = parentIdsFromHeader(envelope.header);
+      return {
+        revisionId: envelope.revisionId,
+        fileId: envelope.fileId,
+        contentHash: envelope.contentHash,
+        payloadBytes: base64ByteLength(envelope.payloadBase64),
+        // Omitted when empty so a root create carries no dependency (and existing
+        // exact-shape assertions on parentless rows are unchanged).
+        ...(parentRevisionIds.length > 0 ? { parentRevisionIds } : {}),
+      };
+    });
   }
 
   async recordPushReceipt(receipt: PushReceipt): Promise<void> {

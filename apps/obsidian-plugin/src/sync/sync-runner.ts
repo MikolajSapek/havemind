@@ -42,6 +42,17 @@ export interface PushRevision {
    * multi-item batch. Optional; treated as 0 (best-effort batching) when unknown.
    */
   readonly payloadBytes?: number;
+  /**
+   * The revision ids this revision was authored on top of (its DAG parents),
+   * surfaced from the outbox envelope's header. Lets the push side model the
+   * parent→child lineage AMONG queued revisions so that quarantining a poison
+   * parent can cascade to its descendants (which the server would otherwise keep
+   * rejecting with MISSING_PARENT forever), and so a MISSING_PARENT for a child
+   * whose parent is already dead becomes terminal rather than an infinite retry.
+   * Optional/best-effort: absent (or empty) for a root create or when the header
+   * carried none, in which case the revision has no in-outbox dependency.
+   */
+  readonly parentRevisionIds?: readonly string[];
 }
 
 export interface PushReceipt {
@@ -66,6 +77,15 @@ export interface PushItemResult {
    * transient rejection that should be retried after the next pull.
    */
   readonly permanent?: boolean;
+  /**
+   * Present when `outcome === 'rejected'`: `true` means the server rejected the
+   * revision because its parent is not (yet) on the server (MISSING_PARENT). This
+   * is retryable-by-code (`permanent` stays false) while the parent is still
+   * pending in the outbox, but TERMINAL once the parent is quarantined or gone —
+   * otherwise a child of a dead parent retries forever. The runner resolves which
+   * of the two applies from the in-outbox lineage.
+   */
+  readonly missingParent?: boolean;
 }
 
 export interface PullResult {
@@ -198,6 +218,43 @@ export interface SyncCycleResult {
 }
 
 type RemoteApplyDecision = 'apply' | 'conflict' | 'defer';
+
+/** Quarantine reason for a revision dead-lettered because a parent was quarantined. */
+const PARENT_QUARANTINED_REASON = 'parent-quarantined';
+/** Quarantine reason for an orphaned child whose parent is dead/absent (terminal). */
+const MISSING_PARENT_REASON = 'missing-parent';
+
+/**
+ * A read-only view of the parent→child lineage among the queued revisions,
+ * derived once per push cycle from each revision's `parentRevisionIds`. It answers
+ * both directions: the parents a revision depends on, and the children that depend
+ * on a revision (used to cascade a quarantine down a dead lineage).
+ */
+interface LineageIndex {
+  parentsOf(revisionId: string): readonly string[];
+  childrenOf(revisionId: string): readonly string[];
+}
+
+function buildLineageIndex(outbox: readonly PushRevision[]): LineageIndex {
+  const parents = new Map<string, readonly string[]>();
+  const children = new Map<string, string[]>();
+  for (const item of outbox) {
+    const itemParents = item.parentRevisionIds ?? [];
+    parents.set(item.revisionId, itemParents);
+    for (const parentId of itemParents) {
+      const list = children.get(parentId);
+      if (list === undefined) {
+        children.set(parentId, [item.revisionId]);
+      } else {
+        list.push(item.revisionId);
+      }
+    }
+  }
+  return {
+    parentsOf: (revisionId) => parents.get(revisionId) ?? [],
+    childrenOf: (revisionId) => children.get(revisionId) ?? [],
+  };
+}
 
 const DEFAULT_BASE_BACKOFF_MS = 5000;
 const DEFAULT_MAX_BACKOFF_MS = 60_000;
@@ -365,6 +422,13 @@ export class SyncRunner {
    * rejection is left in the outbox to retry after the next pull. A whole-request
    * permanent failure is isolated to a single item and quarantined; a transient
    * transport failure is re-thrown so the cycle backs off offline as before.
+   *
+   * Quarantining a revision CASCADES to its outbox descendants (the revisions
+   * whose lineage transitively depends on it): a dead parent will never land, so
+   * every child would otherwise be rejected with MISSING_PARENT forever. The
+   * cascade dead-letters the whole lineage in topological order so descendants
+   * stop retrying, and the `quarantined` count reflects the full lineage so the
+   * status surface can never read a clean "synced" while a lineage is dead.
    */
   private async runPush(): Promise<{ pushed: number; quarantined: number }> {
     const outbox = await this.options.state.listOutbox();
@@ -375,33 +439,63 @@ export class SyncRunner {
     // A work queue so a multi-item batch that fails permanently can be split into
     // singletons and re-tried this same cycle to isolate the poison revision.
     const queue = this.planPushBatches(outbox);
+    const lineage = buildLineageIndex(outbox);
+    // `pending`: revisions still queued and alive this cycle. An item leaves it on
+    // accept OR quarantine, so a later batch (or a re-split singleton) never
+    // re-pushes a revision the cascade already dead-lettered.
+    const pending = new Set(outbox.map((item) => item.revisionId));
+    const accepted = new Set<string>();
+    const quarantinedIds = new Set<string>();
     let pushed = 0;
-    let quarantined = 0;
+
+    // Dead-letter `rootId` and every outbox descendant that transitively depends
+    // on it, in breadth-first (topological) order over the lineage.
+    const quarantineLineage = async (
+      rootId: string,
+      rootReason: string,
+    ): Promise<void> => {
+      const work: Array<{ id: string; reason: string }> = [
+        { id: rootId, reason: rootReason },
+      ];
+      while (work.length > 0) {
+        const next = work.shift();
+        if (next === undefined || !pending.has(next.id)) {
+          continue; // already accepted, already quarantined, or not in this outbox
+        }
+        pending.delete(next.id);
+        quarantinedIds.add(next.id);
+        await this.options.state.quarantineOutboxItem(next.id, next.reason);
+        for (const childId of lineage.childrenOf(next.id)) {
+          work.push({ id: childId, reason: PARENT_QUARANTINED_REASON });
+        }
+      }
+    };
 
     for (let index = 0; index < queue.length; index += 1) {
       const batch = queue[index];
       if (batch === undefined || batch.length === 0) {
         continue;
       }
+      // Skip anything the cascade already dead-lettered: never ship a doomed child.
+      const live = batch.filter((item) => pending.has(item.revisionId));
+      if (live.length === 0) {
+        continue;
+      }
 
       let results: readonly PushItemResult[];
       try {
-        results = await this.options.transport.push(batch);
+        results = await this.options.transport.push(live);
       } catch (error) {
         if (isAuthDenied(error)) {
           throw error; // terminal: bubble to runCycle → 'unauthenticated'
         }
         if (isPermanentError(error)) {
-          if (batch.length === 1 && batch[0] !== undefined) {
-            await this.options.state.quarantineOutboxItem(
-              batch[0].revisionId,
-              permanentReason(error),
-            );
-            quarantined += 1;
+          if (live.length === 1 && live[0] !== undefined) {
+            await quarantineLineage(live[0].revisionId, permanentReason(error));
             continue;
           }
           // Can't attribute a multi-item permanent failure: split to isolate it.
-          for (const item of batch) {
+          for (const item of live) {
             queue.push([item]);
           }
           continue;
@@ -410,21 +504,62 @@ export class SyncRunner {
       }
 
       for (const result of results) {
+        if (quarantinedIds.has(result.revisionId)) {
+          continue; // already dead-lettered by a cascade from its parent
+        }
         if (result.outcome === 'accepted' && result.receipt !== undefined) {
           await this.options.state.recordPushReceipt(result.receipt);
+          pending.delete(result.revisionId);
+          accepted.add(result.revisionId);
           pushed += 1;
         } else if (result.outcome === 'rejected' && result.permanent === true) {
-          await this.options.state.quarantineOutboxItem(
+          await quarantineLineage(result.revisionId, 'server-rejected');
+        } else if (
+          result.outcome === 'rejected' &&
+          result.missingParent === true &&
+          !(await this.parentStillViable(
             result.revisionId,
-            'server-rejected',
-          );
-          quarantined += 1;
+            lineage,
+            pending,
+            accepted,
+          ))
+        ) {
+          // The server has no parent for this child AND none of its parents is
+          // still pending/accepted here — the parent is dead, so the child (and
+          // its own descendants) can never land. Dead-letter it terminally rather
+          // than retry forever.
+          await quarantineLineage(result.revisionId, MISSING_PARENT_REASON);
         }
-        // A non-permanent rejection is left in the outbox to retry after a pull.
+        // A transient rejection — or a MISSING_PARENT whose parent is still
+        // pending/accepted — is left in the outbox to retry after a pull.
       }
     }
 
-    return { pushed, quarantined };
+    return { pushed, quarantined: quarantinedIds.size };
+  }
+
+  /**
+   * Whether a MISSING_PARENT child's lineage is still healthy: at least one of its
+   * parents is still pending in the outbox, was accepted earlier this cycle, or
+   * was locally authored on a prior cycle (already on the server). When true the
+   * child stays retryable (the parent will land); when false every parent is dead
+   * or absent, so the child is an orphan the runner dead-letters.
+   */
+  private async parentStillViable(
+    revisionId: string,
+    lineage: LineageIndex,
+    pending: ReadonlySet<string>,
+    accepted: ReadonlySet<string>,
+  ): Promise<boolean> {
+    for (const parentId of lineage.parentsOf(revisionId)) {
+      if (pending.has(parentId) || accepted.has(parentId)) {
+        return true;
+      }
+      if (await this.options.state.isLocallyAuthored(parentId)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**

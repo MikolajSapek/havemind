@@ -316,6 +316,193 @@ describe('SyncRunner poison-item isolation', () => {
   });
 });
 
+describe('SyncRunner lineage cascade', () => {
+  it('cascades a permanent rejection to the rejected revision’s outbox descendants', async () => {
+    // A is permanently rejected; B depends on A (A is B’s parent) and the server
+    // reports MISSING_PARENT for B. Without a cascade, B would retry forever
+    // behind a parent that will never land; it must be quarantined too.
+    const state = new FakeState({
+      outbox: [
+        { contentHash: 'h-a', fileId: 'file-a', revisionId: 'rev-a', payloadBytes: 16 },
+        {
+          contentHash: 'h-b',
+          fileId: 'file-a',
+          revisionId: 'rev-b',
+          payloadBytes: 16,
+          parentRevisionIds: ['rev-a'],
+        },
+      ],
+    });
+    const push = vi.fn(
+      async (): Promise<readonly PushItemResult[]> => [
+        { revisionId: 'rev-a', outcome: 'rejected', permanent: true },
+        { revisionId: 'rev-b', outcome: 'rejected', missingParent: true },
+      ],
+    );
+    const { runner, retries } = makeRunner({
+      state,
+      transport: { push, pull: vi.fn(async () => ({ cursor: 0, events: [] })) },
+    });
+
+    const result = await runner.trigger();
+
+    expect(result.pushed).toBe(0);
+    // The summary reports the whole dead lineage, not zero.
+    expect(result.quarantined).toBe(2);
+    expect([...state.outbox.keys()]).toEqual([]);
+    expect(state.quarantined.has('rev-a')).toBe(true);
+    expect(state.quarantined.has('rev-b')).toBe(true);
+    // A dead lineage never schedules an infinite retry.
+    expect(retries).toHaveLength(0);
+  });
+
+  it('cascades transitively across a multi-generation lineage (A→B→C)', async () => {
+    const state = new FakeState({
+      outbox: [
+        { contentHash: 'h-a', fileId: 'file-a', revisionId: 'rev-a', payloadBytes: 16 },
+        {
+          contentHash: 'h-b',
+          fileId: 'file-a',
+          revisionId: 'rev-b',
+          payloadBytes: 16,
+          parentRevisionIds: ['rev-a'],
+        },
+        {
+          contentHash: 'h-c',
+          fileId: 'file-a',
+          revisionId: 'rev-c',
+          payloadBytes: 16,
+          parentRevisionIds: ['rev-b'],
+        },
+      ],
+    });
+    const push = vi.fn(
+      async (): Promise<readonly PushItemResult[]> => [
+        { revisionId: 'rev-a', outcome: 'rejected', permanent: true },
+        { revisionId: 'rev-b', outcome: 'rejected', missingParent: true },
+        { revisionId: 'rev-c', outcome: 'rejected', missingParent: true },
+      ],
+    );
+    const { runner } = makeRunner({
+      state,
+      transport: { push, pull: vi.fn(async () => ({ cursor: 0, events: [] })) },
+    });
+
+    const result = await runner.trigger();
+
+    expect(result.quarantined).toBe(3);
+    expect([...state.outbox.keys()]).toEqual([]);
+  });
+
+  it('quarantines a MISSING_PARENT child whose parent is gone (terminal, not retried)', async () => {
+    // The parent was quarantined in an earlier cycle and is absent from the
+    // outbox; the child alone remains and the server reports MISSING_PARENT. It
+    // must be dead-lettered, not retried forever.
+    const state = new FakeState({
+      outbox: [
+        {
+          contentHash: 'h-b',
+          fileId: 'file-a',
+          revisionId: 'rev-b',
+          payloadBytes: 16,
+          parentRevisionIds: ['rev-a-gone'],
+        },
+      ],
+    });
+    const push = vi.fn(
+      async (): Promise<readonly PushItemResult[]> => [
+        { revisionId: 'rev-b', outcome: 'rejected', missingParent: true },
+      ],
+    );
+    const { runner } = makeRunner({
+      state,
+      transport: { push, pull: vi.fn(async () => ({ cursor: 0, events: [] })) },
+    });
+
+    const result = await runner.trigger();
+
+    expect(result.quarantined).toBe(1);
+    expect(state.quarantined.has('rev-b')).toBe(true);
+    expect([...state.outbox.keys()]).toEqual([]);
+  });
+
+  it('keeps a MISSING_PARENT child retryable while its parent is still pending', async () => {
+    // Healthy lineage: the parent is still in-flight (transiently rejected this
+    // cycle, left queued). The child’s MISSING_PARENT must NOT quarantine it — the
+    // parent will land on a later cycle.
+    const state = new FakeState({
+      outbox: [
+        { contentHash: 'h-p', fileId: 'file-a', revisionId: 'rev-p', payloadBytes: 16 },
+        {
+          contentHash: 'h-b',
+          fileId: 'file-a',
+          revisionId: 'rev-b',
+          payloadBytes: 16,
+          parentRevisionIds: ['rev-p'],
+        },
+      ],
+    });
+    const push = vi.fn(
+      async (): Promise<readonly PushItemResult[]> => [
+        { revisionId: 'rev-p', outcome: 'rejected', permanent: false },
+        { revisionId: 'rev-b', outcome: 'rejected', missingParent: true },
+      ],
+    );
+    const { runner } = makeRunner({
+      state,
+      transport: { push, pull: vi.fn(async () => ({ cursor: 0, events: [] })) },
+    });
+
+    const result = await runner.trigger();
+
+    expect(result.quarantined).toBe(0);
+    // Both remain queued to retry; neither is wrongly dead-lettered.
+    expect(new Set(state.outbox.keys())).toEqual(new Set(['rev-p', 'rev-b']));
+    expect(state.quarantined.size).toBe(0);
+  });
+
+  it('leaves independent items untouched when a lineage is cascaded', async () => {
+    const state = new FakeState({
+      outbox: [
+        { contentHash: 'h-a', fileId: 'file-a', revisionId: 'rev-a', payloadBytes: 16 },
+        {
+          contentHash: 'h-b',
+          fileId: 'file-a',
+          revisionId: 'rev-b',
+          payloadBytes: 16,
+          parentRevisionIds: ['rev-a'],
+        },
+        { contentHash: 'h-c', fileId: 'file-c', revisionId: 'rev-c', payloadBytes: 16 },
+      ],
+    });
+    const push = vi.fn(
+      async (): Promise<readonly PushItemResult[]> => [
+        { revisionId: 'rev-a', outcome: 'rejected', permanent: true },
+        { revisionId: 'rev-b', outcome: 'rejected', missingParent: true },
+        {
+          revisionId: 'rev-c',
+          outcome: 'accepted',
+          receipt: { revisionId: 'rev-c', serverSequence: 9 },
+        },
+      ],
+    );
+    const { runner } = makeRunner({
+      state,
+      transport: { push, pull: vi.fn(async () => ({ cursor: 0, events: [] })) },
+    });
+
+    const result = await runner.trigger();
+
+    expect(result.pushed).toBe(1);
+    expect(result.quarantined).toBe(2);
+    // The independent file synced and is not tangled into the dead lineage.
+    expect(state.authored.has('rev-c')).toBe(true);
+    expect(state.quarantined.has('rev-a')).toBe(true);
+    expect(state.quarantined.has('rev-b')).toBe(true);
+    expect(state.quarantined.has('rev-c')).toBe(false);
+  });
+});
+
 describe('SyncRunner single-flight and backoff', () => {
   it('coalesces overlapping triggers into a single in-flight cycle', async () => {
     let release: () => void = () => undefined;

@@ -246,6 +246,10 @@ function parsePushResponse(
         revisionId: result.revisionId,
         outcome: 'rejected',
         permanent: isPermanentSyncCode(result.code),
+        // Surface MISSING_PARENT so the runner can resolve the lineage: terminal
+        // for an orphaned child (dead parent) but retryable while the parent is
+        // still pending. Omitted otherwise so unrelated rejections are unchanged.
+        ...(result.code === 'MISSING_PARENT' ? { missingParent: true } : {}),
       };
     }
     if (!isRecord(result.receipt)) {
