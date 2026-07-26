@@ -167,19 +167,15 @@ What this actually needs (it is mostly packaging, not new server logic):
   short `DEPLOY.md` (create data volume, `docker compose up -d`, run
   `havemind setup`, then `create-vault` per team). One named volume for the SQLite
   DB + blobs; non-root, read-only, cap-dropped container (as today).
-- **Networking model stays tailnet-only (recommended).** The box — VPS or friend's
-  machine — **joins your Tailscale tailnet** and is fronted by `tailscale serve`.
-  Nothing is exposed to the public internet; the security model (private,
-  self-hosted, no cloud) is preserved. Running on a VPS is then just "a different
-  machine on the tailnet", almost no code change.
+- **Tailnet-only — no other networking model.** Every Havemind instance is
+  reached exclusively over Tailscale: the box (VPS or a friend's machine) **joins
+  the tailnet** and is fronted by `tailscale serve`. Nothing is ever exposed to
+  the public internet. Running on a VPS is just "a different machine on the
+  tailnet" — almost no code change. Public/internet exposure is permanently out of
+  scope for this project; do not design or build it.
 - **Privileged steps stay with the operator.** Installing Docker/Tailscale, `sudo`,
   and `tailscale serve` on the new box are done by whoever owns that box, not the
   agent. The agent ships the bundle + exact commands.
-
-Explicitly NOT in scope unless separately decided: exposing the server to the
-public internet without Tailscale. That breaks the core "tailnet-only, nothing
-public" guarantee and needs its own security design (TLS, auth hardening, abuse
-protection). Recommendation: do not do this; keep every instance tailnet-only.
 
 ## Estimated scope
 
