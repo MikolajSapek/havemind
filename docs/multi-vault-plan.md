@@ -177,6 +177,36 @@ What this actually needs (it is mostly packaging, not new server logic):
   and `tailscale serve` on the new box are done by whoever owns that box, not the
   agent. The agent ships the bundle + exact commands.
 
+## Workstream 3 — self-hoster onboarding guide (ships with the plugin)
+
+Anyone who downloads the plugin must be able to go from zero to a working shared
+vault without prior context. Deliverable: a complete, accurate getting-started
+guide in the README + `docs/self-hosting.md`, plus a short pointer from the
+plugin's onboarding panel.
+
+Must cover, in order, as copy-paste steps:
+1. **Requirements** — a machine you control (home box or VPS), Docker, a Tailscale
+   account; everyone who will join installs Tailscale and is on the same tailnet.
+2. **Stand up your server** — pull/run the Havemind container via the deploy
+   bundle (`docker-compose.yml` + `.env.example`), front it with `tailscale serve`.
+   (This reuses Workstream 2's bundle.)
+3. **Become the owner** — run `havemind setup --owner <you> --vault <name>`; it
+   prints your single-use pairing token. Explain what "instance owner" means.
+4. **Create more vaults** — `havemind create-vault --owner <name> --vault <name>`
+   for each separate team/vault (Model B: each vault gets its own owner + token).
+   Show the Piotrek+Kuba vs Maciek+Janek example explicitly.
+5. **Connect the plugin** — install plugin, open the Havemind panel, paste the
+   Server URL + pairing token, Connect.
+6. **Invite people** — how the owner issues an invitation and approves the 6-digit
+   code read aloud by the joiner.
+7. **Safety notes** — dedicated vault (not your main one), don't run another sync
+   tool on the same vault, tailnet-only (never public).
+
+Accuracy gate: every command in the guide must match the SHIPPED CLI and be run
+once against a real local instance before publishing — no invented flags, no dead
+steps. Therefore this workstream lands AFTER Workstream 1 (`create-vault`) and the
+deploy bundle are implemented and verified.
+
 ## Estimated scope
 
 Server-only, additive. ~3 focused changes + one isolation test suite. No client
