@@ -25,6 +25,10 @@ live trial before 1.0.
 [docs/self-hosting.md](docs/self-hosting.md) for the full zero-to-working
 guide (Docker Compose + Tailscale, tailnet-only).
 
+**Connecting Claude or an AI agent?** See
+[docs/using-with-ai-agents.md](docs/using-with-ai-agents.md) for the
+requirements and the steps.
+
 ## What it does
 
 - **Real-time two-way sync (~1 second).** A long-poll wake channel pushes a
