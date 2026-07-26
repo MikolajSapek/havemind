@@ -214,6 +214,11 @@ terminal:
 - **Tailnet-only, always.** Nothing here is designed to be exposed to the
   public internet. Don't put the container's port behind a public reverse
   proxy, and don't use `tailscale funnel`.
+- **Data on the server is stored in plaintext.** The live database and blob
+  store are unencrypted on the volume; the `havemind_db_key` secret encrypts
+  only checkpoint snapshots, not the live data. Anyone who controls the server
+  can read the vault, so security rests on trusting the host and keeping access
+  tailnet-only.
 - **Check the project's stated security model** before connecting anything
   you consider sensitive — see the "Security model" section of the main
   [README](../README.md) for the current state of encryption in transit and
