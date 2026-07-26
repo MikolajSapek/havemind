@@ -57,6 +57,7 @@ describe('RequestUrlOnboardingApi', () => {
       initialRefreshToken: 'hm_rt_x',
       invitationToken: 'hm_it_x',
       redemptionId: '11111111-1111-4111-8111-111111111111',
+      rejoinSecret: 'hm_rj_x',
       redirect: 'error',
       url: 'https://host/invitations/redeem',
     });
@@ -65,6 +66,7 @@ describe('RequestUrlOnboardingApi', () => {
       initialRefreshToken: 'hm_rt_x',
       invitationToken: 'hm_it_x',
       redemptionId: '11111111-1111-4111-8111-111111111111',
+      rejoinSecret: 'hm_rj_x',
     });
   });
 

@@ -15,9 +15,18 @@ import { SessionRepository } from './session-repository.js';
 import {
   createRefreshSuccessor,
   generateRefreshToken,
+  generateRejoinSecret,
   hashRefreshToken,
+  hashRejoinSecret,
   parseRefreshToken,
 } from './tokens.js';
+
+/**
+ * The invitee's per-device rejoin secret. Provisioned (hash only) onto the
+ * invitee device in the fixture; the raw value is presented at redemption. An
+ * attacker who knows only (membershipId, deviceId) never holds this.
+ */
+const INVITEE_REJOIN_SECRET = generateRejoinSecret();
 
 const START_TIME = '2026-07-21T03:00:00.000Z';
 const FIFTEEN_MINUTES_MS = 15 * 60 * 1_000;
@@ -106,6 +115,10 @@ function makeFixture(): Fixture {
   insertUser(database, INVITEE_USER, 'Magda', 0);
   insertDevice(database, OWNER_DEVICE, OWNER_USER, "Owner's laptop");
   insertDevice(database, INVITEE_DEVICE, INVITEE_USER, "Magda's laptop");
+  // Provision the invitee device with its rejoin secret hash, as onboarding does.
+  database
+    .prepare('UPDATE devices SET rejoin_secret_hash = ? WHERE id = ?')
+    .run(hashRejoinSecret(INVITEE_REJOIN_SECRET), INVITEE_DEVICE);
   database
     .prepare(
       `INSERT INTO vaults (id, display_name, write_epoch, next_server_sequence, created_at, deleted_at)
@@ -222,6 +235,7 @@ describe('RejoinGrantService.redeemGrant', () => {
       deviceId: INVITEE_DEVICE,
       initialRefreshTokenHash: hashRefreshToken(refreshToken),
       membershipId: INVITEE_MEMBERSHIP,
+      rejoinSecret: INVITEE_REJOIN_SECRET,
     });
     expect(result.membershipId).toBe(INVITEE_MEMBERSHIP);
     expect(result.vaultId).toBe(VAULT);
@@ -257,6 +271,7 @@ describe('RejoinGrantService.redeemGrant', () => {
       deviceId: INVITEE_DEVICE,
       initialRefreshTokenHash: hashRefreshToken(generateRefreshToken()),
       membershipId: INVITEE_MEMBERSHIP,
+      rejoinSecret: INVITEE_REJOIN_SECRET,
     });
     expectRejoinError(
       () =>
@@ -264,6 +279,7 @@ describe('RejoinGrantService.redeemGrant', () => {
           deviceId: INVITEE_DEVICE,
           initialRefreshTokenHash: hashRefreshToken(generateRefreshToken()),
           membershipId: INVITEE_MEMBERSHIP,
+          rejoinSecret: INVITEE_REJOIN_SECRET,
         }),
       'GRANT_NOT_FOUND',
     );
@@ -279,6 +295,7 @@ describe('RejoinGrantService.redeemGrant', () => {
           deviceId: INVITEE_DEVICE,
           initialRefreshTokenHash: hashRefreshToken(generateRefreshToken()),
           membershipId: INVITEE_MEMBERSHIP,
+          rejoinSecret: INVITEE_REJOIN_SECRET,
         }),
       'GRANT_NOT_FOUND',
     );
@@ -298,6 +315,7 @@ describe('RejoinGrantService.redeemGrant', () => {
           deviceId: INVITEE_DEVICE,
           initialRefreshTokenHash: hashRefreshToken(generateRefreshToken()),
           membershipId: INVITEE_MEMBERSHIP,
+          rejoinSecret: INVITEE_REJOIN_SECRET,
         }),
       'MEMBERSHIP_INACTIVE',
     );
@@ -312,6 +330,7 @@ describe('RejoinGrantService.redeemGrant', () => {
           deviceId: OWNER_DEVICE,
           initialRefreshTokenHash: hashRefreshToken(generateRefreshToken()),
           membershipId: INVITEE_MEMBERSHIP,
+          rejoinSecret: INVITEE_REJOIN_SECRET,
         }),
       'WRONG_DEVICE',
     );
@@ -325,6 +344,7 @@ describe('RejoinGrantService.redeemGrant', () => {
           deviceId: INVITEE_DEVICE,
           initialRefreshTokenHash: hashRefreshToken(generateRefreshToken()),
           membershipId: INVITEE_MEMBERSHIP,
+          rejoinSecret: INVITEE_REJOIN_SECRET,
         }),
       'GRANT_NOT_FOUND',
     );
@@ -339,10 +359,82 @@ describe('RejoinGrantService.redeemGrant', () => {
           deviceId: INVITEE_DEVICE,
           initialRefreshTokenHash: 'not-a-hash',
           membershipId: INVITEE_MEMBERSHIP,
+          rejoinSecret: INVITEE_REJOIN_SECRET,
         }),
       'INVALID_INPUT',
     );
     // The raw refresh token parser is still the primitive of record.
     expect(() => parseRefreshToken('hm_rt_short')).toThrow();
+  });
+
+  it('rejects a redemption presenting the wrong rejoin secret and leaves the grant unconsumed', () => {
+    const fixture = makeFixture();
+    grant(fixture);
+    // A different, syntactically valid secret the attacker generated themselves.
+    const attackerSecret = generateRejoinSecret();
+    expectRejoinError(
+      () =>
+        fixture.service.redeemGrant({
+          deviceId: INVITEE_DEVICE,
+          initialRefreshTokenHash: hashRefreshToken(generateRefreshToken()),
+          membershipId: INVITEE_MEMBERSHIP,
+          rejoinSecret: attackerSecret,
+        }),
+      'SECRET_MISMATCH',
+    );
+
+    // The grant was NOT consumed: the legitimate device (holding the real
+    // secret) can still redeem it.
+    const grantRow = fixture.database
+      .prepare(
+        'SELECT consumed_at AS consumedAt FROM rejoin_grants WHERE membership_id = ?',
+      )
+      .get(INVITEE_MEMBERSHIP) as { consumedAt: string | null };
+    expect(grantRow.consumedAt).toBeNull();
+
+    const result = fixture.service.redeemGrant({
+      deviceId: INVITEE_DEVICE,
+      initialRefreshTokenHash: hashRefreshToken(generateRefreshToken()),
+      membershipId: INVITEE_MEMBERSHIP,
+      rejoinSecret: INVITEE_REJOIN_SECRET,
+    });
+    expect(result.membershipId).toBe(INVITEE_MEMBERSHIP);
+  });
+
+  it('rejects the impersonation: knowing the victim membership+device but not the secret cannot redeem', () => {
+    // This is audit finding #1: a second party who learned the victim's
+    // (membershipId, deviceId) from event/receipt metadata redeems with their
+    // OWN refresh hash and an invented secret. The secret gate stops them.
+    const fixture = makeFixture();
+    grant(fixture);
+    expectRejoinError(
+      () =>
+        fixture.service.redeemGrant({
+          deviceId: INVITEE_DEVICE,
+          initialRefreshTokenHash: hashRefreshToken(generateRefreshToken()),
+          membershipId: INVITEE_MEMBERSHIP,
+          rejoinSecret: generateRejoinSecret(),
+        }),
+      'SECRET_MISMATCH',
+    );
+  });
+
+  it('is fail-closed for a legacy device with no provisioned secret hash', () => {
+    const fixture = makeFixture();
+    // Simulate a device onboarded before this hardening: clear its secret hash.
+    fixture.database
+      .prepare('UPDATE devices SET rejoin_secret_hash = NULL WHERE id = ?')
+      .run(INVITEE_DEVICE);
+    grant(fixture);
+    expectRejoinError(
+      () =>
+        fixture.service.redeemGrant({
+          deviceId: INVITEE_DEVICE,
+          initialRefreshTokenHash: hashRefreshToken(generateRefreshToken()),
+          membershipId: INVITEE_MEMBERSHIP,
+          rejoinSecret: INVITEE_REJOIN_SECRET,
+        }),
+      'SECRET_MISMATCH',
+    );
   });
 });

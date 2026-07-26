@@ -78,6 +78,7 @@ describe('RejoinController (invitee)', () => {
       generateRefreshToken: () => 'hm_rt_fresh',
       hashRefreshToken: (token) => `hash(${token})`,
       membershipId: MEMBERSHIP,
+      rejoinSecret: 'hm_rj_secret',
       requestUrl: fn,
       saveRefreshToken,
     });
@@ -106,6 +107,7 @@ describe('RejoinController (invitee)', () => {
       deviceId: DEVICE,
       initialRefreshTokenHash: 'hash(hm_rt_fresh)',
       membershipId: MEMBERSHIP,
+      rejoinSecret: 'hm_rj_secret',
     });
   });
 

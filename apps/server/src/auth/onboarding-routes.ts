@@ -53,6 +53,11 @@ const redeemBodySchema = z
     initialRefreshToken: z.string().min(1).max(200),
     invitationToken: z.string().min(1).max(200),
     redemptionId: z.string().regex(UUID_PATTERN),
+    // The device's per-device rejoin secret (F9 Rejoin hardening), sent RAW like
+    // `initialRefreshToken`; the server hashes it and stores only the hash on the
+    // device. Optional for backward compatibility; a device onboarded without it
+    // is fail-closed at rejoin (must re-onboard).
+    rejoinSecret: z.string().regex(/^hm_rj_[A-Za-z0-9_-]{43}$/u).optional(),
   })
   .strict();
 
@@ -237,6 +242,9 @@ export function registerPreAuthOnboardingRoutes(
         initialRefreshToken: body.data.initialRefreshToken,
         invitationToken: body.data.invitationToken,
         redemptionId: body.data.redemptionId,
+        ...(body.data.rejoinSecret === undefined
+          ? {}
+          : { rejoinSecret: body.data.rejoinSecret }),
       });
       reply.header('cache-control', 'no-store');
       return {

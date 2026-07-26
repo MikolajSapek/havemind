@@ -63,6 +63,7 @@ export class RequestUrlOnboardingApi implements RemoteApiPort {
         initialRefreshToken: request.initialRefreshToken,
         invitationToken: request.invitationToken,
         redemptionId: request.redemptionId,
+        rejoinSecret: request.rejoinSecret,
       }),
     });
   }

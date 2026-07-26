@@ -162,6 +162,14 @@ describe('controlled migrations', () => {
       expect.arrayContaining(['rotation_id', 'successor_token_hash']),
     );
 
+    // Migration 006 adds the per-device rejoin secret hash (audit finding #1).
+    const deviceColumns = database
+      .prepare('PRAGMA table_info(devices)')
+      .all() as Array<{ name: string }>;
+    expect(deviceColumns.map(({ name }) => name)).toEqual(
+      expect.arrayContaining(['rejoin_secret_hash']),
+    );
+
     expect(runMigrations(database)).toEqual({
       appliedVersions: [],
       currentVersion: CURRENT_SCHEMA_VERSION,

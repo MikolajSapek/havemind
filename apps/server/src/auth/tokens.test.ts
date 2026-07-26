@@ -10,6 +10,10 @@ import {
   generateInvitationToken,
   generatePairingToken,
   generateRefreshToken,
+  generateRejoinSecret,
+  hashRejoinSecret,
+  parseRejoinSecret,
+  rejoinSecretMatchesHash,
   hashAccessToken,
   hashInvitationToken,
   hashPairingToken,
@@ -211,5 +215,39 @@ describe('token primitives', () => {
     expect(error).toBeInstanceOf(TokenPrimitiveError);
     expect(rendered).not.toContain(secret);
     expect(rendered).not.toContain('SECRET_SHOULD_NOT_APPEAR');
+  });
+});
+
+describe('rejoin secret primitives', () => {
+  it('generates, parses and hashes a branded rejoin secret', () => {
+    const secret = generateRejoinSecret();
+    expect(secret.startsWith('hm_rj_')).toBe(true);
+    expect(parseRejoinSecret(secret)).toBe(secret);
+    expect(hashRejoinSecret(secret)).toMatch(/^[0-9a-f]{64}$/u);
+    expect(generateRejoinSecret()).not.toBe(secret);
+  });
+
+  it('rejects a malformed rejoin secret', () => {
+    expect(() => parseRejoinSecret('hm_rj_short')).toThrow(TokenPrimitiveError);
+    expect(() => parseRejoinSecret('hm_rt_' + 'A'.repeat(43))).toThrow();
+  });
+
+  it('matches a raw secret against its stored hash in constant time', () => {
+    const secret = generateRejoinSecret();
+    const storedHash = hashRejoinSecret(secret);
+    expect(rejoinSecretMatchesHash(secret, storedHash)).toBe(true);
+    expect(rejoinSecretMatchesHash(generateRejoinSecret(), storedHash)).toBe(
+      false,
+    );
+  });
+
+  it('is fail-closed for a null stored hash or a malformed presented secret', () => {
+    const secret = generateRejoinSecret();
+    // Legacy device: no provisioned hash.
+    expect(rejoinSecretMatchesHash(secret, null)).toBe(false);
+    // Malformed presented secret never throws — returns false.
+    expect(rejoinSecretMatchesHash('not-a-secret', hashRejoinSecret(secret))).toBe(
+      false,
+    );
   });
 });

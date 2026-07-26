@@ -21,6 +21,7 @@ export class ObsidianOnboardingSecrets implements OnboardingSecretsPort {
   private readonly invitationKey: string;
   private readonly pendingKey: string;
   private readonly refreshKey: string;
+  private readonly rejoinKey: string;
   private readonly pendingRotationKey: string;
 
   constructor(options: ObsidianOnboardingSecretsOptions) {
@@ -34,6 +35,10 @@ export class ObsidianOnboardingSecrets implements OnboardingSecretsPort {
     this.invitationKey = `${prefix}-invitation`;
     this.pendingKey = `${prefix}-pending`;
     this.refreshKey = `${prefix}-refresh`;
+    // Per-device rejoin secret (F9 Rejoin hardening). Suffix kept short: prefix
+    // is already 49 chars with a UUID clientInstanceId, and SecretStorage caps
+    // keys at 64 chars (see pendingRotationKey note below).
+    this.rejoinKey = `${prefix}-rejoin`;
     // Obsidian's SecretStorage rejects keys over 64 chars (lowercase letters,
     // numbers and dashes only). With a 36-char UUID clientInstanceId, prefix
     // is already 49 chars, so this suffix must stay short (a longer
@@ -72,6 +77,14 @@ export class ObsidianOnboardingSecrets implements OnboardingSecretsPort {
 
   async saveRefreshToken(value: string): Promise<void> {
     this.write(this.refreshKey, value);
+  }
+
+  async getRejoinSecret(): Promise<string | null> {
+    return this.read(this.rejoinKey);
+  }
+
+  async saveRejoinSecret(value: string): Promise<void> {
+    this.write(this.rejoinKey, value);
   }
 
   /**

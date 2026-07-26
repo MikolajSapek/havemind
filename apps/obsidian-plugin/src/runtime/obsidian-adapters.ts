@@ -2184,6 +2184,14 @@ export async function buildRejoinControllerForInvitee(
     secretStorage: plugin.app.secretStorage,
   });
 
+  // The per-device rejoin secret provisioned at onboarding. Without it the
+  // device cannot rejoin (fail-closed): a device onboarded before this hardening
+  // has none, so its rejoin poll can never succeed and re-onboarding is required.
+  const rejoinSecret = await secrets.getRejoinSecret();
+  if (rejoinSecret === null) {
+    return null;
+  }
+
   const candidateToken = generateRefreshTokenValue();
   const candidateTokenHash = await sha256Hex(candidateToken);
 
@@ -2192,6 +2200,7 @@ export async function buildRejoinControllerForInvitee(
     requestUrl: createRequestUrlFn(),
     membershipId: identity.membershipId,
     deviceId: identity.deviceId,
+    rejoinSecret,
     generateRefreshToken: () => candidateToken,
     hashRefreshToken: () => candidateTokenHash,
     saveRefreshToken: (token) => secrets.saveRefreshToken(token),

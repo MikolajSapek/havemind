@@ -271,6 +271,12 @@ class MemorySecrets implements OnboardingSecretsPort {
   async saveRefreshToken(value: string): Promise<void> {
     this.values.set('refresh', value);
   }
+  async getRejoinSecret(): Promise<string | null> {
+    return this.read('rejoin');
+  }
+  async saveRejoinSecret(value: string): Promise<void> {
+    this.values.set('rejoin', value);
+  }
 }
 
 /** A single in-memory JSON blob standing in for `Plugin.loadData`/`saveData`. */

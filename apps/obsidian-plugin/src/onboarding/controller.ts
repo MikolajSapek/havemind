@@ -42,6 +42,12 @@ export interface InvitationRedemptionRequest extends RedirectSafeRequest {
   initialRefreshToken: string;
   invitationToken: string;
   redemptionId: string;
+  /**
+   * The device's per-device rejoin secret (`hm_rj_…`), sent RAW like
+   * `initialRefreshToken`. The server hashes it and stores only the hash on the
+   * device, provisioning this device's rejoin capability (F9 Rejoin hardening).
+   */
+  rejoinSecret: string;
 }
 
 export interface ApprovalPollRequest extends RedirectSafeRequest {
@@ -72,6 +78,8 @@ export interface OnboardingSecretsPort {
   clearPendingCredential(): Promise<void>;
   getRefreshToken(): Promise<string | null>;
   saveRefreshToken(value: string): Promise<void>;
+  getRejoinSecret(): Promise<string | null>;
+  saveRejoinSecret(value: string): Promise<void>;
 }
 
 export interface OnboardingStorePort {
@@ -210,6 +218,7 @@ export class OnboardingError extends Error {
 export interface OnboardingControllerOptions {
   clock: ClockPort;
   createInitialRefreshToken?: () => string;
+  createRejoinSecret?: () => string;
   createRedemptionId?: () => string;
   remoteApi: RemoteApiPort;
   secrets: OnboardingSecretsPort;
@@ -224,6 +233,7 @@ type ActiveInvitation = {
 export class OnboardingController {
   private readonly clock: ClockPort;
   private readonly createInitialRefreshToken: () => string;
+  private readonly createRejoinSecret: () => string;
   private readonly createRedemptionId: () => string;
   private readonly remoteApi: RemoteApiPort;
   private readonly secrets: OnboardingSecretsPort;
@@ -236,6 +246,8 @@ export class OnboardingController {
     this.clock = options.clock;
     this.createInitialRefreshToken =
       options.createInitialRefreshToken ?? generateRefreshToken;
+    this.createRejoinSecret =
+      options.createRejoinSecret ?? generateRejoinSecret;
     this.createRedemptionId =
       options.createRedemptionId ?? generateCanonicalUuid;
     this.remoteApi = options.remoteApi;
@@ -316,13 +328,20 @@ export class OnboardingController {
 
     const redemptionId = this.createRedemptionId();
     const initialRefreshToken = this.createInitialRefreshToken();
+    const rejoinSecret = this.createRejoinSecret();
     if (!UUID_PATTERN.test(redemptionId)) {
       throw new OnboardingError('invalid-generated-credential');
     }
     assertGeneratedToken(initialRefreshToken, 'hm_rt_');
+    assertGeneratedToken(rejoinSecret, 'hm_rj_');
 
     await this.writeSecret(() =>
       this.secrets.saveRefreshToken(initialRefreshToken),
+    );
+    // Persist the rejoin secret so a later terminal-auth failure can present it
+    // at /auth/rejoin (F9 Rejoin hardening). Only its hash reaches the server.
+    await this.writeSecret(() =>
+      this.secrets.saveRejoinSecret(rejoinSecret),
     );
     await this.writeSecret(() =>
       this.secrets.saveInvitationEnvelope(
@@ -392,6 +411,7 @@ export class OnboardingController {
     invitation: InviteEnvelope,
   ): Promise<OnboardingViewState> {
     const initialRefreshToken = await this.requireRefreshToken();
+    const rejoinSecret = await this.requireRejoinSecret();
     const url = `${state.apiBaseUrl}/invitations/redeem`;
     const response = await this.callRemote(() =>
       this.remoteApi.redeemInvitation({
@@ -399,6 +419,7 @@ export class OnboardingController {
         initialRefreshToken,
         invitationToken: invitation.invitationToken,
         redemptionId: state.redemptionId,
+        rejoinSecret,
         redirect: 'error',
         url,
       }),
@@ -552,6 +573,26 @@ export class OnboardingController {
     }
     assertStoredToken(refreshToken, 'hm_rt_');
     return refreshToken;
+  }
+
+  /**
+   * The device's rejoin secret, persisted at confirmInvitation. If a redemption
+   * that began before this feature is resumed without a stored secret, mint and
+   * persist a fresh one — the server stores whatever hash it receives, so this
+   * still provisions a valid rejoin capability for the device.
+   */
+  private async requireRejoinSecret(): Promise<string> {
+    const existing = await this.readSecret(() =>
+      this.secrets.getRejoinSecret(),
+    );
+    if (existing !== null) {
+      assertStoredToken(existing, 'hm_rj_');
+      return existing;
+    }
+    const minted = this.createRejoinSecret();
+    assertGeneratedToken(minted, 'hm_rj_');
+    await this.writeSecret(() => this.secrets.saveRejoinSecret(minted));
+    return minted;
   }
 
   private async callRemote(
@@ -1160,6 +1201,14 @@ function generateRefreshToken(): string {
   }
   const bytes = globalThis.crypto.getRandomValues(new Uint8Array(32));
   return `hm_rt_${encodeBase64Url(bytes)}`;
+}
+
+function generateRejoinSecret(): string {
+  if (!globalThis.crypto?.getRandomValues) {
+    throw new OnboardingError('invalid-generated-credential');
+  }
+  const bytes = globalThis.crypto.getRandomValues(new Uint8Array(32));
+  return `hm_rj_${encodeBase64Url(bytes)}`;
 }
 
 function encodeBase64Url(bytes: Uint8Array): string {

@@ -15,6 +15,7 @@ declare const refreshTokenBrand: unique symbol;
 declare const pairingTokenBrand: unique symbol;
 declare const invitationTokenBrand: unique symbol;
 declare const pendingDeviceCredentialBrand: unique symbol;
+declare const rejoinSecretBrand: unique symbol;
 declare const refreshRotationIdBrand: unique symbol;
 declare const tokenHashBrand: unique symbol;
 declare const accessTokenTtlBrand: unique symbol;
@@ -34,6 +35,9 @@ export type InvitationToken = string & {
 };
 export type PendingDeviceCredential = string & {
   readonly [pendingDeviceCredentialBrand]: 'PendingDeviceCredential';
+};
+export type RejoinSecret = string & {
+  readonly [rejoinSecretBrand]: 'RejoinSecret';
 };
 export type RefreshRotationId = string & {
   readonly [refreshRotationIdBrand]: 'RefreshRotationId';
@@ -106,6 +110,10 @@ const INVITATION_TOKEN_DOMAIN: TokenDomain<InvitationToken> = {
 const PENDING_DEVICE_CREDENTIAL_DOMAIN: TokenDomain<PendingDeviceCredential> = {
   prefix: 'hm_pd_',
   brand: (value) => value as PendingDeviceCredential,
+};
+const REJOIN_SECRET_DOMAIN: TokenDomain<RejoinSecret> = {
+  prefix: 'hm_rj_',
+  brand: (value) => value as RejoinSecret,
 };
 const REFRESH_ROTATION_ID_DOMAIN: TokenDomain<RefreshRotationId> = {
   prefix: 'hm_ri_',
@@ -193,6 +201,50 @@ export function generateInvitationToken(): InvitationToken {
 
 export function generatePendingDeviceCredential(): PendingDeviceCredential {
   return generateToken(PENDING_DEVICE_CREDENTIAL_DOMAIN);
+}
+
+/**
+ * A 256-bit per-device rejoin capability (`hm_rj_…`). Provisioned to the
+ * legitimate device at onboarding; only its hash is stored server-side. The
+ * device presents the raw secret at `/auth/rejoin`, defeating the impersonation
+ * where a member who merely knows a victim's (membershipId, deviceId) redeems a
+ * live grant (audit finding #1).
+ */
+export function generateRejoinSecret(): RejoinSecret {
+  return generateToken(REJOIN_SECRET_DOMAIN);
+}
+
+export function parseRejoinSecret(value: string): RejoinSecret {
+  return parseToken(value, REJOIN_SECRET_DOMAIN);
+}
+
+export function hashRejoinSecret(secret: RejoinSecret): TokenHash {
+  return hashToken(parseRejoinSecret(secret));
+}
+
+/**
+ * Constant-time check that a raw rejoin secret hashes to `storedHash`. Returns
+ * false (never throws) for a malformed secret or a malformed/absent stored hash,
+ * so a legacy device with no provisioned secret is fail-closed at redemption.
+ */
+export function rejoinSecretMatchesHash(
+  rawSecret: string,
+  storedHash: string | null,
+): boolean {
+  if (storedHash === null) {
+    return false;
+  }
+  let presentedHash: string;
+  try {
+    presentedHash = hashRejoinSecret(parseRejoinSecret(rawSecret));
+  } catch {
+    return false;
+  }
+  try {
+    return tokenHashesEqual(presentedHash, storedHash);
+  } catch {
+    return false;
+  }
 }
 
 function generateRefreshRotationId(): RefreshRotationId {

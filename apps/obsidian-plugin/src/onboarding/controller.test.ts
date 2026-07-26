@@ -139,6 +139,7 @@ class MemoryOnboardingSecrets implements OnboardingSecretsPort {
   invitationEnvelope: string | null = null;
   pendingCredential: string | null = null;
   refreshToken: string | null = null;
+  rejoinSecret: string | null = null;
 
   async getInvitationEnvelope(): Promise<string | null> {
     return this.invitationEnvelope;
@@ -170,6 +171,14 @@ class MemoryOnboardingSecrets implements OnboardingSecretsPort {
 
   async saveRefreshToken(value: string): Promise<void> {
     this.refreshToken = value;
+  }
+
+  async getRejoinSecret(): Promise<string | null> {
+    return this.rejoinSecret;
+  }
+
+  async saveRejoinSecret(value: string): Promise<void> {
+    this.rejoinSecret = value;
   }
 }
 

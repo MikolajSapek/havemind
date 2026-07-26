@@ -209,6 +209,10 @@ function redeem(app: ReturnType<typeof buildApp>, refreshTokenHash: string) {
       deviceId: INVITEE_DEVICE,
       initialRefreshTokenHash: refreshTokenHash,
       membershipId: INVITEE_MEMBERSHIP,
+      // A syntactically valid rejoin secret so the request passes body validation
+      // and reaches the revoked-membership check (which fails before the secret
+      // is ever compared). This suite exercises revocation, not the secret gate.
+      rejoinSecret: `hm_rj_${'A'.repeat(43)}`,
     },
     method: 'POST',
     url: '/auth/rejoin',

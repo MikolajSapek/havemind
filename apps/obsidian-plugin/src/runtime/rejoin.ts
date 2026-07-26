@@ -104,6 +104,14 @@ export interface RejoinControllerOptions {
   readonly membershipId: string;
   /** The invitee's own device id, read back from its persisted data.json. */
   readonly deviceId: string;
+  /**
+   * The device's per-device rejoin secret (`hm_rj_…`), provisioned at onboarding
+   * and persisted in SecretStorage. Presented RAW at `/auth/rejoin`; the server
+   * hashes and constant-time compares it. Without it redemption is rejected, so
+   * a member who merely knows this device's (membershipId, deviceId) cannot
+   * impersonate it (audit finding #1).
+   */
+  readonly rejoinSecret: string;
   /** Generates a fresh refresh token secret (e.g. `hm_rt_…`). */
   readonly generateRefreshToken: () => string;
   /** Computes the SHA-256 hex hash of a refresh token; only the hash is sent. */
@@ -159,6 +167,7 @@ export class RejoinController {
           deviceId: this.options.deviceId,
           initialRefreshTokenHash: this.options.hashRefreshToken(refreshToken),
           membershipId: this.options.membershipId,
+          rejoinSecret: this.options.rejoinSecret,
         }),
       });
     } catch {

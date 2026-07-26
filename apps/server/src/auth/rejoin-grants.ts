@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
 
 import { SessionRepository } from './session-repository.js';
+import { rejoinSecretMatchesHash } from './tokens.js';
 
 const DEFAULT_ACCESS_TOKEN_TTL_SECONDS = 10 * 60;
 const DEFAULT_REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
@@ -19,6 +20,7 @@ export type RejoinGrantErrorCode =
   | 'NO_BOUND_DEVICE'
   | 'NOT_AUTHORIZED'
   | 'REPOSITORY_INTEGRITY'
+  | 'SECRET_MISMATCH'
   | 'WRONG_DEVICE';
 
 const ERROR_MESSAGES: Readonly<Record<RejoinGrantErrorCode, string>> = {
@@ -28,6 +30,8 @@ const ERROR_MESSAGES: Readonly<Record<RejoinGrantErrorCode, string>> = {
   NO_BOUND_DEVICE: 'No approved device is bound to the target membership.',
   NOT_AUTHORIZED: 'The membership may not perform this action.',
   REPOSITORY_INTEGRITY: 'Stored rejoin state is invalid.',
+  SECRET_MISMATCH:
+    'The presented rejoin secret is absent or does not match the bound device.',
   WRONG_DEVICE: 'The presented device is not the one bound to the grant.',
 };
 
@@ -38,6 +42,7 @@ const ERROR_HTTP_STATUS: Readonly<Record<RejoinGrantErrorCode, number>> = {
   NO_BOUND_DEVICE: 409,
   NOT_AUTHORIZED: 403,
   REPOSITORY_INTEGRITY: 500,
+  SECRET_MISMATCH: 401,
   WRONG_DEVICE: 403,
 };
 
@@ -97,6 +102,14 @@ export interface RedeemRejoinGrantInput {
    * contract); the invitee later rotates it via `POST /auth/refresh`.
    */
   readonly initialRefreshTokenHash: string;
+  /**
+   * The device's per-device rejoin secret (`hm_rj_…`), provisioned at
+   * onboarding and held only by the legitimate device. Presented RAW over TLS;
+   * the server hashes it and constant-time compares to the hash stored on the
+   * bound device. This is the capability that defeats audit finding #1: knowing
+   * the (membershipId, deviceId) binding alone no longer redeems a grant.
+   */
+  readonly rejoinSecret: string;
 }
 
 export interface RedeemRejoinGrantResult {
@@ -161,11 +174,13 @@ function requireStoredDate(value: string): number {
  * device matches the bound deviceId and the server assigns identity from the
  * stored binding — it never trusts an actor id from the request body.
  *
- * Threat tradeoff: the grant carries no client secret because the binding is
- * the credential. An attacker would need the invitee's `data.json` contents —
- * the device identity plus member binding — to redeem, which is exactly what
- * the invitee already holds locally. The grant is still single-use and expires
- * in 15 minutes, so a leaked binding cannot be replayed once consumed.
+ * Credential: redemption requires the device's per-device rejoin SECRET
+ * (`hm_rj_…`), provisioned to the legitimate device at onboarding and stored
+ * server-side only as a SHA-256 hash. The (membershipId, deviceId) binding is
+ * an ADDITIONAL check, not the credential — both ids leak to every vault member
+ * through event/receipt metadata, so binding alone must never redeem (audit
+ * finding #1). A device with no provisioned secret is fail-closed and cannot
+ * rejoin. The grant is still single-use and expires in 15 minutes.
  */
 export class RejoinGrantService {
   readonly #database: Database.Database;
@@ -278,14 +293,29 @@ export class RejoinGrantService {
       }
 
       const device = this.#database
-        .prepare('SELECT user_id AS userId, status FROM devices WHERE id = ?')
-        .get(deviceId) as { userId: string; status: string } | undefined;
+        .prepare(
+          `SELECT user_id AS userId, status,
+                  rejoin_secret_hash AS rejoinSecretHash
+           FROM devices WHERE id = ?`,
+        )
+        .get(deviceId) as
+        | { userId: string; status: string; rejoinSecretHash: string | null }
+        | undefined;
       if (
         device === undefined ||
         device.status !== 'approved' ||
         device.userId !== membership.userId
       ) {
         throw new RejoinGrantError('WRONG_DEVICE');
+      }
+
+      // Capability check BEFORE consuming the single-use grant: a wrong or
+      // absent secret must leave the grant unconsumed and mint no session, so a
+      // member who merely knows the victim's (membershipId, deviceId) cannot
+      // redeem (audit finding #1). A device with no provisioned hash (onboarded
+      // before this hardening) is fail-closed and must re-onboard.
+      if (!rejoinSecretMatchesHash(input.rejoinSecret, device.rejoinSecretHash)) {
+        throw new RejoinGrantError('SECRET_MISMATCH');
       }
 
       const consumed = this.#database

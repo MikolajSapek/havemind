@@ -12,7 +12,15 @@ import { runMigrations } from '../migrations.js';
 import { InvitationService } from './invitations.js';
 import { RejoinGrantService } from './rejoin-grants.js';
 import { SessionRepository } from './session-repository.js';
-import { generateRefreshToken, hashRefreshToken } from './tokens.js';
+import {
+  generateRefreshToken,
+  generateRejoinSecret,
+  hashRefreshToken,
+  hashRejoinSecret,
+} from './tokens.js';
+
+/** The invitee device's per-device rejoin secret (provisioned hash in fixture). */
+const INVITEE_REJOIN_SECRET = generateRejoinSecret();
 
 const TEST_ENV = {
   HAVEMIND_API_BASE_URL: 'https://sync.example.test/api/v1',
@@ -117,6 +125,9 @@ function makeFixture(): Fixture {
   insertDevice(database, OWNER_DEVICE, OWNER_USER, 'Alice Laptop');
   insertDevice(database, INVITEE_DEVICE, INVITEE_USER, 'Magda Laptop');
   database
+    .prepare('UPDATE devices SET rejoin_secret_hash = ? WHERE id = ?')
+    .run(hashRejoinSecret(INVITEE_REJOIN_SECRET), INVITEE_DEVICE);
+  database
     .prepare(
       `INSERT INTO vaults (id, display_name, write_epoch, next_server_sequence, created_at, deleted_at)
        VALUES (?, ?, 0, 1, ?, NULL)`,
@@ -177,12 +188,17 @@ function requestGrant(
   });
 }
 
-function redeem(app: ReturnType<typeof buildApp>, refreshTokenHash: string) {
+function redeem(
+  app: ReturnType<typeof buildApp>,
+  refreshTokenHash: string,
+  rejoinSecret: string = INVITEE_REJOIN_SECRET,
+) {
   return app.inject({
     body: {
       deviceId: INVITEE_DEVICE,
       initialRefreshTokenHash: refreshTokenHash,
       membershipId: INVITEE_MEMBERSHIP,
+      rejoinSecret,
     },
     method: 'POST',
     url: '/auth/rejoin',
@@ -276,6 +292,7 @@ describe('POST /auth/rejoin', () => {
         deviceId: OWNER_DEVICE,
         initialRefreshTokenHash: hashRefreshToken(generateRefreshToken()),
         membershipId: INVITEE_MEMBERSHIP,
+        rejoinSecret: INVITEE_REJOIN_SECRET,
       },
       method: 'POST',
       url: '/auth/rejoin',
@@ -288,6 +305,41 @@ describe('POST /auth/rejoin', () => {
     const app = createApp(fixture);
     const response = await redeem(app, hashRefreshToken(generateRefreshToken()));
     expect(response.statusCode).toBe(401);
+  });
+
+  it('returns a flat 401 for the impersonation: correct binding but wrong secret (audit #1)', async () => {
+    const fixture = makeFixture();
+    const app = createApp(fixture);
+    await requestGrant(app, fixture.ownerAccessToken, INVITEE_MEMBERSHIP);
+
+    // The attacker knows the victim's membershipId + deviceId (both leak via
+    // event/receipt metadata) but presents a secret they generated themselves.
+    const response = await redeem(
+      app,
+      hashRefreshToken(generateRefreshToken()),
+      generateRejoinSecret(),
+    );
+    expect(response.statusCode).toBe(401);
+
+    // The grant was not consumed: the legitimate device can still redeem it.
+    const legitimate = await redeem(app, hashRefreshToken(generateRefreshToken()));
+    expect(legitimate.statusCode).toBe(200);
+  });
+
+  it('rejects a body missing the rejoin secret with 400', async () => {
+    const fixture = makeFixture();
+    const app = createApp(fixture);
+    await requestGrant(app, fixture.ownerAccessToken, INVITEE_MEMBERSHIP);
+    const response = await app.inject({
+      body: {
+        deviceId: INVITEE_DEVICE,
+        initialRefreshTokenHash: hashRefreshToken(generateRefreshToken()),
+        membershipId: INVITEE_MEMBERSHIP,
+      },
+      method: 'POST',
+      url: '/auth/rejoin',
+    });
+    expect(response.statusCode).toBe(400);
   });
 });
 

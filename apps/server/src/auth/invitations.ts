@@ -9,9 +9,11 @@ import {
   hashInvitationToken,
   hashPendingDeviceCredential,
   hashRefreshToken,
+  hashRejoinSecret,
   parseInvitationToken,
   parsePendingDeviceCredential,
   parseRefreshToken,
+  parseRejoinSecret,
   type AccessToken,
 } from './tokens.js';
 import {
@@ -163,6 +165,15 @@ export interface RedeemForOnboardingInput {
   readonly deviceLabel: string;
   readonly initialRefreshToken: string;
   readonly redemptionId: string;
+  /**
+   * The device's per-device rejoin secret (`hm_rj_…`, F9 Rejoin hardening), sent
+   * RAW like `initialRefreshToken`. The invitee generates it locally and keeps
+   * the plaintext; the server hashes it and stores only the hash on the device,
+   * so the invitee can later present the raw secret at `/auth/rejoin`. Optional
+   * for backward compatibility: a device onboarded without it has no rejoin
+   * capability and is fail-closed at redemption (must re-onboard).
+   */
+  readonly rejoinSecret?: string;
 }
 
 export interface RedeemForOnboardingResult {
@@ -302,6 +313,22 @@ function requirePublicKey(value: Buffer): Buffer {
     throw new InvitationError('INVALID_INPUT');
   }
   return value;
+}
+
+/**
+ * Hashes an optional raw rejoin secret for storage. Absent → null (device
+ * onboarded without a rejoin capability); present-but-malformed → hard reject.
+ * Only the hash is ever persisted; the raw secret stays with the invitee.
+ */
+function hashOptionalRejoinSecret(value: string | undefined): string | null {
+  if (value === undefined) {
+    return null;
+  }
+  try {
+    return hashRejoinSecret(parseRejoinSecret(value));
+  } catch {
+    throw new InvitationError('INVALID_INPUT');
+  }
 }
 
 function requireRole(value: InvitationRole | undefined): InvitationRole {
@@ -704,6 +731,7 @@ export class InvitationService {
     }
     const deviceDisplayName = requireDisplayName(input.deviceLabel);
     requireUuid(input.redemptionId);
+    const rejoinSecretHash = hashOptionalRejoinSecret(input.rejoinSecret);
     const now = readClock(this.#now);
     const createdAt = now.toISOString();
     const pendingCredential = generatePendingDeviceCredential();
@@ -738,10 +766,17 @@ export class InvitationService {
         .prepare(
           `INSERT INTO devices (
              id, user_id, display_name, public_key, status,
-             created_at, approved_at, revoked_at
-           ) VALUES (?, ?, ?, ?, 'pending', ?, NULL, NULL)`,
+             created_at, approved_at, revoked_at, rejoin_secret_hash
+           ) VALUES (?, ?, ?, ?, 'pending', ?, NULL, NULL, ?)`,
         )
-        .run(deviceId, userId, deviceDisplayName, randomBytes(PUBLIC_KEY_LENGTH), createdAt);
+        .run(
+          deviceId,
+          userId,
+          deviceDisplayName,
+          randomBytes(PUBLIC_KEY_LENGTH),
+          createdAt,
+          rejoinSecretHash,
+        );
 
       const consumed = this.#database
         .prepare(

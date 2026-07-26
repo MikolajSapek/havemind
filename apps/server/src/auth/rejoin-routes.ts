@@ -49,6 +49,9 @@ const redeemBodySchema = z
     deviceId: z.string().regex(UUID_PATTERN),
     initialRefreshTokenHash: z.string().regex(/^[0-9a-f]{64}$/u),
     membershipId: z.string().regex(UUID_PATTERN),
+    // The per-device rejoin secret, presented RAW over TLS. The server hashes it
+    // and constant-time compares to the hash stored on the bound device.
+    rejoinSecret: z.string().regex(/^hm_rj_[A-Za-z0-9_-]{43}$/u),
   })
   .strict();
 
@@ -214,6 +217,7 @@ export function registerRejoinRoutes(
             deviceId: body.data.deviceId,
             initialRefreshTokenHash: body.data.initialRefreshTokenHash,
             membershipId: body.data.membershipId,
+            rejoinSecret: body.data.rejoinSecret,
           });
           reply.header('cache-control', 'no-store');
           return {
@@ -254,5 +258,6 @@ const REJOIN_CODE_BY_ERROR: Readonly<
   NO_BOUND_DEVICE: 'GONE',
   NOT_AUTHORIZED: 'FORBIDDEN',
   REPOSITORY_INTEGRITY: 'INVALID_REQUEST',
+  SECRET_MISMATCH: 'UNAUTHENTICATED',
   WRONG_DEVICE: 'FORBIDDEN',
 };
