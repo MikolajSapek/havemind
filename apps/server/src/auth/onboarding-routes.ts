@@ -311,10 +311,10 @@ export function registerPreAuthOnboardingRoutes(
         publicKey: randomBytes(OWNER_DEVICE_PUBLIC_KEY_LENGTH),
         refreshTokenHash: body.data.initialRefreshTokenHash,
       });
-      const vaultId = loadFirstActiveVault(deps.database, result.ownerUserId);
-      if (vaultId === null) {
-        return sendError(reply, 403, 'FORBIDDEN');
-      }
+      // Bind to the vault carried by THIS consumed pairing, never the owner's
+      // first/oldest vault: an owner can hold several vaults (each `create-vault`
+      // mints its own pairing), so `loadFirstActiveVault` would pin the wrong one.
+      const vaultId = result.vaultId;
       // Surface the owner's active membership id so the client can set
       // `expectedMemberId` on push. This is the exact identifier that
       // POST /revisions authorises against (see sync-routes loadActiveMembership).
@@ -353,6 +353,17 @@ export function registerPreAuthOnboardingRoutes(
     if (context === null) {
       return sendError(reply, 401, 'UNAUTHENTICATED');
     }
+    // TODO(multi-vault): scope this to a specific vault the caller names. The
+    // refresh token resolves only to a user + device (neither the `devices` nor
+    // `refresh_token_families` row carries a vault_id), and today's plugin sends
+    // no vault identifier on GET /bootstrap — it only sends the refresh token and
+    // a cursor. For a user who is a member of a single vault this is exact; for a
+    // member of several vaults it can only serve the first, never a caller-chosen
+    // one. `POST /owner/pair` now returns the correct `vaultId`, so once the
+    // plugin forwards it here (a client-contract change deferred out of this
+    // server-only phase) this must switch to that vault after verifying the
+    // caller's active membership. `loadFirstActiveVault` already returns null —
+    // yielding 403 with no events — when the user has no active membership.
     const vaultId = loadFirstActiveVault(deps.database, context.userId);
     if (vaultId === null) {
       return sendError(reply, 403, 'FORBIDDEN');

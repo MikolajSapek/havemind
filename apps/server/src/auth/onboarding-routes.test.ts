@@ -40,6 +40,12 @@ const OWNER_DEVICE = '80000000-0000-4000-8000-0000000000a2';
 const VAULT = '80000000-0000-4000-8000-0000000000a3';
 const OWNER_MEMBERSHIP = '80000000-0000-4000-8000-0000000000a4';
 
+// A SECOND vault the same owner holds, created strictly AFTER the first so
+// `loadFirstActiveVault` (ORDER BY created_at) would resolve the first, not this.
+const SECOND_VAULT = '80000000-0000-4000-8000-0000000000b3';
+const SECOND_MEMBERSHIP = '80000000-0000-4000-8000-0000000000b4';
+const SECOND_VAULT_TIME = '2026-07-16T04:00:00.000Z';
+
 interface Fixture {
   readonly database: Database.Database;
   readonly sessions: SessionRepository;
@@ -116,6 +122,45 @@ function insertPairing(
       OWNER_MEMBERSHIP,
       hashPairingToken(parsePairingToken(token)),
       START_TIME,
+      '2099-01-01T00:00:00.000Z',
+    );
+}
+
+/**
+ * Gives the existing owner a SECOND vault (own membership + own pairing token),
+ * created after the first. Mirrors the row shape `create-vault` mints, letting a
+ * test pair a device against the second vault's token.
+ */
+function insertSecondVaultForOwner(
+  database: Database.Database,
+  token: string,
+) {
+  database
+    .prepare(
+      `INSERT INTO vaults (id, display_name, write_epoch, next_server_sequence, created_at, deleted_at)
+       VALUES (?, ?, 0, 1, ?, NULL)`,
+    )
+    .run(SECOND_VAULT, 'Second Vault', SECOND_VAULT_TIME);
+  database
+    .prepare(
+      `INSERT INTO memberships (id, vault_id, user_id, role, status, created_at, revoked_at)
+       VALUES (?, ?, ?, 'owner', 'active', ?, NULL)`,
+    )
+    .run(SECOND_MEMBERSHIP, SECOND_VAULT, OWNER_USER, SECOND_VAULT_TIME);
+  database
+    .prepare(
+      `INSERT INTO owner_pairings (
+         id, user_id, vault_id, membership_id, token_hash,
+         created_at, expires_at, consumed_at, consumed_by_device_id
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
+    )
+    .run(
+      randomUUID(),
+      OWNER_USER,
+      SECOND_VAULT,
+      SECOND_MEMBERSHIP,
+      hashPairingToken(parsePairingToken(token)),
+      SECOND_VAULT_TIME,
       '2099-01-01T00:00:00.000Z',
     );
 }
@@ -672,6 +717,50 @@ describe('onboarding HTTP surface', () => {
     expect(response.statusCode).toBe(401);
   });
 
+  it('rejects bootstrap for a live session whose membership was revoked with 403 and leaks no events', async () => {
+    const fixture = makeFixture();
+    const rawRefresh = generateRefreshToken();
+    fixture.database
+      .transaction(() =>
+        fixture.sessions.createInitialSessionInCurrentTransaction({
+          deviceId: OWNER_DEVICE,
+          initialRefreshToken: rawRefresh,
+          refreshTokenTtlSeconds: REFRESH_TTL_SECONDS,
+          userId: OWNER_USER,
+        }),
+      )
+      .immediate();
+    // The session stays live (device approved, family active) but the caller is
+    // no longer a member of any vault, so bootstrap must serve nothing.
+    fixture.database
+      .prepare(
+        `UPDATE memberships SET status = 'revoked', revoked_at = ? WHERE id = ?`,
+      )
+      .run(START_TIME, OWNER_MEMBERSHIP);
+
+    const app = Fastify();
+    applications.push(app as unknown as ReturnType<typeof buildApp>);
+    registerPreAuthOnboardingRoutes(app, {
+      database: fixture.database,
+      invitations: fixture.invitations,
+      // If membership were not checked, this would leak another vault's events.
+      revisions: {
+        listEvents: () => {
+          throw new Error('listEvents must not run for a non-member');
+        },
+      },
+      sessions: fixture.sessions,
+    });
+
+    const bootstrap = await app.inject({
+      headers: { 'x-havemind-refresh-token': rawRefresh },
+      method: 'GET',
+      url: '/bootstrap',
+    });
+    expect(bootstrap.statusCode).toBe(403);
+    expect(JSON.stringify(bootstrap.json())).not.toContain('items');
+  });
+
   it('rate limits the pre-auth surface before any invitation lookup (429)', async () => {
     const fixture = makeFixture();
     const app = createApp(fixture, {
@@ -834,6 +923,30 @@ describe('owner device pairing HTTP surface', () => {
     // Must equal the memberships.id row that POST /revisions compares
     // `expectedMemberId` against, so the owner push producer round-trips.
     expect(body.membershipId).toBe(OWNER_MEMBERSHIP);
+  });
+
+  it('binds the paired device to the vault carried by the consumed pairing, not the owner first vault', async () => {
+    const fixture = makeFixture();
+    // The owner already holds the original VAULT (older). A SECOND vault is
+    // added with its own pairing token; pairing with THAT token must bind to the
+    // second vault, never `loadFirstActiveVault`'s oldest one.
+    const secondPairingToken = generatePairingToken();
+    insertSecondVaultForOwner(fixture.database, secondPairingToken);
+    const app = createApp(fixture);
+
+    const response = await app.inject({
+      body: pairBody(secondPairingToken),
+      method: 'POST',
+      url: '/owner/pair',
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json() as { vaultId: string; membershipId: string };
+    expect(body.vaultId).toBe(SECOND_VAULT);
+    // The membership used must be the second vault's, so the owner's push
+    // producer authorises against the right vault.
+    expect(body.membershipId).toBe(SECOND_MEMBERSHIP);
+    expect(body.vaultId).not.toBe(VAULT);
   });
 
   it('lets the paired owner refresh to an access token (pair → refresh → 200)', async () => {

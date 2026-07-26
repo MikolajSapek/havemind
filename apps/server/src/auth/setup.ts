@@ -136,6 +136,12 @@ export interface PairOwnerDeviceFromHashResult {
   readonly familyId: string;
   readonly ownerUserId: string;
   readonly refreshExpiresAt: string;
+  /**
+   * The vault carried by the consumed pairing row. An owner can hold several
+   * vaults (each `create-vault` mints its own pairing), so the caller must bind
+   * the connection to THIS pairing's vault, never the owner's first/oldest one.
+   */
+  readonly vaultId: string;
 }
 
 export interface CreateVaultInput {
@@ -162,6 +168,7 @@ interface PairingRow {
   readonly expiresAt: string;
   readonly id: string;
   readonly userId: string;
+  readonly vaultId: string;
 }
 
 interface OwnerRow {
@@ -429,7 +436,7 @@ export class OwnerSetupService {
       (): PairOwnerDeviceFromHashResult => {
         const pairing = this.#database
           .prepare(
-            `SELECT id, user_id AS userId,
+            `SELECT id, user_id AS userId, vault_id AS vaultId,
                     expires_at AS expiresAt, consumed_at AS consumedAt
              FROM owner_pairings WHERE token_hash = ?`,
           )
@@ -473,6 +480,7 @@ export class OwnerSetupService {
           familyId: family.familyId,
           ownerUserId: pairing.userId,
           refreshExpiresAt: family.refreshExpiresAt,
+          vaultId: pairing.vaultId,
         };
       },
     );
