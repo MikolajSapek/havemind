@@ -70,6 +70,9 @@ const USAGE = [
   '                                        print a single-use pairing token.',
   '  rotate-pairing                        Invalidate the old owner pairing token',
   '                                        and print a fresh single-use one.',
+  '  create-vault --owner <name>           Create an additional vault owned by a',
+  '    --vault <name>                      new independent owner and print a',
+  '                                        single-use pairing token.',
   '  create-invitation [--role <role>]     Mint an invitation and print the secure',
   '    [--name <name>]                     v1. envelope for the joining device.',
   '  approve [--invitation <id>]           List devices awaiting approval, or',
@@ -525,6 +528,51 @@ function runSetup(
   }
 }
 
+function runCreateVault(
+  dependencies: CliDependencies,
+  parsed: ParsedFlags,
+): CliResult {
+  const databaseFile = resolveDatabaseFile(dependencies.env);
+  if (databaseFile === null) {
+    return {
+      exitCode: 1,
+      stderr:
+        'create-vault requires HAVEMIND_DATA_DIR to point at the server data directory.\n',
+      stdout: '',
+    };
+  }
+  const openSession = dependencies.openSetupSession ?? defaultOpenSetupSession;
+  const session = openSession(databaseFile);
+  try {
+    const result = session.service.createVault({
+      ownerDisplayName: parsed.flags.get('owner') ?? '',
+      vaultDisplayName: parsed.flags.get('vault') ?? '',
+    });
+    const stdout = [
+      'Vault created.',
+      `Vault id:      ${result.vaultId}`,
+      `Owner user id: ${result.ownerUserId}`,
+      `Pairing token (single-use, expires ${result.pairingExpiresAt}):`,
+      `  ${result.pairingToken}`,
+      '',
+      'Hand this token to the new owner device now; only its hash is stored server-side.',
+      '',
+    ].join('\n');
+    return { exitCode: 0, stderr: '', stdout };
+  } catch (error) {
+    if (error instanceof OwnerSetupError) {
+      return {
+        exitCode: 1,
+        stderr: `create-vault failed: ${error.message}\n`,
+        stdout: '',
+      };
+    }
+    throw error;
+  } finally {
+    session.close();
+  }
+}
+
 function runRotatePairing(dependencies: CliDependencies): CliResult {
   const databaseFile = resolveDatabaseFile(dependencies.env);
   if (databaseFile === null) {
@@ -629,6 +677,8 @@ export function runCli(
       return runSetup(dependencies, parsed);
     case 'rotate-pairing':
       return runRotatePairing(dependencies);
+    case 'create-vault':
+      return runCreateVault(dependencies, parsed);
     case 'create-invitation':
       return runCreateInvitation(dependencies, parsed);
     case 'approve':

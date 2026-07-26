@@ -427,6 +427,144 @@ describe('OwnerSetupService', () => {
   });
 });
 
+describe('OwnerSetupService.createVault', () => {
+  const NEW_DEVICE = '70000000-0000-4000-8000-000000000003';
+
+  function createSecondVault(service: OwnerSetupService) {
+    return service.createVault({
+      ownerDisplayName: 'Magda',
+      vaultDisplayName: 'Second vault',
+    });
+  }
+
+  it('creates an independent, non-instance-owner vault with a working pairing token', () => {
+    const { database, service } = makeFixture();
+    const owner = initialize(service);
+
+    const created = createSecondVault(service);
+    expect(created.vaultId).not.toBe(undefined);
+    expect(created.ownerUserId).not.toBe(owner.ownerUserId);
+    expect(parsePairingToken(created.pairingToken)).toBe(created.pairingToken);
+
+    // The new owner is NOT the instance owner and is active.
+    expect(
+      database
+        .prepare(
+          `SELECT is_instance_owner AS isOwner, status
+           FROM users WHERE id = ?`,
+        )
+        .get(created.ownerUserId),
+    ).toEqual({ isOwner: 0, status: 'active' });
+
+    // An active owner-role membership links the new user to the new vault.
+    expect(
+      database
+        .prepare(
+          `SELECT role, status, vault_id AS vaultId, user_id AS userId
+           FROM memberships WHERE id = ?`,
+        )
+        .get(created.membershipId),
+    ).toEqual({
+      role: 'owner',
+      status: 'active',
+      userId: created.ownerUserId,
+      vaultId: created.vaultId,
+    });
+
+    // The single instance owner and their first vault are untouched.
+    expect(count(database, 'users')).toBe(2);
+    expect(count(database, 'vaults')).toBe(2);
+    expect(count(database, 'memberships')).toBe(2);
+    expect(count(database, 'owner_pairings')).toBe(2);
+    expect(
+      database
+        .prepare(
+          `SELECT COUNT(*) AS count FROM users
+           WHERE is_instance_owner = 1 AND status = 'active'`,
+        )
+        .get(),
+    ).toEqual({ count: 1 });
+
+    // The minted pairing token is stored only as a hash, never in plaintext.
+    const pairing = database
+      .prepare(
+        `SELECT token_hash AS tokenHash, consumed_at AS consumedAt
+         FROM owner_pairings WHERE user_id = ?`,
+      )
+      .get(created.ownerUserId) as {
+      consumedAt: string | null;
+      tokenHash: string;
+    };
+    expect(pairing.tokenHash).toBe(
+      hashPairingToken(parsePairingToken(created.pairingToken)),
+    );
+    expect(pairing.consumedAt).toBeNull();
+    expect(JSON.stringify(pairing)).not.toContain(created.pairingToken);
+  });
+
+  it('rejects create-vault before the instance owner is initialized', () => {
+    const { database, service } = makeFixture();
+    expectSetupCode(() => createSecondVault(service), 'NOT_INITIALIZED');
+    expect(count(database, 'vaults')).toBe(0);
+  });
+
+  it('mints a single-use pairing token that pairs once then cannot be reused', () => {
+    const { database, service } = makeFixture();
+    initialize(service);
+    const created = createSecondVault(service);
+
+    const paired = service.pairOwnerDevice({
+      deviceDisplayName: 'Magda laptop',
+      deviceId: NEW_DEVICE,
+      initialRefreshToken: generateRefreshToken(),
+      pairingToken: created.pairingToken,
+      publicKey: PUBLIC_KEY,
+    });
+    expect(paired.ownerUserId).toBe(created.ownerUserId);
+
+    expectSetupCode(
+      () =>
+        service.pairOwnerDevice({
+          deviceDisplayName: 'Magda phone',
+          deviceId: '70000000-0000-4000-8000-000000000004',
+          initialRefreshToken: generateRefreshToken(),
+          pairingToken: created.pairingToken,
+          publicKey: PUBLIC_KEY,
+        }),
+      'INVALID_PAIRING',
+    );
+    expect(count(database, 'devices')).toBe(1);
+  });
+
+  it('validates display names exactly like owner setup does', () => {
+    const { database, service } = makeFixture();
+    initialize(service);
+    for (const ownerDisplayName of ['', ' padded ', 'x'.repeat(81), 'line\nbreak']) {
+      expectSetupCode(
+        () =>
+          service.createVault({
+            ownerDisplayName,
+            vaultDisplayName: 'Second vault',
+          }),
+        'INVALID_INPUT',
+      );
+    }
+    for (const vaultDisplayName of ['', ' padded ', 'x'.repeat(81), 'line\nbreak']) {
+      expectSetupCode(
+        () =>
+          service.createVault({
+            ownerDisplayName: 'Magda',
+            vaultDisplayName,
+          }),
+        'INVALID_INPUT',
+      );
+    }
+    // No partial rows leaked from the rejected attempts.
+    expect(count(database, 'vaults')).toBe(1);
+    expect(count(database, 'users')).toBe(1);
+  });
+});
+
 describe('OwnerSetupService.rotateOwnerPairing', () => {
   const SECOND_DEVICE = '70000000-0000-4000-8000-000000000002';
 

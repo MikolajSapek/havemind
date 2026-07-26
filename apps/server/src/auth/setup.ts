@@ -138,6 +138,19 @@ export interface PairOwnerDeviceFromHashResult {
   readonly refreshExpiresAt: string;
 }
 
+export interface CreateVaultInput {
+  readonly ownerDisplayName: string;
+  readonly vaultDisplayName: string;
+}
+
+export interface CreateVaultResult {
+  readonly membershipId: string;
+  readonly ownerUserId: string;
+  readonly pairingExpiresAt: string;
+  readonly pairingToken: string;
+  readonly vaultId: string;
+}
+
 export interface RotateOwnerPairingResult {
   readonly ownerUserId: string;
   readonly pairingExpiresAt: string;
@@ -465,6 +478,91 @@ export class OwnerSetupService {
     );
 
     return pair.immediate();
+  }
+
+  /**
+   * Creates an ADDITIONAL vault owned by a NEW, independent owner (Model B).
+   *
+   * The new owner is deliberately not the instance owner (`is_instance_owner = 0`),
+   * so the `one_active_instance_owner` unique index — held by the original
+   * bootstrap owner — stays intact. Requires the instance owner to be initialised.
+   * In one transaction it mints the new user, vault, an active owner membership and
+   * a fresh single-use owner pairing token, returning the plaintext token exactly
+   * as owner setup does.
+   */
+  public createVault(input: CreateVaultInput): CreateVaultResult {
+    const ownerDisplayName = requireDisplayName(input.ownerDisplayName);
+    const vaultDisplayName = requireDisplayName(input.vaultDisplayName);
+    const now = readClock(this.#now);
+    const createdAt = now.toISOString();
+    const pairingExpiresAt = addSeconds(now, OWNER_PAIRING_TTL_SECONDS);
+    const pairingToken = generatePairingToken();
+    const pairingTokenHash = hashPairingToken(pairingToken);
+
+    const create = this.#database.transaction((): CreateVaultResult => {
+      const owner = this.#database
+        .prepare(
+          `SELECT COUNT(*) AS count FROM users
+           WHERE is_instance_owner = 1 AND status = 'active'`,
+        )
+        .get() as { count: number };
+      if (owner.count === 0) {
+        throw new OwnerSetupError('NOT_INITIALIZED');
+      }
+      const ownerUserId = this.#newUuid();
+      const vaultId = this.#newUuid();
+      const membershipId = this.#newUuid();
+      const pairingId = this.#newUuid();
+
+      this.#database
+        .prepare(
+          `INSERT INTO users (
+             id, display_name, is_instance_owner, status, created_at, revoked_at
+           ) VALUES (?, ?, 0, 'active', ?, NULL)`,
+        )
+        .run(ownerUserId, ownerDisplayName, createdAt);
+      this.#database
+        .prepare(
+          `INSERT INTO vaults (
+             id, display_name, write_epoch, next_server_sequence,
+             created_at, deleted_at
+           ) VALUES (?, ?, 0, 1, ?, NULL)`,
+        )
+        .run(vaultId, vaultDisplayName, createdAt);
+      this.#database
+        .prepare(
+          `INSERT INTO memberships (
+             id, vault_id, user_id, role, status, created_at, revoked_at
+           ) VALUES (?, ?, ?, 'owner', 'active', ?, NULL)`,
+        )
+        .run(membershipId, vaultId, ownerUserId, createdAt);
+      this.#database
+        .prepare(
+          `INSERT INTO owner_pairings (
+             id, user_id, vault_id, membership_id, token_hash,
+             created_at, expires_at, consumed_at, consumed_by_device_id
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
+        )
+        .run(
+          pairingId,
+          ownerUserId,
+          vaultId,
+          membershipId,
+          pairingTokenHash,
+          createdAt,
+          pairingExpiresAt,
+        );
+
+      return {
+        membershipId,
+        ownerUserId,
+        pairingExpiresAt,
+        pairingToken,
+        vaultId,
+      };
+    });
+
+    return create.immediate();
   }
 
   /**

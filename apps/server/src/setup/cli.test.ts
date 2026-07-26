@@ -184,6 +184,86 @@ describe('rotate-pairing', () => {
   });
 });
 
+describe('create-vault', () => {
+  const CREATE_VAULT_PATTERN = /hm_pt_[A-Za-z0-9_-]{43}/u;
+
+  it('requires HAVEMIND_DATA_DIR', () => {
+    const result = runCli(
+      ['create-vault', '--owner', 'Magda', '--vault', 'Second'],
+      { env: baseEnv() },
+    );
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain('HAVEMIND_DATA_DIR');
+  });
+
+  it('fails cleanly when the instance owner is not initialised', () => {
+    const dataDir = makeDataDir();
+    const result = runCli(
+      ['create-vault', '--owner', 'Magda', '--vault', 'Second'],
+      { env: baseEnv({ HAVEMIND_DATA_DIR: dataDir }) },
+    );
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain('create-vault failed');
+  });
+
+  it('creates an independent vault and prints a single-use pairing token', () => {
+    const dataDir = makeDataDir();
+    const env = baseEnv({ HAVEMIND_DATA_DIR: dataDir });
+    const setup = runCli(['setup', '--owner', 'Alice', '--vault', 'Notes'], {
+      env,
+    });
+    const setupToken = setup.stdout.match(CREATE_VAULT_PATTERN)?.[0];
+
+    const result = runCli(
+      ['create-vault', '--owner', 'Magda', '--vault', 'Second'],
+      { env },
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Vault created.');
+    const token = result.stdout.match(CREATE_VAULT_PATTERN)?.[0];
+    expect(token).not.toBeUndefined();
+    expect(token).not.toBe(setupToken);
+    expect(() => parsePairingToken(token ?? '')).not.toThrow();
+
+    // The instance owner and their first vault remain intact; the new owner is
+    // an independent, non-instance-owner user.
+    const database = openDatabase(join(dataDir, 'havemind.db'));
+    try {
+      const owners = database
+        .prepare(
+          `SELECT COUNT(*) AS count FROM users
+           WHERE is_instance_owner = 1 AND status = 'active'`,
+        )
+        .get() as { count: number };
+      const vaults = database
+        .prepare('SELECT COUNT(*) AS count FROM vaults')
+        .get() as { count: number };
+      const secondaryOwners = database
+        .prepare(
+          `SELECT COUNT(*) AS count FROM users WHERE is_instance_owner = 0`,
+        )
+        .get() as { count: number };
+      expect(owners.count).toBe(1);
+      expect(vaults.count).toBe(2);
+      expect(secondaryOwners.count).toBe(1);
+    } finally {
+      database.close();
+    }
+  });
+
+  it('rejects invalid input without leaking internals', () => {
+    const dataDir = makeDataDir();
+    const env = baseEnv({ HAVEMIND_DATA_DIR: dataDir });
+    runCli(['setup', '--owner', 'Alice', '--vault', 'Notes'], { env });
+    const result = runCli(
+      ['create-vault', '--owner', '', '--vault', 'Second'],
+      { env },
+    );
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain('create-vault failed');
+  });
+});
+
 const PAIRING_PATTERN = /hm_pt_[A-Za-z0-9_-]{43}/u;
 const NON_ZERO_PUBLIC_KEY = Buffer.alloc(32, 1);
 
