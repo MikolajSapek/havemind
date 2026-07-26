@@ -477,7 +477,20 @@ export class SyncRunner {
 
     for (const remoteEvent of ordered) {
       if (remoteEvent.serverSequence <= cursor) {
+        // Already materialized, or a duplicate of an earlier sequence in this
+        // page — never regress the cursor onto it.
         continue;
+      }
+
+      // Contiguity gate (rule 3, no silent skip): the next sequence we
+      // materialize must be exactly `cursor + 1`. A hole — the page starts
+      // beyond `cursor + 1`, or a gap opens mid-page — means an earlier
+      // revision is not in this page. Stop here rather than advancing the cursor
+      // PAST the missing sequence (which would skip that revision forever). The
+      // `/events` endpoint is cursor-based, so the next poll re-requests from the
+      // same (unadvanced) cursor and the server re-supplies the missing run.
+      if (remoteEvent.serverSequence !== cursor + 1) {
+        break;
       }
 
       if (await this.options.state.isLocallyAuthored(remoteEvent.revision.revisionId)) {

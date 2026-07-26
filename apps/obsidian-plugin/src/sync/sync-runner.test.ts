@@ -659,6 +659,114 @@ describe('SyncRunner remote apply', () => {
   });
 });
 
+describe('SyncRunner cursor contiguity gate', () => {
+  it('never advances the cursor past a missing serverSequence (leading gap)', async () => {
+    // The server hands back only #2 after after=0 (a page with a hole at #1).
+    // The runner must NOT persist cursor 2 and skip #1 forever; it holds at the
+    // last contiguous sequence (0) and materialises nothing past the gap.
+    const { runner, vault, state } = makeRunner({
+      transport: {
+        push: vi.fn(async () => []),
+        pull: vi.fn(async () => ({
+          cursor: 2,
+          events: [event(2, 'file-b', 'hash-2')],
+        })),
+      },
+    });
+
+    const result = await runner.trigger();
+
+    expect(vault.applied).toHaveLength(0);
+    expect(state.cursor).toBe(0);
+    expect(result.applied).toBe(0);
+  });
+
+  it('materialises the missing revision once a contiguous page arrives', async () => {
+    const pull = vi
+      .fn<SyncTransport['pull']>()
+      // First poll: only #2 (gap at #1) → held, cursor stays 0.
+      .mockResolvedValueOnce({ cursor: 2, events: [event(2, 'file-b', 'hash-2')] })
+      // Second poll re-requests from after=0 and now gets the full run.
+      .mockResolvedValueOnce({
+        cursor: 2,
+        events: [event(1, 'file-a', 'hash-1'), event(2, 'file-b', 'hash-2')],
+      });
+    const { runner, vault, state } = makeRunner({
+      transport: { push: vi.fn(async () => []), pull },
+    });
+
+    const first = await runner.trigger();
+    expect(state.cursor).toBe(0);
+    expect(first.applied).toBe(0);
+
+    const second = await runner.trigger();
+    expect(state.cursor).toBe(2);
+    expect(second.applied).toBe(2);
+    // Both applied, in ascending serverSequence order.
+    expect(vault.applied.map((e) => e.serverSequence)).toEqual([1, 2]);
+  });
+
+  it('advances the cursor across a fully contiguous page', async () => {
+    const { runner, vault, state } = makeRunner({
+      transport: {
+        push: vi.fn(async () => []),
+        pull: vi.fn(async () => ({
+          cursor: 3,
+          events: [
+            event(1, 'file-a', 'hash-1'),
+            event(2, 'file-b', 'hash-2'),
+            event(3, 'file-c', 'hash-3'),
+          ],
+        })),
+      },
+    });
+
+    const result = await runner.trigger();
+
+    expect(state.cursor).toBe(3);
+    expect(result.applied).toBe(3);
+    expect(vault.applied.map((e) => e.serverSequence)).toEqual([1, 2, 3]);
+  });
+
+  it('stops at a mid-page hole and advances only to the last contiguous sequence', async () => {
+    // [#1, #3] after 0: #1 is contiguous, #3 is beyond the gap at #2. The cursor
+    // advances only to 1; #3 is held until #2 arrives.
+    const { runner, vault, state } = makeRunner({
+      transport: {
+        push: vi.fn(async () => []),
+        pull: vi.fn(async () => ({
+          cursor: 3,
+          events: [event(1, 'file-a', 'hash-1'), event(3, 'file-c', 'hash-3')],
+        })),
+      },
+    });
+
+    const result = await runner.trigger();
+
+    expect(state.cursor).toBe(1);
+    expect(result.applied).toBe(1);
+    expect(vault.applied.map((e) => e.serverSequence)).toEqual([1]);
+  });
+
+  it('never regresses the cursor when a page arrives entirely below it', async () => {
+    const state = new FakeState({ cursor: 5 });
+    const { runner } = makeRunner({
+      state,
+      transport: {
+        push: vi.fn(async () => []),
+        pull: vi.fn(async () => ({
+          cursor: 5,
+          events: [event(2, 'file-a', 'hash-2'), event(3, 'file-b', 'hash-3')],
+        })),
+      },
+    });
+
+    await runner.trigger();
+
+    expect(state.cursor).toBe(5);
+  });
+});
+
 describe('SyncRunner auth denial', () => {
   it('reports unauthenticated and does NOT schedule a retry on a 401 (no storm)', async () => {
     const pull = vi.fn(async () => {
