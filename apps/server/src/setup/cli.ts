@@ -68,16 +68,17 @@ const USAGE = [
   'Commands:',
   '  setup --owner <name> --vault <name>   Initialise the instance owner and',
   '                                        print a single-use pairing token.',
-  '  rotate-pairing                        Invalidate the old owner pairing token',
-  '                                        and print a fresh single-use one.',
+  '  rotate-pairing [--vault <vaultId>]    Invalidate the old owner pairing token',
+  '                                        and print a fresh single-use one. With',
+  '                                        --vault, target that vault\'s owner.',
   '  create-vault --owner <name>           Create an additional vault owned by a',
   '    --vault <name>                      new independent owner and print a',
   '                                        single-use pairing token.',
   '  create-invitation [--role <role>]     Mint an invitation and print the secure',
-  '    [--name <name>]                     v1. envelope for the joining device.',
+  '    [--name <name>] [--vault <vaultId>] v1. envelope for the joining device.',
   '  approve [--invitation <id>]           List devices awaiting approval, or',
-  '    --pin <pin>]                        approve one with the PIN read from',
-  '                                        the joining device.',
+  '    [--pin <pin>] [--vault <vaultId>]   approve one with the PIN read from the',
+  '                                        joining device. --vault filters the list.',
   '  generate-db-key                       Print a fresh 256-bit database key.',
   '  cleanup-stale [--dry-run]              Delete expired/consumed invitations',
   '    [--pending-older-than-hours <n>]     and pending devices older than the',
@@ -139,10 +140,30 @@ interface OwnerContextRow {
   readonly vaultId: string;
 }
 
-/** Resolves the single instance owner's active owner membership. */
+/**
+ * Resolves an active `owner`-role membership. Without `vaultId` this is the
+ * single instance owner (backward-compatible default). With `vaultId` it is the
+ * active owner of THAT vault — whether or not that owner is the instance owner —
+ * so a `create-vault` secondary owner can be serviced by the CLI.
+ */
 function resolveOwnerContext(
   database: Database.Database,
+  vaultId?: string,
 ): OwnerContextRow | null {
+  if (vaultId !== undefined) {
+    const row = database
+      .prepare(
+        `SELECT m.id AS membershipId, m.user_id AS userId, m.vault_id AS vaultId
+         FROM memberships m
+         JOIN users u ON u.id = m.user_id
+         WHERE m.role = 'owner' AND m.status = 'active'
+           AND u.status = 'active' AND m.vault_id = ?
+         ORDER BY m.created_at, m.id
+         LIMIT 1`,
+      )
+      .get(vaultId) as OwnerContextRow | undefined;
+    return row ?? null;
+  }
   const row = database
     .prepare(
       `SELECT m.id AS membershipId, m.user_id AS userId, m.vault_id AS vaultId
@@ -211,15 +232,16 @@ interface PendingApproval {
   readonly intendedRole: string;
   readonly invitationId: string;
   readonly expiresAt: string;
+  readonly vaultId: string;
+  readonly vaultDisplayName: string;
 }
 
 interface PendingDeviceRow {
   readonly invitationId: string;
   readonly vaultId: string;
-  readonly inviterDeviceId: string;
+  readonly vaultDisplayName: string;
   readonly intendedRole: string;
   readonly expiresAt: string;
-  readonly pendingDeviceId: string;
   readonly deviceDisplayName: string;
   readonly intendedMemberDisplayName: string | null;
 }
@@ -235,23 +257,25 @@ interface PendingDeviceRow {
  */
 function listPendingApprovals(
   database: Database.Database,
+  vaultId?: string,
 ): readonly PendingApproval[] {
-  const rows = database
-    .prepare(
-      `SELECT i.id AS invitationId,
-              i.vault_id AS vaultId,
-              i.inviter_device_id AS inviterDeviceId,
-              i.intended_role AS intendedRole,
-              i.expires_at AS expiresAt,
-              i.pending_device_id AS pendingDeviceId,
-              i.intended_member_display_name AS intendedMemberDisplayName,
-              d.display_name AS deviceDisplayName
-       FROM invitations i
-       JOIN devices d ON d.id = i.pending_device_id
-       WHERE d.status = 'pending'
-       ORDER BY i.created_at, i.id`,
-    )
-    .all() as PendingDeviceRow[];
+  const statement = database.prepare(
+    `SELECT i.id AS invitationId,
+            i.vault_id AS vaultId,
+            v.display_name AS vaultDisplayName,
+            i.intended_role AS intendedRole,
+            i.expires_at AS expiresAt,
+            i.intended_member_display_name AS intendedMemberDisplayName,
+            d.display_name AS deviceDisplayName
+     FROM invitations i
+     JOIN devices d ON d.id = i.pending_device_id
+     JOIN vaults v ON v.id = i.vault_id
+     WHERE d.status = 'pending'${vaultId === undefined ? '' : ' AND i.vault_id = ?'}
+     ORDER BY i.created_at, i.id`,
+  );
+  const rows = (
+    vaultId === undefined ? statement.all() : statement.all(vaultId)
+  ) as PendingDeviceRow[];
   return rows.map((row) => ({
     deviceDisplayName: row.deviceDisplayName,
     expiresAt: row.expiresAt,
@@ -259,6 +283,8 @@ function listPendingApprovals(
       row.intendedMemberDisplayName ?? '(unspecified)',
     intendedRole: row.intendedRole,
     invitationId: row.invitationId,
+    vaultDisplayName: row.vaultDisplayName,
+    vaultId: row.vaultId,
   }));
 }
 
@@ -288,12 +314,15 @@ function runCreateInvitation(
     dependencies.openInvitationSession ?? defaultOpenInvitationSession;
   const session = openSession(databaseFile);
   try {
-    const owner = resolveOwnerContext(session.database);
+    const vaultSelector = parsed.flags.get('vault');
+    const owner = resolveOwnerContext(session.database, vaultSelector);
     if (owner === null) {
       return {
         exitCode: 1,
         stderr:
-          'create-invitation failed: the instance owner has not been initialised yet.\n',
+          vaultSelector === undefined
+            ? 'create-invitation failed: the instance owner has not been initialised yet.\n'
+            : 'create-invitation failed: that vault has no active owner.\n',
         stdout: '',
       };
     }
@@ -362,6 +391,7 @@ function runApprove(
     dependencies.openInvitationSession ?? defaultOpenInvitationSession;
   const session = openSession(databaseFile);
   try {
+    const vaultSelector = parsed.flags.get('vault');
     const owner = resolveOwnerContext(session.database);
     if (owner === null) {
       return {
@@ -371,7 +401,7 @@ function runApprove(
         stdout: '',
       };
     }
-    const pending = listPendingApprovals(session.database);
+    const pending = listPendingApprovals(session.database, vaultSelector);
     const invitationId = parsed.flags.get('invitation');
     if (invitationId === undefined) {
       if (pending.length === 0) {
@@ -385,6 +415,7 @@ function runApprove(
       for (const item of pending) {
         lines.push(`Invitation: ${item.invitationId}`);
         lines.push(`  Device:              ${item.deviceDisplayName}`);
+        lines.push(`  Vault:               ${item.vaultDisplayName} (${item.vaultId})`);
         lines.push(`  Intended member:     ${item.intendedMemberDisplayName}`);
         lines.push(`  Intended role:       ${item.intendedRole}`);
         lines.push(`  Expires:             ${item.expiresAt}`);
@@ -406,6 +437,17 @@ function runApprove(
         stdout: '',
       };
     }
+    // Approve using the owner membership of THIS invitation's vault — which may
+    // be a create-vault secondary owner, not the instance owner. Using the
+    // instance owner's membership here would fail authz for any other vault.
+    const approvalOwner = resolveOwnerContext(session.database, match.vaultId);
+    if (approvalOwner === null) {
+      return {
+        exitCode: 1,
+        stderr: "approve failed: that invitation's vault has no active owner.\n",
+        stdout: '',
+      };
+    }
     // The PIN is a secret only the joining device displays; it must be typed
     // in explicitly from that channel. There is no server-derived default —
     // that would let anyone with shell access approve without knowing it.
@@ -419,7 +461,7 @@ function runApprove(
       };
     }
     const result = session.service.approveRedeemedDevice({
-      approverMembershipId: owner.membershipId,
+      approverMembershipId: approvalOwner.membershipId,
       invitationId,
       verificationPhrase,
     });
@@ -573,7 +615,10 @@ function runCreateVault(
   }
 }
 
-function runRotatePairing(dependencies: CliDependencies): CliResult {
+function runRotatePairing(
+  dependencies: CliDependencies,
+  parsed: ParsedFlags,
+): CliResult {
   const databaseFile = resolveDatabaseFile(dependencies.env);
   if (databaseFile === null) {
     return {
@@ -586,11 +631,15 @@ function runRotatePairing(dependencies: CliDependencies): CliResult {
   const openSession = dependencies.openSetupSession ?? defaultOpenSetupSession;
   const session = openSession(databaseFile);
   try {
-    const result = session.service.rotateOwnerPairing(
-      createLocalOwnerSetupContext(),
-    );
+    const vaultSelector = parsed.flags.get('vault');
+    const context = createLocalOwnerSetupContext();
+    const result =
+      vaultSelector === undefined
+        ? session.service.rotateOwnerPairing(context)
+        : session.service.rotateVaultOwnerPairing(context, vaultSelector);
     const stdout = [
       'Previous owner pairing token invalidated.',
+      `Vault id:      ${result.vaultId}`,
       `Fresh pairing token (single-use, expires ${result.pairingExpiresAt}):`,
       `  ${result.pairingToken}`,
       '',
@@ -676,7 +725,7 @@ export function runCli(
     case 'setup':
       return runSetup(dependencies, parsed);
     case 'rotate-pairing':
-      return runRotatePairing(dependencies);
+      return runRotatePairing(dependencies, parsed);
     case 'create-vault':
       return runCreateVault(dependencies, parsed);
     case 'create-invitation':

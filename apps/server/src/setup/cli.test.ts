@@ -350,6 +350,77 @@ function seedPendingDevice(dataDir: string): {
   }
 }
 
+const VAULT_ID_PATTERN = /Vault id:\s+([0-9a-f-]{36})/u;
+
+/** Seeds the instance owner plus an additional (create-vault) secondary vault. */
+function seedSecondaryVault(dataDir: string): {
+  readonly env: ServerEnvironment;
+  readonly secondaryToken: string;
+  readonly vaultId: string;
+} {
+  const env = baseEnv({ HAVEMIND_DATA_DIR: dataDir });
+  runCli(['setup', '--owner', 'Alice', '--vault', 'Notes'], { env });
+  const created = runCli(
+    ['create-vault', '--owner', 'Magda', '--vault', 'Second'],
+    { env },
+  );
+  const vaultId = created.stdout.match(VAULT_ID_PATTERN)?.[1] ?? '';
+  const secondaryToken = created.stdout.match(PAIRING_PATTERN)?.[0] ?? '';
+  return { env, secondaryToken, vaultId };
+}
+
+/** Extends a secondary vault with an owner device and a pending-approval device. */
+function seedSecondaryVaultPendingDevice(dataDir: string): {
+  readonly env: ServerEnvironment;
+  readonly expectedPhrase: string;
+  readonly invitationId: string;
+  readonly vaultId: string;
+} {
+  const { env, secondaryToken, vaultId } = seedSecondaryVault(dataDir);
+  const database = openDatabase(join(dataDir, 'havemind.db'));
+  runMigrations(database);
+  try {
+    const secondaryDeviceId = randomUUID();
+    new OwnerSetupService(database).pairOwnerDevice({
+      deviceDisplayName: 'Magda laptop',
+      deviceId: secondaryDeviceId,
+      initialRefreshToken: generateRefreshToken(),
+      pairingToken: secondaryToken,
+      publicKey: NON_ZERO_PUBLIC_KEY,
+    });
+    const owner = database
+      .prepare(
+        `SELECT id AS membershipId, user_id AS userId, vault_id AS vaultId
+         FROM memberships
+         WHERE vault_id = ? AND role = 'owner' AND status = 'active' LIMIT 1`,
+      )
+      .get(vaultId) as OwnerContext;
+
+    const invitations = new InvitationService(database);
+    const created = invitations.createInvitation({
+      createdByMembershipId: owner.membershipId,
+      intendedMemberDisplayName: 'Bartek',
+      intendedRole: 'editor',
+      inviterDeviceId: secondaryDeviceId,
+      vaultId: owner.vaultId,
+    });
+    const redeemed = invitations.redeemInvitationForOnboarding({
+      deviceLabel: 'Bartek iPad',
+      initialRefreshToken: generateRefreshToken(),
+      invitationToken: created.invitationToken,
+      redemptionId: randomUUID(),
+    });
+    return {
+      env,
+      expectedPhrase: redeemed.verificationPhrase,
+      invitationId: created.invitationId,
+      vaultId,
+    };
+  } finally {
+    database.close();
+  }
+}
+
 function decodeEnvelope(envelope: string): Record<string, unknown> {
   const payload = envelope.slice('v1.'.length);
   const json = Buffer.from(payload, 'base64url').toString('utf8');
@@ -500,6 +571,60 @@ describe('approve', () => {
     );
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain('approve failed');
+  });
+
+  it('approves a device pending in a secondary (create-vault) vault', () => {
+    const dataDir = makeDataDir();
+    const { env, expectedPhrase, invitationId } =
+      seedSecondaryVaultPendingDevice(dataDir);
+    const result = runCli(
+      ['approve', '--invitation', invitationId, '--pin', expectedPhrase],
+      { env },
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('approved');
+
+    const after = runCli(['approve'], { env });
+    expect(after.stdout).toContain('No devices awaiting approval');
+  });
+
+  it('annotates each pending device with its vault and filters by --vault', () => {
+    const dataDir = makeDataDir();
+    const { env, invitationId, vaultId } =
+      seedSecondaryVaultPendingDevice(dataDir);
+
+    const list = runCli(['approve'], { env });
+    expect(list.stdout).toContain(invitationId);
+    expect(list.stdout).toContain(vaultId);
+    expect(list.stdout).toContain('Second');
+
+    const filtered = runCli(['approve', '--vault', vaultId], { env });
+    expect(filtered.stdout).toContain(invitationId);
+
+    const other = runCli(['approve', '--vault', randomUUID()], { env });
+    expect(other.stdout).toContain('No devices awaiting approval');
+  });
+});
+
+describe('rotate-pairing (multi-vault)', () => {
+  it('mints a fresh token for a secondary vault owner with --vault', () => {
+    const dataDir = makeDataDir();
+    const { env, vaultId } = seedSecondaryVault(dataDir);
+    const result = runCli(['rotate-pairing', '--vault', vaultId], { env });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Fresh pairing token');
+    expect(result.stdout).toContain(vaultId);
+    const token = result.stdout.match(PAIRING_PATTERN)?.[0];
+    expect(token).not.toBeUndefined();
+    expect(() => parsePairingToken(token ?? '')).not.toThrow();
+  });
+
+  it('fails cleanly for an unknown --vault', () => {
+    const dataDir = makeDataDir();
+    const { env } = seedSecondaryVault(dataDir);
+    const result = runCli(['rotate-pairing', '--vault', randomUUID()], { env });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain('rotate-pairing failed');
   });
 });
 

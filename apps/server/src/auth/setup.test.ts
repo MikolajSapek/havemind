@@ -621,4 +621,96 @@ describe('OwnerSetupService.rotateOwnerPairing', () => {
       'LOCAL_CONTEXT_REQUIRED',
     );
   });
+
+  it('reports the instance owner vault on the no-arg path', () => {
+    const { service } = makeFixture();
+    const initial = initialize(service);
+    const rotated = service.rotateOwnerPairing(createLocalOwnerSetupContext());
+    const ownerVault = service.rotateOwnerPairing(createLocalOwnerSetupContext());
+    expect(rotated.vaultId).toBe(ownerVault.vaultId);
+    expect(rotated.ownerUserId).toBe(initial.ownerUserId);
+  });
+});
+
+describe('OwnerSetupService.rotateVaultOwnerPairing', () => {
+  const SECONDARY_DEVICE = '70000000-0000-4000-8000-000000000005';
+  const UNKNOWN_VAULT = '90000000-0000-4000-8000-0000000000aa';
+
+  it('rotates a secondary vault owner pairing, scoped to that vault', () => {
+    const { database, service } = makeFixture();
+    const owner = initialize(service);
+    const created = service.createVault({
+      ownerDisplayName: 'Magda',
+      vaultDisplayName: 'Second vault',
+    });
+
+    const rotated = service.rotateVaultOwnerPairing(
+      createLocalOwnerSetupContext(),
+      created.vaultId,
+    );
+    expect(rotated.vaultId).toBe(created.vaultId);
+    expect(rotated.ownerUserId).toBe(created.ownerUserId);
+    expect(rotated.pairingToken).not.toBe(created.pairingToken);
+
+    // The secondary owner's original token no longer pairs.
+    expectSetupCode(
+      () =>
+        service.pairOwnerDevice({
+          deviceDisplayName: 'Stale device',
+          deviceId: SECONDARY_DEVICE,
+          initialRefreshToken: generateRefreshToken(),
+          pairingToken: created.pairingToken,
+          publicKey: PUBLIC_KEY,
+        }),
+      'INVALID_PAIRING',
+    );
+
+    // The fresh token pairs a device INTO the secondary vault.
+    const paired = service.pairOwnerDeviceFromHash({
+      deviceDisplayName: 'Magda laptop',
+      deviceId: SECONDARY_DEVICE,
+      pairingToken: rotated.pairingToken,
+      publicKey: PUBLIC_KEY,
+      refreshTokenHash: hashRefreshToken(parseRefreshToken(generateRefreshToken())),
+    });
+    expect(paired.vaultId).toBe(created.vaultId);
+    expect(paired.ownerUserId).toBe(created.ownerUserId);
+
+    // The DELETE was vault-scoped: the instance owner's unconsumed pairing survived.
+    const survivors = database
+      .prepare(
+        `SELECT COUNT(*) AS count FROM owner_pairings
+         WHERE user_id = ? AND consumed_at IS NULL`,
+      )
+      .get(owner.ownerUserId) as { count: number };
+    expect(survivors.count).toBe(1);
+  });
+
+  it('rejects rotation for an unknown/ownerless vault without writing', () => {
+    const { database, service } = makeFixture();
+    initialize(service);
+    const before = count(database, 'owner_pairings');
+    expectSetupCode(
+      () =>
+        service.rotateVaultOwnerPairing(
+          createLocalOwnerSetupContext(),
+          UNKNOWN_VAULT,
+        ),
+      'NOT_INITIALIZED',
+    );
+    expect(count(database, 'owner_pairings')).toBe(before);
+  });
+
+  it('requires the non-serializable local CLI capability', () => {
+    const { service } = makeFixture();
+    const initial = initialize(service);
+    expectSetupCode(
+      () =>
+        service.rotateVaultOwnerPairing(
+          { kind: 'local-cli' } as never,
+          initial.membershipId,
+        ),
+      'LOCAL_CONTEXT_REQUIRED',
+    );
+  });
 });

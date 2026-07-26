@@ -161,6 +161,7 @@ export interface RotateOwnerPairingResult {
   readonly ownerUserId: string;
   readonly pairingExpiresAt: string;
   readonly pairingToken: string;
+  readonly vaultId: string;
 }
 
 interface PairingRow {
@@ -574,9 +575,10 @@ export class OwnerSetupService {
   }
 
   /**
-   * Invalidates any unconsumed owner pairing token and issues a fresh single-use
-   * one (15 minutes). Vault data, memberships and already-consumed (used) pairings
-   * are left untouched. Requires the local CLI capability.
+   * Invalidates any unconsumed owner pairing token for the single instance owner
+   * and issues a fresh single-use one (15 minutes). Vault data, memberships and
+   * already-consumed (used) pairings are left untouched. Requires the local CLI
+   * capability.
    */
   public rotateOwnerPairing(
     context: LocalOwnerSetupContext,
@@ -584,6 +586,36 @@ export class OwnerSetupService {
     if (!isLocalContext(context)) {
       throw new OwnerSetupError('LOCAL_CONTEXT_REQUIRED');
     }
+    return this.#rotatePairing(() => this.#resolveInstanceOwnerRow());
+  }
+
+  /**
+   * Like {@link rotateOwnerPairing}, but targets the active `owner` membership of
+   * a SPECIFIC vault — whether or not that owner is the instance owner. This is
+   * how a `create-vault` secondary owner recovers a lost/expired pairing token
+   * instead of being permanently locked out. Requires the local CLI capability.
+   */
+  public rotateVaultOwnerPairing(
+    context: LocalOwnerSetupContext,
+    vaultId: string,
+  ): RotateOwnerPairingResult {
+    if (!isLocalContext(context)) {
+      throw new OwnerSetupError('LOCAL_CONTEXT_REQUIRED');
+    }
+    const requestedVaultId = requireUuid(vaultId);
+    return this.#rotatePairing(() =>
+      this.#resolveVaultOwnerRow(requestedVaultId),
+    );
+  }
+
+  /**
+   * Shared rotate implementation: resolve the target owner membership, delete its
+   * unconsumed pairings (vault-scoped) and mint a fresh single-use token bound to
+   * that user/vault/membership. Consumed pairings stay for the audit log.
+   */
+  #rotatePairing(
+    resolveOwner: () => OwnerRow | undefined,
+  ): RotateOwnerPairingResult {
     const now = readClock(this.#now);
     const createdAt = now.toISOString();
     const pairingExpiresAt = addSeconds(now, OWNER_PAIRING_TTL_SECONDS);
@@ -591,29 +623,20 @@ export class OwnerSetupService {
     const pairingTokenHash = hashPairingToken(pairingToken);
 
     const rotate = this.#database.transaction((): RotateOwnerPairingResult => {
-      const owner = this.#database
-        .prepare(
-          `SELECT u.id AS userId, m.vault_id AS vaultId, m.id AS membershipId
-           FROM users u
-           JOIN memberships m ON m.user_id = u.id
-           WHERE u.is_instance_owner = 1 AND u.status = 'active'
-             AND m.status = 'active' AND m.role = 'owner'
-           ORDER BY m.created_at, m.id
-           LIMIT 1`,
-        )
-        .get() as OwnerRow | undefined;
+      const owner = resolveOwner();
       if (owner === undefined) {
         throw new OwnerSetupError('NOT_INITIALIZED');
       }
 
       // Unconsumed pairings are deleted (the CHECK constraint forbids marking
       // consumed_at without a device); consumed pairings stay for the audit log.
+      // Scoped to the resolved vault so an owner's other vaults keep their tokens.
       this.#database
         .prepare(
           `DELETE FROM owner_pairings
-           WHERE user_id = ? AND consumed_at IS NULL`,
+           WHERE user_id = ? AND vault_id = ? AND consumed_at IS NULL`,
         )
-        .run(owner.userId);
+        .run(owner.userId, owner.vaultId);
 
       this.#database
         .prepare(
@@ -636,10 +659,39 @@ export class OwnerSetupService {
         ownerUserId: owner.userId,
         pairingExpiresAt,
         pairingToken,
+        vaultId: owner.vaultId,
       };
     });
 
     return rotate.immediate();
+  }
+
+  #resolveInstanceOwnerRow(): OwnerRow | undefined {
+    return this.#database
+      .prepare(
+        `SELECT u.id AS userId, m.vault_id AS vaultId, m.id AS membershipId
+         FROM users u
+         JOIN memberships m ON m.user_id = u.id
+         WHERE u.is_instance_owner = 1 AND u.status = 'active'
+           AND m.status = 'active' AND m.role = 'owner'
+         ORDER BY m.created_at, m.id
+         LIMIT 1`,
+      )
+      .get() as OwnerRow | undefined;
+  }
+
+  #resolveVaultOwnerRow(vaultId: string): OwnerRow | undefined {
+    return this.#database
+      .prepare(
+        `SELECT u.id AS userId, m.vault_id AS vaultId, m.id AS membershipId
+         FROM users u
+         JOIN memberships m ON m.user_id = u.id
+         WHERE m.vault_id = ? AND u.status = 'active'
+           AND m.status = 'active' AND m.role = 'owner'
+         ORDER BY m.created_at, m.id
+         LIMIT 1`,
+      )
+      .get(vaultId) as OwnerRow | undefined;
   }
 
   #newUuid(): string {
