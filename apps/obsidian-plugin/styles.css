@@ -494,6 +494,16 @@
   margin-top: var(--size-4-2);
 }
 
+.havemind-getting-started-requirement {
+  padding: var(--size-4-2) var(--size-4-3);
+  border-left: 2px solid var(--interactive-accent);
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  font-size: var(--font-ui-small);
+  line-height: 1.5;
+}
+
 .havemind-step {
   display: flex;
   align-items: baseline;

@@ -58,10 +58,19 @@ describe('buildGettingStartedViewModel', () => {
     expect(footnote).toContain('docs/self-hosting.md');
   });
 
+  it('states up front that a self-hosted server is required and there is no cloud', () => {
+    const requirement =
+      buildGettingStartedViewModel().requirement.toLowerCase();
+    expect(requirement).toContain('server');
+    expect(requirement).toContain('no cloud');
+    expect(requirement).toContain('tailscale');
+  });
+
   it('never emits emoji in any user-facing string', () => {
     const model = buildGettingStartedViewModel();
     const strings = [
       model.title,
+      model.requirement,
       model.footnote,
       ...model.steps.flatMap((step) => [
         step.text,

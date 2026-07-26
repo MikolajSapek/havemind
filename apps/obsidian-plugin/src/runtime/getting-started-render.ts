@@ -34,6 +34,11 @@ export interface GettingStartedStep {
 /** The whole tutorial: a title, the ordered steps, and a closing footnote. */
 export interface GettingStartedViewModel {
   readonly title: string;
+  /**
+   * Up-front, unmissable statement that Havemind is not a cloud service and
+   * cannot work without a self-hosted server on the user's Tailscale network.
+   */
+  readonly requirement: string;
   readonly steps: readonly GettingStartedStep[];
   readonly footnote: string;
 }
@@ -47,6 +52,8 @@ export interface GettingStartedViewModel {
 export function buildGettingStartedViewModel(): GettingStartedViewModel {
   return {
     title: 'Getting started',
+    requirement:
+      'Havemind needs a self-hosted server on your Tailscale network — there is no cloud. Connect to one you were given, or run your own.',
     steps: [
       {
         number: 1,

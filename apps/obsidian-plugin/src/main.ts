@@ -141,6 +141,9 @@ function renderGettingStarted(
   const wrap = content.createDiv();
   wrap.addClass('havemind-getting-started');
   wrap.createEl('h4', { text: model.title });
+  wrap
+    .createDiv({ text: model.requirement })
+    .addClass('havemind-getting-started-requirement');
   for (const step of model.steps) {
     const row = wrap.createDiv();
     row.addClass('havemind-step');
