@@ -150,7 +150,7 @@ describe('plugin lifecycle', () => {
     const container = view?.containerEl as unknown as MockElement;
     expect(container.children[1]?.children.map(({ text }) => text)).toEqual([
       'Havemind activity',
-      'Connect a disposable vault to begin the private pilot.',
+      'No activity yet. Connect to a vault to see changes as they happen.',
     ]);
 
     registrationState.settingsTabs[0]?.display();

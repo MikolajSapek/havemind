@@ -92,7 +92,7 @@ export const HAVEMIND_ACTIVITY_VIEW = 'havemind-activity';
 export const HAVEMIND_ONBOARDING_VIEW = 'havemind-onboarding';
 
 const EMPTY_ACTIVITY_TEXT =
-  'Connect a disposable vault to begin the private pilot.';
+  'No activity yet. Connect to a vault to see changes as they happen.';
 
 /** Debounce window for the MRG-05 auto-repair sweep — a burst becomes one pass. */
 const CONFLICT_SWEEP_DEBOUNCE_MS = 2000;

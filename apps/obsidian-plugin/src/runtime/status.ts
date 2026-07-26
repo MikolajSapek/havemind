@@ -1,8 +1,9 @@
 /**
  * Status-bar model per `plan/05-plugin-polaczenie-i-sync.md`. Pure formatting so
  * the desktop shell can render a stable label plus a hover tooltip carrying the
- * last-sync time. The tooltip always states that the pilot has no end-to-end
- * encryption — honesty as a feature (`plan/01-zasady-i-slownik.md`).
+ * last-sync time. The tooltip always states that sync runs over a private
+ * Tailscale network only, with no end-to-end encryption — honesty as a feature
+ * (`plan/01-zasady-i-slownik.md`).
  */
 
 import type { SyncCycleStatus } from '../sync/sync-runner';
@@ -24,7 +25,7 @@ const LABELS: Readonly<Record<ConnectionStatus, string>> = {
   'reconnect-required': 'Reconnect required',
 };
 
-const NO_E2EE_NOTE = 'Pilot data: no end-to-end encryption.';
+const NO_E2EE_NOTE = 'Private Tailscale network only — no end-to-end encryption.';
 
 /** Maps a completed sync cycle status onto a status-bar connection status. */
 export function connectionStatusFromCycle(
