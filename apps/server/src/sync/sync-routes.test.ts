@@ -178,6 +178,11 @@ function createApp(
     maxPayloadBytes?: number;
     wakeRegistry?: VaultWakeRegistry;
     waitTimeoutMs?: number;
+    now?: () => Date;
+    maxHeldWaitsPerDevice?: number;
+    maxHeldWaitsGlobal?: number;
+    blobBurstBytes?: number;
+    blobRefillBytesPerSecond?: number;
     /**
      * Overrides the blob store used by the sync routes, letting a test
      * inject side effects (e.g. shrinking a vault's quota) at a precise
@@ -207,6 +212,19 @@ function createApp(
         ...(options?.waitTimeoutMs === undefined
           ? {}
           : { waitTimeoutMs: options.waitTimeoutMs }),
+        ...(options?.now === undefined ? {} : { now: options.now }),
+        ...(options?.maxHeldWaitsPerDevice === undefined
+          ? {}
+          : { maxHeldWaitsPerDevice: options.maxHeldWaitsPerDevice }),
+        ...(options?.maxHeldWaitsGlobal === undefined
+          ? {}
+          : { maxHeldWaitsGlobal: options.maxHeldWaitsGlobal }),
+        ...(options?.blobBurstBytes === undefined
+          ? {}
+          : { blobBurstBytes: options.blobBurstBytes }),
+        ...(options?.blobRefillBytesPerSecond === undefined
+          ? {}
+          : { blobRefillBytesPerSecond: options.blobRefillBytesPerSecond }),
       },
     },
     config,
@@ -1240,6 +1258,123 @@ describe('sync push/pull routes', () => {
       // dead connection (and the 10 s timer is cleared alongside it).
       await waitFor(() => registry.pendingCount(VAULT_A) === 0);
       expect(registry.pendingCount(VAULT_A)).toBe(0);
+    });
+
+    it('rejects a device holding more than the concurrent-/wait cap with 429', async () => {
+      const fixture = makeFixture();
+      const registry = new VaultWakeRegistry();
+      const app = createApp(fixture, {
+        wakeRegistry: registry,
+        waitTimeoutMs: 10_000,
+        maxHeldWaitsPerDevice: 2,
+      });
+
+      const heldOne = app.inject({
+        headers: { authorization: `Bearer ${fixture.accessTokenA}` },
+        method: 'GET',
+        url: `/vaults/${VAULT_A}/wait?cursor=0`,
+      });
+      const heldTwo = app.inject({
+        headers: { authorization: `Bearer ${fixture.accessTokenA}` },
+        method: 'GET',
+        url: `/vaults/${VAULT_A}/wait?cursor=0`,
+      });
+
+      await waitFor(() => registry.pendingCount(VAULT_A) === 2);
+
+      // The device already holds the cap of 2; the third /wait is refused
+      // immediately rather than opening another 25 s connection.
+      const excess = await app.inject({
+        headers: { authorization: `Bearer ${fixture.accessTokenA}` },
+        method: 'GET',
+        url: `/vaults/${VAULT_A}/wait?cursor=0`,
+      });
+      expect(excess.statusCode).toBe(429);
+      expect(excess.json()).toEqual({ error: { code: 'RATE_LIMITED' } });
+      // The rejected request never subscribed, so the held count is unchanged.
+      expect(registry.pendingCount(VAULT_A)).toBe(2);
+
+      // A committed revision wakes the two held waits, releasing both slots.
+      await push(app, fixture.accessTokenA, VAULT_A, [
+        revisionInput(REVISION_1, [], 'k1', 'opaque-1'),
+      ]);
+      expect((await heldOne).statusCode).toBe(200);
+      expect((await heldTwo).statusCode).toBe(200);
+      await waitFor(() => registry.pendingCount(VAULT_A) === 0);
+
+      // With both slots freed, a fresh /wait can acquire a hold again.
+      const afterRelease = app.inject({
+        headers: { authorization: `Bearer ${fixture.accessTokenA}` },
+        method: 'GET',
+        url: `/vaults/${VAULT_A}/wait?cursor=1`,
+      });
+      await waitFor(() => registry.pendingCount(VAULT_A) === 1);
+      await push(app, fixture.accessTokenA, VAULT_A, [
+        revisionInput(REVISION_2, [REVISION_1], 'k2', 'opaque-2'),
+      ]);
+      expect((await afterRelease).statusCode).toBe(200);
+    });
+  });
+
+  describe('AUD-08b blob-GET per-device byte throttle', () => {
+    it('throttles a device that pulls blobs beyond its byte budget and refills over time', async () => {
+      const fixture = makeFixture();
+      let clockMs = Date.parse(START_TIME);
+      const content = 'opaque-1'; // 8 bytes
+      const app = createApp(fixture, {
+        // 20-byte burst, no refill under a frozen clock: two 8-byte pulls fit,
+        // the third is over budget.
+        blobBurstBytes: 20,
+        blobRefillBytesPerSecond: 100,
+        now: () => new Date(clockMs),
+      });
+
+      const pushed = await push(app, fixture.accessTokenA, VAULT_A, [
+        revisionInput(REVISION_1, [], 'k1', content),
+      ]);
+      const blobHash = (
+        pushed.json() as { results: Array<{ receipt: { blobHash: string } }> }
+      ).results[0]?.receipt.blobHash;
+      expect(blobHash).toBeDefined();
+
+      const get = async () =>
+        app.inject({
+          headers: { authorization: `Bearer ${fixture.accessTokenA}` },
+          method: 'GET',
+          url: `/vaults/${VAULT_A}/blobs/${blobHash}`,
+        });
+
+      expect((await get()).statusCode).toBe(200);
+      expect((await get()).statusCode).toBe(200);
+      // Budget exhausted (4 bytes left, 8 needed) -> throttled.
+      const throttled = await get();
+      expect(throttled.statusCode).toBe(429);
+      expect(throttled.json()).toEqual({ error: { code: 'RATE_LIMITED' } });
+
+      // One second later the bucket has refilled to its cap and serves again.
+      clockMs += 1_000;
+      expect((await get()).statusCode).toBe(200);
+    });
+
+    it('leaves a handful of normal blob pulls unaffected under the default budget', async () => {
+      const fixture = makeFixture();
+      const app = createApp(fixture);
+
+      const pushed = await push(app, fixture.accessTokenA, VAULT_A, [
+        revisionInput(REVISION_1, [], 'k1', 'opaque-1'),
+      ]);
+      const blobHash = (
+        pushed.json() as { results: Array<{ receipt: { blobHash: string } }> }
+      ).results[0]?.receipt.blobHash;
+
+      for (let i = 0; i < 8; i += 1) {
+        const blob = await app.inject({
+          headers: { authorization: `Bearer ${fixture.accessTokenA}` },
+          method: 'GET',
+          url: `/vaults/${VAULT_A}/blobs/${blobHash}`,
+        });
+        expect(blob.statusCode).toBe(200);
+      }
     });
   });
 });

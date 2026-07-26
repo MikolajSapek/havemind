@@ -22,6 +22,7 @@ import {
   type RevisionRepositoryErrorCode,
 } from '../revision-repository.js';
 import type { AccessSession } from '../auth/session-repository.js';
+import { BlobByteRateLimiter, HeldWaitLimiter } from './device-throttles.js';
 import type { VaultWakeRegistry } from './vault-wake-registry.js';
 
 const UUID_PATTERN =
@@ -54,6 +55,7 @@ export type SyncErrorCode =
   | 'MISSING_PARENT'
   | 'NOT_FOUND'
   | 'QUOTA_EXCEEDED'
+  | 'RATE_LIMITED'
   | 'REVISION_ID_REUSE'
   | 'STORAGE_UNAVAILABLE'
   | 'UNAUTHENTICATED';
@@ -92,9 +94,38 @@ export interface SyncRoutesDeps {
    * ends the request cleanly. Injected for tests; defaults to 25_000.
    */
   readonly waitTimeoutMs?: number;
+  /**
+   * Injectable clock for the blob byte-rate token bucket, following the
+   * `now?: () => Date` idiom used elsewhere so the refill is deterministic in
+   * tests. Defaults to `() => new Date()`.
+   */
+  readonly now?: () => Date;
+  /**
+   * Max concurrently-held `/wait` long-polls per device (AUD-08b). A device
+   * needs only ~1 held wait at a time; the default comfortably exceeds normal
+   * use while bounding a member holding many connections at once.
+   */
+  readonly maxHeldWaitsPerDevice?: number;
+  /** Process-wide ceiling on concurrently-held `/wait` long-polls (AUD-08b). */
+  readonly maxHeldWaitsGlobal?: number;
+  /**
+   * Per-device blob-egress token bucket (AUD-08b). `blobBurstBytes` is the
+   * full starting budget (must comfortably cover an initial vault
+   * materialisation so normal sync never throttles); `blobRefillBytesPerSecond`
+   * is the sustained refill.
+   */
+  readonly blobBurstBytes?: number;
+  readonly blobRefillBytesPerSecond?: number;
 }
 
 const DEFAULT_WAIT_TIMEOUT_MS = 25_000;
+const DEFAULT_MAX_HELD_WAITS_PER_DEVICE = 4;
+const DEFAULT_MAX_HELD_WAITS_GLOBAL = 256;
+// Burst equals the default per-vault quota so a full initial materialisation of
+// a max-size vault is served in one burst without ever tripping the throttle;
+// the refill then bounds sustained egress well above any legitimate sync rate.
+const DEFAULT_BLOB_BURST_BYTES = 2 * 1024 * 1024 * 1024;
+const DEFAULT_BLOB_REFILL_BYTES_PER_SECOND = 64 * 1024 * 1024;
 
 const waitQuerySchema = z
   .object({
@@ -369,6 +400,21 @@ export function registerSyncRoutes(
 ): void {
   const maxBatchSize = deps.maxBatchSize ?? DEFAULT_MAX_BATCH_SIZE;
   const maxPayloadBytes = deps.maxPayloadBytes ?? DEFAULT_MAX_PAYLOAD_BYTES;
+  const now = deps.now ?? ((): Date => new Date());
+
+  // AUD-08b: the two rate-limiter-exempt reads (/wait, blob GET) get their own
+  // bounded per-device throttles, constructed once so their in-memory state
+  // persists across every request in this scope.
+  const heldWaits = new HeldWaitLimiter(
+    deps.maxHeldWaitsPerDevice ?? DEFAULT_MAX_HELD_WAITS_PER_DEVICE,
+    deps.maxHeldWaitsGlobal ?? DEFAULT_MAX_HELD_WAITS_GLOBAL,
+  );
+  const blobByteRate = new BlobByteRateLimiter(
+    deps.blobBurstBytes ?? DEFAULT_BLOB_BURST_BYTES,
+    (deps.blobRefillBytesPerSecond ?? DEFAULT_BLOB_REFILL_BYTES_PER_SECOND) /
+      1000,
+    now,
+  );
 
   instance.post('/vaults/:vaultId/revisions', async (request, reply) => {
     const params = vaultParamsSchema.safeParse(request.params);
@@ -618,6 +664,15 @@ export function registerSyncRoutes(
       return { cursor: current };
     }
 
+    // AUD-08b: cap concurrently-held long-polls per device (and globally)
+    // BEFORE opening another 25 s connection. A device needs only ~1 held wait
+    // at a time; refusing the excess with 429 stops a member from pinning many
+    // held connections at once. The slot is released in `teardown` below, which
+    // runs exactly once on resolve/timeout/abort.
+    if (!heldWaits.tryAcquire(session.deviceId)) {
+      return sendSyncError(reply, 429, 'RATE_LIMITED');
+    }
+
     const waitTimeoutMs = deps.waitTimeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS;
 
     return await new Promise<{ cursor: number }>((resolve) => {
@@ -626,6 +681,7 @@ export function registerSyncRoutes(
       const teardown = (): void => {
         clearTimeout(timer);
         unsubscribe();
+        heldWaits.release(session.deviceId);
         request.raw.removeListener('close', onClientGone);
         request.raw.removeListener('aborted', onClientGone);
       };
@@ -758,6 +814,14 @@ export function registerSyncRoutes(
       bytes = await deps.blobStore.read(params.data.blobHash as never);
     } catch {
       return sendSyncError(reply, 404, 'NOT_FOUND');
+    }
+
+    // AUD-08b: charge the blob's byte length against this device's egress
+    // token bucket. Over budget -> 429, so a member cannot stream unbounded
+    // bytes through the rate-limiter-exempt blob route. The bucket starts full
+    // and refills, so a normal catch-up drain (many blobs) is never throttled.
+    if (!blobByteRate.tryConsume(session.deviceId, bytes.byteLength)) {
+      return sendSyncError(reply, 429, 'RATE_LIMITED');
     }
 
     reply.header('cache-control', 'no-store');
