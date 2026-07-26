@@ -9,6 +9,7 @@
  * client alone decodes them.
  */
 
+import { sha256Hex } from '@havemind/protocol';
 import { decodeRevisionPayload, type DecodedRevisionPayload } from '@havemind/sync-core';
 
 import type { RemoteEvent } from '../sync/sync-runner';
@@ -40,6 +41,34 @@ export class BlobFetchError extends Error {
   override readonly name = 'BlobFetchError';
 }
 
+/**
+ * The downloaded blob bytes did not hash to the `blobHash` the receipt/revision
+ * promised. The server is opaque and does NOT re-hash on read (a deliberate
+ * read-hot-path perf choice — see `apps/server/src/blob-store.ts`), so the
+ * CLIENT is the only party that can detect corrupted, tampered, or wrong-blob
+ * responses. The bytes are rejected BEFORE decode, so bad content is never
+ * materialised into the vault.
+ *
+ * `permanent` marks this as a per-item failure the same bytes will never
+ * satisfy: it must be quarantined/dead-lettered rather than retried forever
+ * (mirrors the `permanent` contract on the push path — see `isPermanentError`
+ * in `sync/sync-runner.ts`).
+ */
+export class BlobIntegrityError extends Error {
+  override readonly name = 'BlobIntegrityError';
+  readonly permanent = true;
+  readonly expectedHash: string;
+  readonly actualHash: string;
+
+  constructor(expectedHash: string, actualHash: string) {
+    super(
+      `Blob for ${expectedHash} failed integrity verification: downloaded bytes hash to ${actualHash}.`,
+    );
+    this.expectedHash = expectedHash;
+    this.actualHash = actualHash;
+  }
+}
+
 export function buildConnectionResolvers(
   options: ConnectionResolverOptions,
 ): ConnectionResolvers {
@@ -60,7 +89,19 @@ export function buildConnectionResolvers(
           `Blob fetch for ${event.revision.contentHash} returned HTTP ${response.status}.`,
         );
       }
-      return decodeRevisionPayload(response.text ?? '');
+      const body = response.text ?? '';
+      // Integrity gate: the server is opaque and never re-hashes on read, so the
+      // client must verify the downloaded bytes hash to the expected blobHash
+      // (`revision.contentHash`, the receipt's content-addressed hash) BEFORE
+      // decoding or applying them. `sha256Hex` is the exact helper the protocol
+      // and server use to derive that hash (UTF-8 bytes → 64-char lowercase hex),
+      // so a corrupted, tampered, or wrong-blob response is caught here instead
+      // of being silently materialised into the vault.
+      const actualHash = await sha256Hex(body);
+      if (actualHash !== event.revision.contentHash) {
+        throw new BlobIntegrityError(event.revision.contentHash, actualHash);
+      }
+      return decodeRevisionPayload(body);
     },
   };
 }
