@@ -80,15 +80,23 @@ Obsidian plugin (Vault B) ─┘   real-time /wait wake     content-addressed bl
   container.
 - **Shared packages** (`packages/protocol`, `packages/sync-core`,
   `packages/crypto`): wire schemas (Zod), revision DAG and provenance, 3-way
-  merge, payload codec (markdown + binary), canonicalization, E2EE primitives.
+  merge, payload codec (markdown + binary), canonicalization, and crypto
+  primitives (present but unused — security is Tailscale-only, see below).
 
-## Security model (pilot)
+## Security model
 
-The current pilot payload format is intentionally plaintext over the tailnet.
-End-to-end encryption is a hard gate before any real vault is connected; the
-disposable plaintext pilot will never be upgraded in place. Secrets never appear
-in the repository, logs or reports. See
-[docs/pilot/known-limitations.md](docs/pilot/known-limitations.md) for current
+Havemind's security rests on **Tailscale**, not on application-layer encryption.
+The server is reachable only over your private tailnet — never the public internet
+— and all traffic between devices and the server is encrypted in transit by
+Tailscale (WireGuard), with per-device authentication.
+
+Content is stored on the server in plaintext, so **the trust boundary is the
+machine you run the server on**: anyone who controls that box can read the vault.
+Run it on hardware you and your circle trust, keep it tailnet-only (never enable
+Tailscale Funnel), and treat server access as vault access. End-to-end encryption
+is deliberately out of scope — this is a small, self-hosted, trusted-circle tool,
+not a zero-trust service. Secrets never appear in the repository, logs or reports.
+See [docs/pilot/known-limitations.md](docs/pilot/known-limitations.md) for current
 operational caveats.
 
 ## Documents
