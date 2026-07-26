@@ -21,6 +21,10 @@ knowledge base, live, with full authorship and zero silent overwrites.
 **Version 0.9.0 — release candidate.** Feature-complete and hardened; in a 7-day
 live trial before 1.0.
 
+**Self-hosting your own instance?** See
+[docs/self-hosting.md](docs/self-hosting.md) for the full zero-to-working
+guide (Docker Compose + Tailscale, tailnet-only).
+
 ## What it does
 
 - **Real-time two-way sync (~1 second).** A long-poll wake channel pushes a
