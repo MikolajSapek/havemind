@@ -1,5 +1,20 @@
 # SRV-03 — Restic backup to NAS via rclone SMB (sapserver runbook)
 
+> ⚠️ **NOT ACTIVE — do not rely on this for backup (audit #10).** This runbook is
+> **not wired to real data and is not verified**:
+> - `HAVEMIND_APPDATA` defaults to a **staging directory** (`~/havemind-ops/staging`),
+>   **not** the live Docker named volume `havemind_havemind-data`. As configured it
+>   would back up an empty/wrong path — it does **not** protect the vault.
+> - The SMB target `192.168.254.10` is a **UniFi Cloud Key, not a NAS** — SMB backup
+>   to it is not possible; a real backup destination must be provisioned first.
+> - Backup is **deliberately deferred for the pilot** (explicit user decision: zero
+>   off-host backup, data only on the user's own hardware). See
+>   `docs/pilot/known-limitations.md`.
+>
+> **Release gate:** no 1.0 release until a backup targets the real volume AND a
+> restore drill onto a clean instance is confirmed. Until then, treat the server's
+> data volume as the only copy.
+
 Encrypted Restic repository on the local-network NAS (SMB share `backup` at
 `192.168.254.10`), retention 7 daily / 4 weekly / 6 monthly.
 

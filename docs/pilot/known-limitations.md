@@ -34,3 +34,18 @@ ostrzeżenia.
 Synchronizują się wyłącznie pliki `.md`. Załączniki binarne (obrazy, PDF) są
 raportowane jako „N not synced (markdown only)" — pełne wsparcie w F9 (po
 pilotażu).
+
+## Brak backupu (AUD-10)
+
+Backup jest **świadomie odłożony na czas pilota** (decyzja użytkownika: zero
+backupu poza serwerem, dane wyłącznie na własnym sprzęcie). Skrypty Restic w
+`ops/sapserver/restic/` **nie są aktywne ani zweryfikowane**: domyślnie celują w
+katalog *staging* (`~/havemind-ops/staging`), a nie w prawdziwy wolumin
+`havemind_havemind-data`, a wskazany cel SMB `192.168.254.10` to UniFi Cloud Key,
+nie NAS — backup po SMB jest tam niewykonalny.
+
+**Skutek:** w trakcie pilota jedyną kopią danych jest wolumin serwera. Awaria
+dysku = utrata danych.
+
+**Bramka przed 1.0:** brak wydania, dopóki backup nie celuje w prawdziwy wolumin i
+nie przejdzie próbnego odtworzenia (restore drill) na czystej instancji.
