@@ -39,6 +39,10 @@ import {
 import { RerunGuard } from './runtime/rerun-guard';
 import type { RevisionRecord } from './activity/activity';
 import { buildActivityViewModel } from './runtime/activity-render';
+import {
+  buildGettingStartedViewModel,
+  type GettingStartedViewModel,
+} from './runtime/getting-started-render';
 import { restoreActivityEntry } from './runtime/activity-restore';
 import {
   ActivityLog,
@@ -120,6 +124,41 @@ function renderViewTitle(content: HTMLElement, text: string): void {
   const icon = heading.createEl('span');
   icon.addClass('havemind-title-icon');
   setIcon(icon, 'hexagon');
+}
+
+/**
+ * Renders the in-plugin "Getting started" tutorial: a small heading, the
+ * numbered single-line steps (each with an accent number badge), and a closing
+ * footnote. Content comes from the pure `buildGettingStartedViewModel` helper so
+ * the wording, ordering and doc link stay unit-tested; this function only maps
+ * that data onto the panel's existing list-and-hint visual language. Presentation
+ * only — it wires to no backend call.
+ */
+function renderGettingStarted(
+  content: HTMLElement,
+  model: GettingStartedViewModel,
+): void {
+  const wrap = content.createDiv();
+  wrap.addClass('havemind-getting-started');
+  wrap.createEl('h4', { text: model.title });
+  for (const step of model.steps) {
+    const row = wrap.createDiv();
+    row.addClass('havemind-step');
+    const badge = row.createEl('span', { text: String(step.number) });
+    badge.addClass('havemind-step-number');
+    const body = row.createDiv();
+    body.addClass('havemind-step-text');
+    body.createEl('span', { text: step.text });
+    if (step.docRef) {
+      body.createEl('span', { text: ' ' });
+      const link = body.createEl('a', {
+        text: step.docRef.label,
+        attr: { href: step.docRef.url },
+      });
+      link.addClass('havemind-step-link');
+    }
+  }
+  wrap.createDiv({ text: model.footnote }).addClass('havemind-hint');
 }
 
 /**
@@ -780,6 +819,12 @@ export class HavemindOnboardingView extends ItemView {
     role: InvitationRole;
     name: string;
   } = { token: '', server: '', role: 'editor', name: '' };
+  /**
+   * Whether the collapsed "Getting started" help is expanded in the connected
+   * panel. Disconnected users always see the tutorial; once connected it hides
+   * behind a small help button so it is discoverable without nagging.
+   */
+  private helpOpen = false;
   /** Live input elements from the current render, read during the next one. */
   private liveInputs: {
     token?: HTMLElement;
@@ -857,6 +902,11 @@ export class HavemindOnboardingView extends ItemView {
     renderSection(content, 'conflicts', () => this.renderConflicts(content));
     renderSection(content, 'connection', () => {
       if (panel.showForm) {
+        // Disconnected/empty state is the tutorial's natural home: show the
+        // numbered "Getting started" steps above the connect form so a fresh
+        // user knows exactly what to do before pasting anything.
+        renderGettingStarted(content, buildGettingStartedViewModel());
+        content.createEl('hr').addClass('havemind-divider');
         this.renderForm(content);
       } else {
         this.renderConnected(content);
@@ -940,7 +990,41 @@ export class HavemindOnboardingView extends ItemView {
     });
   }
 
+  /**
+   * The collapsed help affordance for the connected panel: a small life-buoy
+   * icon button that toggles the "Getting started" steps in place. It never
+   * nags — the steps stay hidden until the user asks for them, and re-opening
+   * them touches no connection state.
+   */
+  private renderHelpAffordance(content: HTMLElement): void {
+    const bar = content.createDiv();
+    bar.addClass('havemind-help-bar');
+    const toggle = bar.createEl('button', {
+      attr: {
+        'aria-label': this.helpOpen
+          ? 'Hide getting started'
+          : 'Show getting started',
+        'aria-expanded': this.helpOpen ? 'true' : 'false',
+      },
+    });
+    toggle.addClass('havemind-help-toggle');
+    setIcon(toggle.createEl('span'), 'life-buoy');
+    toggle.onClickEvent(() => {
+      this.helpOpen = !this.helpOpen;
+      this.render();
+    });
+    if (this.helpOpen) {
+      renderGettingStarted(content, buildGettingStartedViewModel());
+      content.createEl('hr').addClass('havemind-divider');
+    }
+  }
+
   private renderConnected(content: HTMLElement): void {
+    // Once connected the tutorial collapses to a small, unobtrusive help button
+    // near the panel title; clicking it re-opens the same "Getting started"
+    // steps in place, so the guidance stays discoverable without nagging.
+    this.renderHelpAffordance(content);
+
     // Presence roster makes "connected" unambiguous for the invitee (and owner):
     // once approval succeeds the panel clearly lists who is connected.
     const roster = this.options.rejoinRosterProvider?.();

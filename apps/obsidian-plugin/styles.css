@@ -485,6 +485,78 @@
   font-size: var(--font-ui-smaller);
 }
 
+/* -------------------------------------------------------------------------
+   "Getting started" tutorial — numbered rows shown in the disconnected
+   state (above the connect form) and re-opened from the connected panel's
+   help button. Numbers carry the accent; text stays in the normal ink.
+   ------------------------------------------------------------------------- */
+.havemind-getting-started > * + * {
+  margin-top: var(--size-4-2);
+}
+
+.havemind-step {
+  display: flex;
+  align-items: baseline;
+  gap: var(--size-4-2);
+  line-height: 1.5;
+}
+
+/* A small accent-outlined number badge — the step's primary signal. */
+.havemind-step-number {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.4em;
+  height: 1.4em;
+  border: 1px solid var(--havemind-accent);
+  border-radius: 50%;
+  color: var(--havemind-accent);
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-medium);
+  line-height: 1;
+}
+
+.havemind-step-text {
+  color: var(--text-normal);
+  font-size: var(--font-ui-small);
+}
+
+/* The inline self-hosting link reads as an accent text action, not a button. */
+.havemind-step-link,
+.havemind-view a.havemind-step-link {
+  color: var(--havemind-accent);
+  text-decoration: none;
+}
+
+.havemind-view a.havemind-step-link:hover {
+  text-decoration: underline;
+}
+
+/* Collapsed help affordance in the connected panel: a quiet icon button that
+   toggles the tutorial. Right-aligned so it never competes with the roster. */
+.havemind-help-bar {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.havemind-help-toggle,
+.havemind-view button.havemind-help-toggle {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--size-4-1);
+  border: none;
+  box-shadow: none;
+  background: transparent;
+  color: var(--havemind-quiet);
+  cursor: pointer;
+}
+
+.havemind-view button.havemind-help-toggle:hover {
+  background: transparent;
+  color: var(--havemind-accent);
+}
+
 /* =========================================================================
    8. Owner "Create connection" panel
    ========================================================================= */
