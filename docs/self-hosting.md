@@ -129,6 +129,27 @@ docker compose -f deploy/compose.yaml exec havemind-server \
 Piotrek and Kuba share `TeamA`; Maciek and Janek share `TeamB`. Neither pair
 can see the other vault — same server, same tailnet, zero data overlap.
 
+### Recovering a lost or expired token
+
+Pairing tokens are single-use and expire. If a vault owner loses their token
+before pairing, or their only device dies and they need to pair a replacement,
+re-issue a fresh token for that specific vault — this works for any vault owner,
+not just the instance owner:
+
+```bash
+# Instance owner (the first vault) — no flag needed:
+docker compose -f deploy/compose.yaml exec havemind-server \
+  node apps/server/bin/havemind.js rotate-pairing
+
+# Any additional vault created with create-vault — pass its vault id:
+docker compose -f deploy/compose.yaml exec havemind-server \
+  node apps/server/bin/havemind.js rotate-pairing --vault <vaultId>
+```
+
+The vault id is printed by `create-vault` (step d). Rotating invalidates that
+vault's previous unpaired token and prints a new single-use one; other vaults are
+untouched.
+
 ## e. Front it with Tailscale
 
 The container only ever listens on `127.0.0.1` on the host — `tailscale
