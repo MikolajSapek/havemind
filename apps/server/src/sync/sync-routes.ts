@@ -468,13 +468,30 @@ export function registerSyncRoutes(
         }
     > = [];
     for (const revision of ordered) {
-      const stored = await deps.blobStore.put(revision.payload);
       try {
+        const actor = {
+          deviceId: session.deviceId,
+          memberId: membership.membershipId,
+        };
+        // Validate-before-write (audit fix #7): run the authoritative reject
+        // checks (MISSING_PARENT, bad graph, over-quota, id/idempotency reuse)
+        // read-only, using the in-memory payload's own hash and byte length,
+        // BEFORE any bytes touch the content-addressed store. A rejected commit
+        // therefore never persists a blob, so a member replaying large payloads
+        // with a nonexistent parent can no longer grow the shared data-root
+        // without bound. Only when the request is deemed committable do we
+        // persist the blob and run the authoritative, TOCTOU-safe commit.
+        const blobHash = await hashBlob(revision.payload);
+        await deps.revisions.assertCommittable({
+          actor,
+          blobHash,
+          blobSize: revision.payload.byteLength,
+          header: revision.header,
+          idempotencyKey: revision.idempotencyKey,
+        });
+        const stored = await deps.blobStore.put(revision.payload);
         const result = await deps.revisions.commitRevision({
-          actor: {
-            deviceId: session.deviceId,
-            memberId: membership.membershipId,
-          },
+          actor,
           blobHash: stored.hash,
           header: revision.header,
           idempotencyKey: revision.idempotencyKey,
@@ -516,12 +533,16 @@ export function registerSyncRoutes(
           return sendCommitError(reply, error);
         }
         if (error instanceof RevisionRepositoryError) {
-          // The blob bytes for this rejected revision are left on disk. They
-          // are content-addressed and may still be referenced by another
-          // concurrently-committing request for the same bytes, so deleting
-          // here would race; any truly orphaned blob is instead reclaimed by
-          // the startup sweep (`sweepOrphanedBlobs` in blob-gc.ts), which only
-          // runs when no push can be concurrently committing.
+          // With validate-before-write above, a domain rejection is normally
+          // raised by `assertCommittable` BEFORE any blob is written, so the
+          // common case leaves nothing on disk. A blob can only linger if this
+          // authoritative commit rejects AFTER the read-only pre-check passed
+          // (a rare concurrent interleave, not attacker-forceable at will). We
+          // must NOT delete it here: it is content-addressed and a concurrent
+          // request for the same bytes may already reference it, so deleting
+          // would race. Any such residual orphan is bounded by quota and
+          // reclaimed by the startup sweep (`sweepOrphanedBlobs` in blob-gc.ts),
+          // which only runs when no push can be concurrently committing.
           results.push({
             code: SYNC_CODE_BY_REPOSITORY_CODE[error.code],
             revisionId: revision.header.revisionId,

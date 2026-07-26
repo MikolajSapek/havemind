@@ -506,7 +506,7 @@ describe('sync push/pull routes', () => {
     ]);
   });
 
-  it('leaves a rejected revision blob on disk for the startup sweep, while keeping blobs accepted revisions reference', async () => {
+  it('writes no blob for a revision rejected mid-batch, while keeping blobs accepted revisions reference (audit fix #7)', async () => {
     const fixture = makeFixture();
     const app = createApp(fixture);
 
@@ -531,13 +531,11 @@ describe('sync push/pull routes', () => {
     expect(byId.get(REVISION_1)?.code).toBe('REVISION_ID_REUSE');
     expect(byId.get(REVISION_2)?.status).toBe('accepted');
 
-    // The rejected revision's payload was written to disk before the domain
-    // rejection (blobStore.put runs ahead of commitRevision). The request hot
-    // path must NOT delete it: deleting here would race a concurrent request
-    // committing a revision that references the same hash. The orphan is
-    // reclaimed later, only by the startup sweep (see blob-gc.test.ts).
+    // Validate-before-write: the rejected revision is caught by the read-only
+    // feasibility check BEFORE its payload is persisted, so no orphan bytes
+    // reach the content-addressed store (audit fix #7 — the disk-fill vector).
     const orphanHash = await hashBlob(Buffer.from(rejectedContent, 'utf8'));
-    expect(existsSync(fixture.blobStore.pathForHash(orphanHash))).toBe(true);
+    expect(existsSync(fixture.blobStore.pathForHash(orphanHash))).toBe(false);
 
     // Blobs referenced by committed revisions (the original REVISION_1
     // content and the accepted REVISION_2) must remain readable regardless.
@@ -545,6 +543,8 @@ describe('sync push/pull routes', () => {
     const acceptedHash = await hashBlob(Buffer.from('opaque-2', 'utf8'));
     expect(existsSync(fixture.blobStore.pathForHash(originalHash))).toBe(true);
     expect(existsSync(fixture.blobStore.pathForHash(acceptedHash))).toBe(true);
+    // Only the two referenced blobs exist on disk — nothing orphaned.
+    expect(await fixture.blobStore.listHashes()).toHaveLength(2);
 
     const pulled = await app.inject({
       headers: { authorization: `Bearer ${fixture.accessTokenA}` },
@@ -556,6 +556,113 @@ describe('sync push/pull routes', () => {
       REVISION_1,
       REVISION_2,
     ]);
+  });
+
+  it('writes no blob when a revision is rejected for MISSING_PARENT (audit fix #7)', async () => {
+    const fixture = makeFixture();
+    const app = createApp(fixture);
+
+    // The core audit vector: a member repeatedly pushes a large payload that
+    // names a nonexistent parent. Each push is rejected MISSING_PARENT — and
+    // must persist NO blob, or the shared data-root grows without bound.
+    const rejected = await push(app, fixture.accessTokenA, VAULT_A, [
+      revisionInput(REVISION_2, [REVISION_1], 'k-missing', 'orphan-payload'),
+    ]);
+
+    expect(rejected.statusCode).toBe(200);
+    const result = (rejected.json() as {
+      results: Array<{ revisionId: string; status: string; code?: string }>;
+    }).results[0];
+    expect(result?.status).toBe('rejected');
+    expect(result?.code).toBe('MISSING_PARENT');
+
+    // No bytes reached the content-addressed store.
+    expect(await fixture.blobStore.listHashes()).toHaveLength(0);
+  });
+
+  it('persists blob and revision together on an accepted commit', async () => {
+    const fixture = makeFixture();
+    const app = createApp(fixture);
+
+    const pushed = await push(app, fixture.accessTokenA, VAULT_A, [
+      revisionInput(REVISION_1, [], 'k1', 'opaque-1'),
+    ]);
+    expect(pushed.statusCode).toBe(200);
+
+    // The accepted commit is atomic from the client's view: the blob is on disk
+    // AND the revision is durably pullable.
+    const acceptedHash = await hashBlob(Buffer.from('opaque-1', 'utf8'));
+    expect(existsSync(fixture.blobStore.pathForHash(acceptedHash))).toBe(true);
+    expect(await fixture.blobStore.listHashes()).toHaveLength(1);
+
+    const pulled = await app.inject({
+      headers: { authorization: `Bearer ${fixture.accessTokenA}` },
+      method: 'GET',
+      url: `/vaults/${VAULT_A}/events`,
+    });
+    const pull = pulled.json() as { events: Array<{ revisionId: string }> };
+    expect(pull.events.map((event) => event.revisionId)).toEqual([REVISION_1]);
+  });
+
+  it('leaves no orphan when concurrent commits push identical bytes', async () => {
+    const fixture = makeFixture();
+    const app = createApp(fixture);
+
+    // Two files sharing identical payload bytes, committed concurrently. The
+    // content-addressed store must dedupe to a single blob with no corruption
+    // and no delete-in-use, and both revisions must be durably committed.
+    const sharedContent = 'shared-identical-bytes';
+    const [first, second] = await Promise.all([
+      push(app, fixture.accessTokenA, VAULT_A, [
+        revisionInput(REVISION_1, [], 'k1', sharedContent),
+      ]),
+      push(app, fixture.accessTokenA, VAULT_A, [
+        revisionInput(REVISION_2, [], 'k2', sharedContent, {
+          fileId: '70000000-0000-4000-8000-0000000000c5',
+        }),
+      ]),
+    ]);
+    expect(first.statusCode).toBe(200);
+    expect(second.statusCode).toBe(200);
+
+    const sharedHash = await hashBlob(Buffer.from(sharedContent, 'utf8'));
+    expect(existsSync(fixture.blobStore.pathForHash(sharedHash))).toBe(true);
+    // Deduplicated: exactly one blob on disk for the identical bytes.
+    expect(await fixture.blobStore.listHashes()).toEqual([sharedHash]);
+    // Still readable (no delete-in-use corrupted or removed it).
+    await expect(fixture.blobStore.read(sharedHash)).resolves.toEqual(
+      Buffer.from(sharedContent, 'utf8'),
+    );
+
+    const pulled = await app.inject({
+      headers: { authorization: `Bearer ${fixture.accessTokenA}` },
+      method: 'GET',
+      url: `/vaults/${VAULT_A}/events`,
+    });
+    const pull = pulled.json() as { events: Array<{ revisionId: string }> };
+    expect(pull.events.map((event) => event.revisionId).sort()).toEqual(
+      [REVISION_1, REVISION_2].sort(),
+    );
+  });
+
+  it('rejects an over-quota batch before any blob is staged (staged bytes counted)', async () => {
+    const fixture = makeFixture();
+    const app = createApp(fixture);
+
+    // Budget fits one 8-byte payload but not two: the second distinct blob in
+    // the same batch pushes the projected total past quota, so the whole
+    // request is rejected before ANY payload is written.
+    setVaultQuota(fixture.database, VAULT_A, 12);
+    const overBatch = await push(app, fixture.accessTokenA, VAULT_A, [
+      revisionInput(REVISION_1, [], 'k1', 'aaaaaaaa'),
+      revisionInput(REVISION_2, [], 'k2', 'bbbbbbbb', {
+        fileId: '70000000-0000-4000-8000-0000000000c6',
+      }),
+    ]);
+
+    expect(overBatch.statusCode).toBe(413);
+    expect(overBatch.json()).toEqual({ error: { code: 'QUOTA_EXCEEDED' } });
+    expect(await fixture.blobStore.listHashes()).toHaveLength(0);
   });
 
   it('rejects a header whose vault or actor does not match the session with 403', async () => {

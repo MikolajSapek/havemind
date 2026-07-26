@@ -69,6 +69,17 @@ export interface CommitRevisionResult {
   readonly status: 'accepted' | 'replayed';
 }
 
+/**
+ * Input for the read-only pre-commit feasibility check (`assertCommittable`).
+ * Unlike {@link CommitRevisionInput} it carries the blob's `blobSize` directly
+ * so the check needs NO on-disk blob: callers run it BEFORE persisting bytes to
+ * the content-addressed store, so a request that would be rejected never writes
+ * a blob (audit fix #7 — no orphaned CAS bytes from a rejected commit).
+ */
+export interface CommitFeasibilityInput extends CommitRevisionInput {
+  readonly blobSize: number;
+}
+
 export interface StoredRevisionEvent {
   readonly fileId: string;
   readonly receipt: OpaqueBlobReceipt;
@@ -415,6 +426,33 @@ export class RevisionRepository {
     return commit.immediate();
   }
 
+  /**
+   * Read-only pre-commit feasibility check. Runs exactly the reject conditions
+   * of {@link commitRevision} — actor authorisation, vault existence, revision
+   * id / idempotency consistency, per-vault quota and the file-graph checks
+   * (MISSING_PARENT, PARENT_FILE_MISMATCH, FILE_ALREADY_EXISTS,
+   * HEAD_SET_CHANGED) — WITHOUT mutating anything and WITHOUT needing the blob
+   * on disk. Throws the same {@link RevisionRepositoryError} codes a real
+   * commit would.
+   *
+   * The sync route calls this BEFORE writing the payload to the CAS, so a
+   * revision that would be rejected never persists a blob → no orphaned bytes
+   * (audit fix #7). It is advisory only: {@link commitRevision} re-runs every
+   * check under the `BEGIN IMMEDIATE` write lock as the authoritative,
+   * TOCTOU-safe pass. A rare interleave where this check passes but the
+   * authoritative commit then rejects can still leave a blob; that residual
+   * orphan is bounded by quota and reclaimed by the startup sweep — it is not
+   * the attacker-amplifiable unbounded vector this check closes.
+   */
+  public async assertCommittable(input: CommitFeasibilityInput): Promise<void> {
+    const base = await this.#prepareHeader(input);
+    const prepared: PreparedCommit = { ...base, blobSize: input.blobSize };
+    const check = this.#database.transaction(() =>
+      this.#assertWouldCommit(prepared),
+    );
+    check();
+  }
+
   /** Returns the current canonical head set for a file. */
   public getHeads(vaultId: string, fileId: string): string[] {
     const rows = this.#database
@@ -486,6 +524,21 @@ export class RevisionRepository {
   }
 
   async #prepareCommit(input: CommitRevisionInput): Promise<PreparedCommit> {
+    const base = await this.#prepareHeader(input);
+    const blobBytes = await this.#readVerifiedBlob(base.blobHash);
+    return { ...base, blobSize: blobBytes.byteLength };
+  }
+
+  /**
+   * Validates and hashes everything about a commit that does NOT require the
+   * blob on disk: header/actor authorisation and any REVISION_ID_REUSE against
+   * an already-stored revision. Shared by {@link commitRevision} (which then
+   * reads+verifies the blob to charge its size) and {@link assertCommittable}
+   * (which supplies the size directly, never touching disk).
+   */
+  async #prepareHeader(
+    input: CommitRevisionInput,
+  ): Promise<Omit<PreparedCommit, 'blobSize'>> {
     const header = protectedRevisionHeaderSchema.parse(input.header);
     const blobHash = blobHashSchema.parse(input.blobHash);
     const idempotencyKey = validateIdempotencyKey(input.idempotencyKey);
@@ -540,8 +593,7 @@ export class RevisionRepository {
       assertStoredRevisionMatches(existing, candidate);
     }
 
-    const blobBytes = await this.#readVerifiedBlob(blobHash);
-    return { ...preparedWithoutBlob, blobSize: blobBytes.byteLength };
+    return preparedWithoutBlob;
   }
 
   async #readVerifiedBlob(hash: BlobHash): Promise<Buffer> {
@@ -588,6 +640,38 @@ export class RevisionRepository {
     }
 
     return this.#commitNewRevision(prepared, vault);
+  }
+
+  /**
+   * Read-only mirror of {@link #commitPrepared}'s reject conditions, run inside
+   * a snapshot by {@link assertCommittable}. It performs NO inserts and NO
+   * cursor advance — it only throws the codes a real commit would. An
+   * already-committed matching revision (idempotent replay) references its own
+   * blob, so it is treated as committable.
+   */
+  #assertWouldCommit(prepared: PreparedCommit): void {
+    this.#assertAuthorizedActor(prepared.actor, prepared.header);
+    const vault = this.#getVault(prepared.header.vaultId);
+    const existing = getExistingRevision(
+      this.#database,
+      prepared.header.revisionId,
+    );
+    if (existing !== undefined) {
+      assertStoredRevisionMatches(existing, prepared);
+      return;
+    }
+
+    const idempotency = this.#getIdempotencyRecord(prepared);
+    if (idempotency !== undefined) {
+      this.#assertIdempotencyRequest(idempotency, prepared);
+      throw new RevisionRepositoryError(
+        'REPOSITORY_INTEGRITY',
+        'Idempotency response exists without its committed revision.',
+      );
+    }
+
+    this.#assertWithinQuota(prepared, vault);
+    this.#assertFileGraphCommittable(prepared);
   }
 
   #replayExisting(
@@ -884,6 +968,31 @@ export class RevisionRepository {
     prepared: PreparedCommit,
     serverTime: string,
   ): void {
+    const isRootCreate = this.#assertFileGraphCommittable(prepared);
+    if (isRootCreate) {
+      this.#database
+        .prepare(
+          `INSERT INTO files (id, vault_id, created_at)
+           VALUES (?, ?, ?)`,
+        )
+        .run(
+          prepared.header.fileId,
+          prepared.header.vaultId,
+          serverTime,
+        );
+    }
+  }
+
+  /**
+   * Read-only half of {@link #validateAndPrepareFileGraph}: throws every
+   * file-graph reject code (MISSING_PARENT, PARENT_FILE_MISMATCH,
+   * FILE_ALREADY_EXISTS, HEAD_SET_CHANGED) WITHOUT inserting anything. Returns
+   * `true` when the revision is a new root file whose `files` row must be
+   * created by the mutating caller, `false` otherwise. Shared verbatim by the
+   * authoritative commit and the read-only {@link assertCommittable} pre-check,
+   * so the two can never drift.
+   */
+  #assertFileGraphCommittable(prepared: PreparedCommit): boolean {
     const { fileId, parentRevisionIds, vaultId } = prepared.header;
     const file = this.#database
       .prepare(
@@ -905,13 +1014,7 @@ export class RevisionRepository {
         );
       }
 
-      this.#database
-        .prepare(
-          `INSERT INTO files (id, vault_id, created_at)
-           VALUES (?, ?, ?)`,
-        )
-        .run(fileId, vaultId, serverTime);
-      return;
+      return true;
     }
 
     if (file === undefined) {
@@ -957,6 +1060,8 @@ export class RevisionRepository {
         );
       }
     }
+
+    return false;
   }
 
   #insertIdempotencyRecord(
