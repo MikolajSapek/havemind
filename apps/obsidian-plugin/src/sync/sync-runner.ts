@@ -146,6 +146,19 @@ export interface OpenBuffer {
  */
 export type RemoteApplyOutcome = 'applied' | 'conflict' | 'noop';
 
+/**
+ * Per-apply hints the runner threads into `applyRemote`. `bootstrap` marks an
+ * apply that belongs to the one-time initial catch-up after connect (the first
+ * pull materialising a PRE-EXISTING vault onto this device). The vault side uses
+ * it only to label the resulting Activity entry — the sync/materialisation of the
+ * file is identical whether or not the flag is set. It is what lets the Activity
+ * feed collapse the bootstrap replay to silence while still recording every live
+ * peer edit that arrives afterwards.
+ */
+export interface RemoteApplyOptions {
+  readonly bootstrap?: boolean;
+}
+
 export interface VaultApplyPort {
   /** Every open leaf/popout buffer for the target file. */
   openBuffers(fileId: string): Promise<readonly OpenBuffer[]>;
@@ -153,8 +166,13 @@ export interface VaultApplyPort {
    * Write the remote revision content to the vault file, subject to the vault's
    * own on-disk overwrite guard. Returns what it did so the runner can report a
    * conflict the on-disk guard raised even though the buffer guard was clean.
+   * `options.bootstrap` marks an apply from the initial catch-up so the Activity
+   * feed can stay quiet for the bootstrap replay (see {@link RemoteApplyOptions}).
    */
-  applyRemote(event: RemoteEvent): Promise<RemoteApplyOutcome>;
+  applyRemote(
+    event: RemoteEvent,
+    options?: RemoteApplyOptions,
+  ): Promise<RemoteApplyOutcome>;
   /** Record a visible conflict artifact without overwriting the active file. */
   recordConflict(event: RemoteEvent): Promise<void>;
 }
@@ -310,6 +328,17 @@ export class SyncRunner {
   private failureCount = 0;
   private cycleCounter = 0;
   private stopped = false;
+  /**
+   * The server head observed on the FIRST pull after this runner was built (a
+   * runner is rebuilt per connection). Every remote event at or below it belongs
+   * to the one-time initial catch-up that materialises the pre-existing vault, so
+   * its applies are flagged `bootstrap` and stay quiet in the Activity feed; an
+   * event beyond it is a live peer edit and records a normal entry. Null until the
+   * first successful pull sets it. The server returns the current head as the pull
+   * `cursor` (not a page end), so it is a stable boundary even when the catch-up
+   * spans several paged cycles.
+   */
+  private bootstrapTarget: number | null = null;
 
   public constructor(options: SyncRunnerOptions) {
     this.options = {
@@ -600,7 +629,13 @@ export class SyncRunner {
     Omit<SyncCycleResult, 'pushed' | 'quarantined'>
   > {
     let cursor = await this.options.state.loadCursor();
-    const { events } = await this.options.transport.pull(cursor);
+    const { cursor: serverHead, events } = await this.options.transport.pull(cursor);
+    // Latch the bootstrap boundary on the first successful pull: the server head
+    // known at connect. Everything at or below it is the initial catch-up.
+    if (this.bootstrapTarget === null) {
+      this.bootstrapTarget = serverHead;
+    }
+    const bootstrapTarget = this.bootstrapTarget;
     const ordered = [...events].sort(
       (left, right) => left.serverSequence - right.serverSequence,
     );
@@ -657,7 +692,13 @@ export class SyncRunner {
         // diverted to a conflict artifact rather than silently overwritten
         // (rule 3), and the runner counts it as a conflict so the status
         // surfaces it.
-        const outcome = await this.options.vault.applyRemote(remoteEvent);
+        const outcome = await this.options.vault.applyRemote(remoteEvent, {
+          // At or below the connect-time head → part of the initial catch-up, so
+          // its Activity entry is suppressed (baseline). Beyond it → a live edit.
+          bootstrap:
+            bootstrapTarget !== null &&
+            remoteEvent.serverSequence <= bootstrapTarget,
+        });
         if (outcome === 'conflict') {
           conflicts += 1;
         } else {

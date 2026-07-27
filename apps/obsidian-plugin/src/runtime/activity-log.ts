@@ -155,6 +155,34 @@ export function remoteAppliedToActivityEntry(
   };
 }
 
+/** Whether an applied remote revision came from the initial catch-up or a live edit. */
+export type RemoteAppliedOrigin = 'bootstrap' | 'live';
+
+/** {@link RemoteAppliedInfo} plus the origin the vault-apply adapter reports. */
+export interface RemoteAppliedInfoWithOrigin extends RemoteAppliedInfo {
+  readonly origin: RemoteAppliedOrigin;
+}
+
+/**
+ * Maps an applied remote revision to an Activity entry, or `null` when it is part
+ * of the initial BOOTSTRAP catch-up. The one-time materialisation of a
+ * pre-existing vault (a joining device, or the owner re-pulling after a data.json
+ * wipe) applies one revision per file; recording each would flood the feed with a
+ * full replay of the vault. Bootstrap applies are therefore collapsed to silence
+ * — the files still land on disk, only the Activity entry is withheld — while every
+ * LIVE peer edit afterwards still records a normal entry via
+ * {@link remoteAppliedToActivityEntry}.
+ */
+export function remoteAppliedToActivityEntryOrNull(
+  info: RemoteAppliedInfoWithOrigin,
+  timestamp: number,
+): ActivityLogEntry | null {
+  if (info.origin === 'bootstrap') {
+    return null;
+  }
+  return remoteAppliedToActivityEntry(info, timestamp);
+}
+
 function toRemoteActivityKind(operation: RemoteRevisionOperation): ActivityKind {
   switch (operation) {
     case 'create':

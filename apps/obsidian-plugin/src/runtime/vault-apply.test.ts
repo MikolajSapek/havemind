@@ -426,6 +426,8 @@ describe('VaultApplyAdapter', () => {
           fileId: 'file-1',
           path: 'Notes/a.md',
           operation: 'create',
+          // No bootstrap flag was passed, so the apply is labelled a live edit.
+          origin: 'live',
         },
       ]);
 
@@ -484,6 +486,7 @@ describe('VaultApplyAdapter', () => {
           fileId: 'file-1',
           path: 'Notes/a.md',
           operation: 'delete',
+          origin: 'live',
         },
       ]);
     });

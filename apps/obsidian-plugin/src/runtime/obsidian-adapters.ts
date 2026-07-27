@@ -78,6 +78,7 @@ import {
 import {
   ParentFolderOccupiedError,
   VaultApplyAdapter,
+  type RemoteAppliedEvent,
   type RemoteApplyProducerSync,
   type VaultFilePort,
 } from './vault-apply';
@@ -127,9 +128,8 @@ import {
   type ClientInstanceIdRepository,
 } from '../storage/client-store';
 import {
-  remoteAppliedToActivityEntry,
+  remoteAppliedToActivityEntryOrNull,
   type ActivityLogEntry,
-  type RemoteAppliedInfo,
 } from './activity-log';
 import type { MemberRole } from './roster';
 import type { ActivityKind } from '../activity/activity';
@@ -728,10 +728,14 @@ export function buildSyncController(
     ...(hooks?.onRemoteActivity === undefined
       ? {}
       : {
-          onRemoteApplied: (info: RemoteAppliedInfo) => {
-            hooks.onRemoteActivity?.(
-              remoteAppliedToActivityEntry(info, Date.now()),
-            );
+          onRemoteApplied: (event: RemoteAppliedEvent) => {
+            // A bootstrap apply (the initial catch-up materialising a pre-existing
+            // vault) is collapsed to silence so the feed is not flooded with one
+            // row per file; a live peer edit records a normal entry.
+            const entry = remoteAppliedToActivityEntryOrNull(event, Date.now());
+            if (entry !== null) {
+              hooks.onRemoteActivity?.(entry);
+            }
           },
         }),
     // FIX 2 (re-entrancy): keep the push producer's mapping in lockstep with

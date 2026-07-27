@@ -6,6 +6,7 @@ import {
   type PushItemResult,
   type PushReceipt,
   type PushRevision,
+  type RemoteApplyOptions,
   type RemoteApplyOutcome,
   type RemoteEvent,
   type SyncRunnerOptions,
@@ -68,6 +69,8 @@ class FakeVault implements VaultApplyPort {
   readonly buffers = new Map<string, OpenBuffer[]>();
   readonly applied: RemoteEvent[] = [];
   readonly conflicts: RemoteEvent[] = [];
+  /** The `bootstrap` flag the runner passed with each applied event. */
+  readonly appliedBootstrap: (boolean | undefined)[] = [];
   /** Outcome `applyRemote` returns per fileId; defaults to 'applied'. */
   readonly applyOutcomes = new Map<string, RemoteApplyOutcome>();
 
@@ -75,12 +78,16 @@ class FakeVault implements VaultApplyPort {
     return this.buffers.get(fileId) ?? [];
   }
 
-  async applyRemote(event: RemoteEvent): Promise<RemoteApplyOutcome> {
+  async applyRemote(
+    event: RemoteEvent,
+    options?: RemoteApplyOptions,
+  ): Promise<RemoteApplyOutcome> {
     const outcome = this.applyOutcomes.get(event.revision.fileId) ?? 'applied';
     if (outcome === 'conflict') {
       this.conflicts.push(event);
     } else {
       this.applied.push(event);
+      this.appliedBootstrap.push(options?.bootstrap);
     }
     return outcome;
   }
@@ -843,6 +850,39 @@ describe('SyncRunner remote apply', () => {
     expect(vault.applied).toHaveLength(1);
     expect(vault.applied[0]?.serverSequence).toBe(2);
     expect(state.cursor).toBe(2);
+  });
+});
+
+describe('SyncRunner bootstrap origin', () => {
+  it('flags every apply at or below the connect-time head as bootstrap, and later live edits as not', async () => {
+    // Cycle 1: a fresh device catches up 1..3 with the server head at 3 — the
+    // whole initial bootstrap. Cycle 2: a live peer edit at 4 (head now 4).
+    const pull = vi
+      .fn()
+      .mockResolvedValueOnce({
+        cursor: 3,
+        events: [
+          event(1, 'file-1', 'h-1'),
+          event(2, 'file-2', 'h-2'),
+          event(3, 'file-3', 'h-3'),
+        ],
+      })
+      .mockResolvedValueOnce({
+        cursor: 4,
+        events: [event(4, 'file-4', 'h-4')],
+      })
+      .mockResolvedValue({ cursor: 4, events: [] });
+    const { runner, vault } = makeRunner({
+      transport: { push: vi.fn(async () => []), pull },
+    });
+
+    await runner.trigger();
+    // The three bootstrap applies were flagged bootstrap:true.
+    expect(vault.appliedBootstrap).toEqual([true, true, true]);
+
+    await runner.trigger();
+    // The live edit beyond the connect-time head is NOT bootstrap.
+    expect(vault.appliedBootstrap).toEqual([true, true, true, false]);
   });
 });
 

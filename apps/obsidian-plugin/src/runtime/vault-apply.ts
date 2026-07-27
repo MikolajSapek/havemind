@@ -27,6 +27,7 @@ import { KeyedMutex, type KeyedLock } from './keyed-mutex';
 
 import type {
   OpenBuffer,
+  RemoteApplyOptions,
   RemoteApplyOutcome,
   RemoteEvent,
   VaultApplyPort,
@@ -124,12 +125,25 @@ export interface ConflictNaming {
 /** Longest a note basename may be inside a conflict filename (keeps paths sane). */
 const MAX_CONFLICT_BASENAME_LENGTH = 60;
 
+/** Whether an applied remote revision came from the initial catch-up or a live edit. */
+export type RemoteAppliedOrigin = 'bootstrap' | 'live';
+
 /** The raw fields reported for a genuinely applied remote revision (FIX 1). */
 export interface RemoteAppliedEvent {
   readonly revisionId: string;
   readonly fileId: string;
   readonly path: string;
   readonly operation: DecodedRevisionPayload['operation'];
+  /**
+   * `bootstrap` when this apply is part of the one-time initial catch-up that
+   * materialises a pre-existing vault onto the device (a joining device, or the
+   * owner re-pulling after a data.json wipe); `live` for every remote apply after
+   * that. The Activity feed collapses `bootstrap` applies to silence so the
+   * bootstrap does not flood the feed with one row per pre-existing file, while
+   * `live` applies still record a normal entry. Materialisation is identical
+   * either way — only the Activity presentation depends on this.
+   */
+  readonly origin: RemoteAppliedOrigin;
 }
 
 /**
@@ -273,14 +287,21 @@ export class VaultApplyAdapter implements VaultApplyPort {
     return classified.eligible ? classified.collisionKey : path;
   }
 
-  async applyRemote(event: RemoteEvent): Promise<RemoteApplyOutcome> {
+  async applyRemote(
+    event: RemoteEvent,
+    options?: RemoteApplyOptions,
+  ): Promise<RemoteApplyOutcome> {
     const decoded = await this.resolveRevision(event);
     const fileId = event.revision.fileId;
+    // The runner flags an apply from the initial catch-up so the Activity feed can
+    // stay quiet for the bootstrap replay; every other apply is a live peer edit.
+    const origin: RemoteAppliedOrigin =
+      options?.bootstrap === true ? 'bootstrap' : 'live';
     // Hold the per-file lock across the WHOLE read→decide→write so the local
     // producer cannot observe+enqueue a concurrent edit to this file mid-apply
     // (rule 3). Distinct files keep syncing in parallel (no global lock).
     return this.lock.runExclusive(this.lockKey(decoded.path), () =>
-      this.applyDecoded(event, decoded, fileId),
+      this.applyDecoded(event, decoded, fileId, origin),
     );
   }
 
@@ -288,6 +309,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
     event: RemoteEvent,
     decoded: DecodedRevisionPayload,
     fileId: string,
+    origin: RemoteAppliedOrigin,
   ): Promise<RemoteApplyOutcome> {
     if (decoded.operation === 'delete') {
       // Only remove a file this revision actually owns.
@@ -308,6 +330,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
           fileId,
           path: decoded.path,
           operation: decoded.operation,
+          origin,
         });
       }
       return 'applied';
@@ -320,7 +343,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
     // become a conflict artifact (with the original extension), never an
     // overwrite; the base advances only on a clean apply or convergence.
     if (decoded.kind === 'binary') {
-      return this.applyRemoteBinary(event, decoded, fileId);
+      return this.applyRemoteBinary(event, decoded, fileId, origin);
     }
 
     const text = decoded.content ?? '';
@@ -474,6 +497,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
           onDisk,
           text,
           base,
+          origin,
         );
         if (merged !== null) {
           return merged;
@@ -518,6 +542,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
           preWriteOnDisk,
           text,
           preWriteBase,
+          origin,
         );
         if (merged !== null) {
           return merged;
@@ -551,6 +576,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
       fileId,
       path: decoded.path,
       operation: decoded.operation,
+      origin,
     });
     return 'applied';
   }
@@ -578,6 +604,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
     onDisk: string,
     incoming: string,
     base: string | null,
+    origin: RemoteAppliedOrigin,
   ): Promise<RemoteApplyOutcome | null> {
     if (base === null) {
       return null;
@@ -617,6 +644,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
       fileId,
       path: decoded.path,
       operation: decoded.operation,
+      origin,
     });
     return 'applied';
   }
@@ -672,6 +700,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
     event: RemoteEvent,
     decoded: DecodedRevisionPayload,
     fileId: string,
+    origin: RemoteAppliedOrigin,
   ): Promise<RemoteApplyOutcome> {
     const bytes = decoded.binaryContent ?? new Uint8Array(0);
     const incomingHash = await hashBlob(bytes);
@@ -796,6 +825,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
       fileId,
       path: decoded.path,
       operation: decoded.operation,
+      origin,
     });
     return 'applied';
   }
