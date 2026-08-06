@@ -1,3 +1,5 @@
+import { isSyncableConfigPath } from './appearance-scope.js';
+
 const WINDOWS_DRIVE_PATH = /^[a-zA-Z]:/u;
 const RESERVED_ROOTS = new Set([
   '.obsidian',
@@ -82,7 +84,20 @@ function normalizedVaultPath(path: string): string {
 
 function reservedRoot(path: string): boolean {
   const [root] = path.split('/');
-  return root !== undefined && RESERVED_ROOTS.has(root.toLowerCase());
+  if (root === undefined || !RESERVED_ROOTS.has(root.toLowerCase())) {
+    return false;
+  }
+  // Exception: the `.obsidian/` config MIRROR is permitted to cross the sync
+  // boundary — everything under `.obsidian/` EXCEPT the hard denylist enforced
+  // inside `isSyncableConfigPath` (secrets `data.json`, the Havemind pairing
+  // state, per-machine `workspace.json`, the enabled-plugins list). The denylist
+  // is checked first and always wins, so those stay reserved — rejected here at
+  // build, decode and schema-validation alike. `.trash` and `Havemind
+  // Conflicts/` are never under `.obsidian/`, so they stay reserved.
+  if (isSyncableConfigPath(path)) {
+    return false;
+  }
+  return true;
 }
 
 export function isReservedVaultPath(path: string): boolean {

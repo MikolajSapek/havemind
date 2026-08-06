@@ -1,5 +1,6 @@
 import { canonicalizeMarkdown } from '@havemind/protocol';
 
+import { isSyncableConfigPath } from './appearance-scope';
 import {
   bytesToBase64,
   classifyVaultPath,
@@ -88,9 +89,14 @@ export async function reconcileVaultState(
   const { observer, repository, vault } = options;
 
   const allPaths = await vault.listAllPaths();
-  const attachmentsExcluded = allPaths.filter(
-    (path) => !SYNCABLE_EXTENSION_SET.has(pathExtension(path.normalize('NFC'))),
-  ).length;
+  const attachmentsExcluded = allPaths.filter((path) => {
+    const normalized = path.normalize('NFC');
+    // An allowlisted appearance-config file (F-appearance) is now syncable, so
+    // it must not be counted among the "still excluded" attachments even though
+    // its json/css extension is outside SYNCABLE_EXTENSION_SET.
+    if (isSyncableConfigPath(normalized)) return false;
+    return !SYNCABLE_EXTENSION_SET.has(pathExtension(normalized));
+  }).length;
 
   const paths = await vault.listSyncablePaths();
   const eligible = new Map<string, { readPath: string; kind: SyncContentKind }>();

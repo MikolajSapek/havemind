@@ -1,5 +1,7 @@
 import { canonicalizeMarkdown, hashBlob } from '@havemind/protocol';
 
+import { isSyncableConfigPath } from '../sync/appearance-scope';
+
 const RESERVED_TOP_LEVEL_DIRECTORIES = new Set(['Havemind Conflicts']);
 
 /**
@@ -210,12 +212,56 @@ const SYNCABLE_BINARY_EXTENSION_SET: ReadonlySet<string> = new Set(
 );
 
 /**
+ * Text extensions the `.obsidian/` config mirror carries through the
+ * text/'markdown' content path (canonicalised, hashed as UTF-8). A binary
+ * config asset (an extension in {@link SYNCABLE_BINARY_EXTENSION_SET}) rides the
+ * existing base64 + size-cap path instead; that set is checked FIRST so a
+ * genuinely binary format is never routed through the text path (which would
+ * corrupt it). An unknown binary extension (e.g. `.wasm`) matches NEITHER set
+ * and stays excluded-with-notice.
+ */
+const CONFIG_TEXT_EXTENSIONS: ReadonlySet<string> = new Set([
+  'md',
+  'json',
+  'css',
+  'js',
+  'txt',
+]);
+
+/**
+ * Content kind for a `.obsidian/` config path already admitted by
+ * {@link isSyncableConfigPath}. Binary formats first (exact bytes, size cap),
+ * then text formats, else `null` (excluded-with-notice — never forced through
+ * the text path).
+ */
+function configContentKind(canonicalPath: string): SyncContentKind | null {
+  const extension = pathExtension(canonicalPath);
+  if (SYNCABLE_BINARY_EXTENSION_SET.has(extension)) return 'binary';
+  if (CONFIG_TEXT_EXTENSIONS.has(extension)) return 'markdown';
+  return null;
+}
+
+/**
  * Returns the sync kind of a path, or `null` when it is not syncable. Markdown
  * notes and the allowlisted binary attachments (F9) are eligible; the dotpath
  * and reserved-`Havemind Conflicts` exclusions are UNCHANGED, so a Havemind
- * conflict artifact or a `.obsidian/` file is never re-synced (rule: no cycles).
+ * conflict artifact is never re-synced (rule: no cycles).
  */
 function eligibleKind(canonicalPath: string): SyncContentKind | null {
+  // `.obsidian/` config MIRROR (theme, colours, hotkeys, snippets, themes and
+  // other plugins' code) — everything under `.obsidian/` EXCEPT a hard denylist
+  // enforced inside `isSyncableConfigPath` (secrets `data.json`, the Havemind
+  // pairing state, per-machine `workspace.json`, the enabled-plugins list).
+  // Admitted here — and ONLY here — BEFORE the dotpath guard below that
+  // (correctly) rejects every other dot-path. The content kind is chosen by
+  // EXTENSION, not forced to text: a binary config asset uses the base64 path,
+  // an unknown binary stays excluded-with-notice, only genuine text config is
+  // canonicalised. The reserved `Havemind Conflicts/` exclusion below is
+  // untouched — no config path lives there — so no re-sync cycle is introduced.
+  if (isSyncableConfigPath(canonicalPath)) {
+    return configContentKind(canonicalPath);
+  }
+
   const extension = pathExtension(canonicalPath);
   const kind: SyncContentKind | null =
     extension === 'md'

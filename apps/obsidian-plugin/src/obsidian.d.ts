@@ -55,7 +55,39 @@ declare module 'obsidian' {
     onClose(): void;
   }
 
+  export interface ListedFiles {
+    files: string[];
+    folders: string[];
+  }
+
+  export interface FileStats {
+    type: 'file' | 'folder';
+    ctime: number;
+    mtime: number;
+    size: number;
+  }
+
+  /**
+   * Low-level filesystem surface for a vault. Unlike the Vault file API, this
+   * reaches HIDDEN paths (`.obsidian/`) that `getFiles()` and the `on(...)`
+   * events never expose — the only way to enumerate, read and write the config
+   * mirror.
+   */
+  export interface DataAdapter {
+    list(normalizedPath: string): Promise<ListedFiles>;
+    read(normalizedPath: string): Promise<string>;
+    readBinary(normalizedPath: string): Promise<ArrayBuffer>;
+    write(normalizedPath: string, data: string): Promise<void>;
+    writeBinary(normalizedPath: string, data: ArrayBuffer): Promise<void>;
+    stat(normalizedPath: string): Promise<FileStats | null>;
+    exists(normalizedPath: string): Promise<boolean>;
+    mkdir(normalizedPath: string): Promise<void>;
+    remove(normalizedPath: string): Promise<void>;
+  }
+
   export interface Vault {
+    adapter: DataAdapter;
+    configDir: string;
     getAbstractFileByPath(path: string): TAbstractFile | null;
     getMarkdownFiles(): TFile[];
     getFiles(): TFile[];

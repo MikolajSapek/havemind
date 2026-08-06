@@ -73,7 +73,9 @@ describe('decodeRevisionPayload — binary', () => {
           schemaVersion: 1,
           operation: 'create',
           kind: 'binary',
-          path: '.obsidian/evil.png',
+          // Denylisted under the `.obsidian/` mirror (our own plugin folder) —
+          // stays reserved even though most `.obsidian/` config now syncs.
+          path: '.obsidian/plugins/havemind-sync/evil.png',
           contentBase64: 'AAA=',
           blobByteHash: byteHash,
           recipe: null,

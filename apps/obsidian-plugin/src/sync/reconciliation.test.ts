@@ -102,7 +102,11 @@ describe('startup reconciliation', () => {
     vault.contents.set('Notes/Unchanged.md', 'same');
     vault.contents.set('Notes/Changed.md', 'after');
     vault.contents.set('Notes/New.md', 'new');
-    vault.contents.set('.obsidian/Private.md', 'secret');
+    // A reserved conflict-folder file: surfaced by the extension scan but
+    // rejected by `classifyVaultPath` (no re-sync cycle), so it counts as
+    // `ignored`. NB: a plain `.obsidian/*.md` is no longer ignored — the config
+    // mirror now syncs it — so the ignored fixture uses the reserved folder.
+    vault.contents.set('Havemind Conflicts/Private.md', 'secret');
     // A non-allowlisted extension (F9 syncs png/jpg/etc, never .zip) so this stays
     // an excluded attachment under the narrowed `attachmentsExcluded` definition.
     vault.contents.set('Asset.zip', 'binary');

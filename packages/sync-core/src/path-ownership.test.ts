@@ -74,7 +74,9 @@ describe('resolvePathOwnership', () => {
 
   it('rejects reserved paths and invalid server sequences', () => {
     expect(() =>
-      resolvePathOwnership([claim({ path: '.obsidian/plugins/data.md' })]),
+      // Denylisted under the `.obsidian/` mirror (per-machine layout) — stays
+      // reserved even though most `.obsidian/` config now syncs.
+      resolvePathOwnership([claim({ path: '.obsidian/workspace.json' })]),
     ).toThrow(/reserved/i);
     expect(() =>
       resolvePathOwnership([claim({ serverSequence: 0 })]),

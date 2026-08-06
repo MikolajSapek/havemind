@@ -22,7 +22,11 @@ import {
   type Vault,
 } from 'obsidian';
 
-import { canonicalizeMarkdown, hashPlaintext } from '@havemind/protocol';
+import {
+  canonicalizeMarkdown,
+  hashPlaintext,
+  isSyncableConfigPath,
+} from '@havemind/protocol';
 import {
   RevisionPayloadTooLargeError,
   type DecodedRevisionPayload,
@@ -38,6 +42,14 @@ import {
 } from '../obsidian/vault-adapter';
 import { reconcileVaultState } from '../sync/reconciliation';
 import {
+  CONFIG_DIR,
+  listSyncableConfigPaths,
+  removeConfig,
+  writeConfigBinary,
+  writeConfigText,
+} from '../sync/config-adapter';
+import { pollConfigOnce } from '../sync/config-poller';
+import {
   OutboxLocalChangeRepository,
   type ProducerState,
   type ProducerStorePort,
@@ -46,6 +58,13 @@ import {
 
 /** The runtime App exposes a Vault; the ambient stub only models what we use. */
 type AppWithVault = { vault: Vault };
+
+/**
+ * How often the `.obsidian/` config mirror is re-walked (ms). Config is a
+ * handful of tiny JSON/CSS files, and Obsidian emits no events for them, so a
+ * modest poll is both cheap and responsive enough for a theme/hotkey change.
+ */
+const CONFIG_POLL_INTERVAL_MS = 5_000;
 
 import {
   rebaseCanonicalizedHashes,
@@ -555,6 +574,12 @@ export function createVaultFilePort(options: VaultFilePortOptions): VaultFilePor
       return state.fileIdAtPath(path);
     },
     async readByPath(path) {
+      // A `.obsidian/` config path lives outside the Vault file API — read it via
+      // the DataAdapter, canonicalised on equal terms with the producer.
+      if (isSyncableConfigPath(path)) {
+        if (!(await vault.adapter.exists(path))) return null;
+        return canonicalizeMarkdown(await vault.adapter.read(path));
+      }
       const existing = vault.getAbstractFileByPath(path);
       if (existing === null) return null;
       // Normalise line endings the same way the push producer does, so the
@@ -566,6 +591,10 @@ export function createVaultFilePort(options: VaultFilePortOptions): VaultFilePor
       return canonicalizeMarkdown(raw);
     },
     async readBinaryByPath(path) {
+      if (isSyncableConfigPath(path)) {
+        if (!(await vault.adapter.exists(path))) return null;
+        return new Uint8Array(await vault.adapter.readBinary(path));
+      }
       const existing = vault.getAbstractFileByPath(path);
       if (existing === null) return null;
       // Raw bytes, never canonicalised (F9) — the binary apply path compares and
@@ -587,6 +616,13 @@ export function createVaultFilePort(options: VaultFilePortOptions): VaultFilePor
     recordConflictArtifactPath: (revisionId, path) =>
       state.recordConflictArtifactPath(revisionId, path),
     async writeByPath(path, content) {
+      // A `.obsidian/` config write goes through the DataAdapter (create-or-
+      // overwrite), materialising parent dirs — the Vault file API cannot touch
+      // hidden paths.
+      if (isSyncableConfigPath(path)) {
+        await writeConfigText(vault.adapter, path, content);
+        return;
+      }
       const existing = vault.getAbstractFileByPath(path);
       if (existing === null) {
         // A create must first materialize the parent-folder hierarchy — a
@@ -599,6 +635,10 @@ export function createVaultFilePort(options: VaultFilePortOptions): VaultFilePor
       await vault.modify(existing as TFile, content);
     },
     async writeBinaryByPath(path, bytes) {
+      if (isSyncableConfigPath(path)) {
+        await writeConfigBinary(vault.adapter, path, toArrayBuffer(bytes));
+        return;
+      }
       const existing = vault.getAbstractFileByPath(path);
       const data = toArrayBuffer(bytes);
       if (existing === null) {
@@ -611,6 +651,10 @@ export function createVaultFilePort(options: VaultFilePortOptions): VaultFilePor
       await vault.modifyBinary(existing as TFile, data);
     },
     async deleteByPath(path) {
+      if (isSyncableConfigPath(path)) {
+        await removeConfig(vault.adapter, path);
+        return;
+      }
       const existing = vault.getAbstractFileByPath(path);
       if (existing !== null) {
         await vault.delete(existing);
@@ -1306,8 +1350,11 @@ function startPushProducer(
       // single API for both, so filter every vault file down to the syncable
       // extensions; `classifyVaultPath` still applies the dotpath/reserved
       // exclusions downstream (so reserved-folder files are counted as ignored,
-      // exactly as the old markdown-only listing did).
-      return vault
+      // exactly as the old markdown-only listing did). The `.obsidian/` config
+      // MIRROR is appended from the DataAdapter walk — Obsidian never exposes
+      // hidden files through `getFiles()`, so the config tree must be enumerated
+      // separately. This is what makes the connect-time reconcile cover config.
+      const notes = vault
         .getFiles()
         .map((file) => file.path)
         .filter((path) => {
@@ -1317,12 +1364,23 @@ function startPushProducer(
             (SYNCABLE_BINARY_EXTENSIONS as readonly string[]).includes(extension)
           );
         });
+      const config = await listSyncableConfigPaths(vault.adapter, CONFIG_DIR);
+      return [...notes, ...config];
     },
     async readText(path) {
+      // A `.obsidian/` config path is invisible to the Vault file API, so read it
+      // through the DataAdapter; everything else stays on the Vault API.
+      if (isSyncableConfigPath(path)) {
+        return (await vault.adapter.exists(path)) ? vault.adapter.read(path) : '';
+      }
       const file = vault.getAbstractFileByPath(path);
       return file === null ? '' : vault.read(file as TFile);
     },
     async readBinary(path) {
+      if (isSyncableConfigPath(path)) {
+        if (!(await vault.adapter.exists(path))) return new Uint8Array(0);
+        return new Uint8Array(await vault.adapter.readBinary(path));
+      }
       const file = vault.getAbstractFileByPath(path);
       if (file === null) return new Uint8Array(0);
       return new Uint8Array(await vault.readBinary(file as TFile));
@@ -1330,10 +1388,12 @@ function startPushProducer(
     async listAllPaths() {
       // Every vault file, of any type. Used only by reconciliation to count
       // (never read or enqueue) the non-syncable attachments the pilot's scope
-      // excludes, so that exclusion stays visible.
+      // excludes, so that exclusion stays visible. Config lives outside this
+      // count (it is enumerated via the adapter, not `getFiles()`).
       return vault.getFiles().map((file) => file.path);
     },
     async exists(path) {
+      if (isSyncableConfigPath(path)) return vault.adapter.exists(path);
       return vault.getAbstractFileByPath(path) !== null;
     },
   };
@@ -1532,10 +1592,49 @@ function startPushProducer(
     ),
   );
 
+  // `.obsidian/` config sync (theme, colours, hotkeys, snippets, foreign plugin
+  // code). Obsidian emits NO vault events for hidden files, so this cannot use
+  // the watchers above — a POLLER re-walks the config tree via the DataAdapter on
+  // a modest interval and feeds each change through the SAME observer + outbox as
+  // `.md` (the connect-time enumeration is already covered by the reconcile above,
+  // whose `listSyncablePaths` now includes the config walk). Every observe is
+  // routed through `lockedObserve` so it is mutually exclusive with a remote
+  // config apply, and each genuine change is recorded in Activity and triggers a
+  // sync — exactly as a watcher-driven change is.
+  const configObserver = {
+    observeModify: (path: string) =>
+      lockedObserve(path, () => observer.observeModify(path)),
+    observeDelete: (path: string) =>
+      lockedObserve(path, () => observer.observeDelete(path)),
+  };
+  const runConfigPollTick = async (): Promise<void> => {
+    try {
+      const ops = await pollConfigOnce({
+        observer: configObserver,
+        listConfigPaths: () => listSyncableConfigPaths(vault.adapter, CONFIG_DIR),
+        listMappings: () => repository.listMappings(),
+      });
+      if (ops.length === 0) return;
+      for (const op of ops) recordActivity(op);
+      triggerSync();
+    } catch {
+      // A config poll must never wedge sync; a bad tick is skipped and the next
+      // interval retries. Per-file commit failures are already surfaced by the
+      // observe path's own handling.
+    }
+  };
+  // registerInterval clears it on plugin UNLOAD; the explicit clear in dispose()
+  // below covers a stop/RE-PAIR (which tears the producer down without unloading).
+  const configPollId = window.setInterval(() => {
+    void runConfigPollTick();
+  }, CONFIG_POLL_INTERVAL_MS);
+  plugin.registerInterval(configPollId);
+
   return {
     dispose: () => {
       // Cancel any in-flight settle timers before detaching listeners so a
       // pending modify can never fire after teardown/re-pair.
+      window.clearInterval(configPollId);
       modifyDebouncer.dispose();
       disposeListeners();
     },
