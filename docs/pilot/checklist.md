@@ -140,3 +140,25 @@ endpoint + wake registry + GAP-4 exemption + prefix-notify + Dockerfile crypto;
   confirmed. Full append-only two-way sync is live. Note: the invitee MUST
   re-onboard from clean state for the fix to take effect — a stale pre-fix
   data.json keeps the old memberId and blocks push.
+
+## Pilot closure (2026-08-07) — T032 closed with recorded deviations
+
+- [x] **Pilot outcome: PASSED (user decision, 2026-08-07).** Real-world usage from
+  2026-07-25 to 2026-08-07 across two devices (owner laptop + second computer,
+  plus invitee testing in July). Zero data loss throughout — including during
+  three real incidents, which are exactly what the pilot existed to catch:
+  1. Real-time push regression (2026-07-24) — rolled back to build 864652,
+     re-landed fixed.
+  2. Activity-feed flood on fresh-device bootstrap — fixed (fef6a2e).
+  3. Corrupt data.json on the second computer (2026-08-04) — recovered manually;
+     connect-time detection + reset UI shipped in f55d140.
+- **Recorded deviations from the formal AC:**
+  - Daily `df -h` log holds 4/7 entries — the window restarted with each redeploy
+    (07-16, 07-24, 07-25) and the server was rebuilt fresh on 2026-08-04 during
+    audit remediation. Disk pressure was never observed; the disk-pressure guard
+    shipped in the meantime.
+  - Backup remains deliberately deferred (user decision) — release gate before
+    1.0, tracked in known-limitations (AUD-10).
+- Post-pilot state: server healthy (healthz ok, 2026-08-07), `main` at 741ad72
+  with the P1/P2 hardening batch. The project exits pilot mode into normal
+  operation.

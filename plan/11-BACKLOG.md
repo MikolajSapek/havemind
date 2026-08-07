@@ -248,7 +248,11 @@ raporcie fazy (co działa, co odłożone, dowód).
      listuje/zatwierdza pending device. Raw token nigdy nie logowany osobno.
   - Dowód (2026-07-17): serwer 230 testów (27 w cli.test.ts), plugin 235 testów; pełna bramka
     workspace EXIT=0, 605 testów. `dist/main.js` przebudowany (nowe symbole obecne).
-- [ ] **F8-02** `decyzja-usera` Siedmiodniowy pilotaż na sapserverze (T032)
+- [x] **F8-02** `decyzja-usera` Siedmiodniowy pilotaż na sapserverze (T032)
+  - ✅ ZAMKNIĘTE 2026-08-07 decyzją usera, z odstępstwami zapisanymi w
+    `docs/pilot/checklist.md` („Pilot closure"): 4/7 wpisów df-h (okno restartowane
+    przy redeployach), backup nadal odroczony (bramka przed 1.0). Realne użycie
+    25.07–07.08, zero utraty danych, 3 wykryte incydenty naprawione.
   - AC: pełny checklist z `09-pilotaz-i-decyzje.md`, zapisany w `docs/pilot/checklist.md`.
   - AC: codzienny zapis `df -h /` do `docs/pilot/checklist.md` przez 7 dni; alarm i wpis w
     `DECISIONS.md` przy przyroście >20 GB względem dnia startu (jakościowe, metoda: 7 wpisów
@@ -257,8 +261,11 @@ raporcie fazy (co działa, co odłożone, dowód).
 
 ## F9 — Follow-up (odpowiednik Fazy 8 z `plans/001-technical-plan.md`; ⚠ HARD, osobne plany, sekwencyjnie)
 
-- [ ] **F9-01** `decyzja-usera` Przygotować 4 osobne plany follow-up (T033) — GitHub/BRAT alpha,
+- [x] **F9-01** `decyzja-usera` Przygotować 4 osobne plany follow-up (T033) — GitHub/BRAT alpha,
   E2EE/recovery, attachments/quota, encrypted checkpoints.
+  - ✅ ZAMKNIĘTE 2026-08-07: 4 plany istnieją. 003 wykonany de facto (repo dystrybucyjne
+    obsidian-havemind + BRAT działa); 004 i 006 zdjęte decyzją usera (rezygnacja z E2EE,
+    model tailnet-only); 005 częściowo wykonany (binaria działają; quota per-vault otwarta).
   - AC: 4 pliki `plans/00X-*.md` istnieją, każdy zawiera nagłówki `## Spec`, `## Threat model`,
     `## Acceptance tests`, `## Rollout/rollback` (funkcjonalne, metoda: skrypt/grep sprawdzający
     obecność 4 nagłówków w każdym z 4 plików → 16/16 trafień).

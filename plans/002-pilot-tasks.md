@@ -173,14 +173,16 @@ _Checkbox status for T002, T018–T022 and T025–T031 synced from `plan/11-BACK
   - Verify: `npm run test:e2e`
   - Files: `tests/e2e/two-client.test.ts`, `tests/e2e/fault-matrix.ts`, `tests/e2e/helpers.ts`, `vitest.e2e.config.ts`
 
-- [ ] **T032 — Document and execute private disposable-vault pilot**
+- [x] **T032 — Document and execute private disposable-vault pilot**
+  _Closed 2026-08-07 (user decision) with recorded deviations — see "Pilot closure" in `docs/pilot/checklist.md`. Backup stays open as the pre-1.0 release gate._
   - Acceptance: server setup, diagnostics, backup/restore and two real Obsidian vaults pass the manual matrix; observed results and known limitations are recorded.
   - Verify: `npm run verify && npm run compose:smoke`, then complete `docs/pilot/checklist.md`
   - Files: `docs/pilot/setup.md`, `docs/pilot/checklist.md`, `docs/operations/backup-restore.md`, `README.md`
 
 ## Follow-up gates
 
-- [ ] **T033 — Prepare separate plans after pilot success**
+- [x] **T033 — Prepare separate plans after pilot success**
+  _Closed 2026-08-07: all four plans exist. 003 (GitHub/BRAT) executed de facto (distribution repo live); 004 E2EE and 006 encrypted checkpoints de-scoped by user decision (tailnet-only security model); 005 attachments partially executed (binary sync shipped; per-vault quota accounting remains open)._
   - Acceptance: independent reviewed plans exist for GitHub/BRAT alpha, E2EE/recovery, attachments/quota and encrypted checkpoint/retention work.
   - Verify: each plan links its spec, threat model, acceptance tests and rollout/rollback gate.
   - Files: new files under `plans/`; no production code in this task
