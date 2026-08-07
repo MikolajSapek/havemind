@@ -11,7 +11,7 @@
 #   4. verify     — `restic snapshots` + `restic check` (the SRV-03 AC method)
 #
 # Retention (prune.sh) is intentionally NOT auto-run here: it needs ≥1 snapshot
-# and always runs `restic check` before any forget/prune (plan/01 reguła 9).
+# and always runs `restic check` before any forget/prune (plan/01 rule 9).
 # The restore drill (restore-drill.sh) is the separate 1.0 release gate.
 set -euo pipefail
 

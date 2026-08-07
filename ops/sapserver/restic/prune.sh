@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Havemind — apply retention 7/4/6 and prune (SRV-03).
 #
-# HARD RULE (plan/01 reguła 9, plan/08): `restic forget --prune` is FORBIDDEN
+# HARD RULE (plan/01 rule 9, plan/08): `restic forget --prune` is FORBIDDEN
 # without a preceding successful `restic check`. This script enforces that: if
 # the check fails it aborts BEFORE any forget/prune and deletes nothing.
 #
