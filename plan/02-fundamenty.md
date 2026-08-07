@@ -20,8 +20,9 @@ planującej.
 - Node.js 22 LTS, npm workspaces (npm 10), TypeScript 6.0 strict.
 - Vitest 4.1, próg pokrycia 80% (statements/branches/functions/lines) w pakietach produkcyjnych.
 - Komendy root: `npm ci`, `npm run build`, `npm run typecheck`, `npm run lint`, `npm test`,
-  `npm run test:coverage`, `npm run test:integration`, `npm run dev:server`, `npm run dev:plugin`,
-  `npm run compose:smoke`.
+  `npm run test:coverage`, `npm run dev:server`, `npm run dev:plugin`,
+  `npm run compose:smoke`. (`npm run test:integration` removed from `package.json` as dead code —
+  `tests/integration/` never existed, so it always silently passed; CI hardening, roadmap P1 #6.)
 - Zależności jednokierunkowo: `protocol <- sync-core <- obsidian-plugin`, `protocol <- server`.
   Plugin i serwer nigdy się nie importują nawzajem.
 - Brak Reacta, Redis, PostgreSQL, brokera wiadomości, ORM w MVP.
