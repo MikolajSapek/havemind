@@ -14,7 +14,16 @@ export type ConnectionStatus =
   | 'synced'
   | 'offline'
   | 'conflict'
-  | 'reconnect-required';
+  | 'reconnect-required'
+  /**
+   * The persisted connection state is broken — a half-written record, or a
+   * structurally valid one whose refresh secret is gone (P1 #5). Distinct from
+   * `offline` (the server is unreachable but the pairing is sound) and from
+   * `reconnect-required` (the pairing is sound but the session was refused):
+   * neither retrying nor rejoining can fix it, so the only way forward is a
+   * reset + re-pair. Never derived from a sync cycle; set at connect start.
+   */
+  | 'reset-required';
 
 const LABELS: Readonly<Record<ConnectionStatus, string>> = {
   disconnected: 'disconnected',
@@ -23,7 +32,16 @@ const LABELS: Readonly<Record<ConnectionStatus, string>> = {
   offline: 'Offline',
   conflict: 'Conflict',
   'reconnect-required': 'Reconnect required',
+  'reset-required': 'Reset required',
 };
+
+/**
+ * What the user sees when the persisted connection is unusable. It names the
+ * local data as the cause — never the server, which is not at fault — and states
+ * the one action that resolves it.
+ */
+export const RESET_REQUIRED_DETAIL =
+  'The stored connection data is incomplete or unreadable. Reset the connection and pair this device again.';
 
 const NO_E2EE_NOTE = 'Private Tailscale network only — no end-to-end encryption.';
 
@@ -154,6 +172,15 @@ const PANEL_STYLES: Readonly<Record<ConnectionStatus, PanelStyle>> = {
     spin: false,
     showForm: true,
   },
+  // The paste form stays available alongside the Reset button: pairing this
+  // device afresh overwrites the broken record and is an equally valid way out.
+  'reset-required': {
+    icon: 'alert-triangle',
+    label: 'Connection data damaged',
+    colorToken: '--text-error',
+    spin: false,
+    showForm: true,
+  },
 };
 
 export function buildConnectionPanel(
@@ -170,6 +197,11 @@ export function buildConnectionPanel(
   }
   if (input.status === 'reconnect-required' || input.status === 'offline') {
     parts.push(input.errorMessage ?? 'The server refused the session.');
+  }
+  // A damaged local record is never the server's fault, so it gets its own
+  // explanation rather than the session-refused line.
+  if (input.status === 'reset-required') {
+    parts.push(input.errorMessage ?? RESET_REQUIRED_DETAIL);
   }
   parts.push(NO_E2EE_NOTE);
 

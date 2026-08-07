@@ -77,6 +77,7 @@ import {
   connectFromInput,
   createInvitationForOwner,
   requestRejoinGrantForOwner,
+  resetHavemindConnectionState,
   revokeMembershipForOwner,
   startHavemindConnection,
   type ConnectionHandle,
@@ -790,6 +791,13 @@ export interface OnboardingViewOptions {
    * backoff. Rendered as the "Retry now" button in the status section.
    */
   readonly onRetry?: () => void;
+  /**
+   * Clear the broken persisted connection so this device can be paired again
+   * (P1 #5). Rendered as the "Reset connection" button, and ONLY in the
+   * `reset-required` state — a state in which sync is provably dead, so the
+   * button can never be mistaken for an action on a healthy connection.
+   */
+  readonly onReset?: () => void;
   /** Copy the rendered invitation envelope to the clipboard (never logged). */
   readonly onCopyInvitation?: (envelope: string) => void;
   /** Mint an invitation for the given role and intended-member name. */
@@ -956,6 +964,24 @@ export class HavemindOnboardingView extends ItemView {
       retry.addClass('mod-cta');
       retry.addClass('havemind-retry');
       retry.onClickEvent(() => this.options.onRetry?.());
+    }
+
+    // P1 #5: the stored connection is damaged, so retrying and rejoining are
+    // both dead ends — the one way forward is clearing it and pairing again.
+    // Deliberately NOT rendered for any other status: this is the only state in
+    // which sync is provably dead, so the button can never be an accidental
+    // click on a healthy connection.
+    if (this.options.onReset !== undefined && panel.status === 'reset-required') {
+      const reset = content.createEl('button', {
+        text: 'Reset connection',
+        attr: {
+          'aria-label':
+            'Reset the stored Havemind connection and pair this device again',
+        },
+      });
+      reset.addClass('mod-warning');
+      reset.addClass('havemind-reset');
+      reset.onClickEvent(() => this.options.onReset?.());
     }
   }
 
@@ -1495,6 +1521,11 @@ export default class HavemindPlugin extends Plugin {
    */
   private retryInFlight = false;
   /**
+   * Guards the user-initiated "Reset connection" (P1 #5) so a double-click can
+   * never run two overlapping clear-and-rewrite passes over `data.json`.
+   */
+  private resetInFlight = false;
+  /**
    * MRG-03 conflict resolver. Its per-copy guard makes a double-clicked resolve
    * fire each destructive vault op at most once. Lazily bound to the live vault
    * port on first use so a headless test never needs a real vault.
@@ -1579,6 +1610,9 @@ export default class HavemindPlugin extends Plugin {
         onDisconnect: () => this.disconnect(),
         onRetry: () => {
           void this.retryConnection();
+        },
+        onReset: () => {
+          void this.resetConnection();
         },
         onCopyInvitation: (envelope) => {
           // Move the secret into the clipboard; never log the envelope.
@@ -2084,6 +2118,12 @@ export default class HavemindPlugin extends Plugin {
       this.lastSyncedAt = Date.now();
       this.connectionError = undefined;
     }
+    if (status === 'reset-required') {
+      // The stored connection is damaged (P1 #5): drop any stale server-side
+      // error so the panel shows its own "reset and pair again" explanation, and
+      // never arm the rejoin poll — a rejoin cannot fix a broken local record.
+      this.connectionError = undefined;
+    }
     if (status === 'reconnect-required') {
       this.connectionError = 'The server refused the session — reconnect.';
       // Terminal auth failure: arm the invitee rejoin poll so this device
@@ -2511,6 +2551,59 @@ export default class HavemindPlugin extends Plugin {
       await this.startConnection();
     } finally {
       this.retryInFlight = false;
+    }
+  }
+
+  /**
+   * User-initiated "Reset connection" (P1 #5): clear the damaged persisted
+   * pairing so this device can be paired again. This is the supported form of the
+   * manual "delete data.json" the field incident needed.
+   *
+   * Order: quiesce first (stop the loop, disarm the rejoin poll) so nothing
+   * re-writes the keys mid-reset, then clear disk + secrets, then drop the
+   * in-memory mirrors of what was just cleared (roster, send-queue state,
+   * pending invitation/approval) and return the panel to `disconnected`.
+   *
+   * Idempotent under a rapid double-click via `resetInFlight`. No vault content
+   * is touched: notes on disk are the source of truth and are re-reconciled once
+   * the device is paired again.
+   */
+  private async resetConnection(): Promise<void> {
+    if (this.resetInFlight) return;
+    this.resetInFlight = true;
+    try {
+      this.disarmRejoin();
+      this.connection?.stop();
+      this.connection = null;
+      this.syncState = null;
+      await resetHavemindConnectionState(this);
+      this.rosterMembers = [];
+      this.deadMembershipIds = [];
+      this.rejoinWaiting = new Set<string>();
+      this.pendingInvitation = null;
+      this.pendingApprovals = [];
+      this.notifiedQuarantineIds = new Set<string>();
+      this.awaitingApproval = null;
+      this.guestInvitationInvalid = false;
+      this.connectionActive = false;
+      this.connectionNotice = undefined;
+      this.connectionNoticeKind = undefined;
+      this.connectionStatus = 'disconnected';
+      this.lastSyncedAt = undefined;
+      this.connectionError = undefined;
+      this.setStatus(formatStatusBar({ status: 'disconnected' }));
+      new Notice(
+        'Havemind: connection reset. Paste a new invitation or pairing token to connect.',
+      );
+    } catch (error) {
+      new Notice(
+        `Havemind: could not reset the connection — ${
+          error instanceof Error ? error.message : 'unexpected error'
+        }`,
+      );
+    } finally {
+      this.resetInFlight = false;
+      this.onboardingView?.refresh();
     }
   }
 
