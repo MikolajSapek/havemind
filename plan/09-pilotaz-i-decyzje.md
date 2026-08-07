@@ -1,48 +1,49 @@
-# 09 — Pilotaż (Faza 7) i bramki follow-up (Faza 8)
+# 09 — Pilot (Phase 7) and follow-up gates (Phase 8)
 
-## Bramka decyzyjna F8 (pytanie do usera, obowiązkowe mimo reguły 8 z `01-zasady-i-slownik.md`)
+## F8 decision gate (question to the user, mandatory despite rule 8 in `01-zasady-i-slownik.md`)
 
-Zanim ruszy T032, orkiestrator ZATRZYMUJE pętlę i pyta usera o:
-1. Potwierdzenie, że SRV-03/04/05 (backup Restic + testy przywracania) faktycznie przeszły,
-   nie tylko „są zaplanowane".
-2. Wybór dwóch jednorazowych vaultów testowych (nazwy/lokalizacja na dwóch maszynach).
-3. Okno czasowe siedmiodniowego pilotażu (kiedy user może reagować na `Conflict`/`Offline`).
+Before T032 starts, the orchestrator STOPS the loop and asks the user about:
+1. Confirmation that SRV-03/04/05 (Restic backup + restore tests) have actually passed, not
+   just "are planned".
+2. The choice of two disposable test vaults (names/locations on two machines).
+3. The time window for the seven-day pilot (when the user can respond to `Conflict`/`Offline`).
 
-## T032 — siedmiodniowy pilotaż (kryteria akceptacji)
+## T032 — seven-day pilot (acceptance criteria)
 
-- Setup serwera, diagnostyka (`havemind doctor` lub equivalent), backup off-host skonfigurowany
-  i zweryfikowany PRZED podłączeniem pierwszego vaultu.
-- Dwa jednorazowe vaulty połączone przez zaproszenie, oba działające offline i online.
-- Wymuszone przerwy sieciowe (odłączenie Wi-Fi na jednej maszynie ≥10 min) → konwergencja po
-  powrocie, zero utraconych rewizji.
-- Restart usługi (`docker compose restart`) w trakcie normalnej pracy → klienci wracają do
-  `Synced` bez interwencji ręcznej.
-- Restart klienta (Obsidian) w trakcie edycji → brak utraty niezapisanej ani zapisanej treści.
-- Czyste przywrócenie z backupu na nową instancję → klienci ze starszą epoką poprawnie się
-  pojednają (patrz `plans/001-technical-plan.md` §8 „Backup, restore i deployment contract").
-- Wynik zapisany w `docs/pilot/checklist.md` (plik docelowy w repo Havemind, nie w `plan/`).
+- Server setup, diagnostics (`havemind doctor` or equivalent), off-host backup configured and
+  verified BEFORE connecting the first vault.
+- Two disposable vaults connected via an invite, both working offline and online.
+- Forced network outages (disconnect Wi-Fi on one machine for ≥10 min) → convergence on
+  return, zero lost revisions.
+- Service restart (`docker compose restart`) during normal operation → clients return to
+  `Synced` with no manual intervention.
+- Client (Obsidian) restart during editing → no loss of unsaved or saved content.
+- Clean restore from backup onto a new instance → clients with an older epoch reconcile
+  correctly (see `plans/001-technical-plan.md` §8 "Backup, restore and deployment contract").
+- Result recorded in `docs/pilot/checklist.md` (a target file in the Havemind repo, not in
+  `plan/`).
 
-## Faza 8 — bramki follow-up (nie zaczynaj bez zamknięcia T032)
+## Phase 8 — follow-up gates (don't start without closing T032)
 
-Każdy plan follow-up jest OSOBNYM dokumentem w `plans/00X-*.md`, wykonywanym sekwencyjnie:
+Each follow-up plan is a SEPARATE document in `plans/00X-*.md`, executed sequentially:
 
-| Plan follow-up | Bramka wymagana przed rozpoczęciem (z `specs/003-open-source-release.md`) |
+| Follow-up plan | Gate required before starting (from `specs/003-open-source-release.md`) |
 |---|---|
-| GitHub/BRAT alpha (publiczne repo) | Stage 2 checklist: SECURITY.md/CONTRIBUTING.md/CODE_OF_CONDUCT.md/CHANGELOG.md, diagnostyka bez wycieku sekretów, dokumentacja quick-start |
-| E2EE i recovery kit | `plans/001-technical-plan.md` §10 w całości; dedykowany threat-model spike PRZED implementacją; zero własnej kryptografii |
-| Attachments/quota | Testy binarnych wersji atomowych + polityka quoty udokumentowana |
-| Encrypted checkpoints/retention | Bezpieczny bootstrap nowego urządzenia zdefiniowany PRZED usunięciem jakiejkolwiek historii |
+| GitHub/BRAT alpha (public repo) | Stage 2 checklist: SECURITY.md/CONTRIBUTING.md/CODE_OF_CONDUCT.md/CHANGELOG.md, diagnostics with no secret leakage, quick-start documentation |
+| E2EE and recovery kit | `plans/001-technical-plan.md` §10 in full; a dedicated threat-model spike BEFORE implementation; zero custom cryptography |
+| Attachments/quota | Atomic binary-version tests + a documented quota policy |
+| Encrypted checkpoints/retention | Safe new-device bootstrap defined BEFORE deleting any history |
 
-Jeśli w trakcie Fazy 8 backlog wymaga przebudowy (np. nowe podfazy dla E2EE), użyj ponownie
-skilla `loopstart` zamiast doklejać ręcznie do `11-BACKLOG.md` (patrz `01-zasady-i-slownik.md`
-reguła 10).
+If the backlog needs rebuilding during Phase 8 (e.g. new sub-phases for E2EE), use the
+`loopstart` skill again rather than manually tacking things onto `11-BACKLOG.md` (see
+`01-zasady-i-slownik.md` rule 10).
 
-## Ryzyka i kontrole (przeniesione + rozszerzone z `plans/001-technical-plan.md` §15)
+## Risks and controls (carried over + expanded from `plans/001-technical-plan.md` §15)
 
-| Ryzyko | Kontrola |
+| Risk | Control |
 |---|---|
-| Backup Restic nie gotowy przed T032 | SRV-03/04/05 jako twardy blocker, sprawdzany jawnie w bramce F8 |
-| Przerwa prądu podczas 7-dniowego pilotażu | SRV-07 (autostart BIOS) jako prerekwizyt F8 |
-| Dysk 120 GB zapełniony podczas pilotażu | Budżet danych z `08-sapserver-operations.md`, monitorowany `df -h /` codziennie w trakcie pilotażu |
-| Agent wykonuje operację wymagającą `sudo` bez wiedzy usera | Reguła 9 z `01-zasady-i-slownik.md` — twardy stop, pytanie do usera |
-| Publiczne repo otwarte przed E2EE gotowym | Stage gates z `specs/003-open-source-release.md`, wymuszone w tabeli wyżej |
+| Restic backup not ready before T032 | SRV-03/04/05 as a hard blocker, checked explicitly at the F8 gate |
+| Power outage during the 7-day pilot | SRV-07 (BIOS autostart) as a prerequisite for F8 |
+| 120 GB disk filled during the pilot | Data budget from `08-sapserver-operations.md`, monitored via `df -h /` daily during the pilot |
+| Agent performs an operation requiring `sudo` without the user's knowledge | Rule 9 from `01-zasady-i-slownik.md` — hard stop, ask the user |
+| Public repo opened before E2EE is ready | Stage gates from `specs/003-open-source-release.md`, enforced in the table above |

@@ -1,40 +1,41 @@
 # 06 — Plugin: Activity, diff, restore, author overlay
 
-Zadania źródłowe: T028, T029. Różnicowanie od `05`: ta powierzchnia jest o HISTORII i ATRYBUCJI,
-nie o transporcie — inny motyw wizualny (legenda kolorów, timeline) niż karta połączenia z `05`.
+Source tasks: T028, T029. Differentiation from `05`: this surface is about HISTORY and
+ATTRIBUTION, not transport — a different visual theme (colour legend, timeline) than the
+connection card in `05`.
 
-## Tabela zdarzenie → reakcja
+## Event → reaction table
 
-| Zdarzenie | Reakcja |
+| Event | Reaction |
 |---|---|
-| Otwarcie widoku Activity | lista create/edit/rename/delete/conflict, najnowsze pierwsze |
-| Klik na wpis Activity | otwiera line diff tej rewizji |
-| Klik „Restore" na historycznej rewizji | tworzy NOWĄ rewizję z treścią historyczną, atrybucja: przywracający + źródłowa historia treści |
-| Toggle „Show authors" (ribbon/command) | włącza/wyłącza dekoracje CodeMirror, stan zapamiętany per lokalny vault |
-| Hover na zaatrybutowany fragment tekstu | tooltip: imię autora + czas rewizji |
-| Fokus klawiaturą na fragment (Live Preview) | te same informacje co hover, dostępne bez myszy |
-| Fragment z `Initial import` | etykieta „Initial import" zamiast imienia, brak fałszywej atrybucji |
-| Zmiana hasza dokumentu po edycji zewnętrznej | overlay chowa atrybucję dla tego dokumentu, nigdy nie zgaduje |
-| Reading view, brak mapowania sekcji z `getSectionInfo()` | brak jakiegokolwiek markera — cisza zamiast zgadywania |
-| Reduced motion | brak animacji podświetlenia, statyczny kolor + underline od razu |
-| Usunięcie pliku przez drugą osobę | wpis Activity „X usunął(a) Ścieżka" + oferta przywrócenia |
-| Konflikt tej samej linii | wpis „Konflikt" w Activity + kopia w `Havemind Conflicts/` + ekran rozwiązania |
+| Opening the Activity view | list of create/edit/rename/delete/conflict, newest first |
+| Click on an Activity entry | opens a line diff for that revision |
+| Click "Restore" on a historical revision | creates a NEW revision with the historical content; attribution: the restorer plus the source content history |
+| "Show authors" toggle (ribbon/command) | turns CodeMirror decorations on/off, state remembered per local vault |
+| Hover on an attributed text fragment | tooltip: author name + revision time |
+| Keyboard focus on a fragment (Live Preview) | same information as hover, available without a mouse |
+| Fragment from `Initial import` | label "Initial import" instead of a name, no false attribution |
+| Document hash changes after an external edit | overlay hides attribution for that document, never guesses |
+| Reading view, no section mapping from `getSectionInfo()` | no marker at all — silence rather than guessing |
+| Reduced motion | no highlight animation, static colour + underline immediately |
+| File deleted by another person | Activity entry "X deleted Path" + an offer to restore |
+| Conflict on the same line | "Conflict" entry in Activity + a copy in `Havemind Conflicts/` + a resolution screen |
 
-## Anty-spec (S5)
+## Anti-spec (S5)
 
-- Zakaz character-level highlight w Reading view w tej wersji (jawnie odłożone w
-  `specs/001-mvp.md` §3) — tylko block-level markery.
-- Zakaz kolorowania jako JEDYNEGO sygnału — zawsze underline/pattern + tooltip + legenda.
-- Zakaz zapisywania koloru w treści notatki (frontmatter lub body) — wyłącznie warstwa edytora.
-- Zakaz „zgadywania" atrybucji gdy `getSectionInfo()` nie zwraca mapowania — lepsza cisza niż
-  fałszywy sygnał.
-- Zakaz żywych kursorów / współdzielonego pisania w tej fazie (poza zakresem MVP).
+- No character-level highlight in Reading view in this version (explicitly deferred in
+  `specs/001-mvp.md` §3) — block-level markers only.
+- Never use colour as the ONLY signal — always underline/pattern + tooltip + legend.
+- Never store colour in the note's content (frontmatter or body) — editor layer only.
+- Never "guess" attribution when `getSectionInfo()` returns no mapping — silence is better than
+  a false signal.
+- No live cursors / collaborative writing in this phase (outside MVP scope).
 
-## Różnicowanie bliźniaków (S7)
+## Distinguishing twins (S7)
 
-Activity i overlay współdzielą dane (provenance runs, receipts), ale mają odrębny „interaction
-signature": Activity = lista/timeline + diff modal; overlay = inline dekoracje w edytorze. Nie
-implementuj ich jako jednego komponentu z przełącznikiem widoku.
+Activity and the overlay share data (provenance runs, receipts), but have a distinct
+"interaction signature": Activity = list/timeline + diff modal; overlay = inline decorations in
+the editor. Don't implement them as a single component with a view switch.
 
 ## Issues → BACKLOG mapping
 

@@ -1,42 +1,42 @@
-# 04 — Serwer: zaproszenia, auth-routes, sync API, backup/epoch
+# 04 — Server: invites, auth-routes, sync API, backup/epoch
 
-Powierzchnia: `apps/server`. Zadania źródłowe: T019, T020, T021, T022 z `plans/002-pilot-tasks.md`.
-Prymitywy tokenów: `03-systemy-przekrojowe.md`. Nie duplikuj treści protokołu — cytuj
-`plans/001-technical-plan.md` §7–8 przy niejasności.
+Surface: `apps/server`. Source tasks: T019, T020, T021, T022 from `plans/002-pilot-tasks.md`.
+Token primitives: `03-systemy-przekrojowe.md`. Don't duplicate protocol content — cite
+`plans/001-technical-plan.md` §7–8 when in doubt.
 
-## Tabela zdarzenie → reakcja (API jako „powierzchnia" bez UI, zdarzenia = żądania HTTP)
+## Event → reaction table (the API as a "surface" with no UI, events = HTTP requests)
 
-| Zdarzenie | Reakcja |
+| Event | Reaction |
 |---|---|
-| POST redemption z ważnym, jednorazowym zaproszeniem | tworzy pending device, zwraca stan `pending_approval` |
-| POST redemption z wygasłym zaproszeniem (>15 min) | `410 Gone`, zaproszenie oznaczone zużyte, brak retry |
-| POST redemption tym samym tokenem drugi raz | `409 Conflict`, brak utworzenia drugiego pending device |
-| Owner zatwierdza pending device z poprawną frazą | urządzenie aktywne, wydany refresh token |
-| Owner odrzuca / fraza się nie zgadza | pending device usunięty, brak wydania tokenu |
-| Żądanie z nagłówkiem podszywającym się pod inny `actor_id` | `403`, log bez treści nagłówka w plaintext |
-| Żądanie do vaultu bez członkostwa (IDOR próba) | `403`, zero wycieku istnienia zasobu |
-| Push batcha z cyklem w `parent_revision_ids` | `422`, batch odrzucony w całości, żadna częściowa akceptacja |
-| Push identycznego `revision_id` + identycznych bajtów | `200`, zwraca oryginalny wynik (idempotencja) |
-| Push identycznego `revision_id` + innych bajtów | `409` |
-| Pull z cursorem poza aktualnym zakresem serwera | `409 CURSOR_INVALID` po restore z nową epoką |
-| Restore serwera do pustego katalogu | integrity check + weryfikacja manifestu bloba przed startem |
-| Klient ze starszą epoką łączy się po restore | wymuszone pojednanie rewizji/headów przed jakąkolwiek mutacją |
-| Rate limit przekroczony (przed uwierzytelnieniem) | `429`, brak informacji o istnieniu konta |
+| POST redemption with a valid, single-use invite | creates a pending device, returns `pending_approval` state |
+| POST redemption with an expired invite (>15 min) | `410 Gone`, invite marked consumed, no retry |
+| POST redemption with the same token a second time | `409 Conflict`, no second pending device created |
+| Owner approves a pending device with the correct phrase | device active, refresh token issued |
+| Owner rejects / the phrase doesn't match | pending device deleted, no token issued |
+| Request with a header spoofing a different `actor_id` | `403`, logged without the header content in plaintext |
+| Request to a vault without membership (IDOR attempt) | `403`, zero leakage of resource existence |
+| Batch push with a cycle in `parent_revision_ids` | `422`, batch rejected in full, no partial acceptance |
+| Push of an identical `revision_id` + identical bytes | `200`, returns the original result (idempotency) |
+| Push of an identical `revision_id` + different bytes | `409` |
+| Pull with a cursor outside the server's current range | `409 CURSOR_INVALID` after a restore with a new epoch |
+| Server restore into an empty directory | integrity check + blob manifest verification before startup |
+| Client with an older epoch connects after a restore | forced reconciliation of revisions/heads before any mutation |
+| Rate limit exceeded (before authentication) | `429`, no information about whether the account exists |
 
-## Anty-spec (S5)
+## Anti-spec (S5)
 
-- Zakaz jakiegokolwiek endpointu, który przyjmuje `actor_id` lub `author` z ciała żądania jako
-  wiążące — zawsze z sesji.
-- Zakaz zwracania różnych kodów błędu dla „nieistniejący vault" vs „istniejący, brak dostępu" —
-  oba muszą wyglądać identycznie na zewnątrz (ochrona przed IDOR enumeration).
-- Zakaz `Cache-Control` innego niż `no-store` na endpointach z danymi wrażliwymi.
-- Zakaz przekazywania hasła `sudo` lub sekretów z `/srv/secrets` przez jakikolwiek endpoint
-  diagnostyczny.
+- Never accept `actor_id` or `author` from the request body as binding on any endpoint — always
+  take it from the session.
+- Never return different error codes for "vault doesn't exist" vs "exists, no access" — both
+  must look identical from the outside (protection against IDOR enumeration).
+- Never use a `Cache-Control` value other than `no-store` on endpoints with sensitive data.
+- Never expose the `sudo` password or secrets from `/srv/secrets` through any diagnostic
+  endpoint.
 
-## Issues → BACKLOG mapping (pełne AC w `11-BACKLOG.md`)
+## Issues → BACKLOG mapping (full AC in `11-BACKLOG.md`)
 
-- F1-01 — token primitives i rotacja (T018)
-- F2-01 — zaproszenia i device approval (T019)
+- F1-01 — token primitives and rotation (T018)
+- F2-01 — invites and device approval (T019)
 - F2-02 — deny-by-default auth-routes (T020)
 - F2-03 — sync push/pull API (T021)
 - F7-01 — backup, restore, server epoch (T022)

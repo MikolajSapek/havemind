@@ -1,57 +1,57 @@
 # 08 — Sapserver operations
 
-Faza równoległa do F7/F8, ale z osobnym blockerem: **backup musi być gotowy PRZED T032**,
-nie równolegle z nim (patrz `01-zasady-i-slownik.md` reguła 8-9). Dane liczbowe poniżej pochodzą
-z `Wiedza/Sapserver - dostęp i konfiguracja.md` (Mikolaj Private) — zweryfikuj je ponownie
-(`ssh sapserver` + polecenia z sekcji „Przydatne polecenia" tej notatki) przed rozpoczęciem tej
-fazy, bo notatka mogła się zmienić od ostatniej aktualizacji.
+A phase parallel to F7/F8, but with a separate blocker: **the backup must be ready BEFORE
+T032**, not in parallel with it (see `01-zasady-i-slownik.md` rule 8-9). The figures below come
+from `Wiedza/Sapserver - dostęp i konfiguracja.md` (Mikolaj Private) — re-verify them
+(`ssh sapserver` plus the commands in that note's "Przydatne polecenia" section) before starting
+this phase, since the note may have changed since its last update.
 
-## Agent budujący jest połączony z serwerem i wolno mu go modyfikować
+## The building agent is connected to the server and is allowed to modify it
 
-- Połączenie zweryfikowane: `ssh sapserver` (Tailscale `100.112.246.26`) z MacBooka; alias
-  `sapserver-lan` (`192.168.254.107`) jako awaryjny w sieci domowej.
-- Agent (Claude Code / Codex, wg tego samego modelu zaufania co „Dostęp Codexa przez CLI" w
-  notatce Sapservera) MOŻE samodzielnie: łączyć się przez SSH, diagnozować stan usług, tworzyć
-  pliki Compose w `/srv/compose/havemind/`, uruchamiać `docker compose up/down` (przez `sudo`,
-  świadomie, w ramach jednej sesji), konfigurować Tailscale Serve dla usługi Havemind, edytować
-  pliki w `/srv/appdata/havemind` zgodnie z konwencją service-per-directory.
-- Agent NIE MOŻE bez pytania usera: wykonywać kroków wymagających hasła `sudo` (nie zna hasła —
-  musi je poprosić usera o wpisanie interaktywnie albo wykonać krok samemu), włączać Tailscale
-  Funnel, dodawać siebie/użytkownika `mikolaj` do grupy `docker`, kasować backupy lub wykonywać
-  `restic forget --prune` bez wcześniejszego `restic check`, zmieniać reguły UFW poza tym co jest
-  jawnie w issue, wystawiać jakikolwiek port na `0.0.0.0`.
-- To NIE jest hipotetyczny target wdrożenia z listy „do wyboru" — to jedyny serwer, na którym
-  Havemind faktycznie zostanie uruchomiony w Fazie 7.
+- Connection verified: `ssh sapserver` (Tailscale `100.112.246.26`) from the MacBook; alias
+  `sapserver-lan` (`192.168.254.107`) as a fallback on the home network.
+- The agent (Claude Code / Codex, under the same trust model as "Dostęp Codexa przez CLI" in
+  the Sapserver note) MAY independently: connect via SSH, diagnose service state, create Compose
+  files in `/srv/compose/havemind/`, run `docker compose up/down` (via `sudo`, knowingly, within
+  a single session), configure Tailscale Serve for the Havemind service, edit files in
+  `/srv/appdata/havemind` following the service-per-directory convention.
+- The agent MAY NOT, without asking the user: perform steps that require the `sudo` password
+  (it doesn't know the password — it must ask the user to type it in interactively, or perform
+  the step itself), enable Tailscale Funnel, add itself/the user `mikolaj` to the `docker`
+  group, delete backups or run `restic forget --prune` without a prior `restic check`, change
+  UFW rules beyond what's explicitly in the issue, or expose any port on `0.0.0.0`.
+- This is NOT a hypothetical deployment target from a "pick one" list — it's the only server on
+  which Havemind will actually run in Phase 7.
 
-## Stan sprzętu i ograniczenia (liczby, nie przymiotniki)
+## Hardware state and constraints (numbers, not adjectives)
 
-- CPU i5-8600K/6 rdzeni, RAM 16 GB (praktycznie 15,9 GB), GPU GTX 1070 nieużywana na tym etapie.
-- Dysk systemowy: 120 GB NVMe, partycja systemowa ~109 GB, ~96 GB wolne przy ostatnim sprawdzeniu.
-  Budżet: kontener Havemind + SQLite + blob store musi mieścić się komfortowo w tej przestrzeni;
-  jeśli projekcja rozmiaru danych pilotażu przekroczy ~20 GB, zatrzymaj się i zapytaj usera przed
-  kontynuacją (dysk jest współdzielony z systemem i innymi eksperymentami).
-- Sieć: wyłącznie Wi-Fi (`wlp4s0`) obecnie — plan Etapu 4 z notatki (Ethernet) NIE jest
-  prerekwizytem tej fazy, ale zanotuj w `DECISIONS.md` jeśli stabilność Wi-Fi wpłynie na wynik
-  siedmiodniowego pilotażu.
+- CPU i5-8600K / 6 cores, 16 GB RAM (15.9 GB in practice), GPU GTX 1070 unused at this stage.
+- System disk: 120 GB NVMe, ~109 GB system partition, ~96 GB free at the last check.
+  Budget: the Havemind container + SQLite + blob store must fit comfortably within this space;
+  if the projected pilot data size exceeds ~20 GB, stop and ask the user before continuing (the
+  disk is shared with the system and other experiments).
+- Network: Wi-Fi only (`wlp4s0`) currently — the note's Stage 4 plan (Ethernet) is NOT a
+  prerequisite for this phase, but note in `DECISIONS.md` if Wi-Fi stability affects the outcome
+  of the seven-day pilot.
 
-## Issues tej fazy (numeracja w `11-BACKLOG.md`, prefix `SRV-`)
+## This phase's issues (numbered in `11-BACKLOG.md`, prefix `SRV-`)
 
-| Issue | Opis | Blokująca dla |
+| Issue | Description | Blocks |
 |---|---|---|
-| SRV-01 | Aktualizacja Tailscale na serwerze do najnowszej wersji | F8 (pilotaż) |
-| SRV-02 | Wybór miejsca backupu (USB / NAS / Backblaze B2) — decyzja usera | SRV-03 |
-| SRV-03 | Wdrożenie Restic: repo szyfrowane, retencja 7 dziennych/4 tygodniowych/6 miesięcznych | T032 (twardy blocker) |
-| SRV-04 | Test przywracania pojedynczego pliku z Restic | SRV-03 → T032 |
-| SRV-05 | Test przywracania całej usługi (Havemind) z Restic na czystą instancję | T032 |
-| SRV-06 | Testowa strona Docker na `127.0.0.1:8080` + Tailscale Serve (dry-run przed realną usługą) | F7-02 |
-| SRV-07 | Potwierdzenie/ustawienie autostartu po awarii zasilania w BIOS | F8 (pilotaż 7-dniowy nie przetrwa przerwy prądu bez tego) |
+| SRV-01 | Update Tailscale on the server to the latest version | F8 (pilot) |
+| SRV-02 | Choice of backup location (USB / NAS / Backblaze B2) — user decision | SRV-03 |
+| SRV-03 | Deploy Restic: encrypted repo, retention 7 daily / 4 weekly / 6 monthly | T032 (hard blocker) |
+| SRV-04 | Single-file restore test from Restic | SRV-03 → T032 |
+| SRV-05 | Full-service (Havemind) restore test from Restic onto a clean instance | T032 |
+| SRV-06 | Test Docker page on `127.0.0.1:8080` + Tailscale Serve (dry run before the real service) | F7-02 |
+| SRV-07 | Confirm/set autostart after a power failure in BIOS | F8 (the 7-day pilot won't survive a power outage without this) |
 
-## Anty-spec (S5)
+## Anti-spec (S5)
 
-- Zakaz instalowania Kubernetes/k3s, Portainera, Cockpit, Nginx Proxy Manager, Watchtowera,
-  globalnej bazy PostgreSQL/MySQL „na zapas", Samby/NFS bez konkretnej potrzeby, Fail2ban (SSH
-  już ograniczone kluczem i Tailscale), sterownika NVIDIA/narzędzi LLM przed etapem AI — zgodnie
-  z sekcją „Czego obecnie nie instalujemy" notatki Sapservera.
-- Zakaz jakiegokolwiek publicznego portu poza krótkim, jawnie zatwierdzonym demo przez Tailscale
-  Funnel (Etap 2 hostowania, osobna decyzja usera, nigdy dane prywatne).
-- Zakaz dodawania użytkownika `mikolaj` do grupy `docker`.
+- No installing Kubernetes/k3s, Portainer, Cockpit, Nginx Proxy Manager, Watchtower, a global
+  PostgreSQL/MySQL database "just in case", Samba/NFS without a concrete need, Fail2ban (SSH is
+  already restricted by key and Tailscale), an NVIDIA driver/LLM tooling before the AI stage —
+  per the "Czego obecnie nie instalujemy" section of the Sapserver note.
+- No public port of any kind, except a short, explicitly approved demo via Tailscale Funnel
+  (hosting Stage 2, a separate user decision, never private data).
+- No adding the user `mikolaj` to the `docker` group.
