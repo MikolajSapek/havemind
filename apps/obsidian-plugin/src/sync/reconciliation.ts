@@ -57,6 +57,32 @@ export interface ReconcileResult {
   updated: number;
 }
 
+const MAX_BINARY_FILE_MB = MAX_BINARY_FILE_BYTES / (1024 * 1024);
+
+/**
+ * Renders the two exclusion counts from a {@link ReconcileResult} as
+ * user-facing notice strings — pure, so the wording can be unit-tested without
+ * an `App`/`Notice` in scope. Each reason gets its OWN sentence: an unsupported
+ * file type and an oversized allowlisted binary (F9) are distinct causes, and
+ * conflating them (or the old "markdown only" phrasing, stale since binary
+ * attachment sync shipped) would misinform the user about what to do next.
+ * Returns an empty array when nothing was excluded.
+ */
+export function formatReconcileNotices(result: ReconcileResult): string[] {
+  const notices: string[] = [];
+  if (result.attachmentsExcluded > 0) {
+    notices.push(
+      `Havemind: ${result.attachmentsExcluded} attachment(s) not synced (unsupported file type(s)).`,
+    );
+  }
+  if (result.binaryExcluded > 0) {
+    notices.push(
+      `Havemind: ${result.binaryExcluded} attachment(s) not synced (over the ${MAX_BINARY_FILE_MB} MB size limit).`,
+    );
+  }
+  return notices;
+}
+
 interface EligibleVaultFile {
   collisionKey: string;
   content: string;

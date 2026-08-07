@@ -40,7 +40,7 @@ import {
   type LocalFileMapping,
   type VaultSnapshotPort,
 } from '../obsidian/vault-adapter';
-import { reconcileVaultState } from '../sync/reconciliation';
+import { formatReconcileNotices, reconcileVaultState } from '../sync/reconciliation';
 import {
   CONFIG_DIR,
   listSyncableConfigPaths,
@@ -1580,13 +1580,12 @@ function startPushProducer(
             `Havemind: ${result.skipped} file(s) could not be synced and were skipped.`,
           );
         }
-        // Attachments are a deliberate MVP exclusion (markdown-only), but that
-        // must never be silent: surface the count separately from the
-        // per-file skip count above so the two distinct reasons aren't conflated.
-        if (result.attachmentsExcluded > 0) {
-          new Notice(
-            `Havemind: ${result.attachmentsExcluded} attachment(s) not synced (markdown only for now).`,
-          );
+        // A remaining exclusion (an unsupported file type, or an allowlisted
+        // binary over the size cap, F9) must never be silent: surface each
+        // reason as its own notice, separate from the per-file skip count
+        // above, so the distinct reasons are never conflated.
+        for (const notice of formatReconcileNotices(result)) {
+          new Notice(notice);
         }
       },
     ),

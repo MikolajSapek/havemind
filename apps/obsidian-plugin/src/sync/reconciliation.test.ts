@@ -14,7 +14,11 @@ import {
   VaultChangeObserver,
   type VaultSnapshotPort,
 } from '../obsidian/vault-adapter';
-import { reconcileVaultState } from './reconciliation';
+import {
+  formatReconcileNotices,
+  reconcileVaultState,
+  type ReconcileResult,
+} from './reconciliation';
 
 const SYNCABLE_EXTENSION_SET = new Set<string>(['md', ...SYNCABLE_BINARY_EXTENSIONS]);
 
@@ -332,6 +336,54 @@ describe('startup reconciliation', () => {
     expect(repository.commits).toHaveLength(0);
   });
 });
+
+describe('formatReconcileNotices', () => {
+  it('describes attachments excluded for their unsupported file type, never as "markdown only"', () => {
+    const notices = formatReconcileNotices(baseResult({ attachmentsExcluded: 3 }));
+
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toContain('unsupported file type(s)');
+    expect(notices[0]?.toLowerCase()).not.toContain('markdown only');
+  });
+
+  it('describes binary attachments excluded in a separate notice naming the size cap', () => {
+    const notices = formatReconcileNotices(baseResult({ binaryExcluded: 2 }));
+
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toMatch(/25\s*MB/);
+    expect(notices[0]?.toLowerCase()).not.toContain('markdown only');
+  });
+
+  it('returns both notices, independently worded, when both counts are non-zero', () => {
+    const notices = formatReconcileNotices(
+      baseResult({ attachmentsExcluded: 1, binaryExcluded: 1 }),
+    );
+
+    expect(notices).toHaveLength(2);
+    expect(notices.some((notice) => notice.includes('unsupported file type(s)'))).toBe(true);
+    expect(notices.some((notice) => notice.match(/25\s*MB/))).toBe(true);
+  });
+
+  it('returns no notices when nothing was excluded', () => {
+    expect(formatReconcileNotices(baseResult())).toEqual([]);
+  });
+});
+
+function baseResult(overrides: Partial<ReconcileResult> = {}): ReconcileResult {
+  return {
+    attachmentsExcluded: 0,
+    binaryExcluded: 0,
+    completed: true,
+    created: 0,
+    deleted: 0,
+    ignored: 0,
+    renamed: 0,
+    skipped: 0,
+    unchanged: 0,
+    updated: 0,
+    ...overrides,
+  };
+}
 
 function createObserver(
   vault: VaultSnapshotPort,
