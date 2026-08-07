@@ -498,14 +498,23 @@ export class InvitationService {
            ) VALUES (?, ?, 0, 'active', ?, NULL)`,
         )
         .run(userId, memberDisplayName, createdAt);
+      // `vault_id` scopes the device to the invitation's vault so a later
+      // membership revocation burns it in that vault only (AUD2-04).
       this.#database
         .prepare(
           `INSERT INTO devices (
              id, user_id, display_name, public_key, status,
-             created_at, approved_at, revoked_at
-           ) VALUES (?, ?, ?, ?, 'pending', ?, NULL, NULL)`,
+             created_at, approved_at, revoked_at, vault_id
+           ) VALUES (?, ?, ?, ?, 'pending', ?, NULL, NULL, ?)`,
         )
-        .run(deviceId, userId, deviceDisplayName, publicKey, createdAt);
+        .run(
+          deviceId,
+          userId,
+          deviceDisplayName,
+          publicKey,
+          createdAt,
+          invitation.vaultId,
+        );
 
       const consumed = this.#database
         .prepare(
@@ -762,12 +771,14 @@ export class InvitationService {
            ) VALUES (?, ?, 0, 'active', ?, NULL)`,
         )
         .run(userId, invitation.intendedMemberDisplayName, createdAt);
+      // `vault_id` scopes the device to the invitation's vault so a later
+      // membership revocation burns it in that vault only (AUD2-04).
       this.#database
         .prepare(
           `INSERT INTO devices (
              id, user_id, display_name, public_key, status,
-             created_at, approved_at, revoked_at, rejoin_secret_hash
-           ) VALUES (?, ?, ?, ?, 'pending', ?, NULL, NULL, ?)`,
+             created_at, approved_at, revoked_at, rejoin_secret_hash, vault_id
+           ) VALUES (?, ?, ?, ?, 'pending', ?, NULL, NULL, ?, ?)`,
         )
         .run(
           deviceId,
@@ -776,6 +787,7 @@ export class InvitationService {
           randomBytes(PUBLIC_KEY_LENGTH),
           createdAt,
           rejoinSecretHash,
+          invitation.vaultId,
         );
 
       const consumed = this.#database

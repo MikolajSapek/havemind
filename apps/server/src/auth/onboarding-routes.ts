@@ -104,7 +104,14 @@ const invitationVaultParamsSchema = z.object({
 });
 
 const bootstrapQuerySchema = z
-  .object({ cursor: z.string().min(1).max(200).optional() })
+  .object({
+    cursor: z.string().min(1).max(200).optional(),
+    // The vault the caller wants bootstrapped. OPTIONAL on purpose: the
+    // deployed plugin sends only a cursor, and omitting it keeps the previous
+    // first-active-vault resolution. When present it is authorised against the
+    // caller's active memberships, never trusted.
+    vault: z.string().regex(UUID_PATTERN).optional(),
+  })
   .strict();
 
 interface MembershipRow {
@@ -204,6 +211,25 @@ function loadFirstActiveVault(
     )
     .get(userId) as { vaultId: string } | undefined;
   return row?.vaultId ?? null;
+}
+
+/**
+ * Resolves which vault `GET /bootstrap` serves. A `requestedVaultId` is honoured
+ * only when the caller holds an ACTIVE membership in it; otherwise this returns
+ * null so the route answers 403 and reads no events. With no request it falls
+ * back to the caller's first active vault (the pre-multi-vault behaviour), which
+ * is also null for a caller who is no longer a member of anything.
+ */
+function resolveBootstrapVault(
+  database: Database.Database,
+  userId: string,
+  requestedVaultId: string | undefined,
+): string | null {
+  if (requestedVaultId === undefined) {
+    return loadFirstActiveVault(database, userId);
+  }
+  const membership = loadActiveMembership(database, userId, requestedVaultId);
+  return membership === null ? null : requestedVaultId;
 }
 
 /**
@@ -361,18 +387,17 @@ export function registerPreAuthOnboardingRoutes(
     if (context === null) {
       return sendError(reply, 401, 'UNAUTHENTICATED');
     }
-    // TODO(multi-vault): scope this to a specific vault the caller names. The
-    // refresh token resolves only to a user + device (neither the `devices` nor
-    // `refresh_token_families` row carries a vault_id), and today's plugin sends
-    // no vault identifier on GET /bootstrap — it only sends the refresh token and
-    // a cursor. For a user who is a member of a single vault this is exact; for a
-    // member of several vaults it can only serve the first, never a caller-chosen
-    // one. `POST /owner/pair` now returns the correct `vaultId`, so once the
-    // plugin forwards it here (a client-contract change deferred out of this
-    // server-only phase) this must switch to that vault after verifying the
-    // caller's active membership. `loadFirstActiveVault` already returns null —
-    // yielding 403 with no events — when the user has no active membership.
-    const vaultId = loadFirstActiveVault(deps.database, context.userId);
+    // A caller who names a vault gets exactly that vault, but only after its
+    // active membership is verified — the query string is caller-controlled, so
+    // it selects among the caller's own vaults and can never widen access. With
+    // no `vault` the resolution stays the first active vault, keeping the
+    // deployed plugin (refresh token + cursor only) working unchanged. Either
+    // way a caller with no active membership resolves to null → 403, no events.
+    const vaultId = resolveBootstrapVault(
+      deps.database,
+      context.userId,
+      query.data.vault,
+    );
     if (vaultId === null) {
       return sendError(reply, 403, 'FORBIDDEN');
     }

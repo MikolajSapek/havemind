@@ -46,6 +46,10 @@ const SECOND_VAULT = '80000000-0000-4000-8000-0000000000b3';
 const SECOND_MEMBERSHIP = '80000000-0000-4000-8000-0000000000b4';
 const SECOND_VAULT_TIME = '2026-07-16T04:00:00.000Z';
 
+// A real vault the owner holds NO membership in — naming it on bootstrap must
+// be refused, never served.
+const FOREIGN_VAULT = '80000000-0000-4000-8000-0000000000c3';
+
 interface Fixture {
   readonly database: Database.Database;
   readonly sessions: SessionRepository;
@@ -318,6 +322,72 @@ function approveWith(
 /** Produces a syntactically valid 6-digit PIN guaranteed to differ from `code`. */
 function wrongCode(code: string): string {
   return code === '000000' ? '111111' : '000000';
+}
+
+/** Opens a live refresh family on the owner device, returning the raw token. */
+function openOwnerRefresh(fixture: Fixture): string {
+  const rawRefresh = generateRefreshToken();
+  fixture.database
+    .transaction(() =>
+      fixture.sessions.createInitialSessionInCurrentTransaction({
+        deviceId: OWNER_DEVICE,
+        initialRefreshToken: rawRefresh,
+        refreshTokenTtlSeconds: REFRESH_TTL_SECONDS,
+        userId: OWNER_USER,
+      }),
+    )
+    .immediate();
+  return rawRefresh;
+}
+
+/** One committed event per vault, so the served page identifies its vault. */
+function eventForVault(vaultId: string, fileId: string): StoredRevisionEvent {
+  return {
+    fileId,
+    receipt: {
+      blobHash: 'b'.repeat(64),
+      byteLength: 3,
+      deviceId: OWNER_DEVICE,
+      memberId: vaultId === VAULT ? OWNER_MEMBERSHIP : SECOND_MEMBERSHIP,
+      revisionId: fileId,
+      serverSequence: 1,
+      serverTime: START_TIME,
+    },
+    revisionId: fileId,
+    serverSequence: 1,
+    type: 'revision-accepted',
+  } as unknown as StoredRevisionEvent;
+}
+
+const VAULT_FILE = '80000000-0000-4000-8000-00000000f001';
+const SECOND_VAULT_FILE = '80000000-0000-4000-8000-00000000f002';
+
+/**
+ * Registers the pre-auth routes with a `listEvents` stub that answers per vault
+ * and records every vault it was asked for, so a test can assert which vault
+ * bootstrap resolved.
+ */
+function registerBootstrapWithVaultProbe(
+  app: ReturnType<typeof Fastify>,
+  fixture: Fixture,
+): { readonly requestedVaults: string[] } {
+  const requestedVaults: string[] = [];
+  const eventsByVault: Readonly<Record<string, StoredRevisionEvent[]>> = {
+    [SECOND_VAULT]: [eventForVault(SECOND_VAULT, SECOND_VAULT_FILE)],
+    [VAULT]: [eventForVault(VAULT, VAULT_FILE)],
+  };
+  registerPreAuthOnboardingRoutes(app, {
+    database: fixture.database,
+    invitations: fixture.invitations,
+    revisions: {
+      listEvents: (vaultId: string) => {
+        requestedVaults.push(vaultId);
+        return eventsByVault[vaultId] ?? [];
+      },
+    },
+    sessions: fixture.sessions,
+  });
+  return { requestedVaults };
 }
 
 afterEach(async () => {
@@ -875,6 +945,79 @@ describe('onboarding HTTP surface', () => {
       nextCursor: null,
       version: 1,
     });
+  });
+
+  it('serves the vault named by ?vault= when the caller holds an active membership there', async () => {
+    const fixture = makeFixture();
+    insertSecondVaultForOwner(fixture.database, generatePairingToken());
+    const rawRefresh = openOwnerRefresh(fixture);
+
+    const app = Fastify();
+    applications.push(app as unknown as ReturnType<typeof buildApp>);
+    const probe = registerBootstrapWithVaultProbe(app, fixture);
+
+    const bootstrap = await app.inject({
+      headers: { 'x-havemind-refresh-token': rawRefresh },
+      method: 'GET',
+      url: `/bootstrap?vault=${SECOND_VAULT}`,
+    });
+
+    expect(bootstrap.statusCode).toBe(200);
+    // The caller-named vault must be the one read — never the first/oldest one
+    // `loadFirstActiveVault` would resolve.
+    expect(probe.requestedVaults).toEqual([SECOND_VAULT]);
+    const body = bootstrap.json() as { items: Array<{ fileId: string }> };
+    expect(body.items.map((item) => item.fileId)).toEqual([SECOND_VAULT_FILE]);
+  });
+
+  it('rejects ?vault= for a vault the caller has no active membership in with 403 and zero events', async () => {
+    const fixture = makeFixture();
+    insertVault(fixture.database, FOREIGN_VAULT, 'Someone Else Vault');
+    const rawRefresh = openOwnerRefresh(fixture);
+
+    const app = Fastify();
+    applications.push(app as unknown as ReturnType<typeof buildApp>);
+    registerPreAuthOnboardingRoutes(app, {
+      database: fixture.database,
+      invitations: fixture.invitations,
+      // Naming a foreign vault must be refused BEFORE any event read.
+      revisions: {
+        listEvents: () => {
+          throw new Error('listEvents must not run for a non-member vault');
+        },
+      },
+      sessions: fixture.sessions,
+    });
+
+    const bootstrap = await app.inject({
+      headers: { 'x-havemind-refresh-token': rawRefresh },
+      method: 'GET',
+      url: `/bootstrap?vault=${FOREIGN_VAULT}`,
+    });
+
+    expect(bootstrap.statusCode).toBe(403);
+    expect(JSON.stringify(bootstrap.json())).not.toContain('items');
+  });
+
+  it('keeps serving the first active vault when no ?vault= is sent (deployed plugin contract)', async () => {
+    const fixture = makeFixture();
+    insertSecondVaultForOwner(fixture.database, generatePairingToken());
+    const rawRefresh = openOwnerRefresh(fixture);
+
+    const app = Fastify();
+    applications.push(app as unknown as ReturnType<typeof buildApp>);
+    const probe = registerBootstrapWithVaultProbe(app, fixture);
+
+    const bootstrap = await app.inject({
+      headers: { 'x-havemind-refresh-token': rawRefresh },
+      method: 'GET',
+      url: '/bootstrap',
+    });
+
+    expect(bootstrap.statusCode).toBe(200);
+    expect(probe.requestedVaults).toEqual([VAULT]);
+    const body = bootstrap.json() as { items: Array<{ fileId: string }> };
+    expect(body.items.map((item) => item.fileId)).toEqual([VAULT_FILE]);
   });
 });
 

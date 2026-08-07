@@ -366,7 +366,7 @@ export class OwnerSetupService {
     const pair = this.#database.transaction((): PairOwnerDeviceResult => {
       const pairing = this.#database
         .prepare(
-          `SELECT id, user_id AS userId,
+          `SELECT id, user_id AS userId, vault_id AS vaultId,
                   expires_at AS expiresAt, consumed_at AS consumedAt
            FROM owner_pairings WHERE token_hash = ?`,
         )
@@ -379,14 +379,24 @@ export class OwnerSetupService {
         throw new OwnerSetupError('INVALID_PAIRING');
       }
 
+      // `vault_id` scopes the device to the vault this pairing carries so a
+      // later membership revocation burns it in that vault only (AUD2-04).
       this.#database
         .prepare(
           `INSERT INTO devices (
              id, user_id, display_name, public_key, status,
-             created_at, approved_at, revoked_at
-           ) VALUES (?, ?, ?, ?, 'approved', ?, ?, NULL)`,
+             created_at, approved_at, revoked_at, vault_id
+           ) VALUES (?, ?, ?, ?, 'approved', ?, ?, NULL, ?)`,
         )
-        .run(deviceId, pairing.userId, deviceDisplayName, publicKey, createdAt, createdAt);
+        .run(
+          deviceId,
+          pairing.userId,
+          deviceDisplayName,
+          publicKey,
+          createdAt,
+          createdAt,
+          pairing.vaultId,
+        );
 
       const session = this.#sessions.createInitialSessionInCurrentTransaction({
         deviceId,
@@ -450,14 +460,24 @@ export class OwnerSetupService {
           throw new OwnerSetupError('INVALID_PAIRING');
         }
 
+        // `vault_id` scopes the device to the vault this pairing carries so a
+        // later membership revocation burns it in that vault only (AUD2-04).
         this.#database
           .prepare(
             `INSERT INTO devices (
                id, user_id, display_name, public_key, status,
-               created_at, approved_at, revoked_at
-             ) VALUES (?, ?, ?, ?, 'approved', ?, ?, NULL)`,
+               created_at, approved_at, revoked_at, vault_id
+             ) VALUES (?, ?, ?, ?, 'approved', ?, ?, NULL, ?)`,
           )
-          .run(deviceId, pairing.userId, deviceDisplayName, publicKey, createdAt, createdAt);
+          .run(
+            deviceId,
+            pairing.userId,
+            deviceDisplayName,
+            publicKey,
+            createdAt,
+            createdAt,
+            pairing.vaultId,
+          );
 
         const family = this.#sessions.createInitialFamilyFromHashInCurrentTransaction(
           {

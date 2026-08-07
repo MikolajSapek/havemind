@@ -161,6 +161,15 @@ const rejoinSecretMigration: MigrationDefinition = Object.freeze({
   version: 6,
 });
 
+const deviceVaultScopeMigration: MigrationDefinition = Object.freeze({
+  name: 'device-vault-scope',
+  sql: readFileSync(
+    new URL('./migrations/007-device-vault-scope.sql', import.meta.url),
+    'utf8',
+  ),
+  version: 7,
+});
+
 export const DEFAULT_MIGRATIONS: readonly MigrationDefinition[] = Object.freeze([
   initialMigration,
   onboardingMigration,
@@ -168,6 +177,7 @@ export const DEFAULT_MIGRATIONS: readonly MigrationDefinition[] = Object.freeze(
   rejoinGrantsMigration,
   quotaMigration,
   rejoinSecretMigration,
+  deviceVaultScopeMigration,
 ]);
 
 export const CURRENT_SCHEMA_VERSION =

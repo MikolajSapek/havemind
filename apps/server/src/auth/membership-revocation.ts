@@ -59,6 +59,7 @@ export interface RevokeMembershipResult {
 interface MembershipRow {
   readonly userId: string;
   readonly status: string;
+  readonly vaultId: string;
 }
 
 function requireUuid(value: string): string {
@@ -76,9 +77,11 @@ function requireUuid(value: string): string {
  * this is a status change, not a history rewrite.
  *
  * In a single write transaction it: flips the membership to `revoked`, and for
- * every device the member owns burns the device row plus every refresh family
- * and access token bound to it (via the session repository's in-transaction
- * primitive). The member is therefore terminally locked out: their next
+ * every device the member owns IN THAT VAULT burns the device row plus every
+ * refresh family and access token bound to it (via the session repository's
+ * in-transaction primitive). Devices scoped to the member's OTHER vaults are
+ * untouched — losing one vault never locks a member out of another (AUD2-04).
+ * The member is therefore terminally locked out of this vault: their next
  * sync/refresh resolves to no active session and fails closed with the terminal
  * 401 path, and a revoked membership can no longer be rejoined or re-admitted
  * (re-adding them requires a fresh invitation and full pairing).
@@ -106,7 +109,8 @@ export class MembershipRevocationService {
     const revoke = this.#database.transaction((): RevokeMembershipResult => {
       const membership = this.#database
         .prepare(
-          `SELECT user_id AS userId, status FROM memberships WHERE id = ?`,
+          `SELECT user_id AS userId, status, vault_id AS vaultId
+           FROM memberships WHERE id = ?`,
         )
         .get(membershipId) as MembershipRow | undefined;
       if (membership === undefined) {
@@ -124,9 +128,19 @@ export class MembershipRevocationService {
         )
         .run(now, membershipId);
 
+      // Scoped to the revoked vault (AUD2-04): a member who also belongs to
+      // another vault keeps that vault's devices and sessions. `vault_id IS
+      // NULL` is the legacy fallback — a device onboarded before the scope
+      // column cannot prove its vault, so it is still burned (fail closed,
+      // exactly the pre-fix behaviour). NULL never spares a device.
       const devices = this.#database
-        .prepare(`SELECT id FROM devices WHERE user_id = ?`)
-        .all(membership.userId) as ReadonlyArray<{ id: string }>;
+        .prepare(
+          `SELECT id FROM devices
+           WHERE user_id = ? AND (vault_id = ? OR vault_id IS NULL)`,
+        )
+        .all(membership.userId, membership.vaultId) as ReadonlyArray<{
+        id: string;
+      }>;
       for (const device of devices) {
         this.#sessions.revokeDeviceInCurrentTransaction(device.id);
       }

@@ -162,12 +162,13 @@ describe('controlled migrations', () => {
       expect.arrayContaining(['rotation_id', 'successor_token_hash']),
     );
 
-    // Migration 006 adds the per-device rejoin secret hash (audit finding #1).
+    // Migration 006 adds the per-device rejoin secret hash (audit finding #1);
+    // migration 007 adds the device vault scope (AUD2-04).
     const deviceColumns = database
       .prepare('PRAGMA table_info(devices)')
       .all() as Array<{ name: string }>;
     expect(deviceColumns.map(({ name }) => name)).toEqual(
-      expect.arrayContaining(['rejoin_secret_hash']),
+      expect.arrayContaining(['rejoin_secret_hash', 'vault_id']),
     );
 
     expect(runMigrations(database)).toEqual({
@@ -177,6 +178,71 @@ describe('controlled migrations', () => {
     expect(
       database.prepare('SELECT COUNT(*) AS count FROM schema_migrations').get(),
     ).toEqual({ count: CURRENT_SCHEMA_VERSION });
+  });
+
+  it('backfills the device vault scope only where a single membership proves it', () => {
+    const database = trackDatabase(openDatabase(temporaryDatabasePath()));
+    // Upgrade path: stop one version short of the vault-scope migration, seed
+    // devices as a pre-007 server would have, then apply 007.
+    runMigrations(database, DEFAULT_MIGRATIONS.slice(0, CURRENT_SCHEMA_VERSION - 1));
+
+    const at = '2026-07-16T03:00:00.000Z';
+    const users = ['single', 'multi', 'none'] as const;
+    for (const [index, key] of users.entries()) {
+      database
+        .prepare(
+          `INSERT INTO users (id, display_name, is_instance_owner, status, created_at, revoked_at)
+           VALUES (?, ?, 0, 'active', ?, NULL)`,
+        )
+        .run(`user-${key}`, `User ${index}`, at);
+      database
+        .prepare(
+          `INSERT INTO devices (id, user_id, display_name, public_key, status, created_at, approved_at, revoked_at)
+           VALUES (?, ?, ?, ?, 'approved', ?, ?, NULL)`,
+        )
+        .run(`device-${key}`, `user-${key}`, `Device ${index}`, Buffer.alloc(32, 1), at, at);
+    }
+    for (const vaultId of ['vault-a', 'vault-b']) {
+      database
+        .prepare(
+          `INSERT INTO vaults (id, display_name, write_epoch, next_server_sequence, created_at, deleted_at)
+           VALUES (?, ?, 0, 1, ?, NULL)`,
+        )
+        .run(vaultId, vaultId, at);
+    }
+    const memberships: ReadonlyArray<readonly [string, string, string]> = [
+      ['m-single', 'vault-a', 'user-single'],
+      ['m-multi-a', 'vault-a', 'user-multi'],
+      ['m-multi-b', 'vault-b', 'user-multi'],
+    ];
+    for (const [id, vaultId, userId] of memberships) {
+      database
+        .prepare(
+          `INSERT INTO memberships (id, vault_id, user_id, role, status, created_at, revoked_at)
+           VALUES (?, ?, ?, 'editor', 'active', ?, NULL)`,
+        )
+        .run(id, vaultId, userId, at);
+    }
+
+    expect(runMigrations(database)).toEqual({
+      appliedVersions: [CURRENT_SCHEMA_VERSION],
+      currentVersion: CURRENT_SCHEMA_VERSION,
+    });
+
+    const scopes = database
+      .prepare('SELECT id, vault_id AS vaultId FROM devices ORDER BY id')
+      .all() as Array<{ id: string; vaultId: string | null }>;
+    expect(scopes).toEqual([
+      // Two memberships → ambiguous; guessing could burn the wrong vault's
+      // device, so the scope stays NULL and revocation falls back to the old,
+      // stricter behaviour.
+      { id: 'device-multi', vaultId: null },
+      // No membership at all → nothing to infer.
+      { id: 'device-none', vaultId: null },
+      // Exactly one membership → unambiguous, so the scope is filled in.
+      { id: 'device-single', vaultId: 'vault-a' },
+    ]);
+    expect(database.pragma('foreign_key_check')).toEqual([]);
   });
 
   it('uses BEGIN IMMEDIATE so only one migrator can run at a time', () => {
