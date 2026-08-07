@@ -57,6 +57,16 @@ export interface ApprovalPollRequest extends RedirectSafeRequest {
 export interface BootstrapPageRequest extends RedirectSafeRequest {
   cursor: string | null;
   refreshToken: string;
+  /**
+   * The connection's known vault id, sent as `?vault=` so the server serves
+   * that membership's bootstrap instead of its first-active-vault fallback
+   * (multi-vault 9b, server-side contract added in 3c91a3d). `null` before a
+   * connection record exists (the server's first-active-vault fallback
+   * covers that case) — unreachable once a connection record exists, since
+   * `ConnectionMetadata.vaultId` is set at invitation review, well before any
+   * bootstrap request is made.
+   */
+  vaultId: string | null;
 }
 
 export interface RemoteApiPort {
@@ -530,6 +540,7 @@ export class OnboardingController {
         redirect: 'error',
         refreshToken,
         url,
+        vaultId: state.vaultId,
       }),
     );
     const page = parseBootstrapResponse(response, url);

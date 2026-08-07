@@ -448,6 +448,11 @@ describe('onboarding controller', () => {
       redirect: 'error',
       refreshToken: REFRESH_TOKEN,
       url: `${API_BASE_URL}/bootstrap`,
+      // The stored connection knows its vault (set at invitation review, well
+      // before this phase), so every bootstrap page request — including
+      // continuation pages — carries it for the server's ?vault= selection
+      // (multi-vault 9b).
+      vaultId: VAULT_ID,
     });
     expect(String(firstPageRemote.calls[0]?.request.url)).not.toContain(
       REFRESH_TOKEN,

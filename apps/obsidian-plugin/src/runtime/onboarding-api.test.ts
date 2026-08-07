@@ -89,6 +89,7 @@ describe('RequestUrlOnboardingApi', () => {
       refreshToken: 'hm_rt_x',
       redirect: 'error',
       url: 'https://host/bootstrap',
+      vaultId: null,
     });
     expect(calls[0]?.url).toBe('https://host/bootstrap?cursor=42');
     expect(calls[0]?.headers?.['x-havemind-refresh-token']).toBe('hm_rt_x');
@@ -102,7 +103,49 @@ describe('RequestUrlOnboardingApi', () => {
       refreshToken: 'hm_rt_x',
       redirect: 'error',
       url: 'https://host/bootstrap',
+      vaultId: null,
     });
     expect(calls[0]?.url).toBe('https://host/bootstrap');
+  });
+
+  it('includes the vault id in the bootstrap URL when the connection record has one', async () => {
+    const { api, calls } = fake(() => ok({ complete: true, items: [] }));
+    const response = await api.fetchBootstrapPage({
+      cursor: null,
+      refreshToken: 'hm_rt_x',
+      redirect: 'error',
+      url: 'https://host/bootstrap',
+      vaultId: '00000000-0000-4000-8000-000000000001',
+    });
+    expect(calls[0]?.url).toBe(
+      'https://host/bootstrap?vault=00000000-0000-4000-8000-000000000001',
+    );
+    expect(response.finalUrl).toBe('https://host/bootstrap');
+  });
+
+  it('omits the vault query when the vault id is unknown, leaving the cursor query in place', async () => {
+    const { api, calls } = fake(() => ok({ complete: true, items: [] }));
+    await api.fetchBootstrapPage({
+      cursor: '42',
+      refreshToken: 'hm_rt_x',
+      redirect: 'error',
+      url: 'https://host/bootstrap',
+      vaultId: null,
+    });
+    expect(calls[0]?.url).toBe('https://host/bootstrap?cursor=42');
+  });
+
+  it('combines the vault id and cursor query when both are known', async () => {
+    const { api, calls } = fake(() => ok({ complete: true, items: [] }));
+    await api.fetchBootstrapPage({
+      cursor: '42',
+      refreshToken: 'hm_rt_x',
+      redirect: 'error',
+      url: 'https://host/bootstrap',
+      vaultId: '00000000-0000-4000-8000-000000000001',
+    });
+    expect(calls[0]?.url).toBe(
+      'https://host/bootstrap?vault=00000000-0000-4000-8000-000000000001&cursor=42',
+    );
   });
 });

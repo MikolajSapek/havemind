@@ -78,12 +78,19 @@ export class RequestUrlOnboardingApi implements RemoteApiPort {
   async fetchBootstrapPage(
     request: BootstrapPageRequest,
   ): Promise<RemoteResponse> {
+    const params: string[] = [];
+    if (request.vaultId !== null) {
+      params.push(`vault=${encodeURIComponent(request.vaultId)}`);
+    }
+    if (request.cursor !== null) {
+      params.push(`cursor=${encodeURIComponent(request.cursor)}`);
+    }
     const url =
-      request.cursor === null
+      params.length === 0
         ? request.url
-        : `${request.url}?cursor=${encodeURIComponent(request.cursor)}`;
-    // finalUrl echoes the controller's expected URL (without the cursor query),
-    // which is what `parseSuccessfulResponse` compares against.
+        : `${request.url}?${params.join('&')}`;
+    // finalUrl echoes the controller's expected URL (without the vault/cursor
+    // query), which is what `parseSuccessfulResponse` compares against.
     return this.send(request.url, {
       method: 'GET',
       requestUrl: url,
