@@ -9,7 +9,7 @@ import {
 /**
  * Server-side diagnostics (`havemind doctor`).
  *
- * Hard rule (plan/01, plan/04 §"Zakaz przekazywania sekretów"): this command
+ * Hard rule (plan/01, plan/04 §"No forwarding of secrets"): this command
  * NEVER reveals a raw token, password, or the contents of any file under
  * `/srv/secrets`. It is built so leakage is structurally impossible — the
  * checks only ever receive metadata (path, byte length, permission bits),

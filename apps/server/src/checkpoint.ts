@@ -30,7 +30,7 @@ import { DB_FILENAME, openDatabase } from './db.js';
  * already holds, so the server stays opaque (plans/001 §3): it computes no diff,
  * provenance or merge and never inspects payload contents.
  *
- * Trust model (plans/006 "Zarządzanie kluczem"): the server holds ONLY the
+ * Trust model (plans/006 "Key management"): the server holds ONLY the
  * recipient PUBLIC key. It seals every checkpoint part with libsodium's
  * `crypto_box_seal` (anonymous public-key encryption), so it can CREATE a new
  * checkpoint but can NEVER open any — a stolen `sapserver` reveals nothing. The
@@ -463,8 +463,8 @@ export async function restoreCheckpoint(
 
   // Everything is materialised into a dot-prefixed staging directory next to the
   // target and only promoted on FULL success, so any verification failure leaves
-  // the target untouched (fail-closed, plans/006 AC4: "zero zmaterializowanych
-  // plików").
+  // the target untouched (fail-closed, plans/006 AC4: "zero materialised
+  // files").
   const parent = dirname(options.targetDir);
   await mkdir(parent, { mode: 0o700, recursive: true });
   const stagingDir = join(
@@ -727,7 +727,7 @@ export async function listCheckpoints(
  * Structural verification that needs NO secret key: manifest present and valid,
  * sealed manifest/DB/blob files present, and the sealed DB ciphertext hash
  * matches the manifest. This is what "verify before forget" checks on a newer
- * checkpoint before any older one is pruned (plans/006 retention; plan/01 reguła
+ * checkpoint before any older one is pruned (plans/006 retention; plan/01 rule
  * 9 — never `forget` without a prior `verify`).
  */
 export async function verifyCheckpointStructure(

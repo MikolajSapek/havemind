@@ -7,7 +7,7 @@
  *   library. We invent no cipher, no KDF, no key-wrap scheme — we only compose
  *   libsodium's Argon2id (`crypto_pwhash`) and XChaCha20-Poly1305-IETF AEAD
  *   (`crypto_aead_xchacha20poly1305_ietf_*`). This satisfies plans/004
- *   "ZERO własnej kryptografii" and plans/001 §10 "No custom cryptographic
+ *   "ZERO own cryptography" and plans/001 §10 "No custom cryptographic
  *   primitive will be invented."
  * - The SUMO build is required: Argon2id `crypto_pwhash` is absent from the
  *   standard `libsodium-wrappers` build and present only in the sumo build.

@@ -5,12 +5,12 @@
  * - ZERO own cryptography. Every primitive is a documented call into libsodium
  *   (`libsodium-wrappers-sumo`). We invent no cipher and no key scheme — we only
  *   compose libsodium's `crypto_box_seal` / `crypto_box_seal_open` (anonymous
- *   public-key encryption, X25519 + XSalsa20-Poly1305). plans/006 "Zero własnej
- *   kryptografii"; plans/001 §10 "No custom cryptographic primitive".
+ *   public-key encryption, X25519 + XSalsa20-Poly1305). plans/006 "ZERO own
+ *   cryptography"; plans/001 §10 "No custom cryptographic primitive".
  * - ASYMMETRIC by design. The Havemind server holds ONLY the recipient PUBLIC
  *   key, so it can SEAL a new checkpoint but can NEVER open any existing one —
  *   only the owner's SECRET key (kept off-server in a recovery kit) decrypts
- *   (plans/006 "Zarządzanie kluczem"; T1; AC9). This is the counterpart to the
+ *   (plans/006 "Key management"; T1; AC9). This is the counterpart to the
  *   symmetric vault-key crypto in `vault-crypto.ts`, which protects a different
  *   trust boundary (note contents vs. server metadata) with a different key.
  * - Pure functions: no file I/O. The caller injects a ready `Sodium` instance so
@@ -32,7 +32,7 @@ export const CHECKPOINT_SECRET_KEY_BYTES = 32;
  * A checkpoint recipient keypair. The `publicKey` is stored on the server (it
  * can only encrypt new checkpoints); the `secretKey` is written to the owner's
  * recovery kit and NEVER persisted on the server, in the DB, in logs or in any
- * report (plans/006 "Zarządzanie kluczem"; plan/01 reguła 6).
+ * report (plans/006 "Key management"; plan/01 rule 6).
  */
 export interface CheckpointKeypair {
   readonly publicKey: Uint8Array;
