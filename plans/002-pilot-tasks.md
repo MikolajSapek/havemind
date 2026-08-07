@@ -6,6 +6,8 @@
 
 Every behavior task follows red-green-refactor. A task is complete only after its listed verification succeeds and the diff is reviewed.
 
+_Checkbox status for T002, T018–T022 and T025–T031 synced from `plan/11-BACKLOG.md` (source of truth per that file) on 2026-08-07._
+
 ## Foundation
 
 - [x] **T001 — Create root workspace metadata**
@@ -13,7 +15,7 @@ Every behavior task follows red-green-refactor. A task is complete only after it
   - Verify: `npm install --package-lock-only && npm run check:workspace`
   - Files: `package.json`, `package-lock.json`, `.gitignore`, `LICENSE`, `README.md`
 
-- [ ] **T002 — Configure strict TypeScript, lint and Vitest**
+- [x] **T002 — Configure strict TypeScript, lint and Vitest**
   - Acceptance: all workspaces inherit strict settings; coverage thresholds are 80%; lint rejects unsafe TypeScript basics.
   - Verify: `npm run typecheck && npm run lint && npm test`
   - Files: `tsconfig.base.json`, `eslint.config.js`, `vitest.config.ts`, `scripts/check-workspace.mjs`
@@ -97,27 +99,27 @@ Every behavior task follows red-green-refactor. A task is complete only after it
   - Verify: `npm test --workspace @havemind/server -- revision-repository`
   - Files: `apps/server/src/revision-repository.ts`, `apps/server/src/revision-repository.test.ts`, `apps/server/src/db.ts`
 
-- [ ] **T018 — Implement local owner setup and token primitives**
+- [x] **T018 — Implement local owner setup and token primitives**
   - Acceptance: local-only initialization, one-time owner pairing, token hashing, crash-safe rotation/retry and family-reuse revocation pass tests.
   - Verify: `npm test --workspace @havemind/server -- auth`
   - Files: `apps/server/src/auth/tokens.ts`, `apps/server/src/auth/setup.ts`, `apps/server/src/auth/tokens.test.ts`, `apps/server/src/auth/setup.test.ts`, `apps/server/src/db.ts`
 
-- [ ] **T019 — Implement invitations and device approval**
+- [x] **T019 — Implement invitations and device approval**
   - Acceptance: 256-bit/15-minute/single-use invites create a data-blind pending device; owner phrase approval is scoped and race-safe; revocation works.
   - Verify: `npm test --workspace @havemind/server -- invitations`
   - Files: `apps/server/src/auth/invitations.ts`, `apps/server/src/auth/invitations.test.ts`, `apps/server/src/auth/verification-phrase.ts`, `apps/server/src/auth/verification-phrase.test.ts`
 
-- [ ] **T020 — Add deny-by-default auth API**
+- [x] **T020 — Add deny-by-default auth API**
   - Acceptance: refresh, invitation and device routes validate schemas, ignore spoofed identity headers and block unauthenticated/cross-vault/IDOR requests.
   - Verify: `npm test --workspace @havemind/server -- auth-routes`
   - Files: `apps/server/src/auth/context.ts`, `apps/server/src/auth/routes.ts`, `apps/server/src/auth/routes.test.ts`, `apps/server/src/app.ts`
 
-- [ ] **T021 — Add versioned sync push/pull API**
+- [x] **T021 — Add versioned sync push/pull API**
   - Acceptance: bounded topological batches, required semantics, CAS errors, cursor pagination and byte-exact blob retrieval pass contract tests.
   - Verify: `npm test --workspace @havemind/server -- sync-routes`
   - Files: `apps/server/src/sync/routes.ts`, `apps/server/src/sync/routes.test.ts`, `apps/server/src/app.ts`, `apps/server/src/revision-repository.ts`
 
-- [ ] **T022 — Add backup, restore and server epoch**
+- [x] **T022 — Add backup, restore and server epoch**
   - Acceptance: Online Backup snapshot plus blob manifest restores to an empty directory, verifies integrity/hashes and changes epoch so stale clients reconcile.
   - Verify: `npm test --workspace @havemind/server -- backup-restore`
   - Files: `apps/server/src/operations/backup.ts`, `apps/server/src/operations/restore.ts`, `apps/server/src/operations/backup-restore.test.ts`, `apps/server/src/db.ts`
@@ -134,39 +136,39 @@ Every behavior task follows red-green-refactor. A task is complete only after it
   - Verify: `npm test --workspace @havemind/obsidian-plugin -- storage`
   - Files: `apps/obsidian-plugin/src/storage/client-store.ts`, `apps/obsidian-plugin/src/storage/client-store.test.ts`, `apps/obsidian-plugin/src/storage/secret-store.ts`, `apps/obsidian-plugin/src/storage/secret-store.test.ts`
 
-- [ ] **T025 — Implement safe invitation onboarding**
+- [x] **T025 — Implement safe invitation onboarding**
   - Acceptance: fragment-based landing plus secure copy/import envelope, query-secret-free deep-link wizard opening, HTTPS discovery, review, pending-device phrase and resumable bootstrap work without exposing a token in logs/settings.
   - Verify: `npm test --workspace @havemind/obsidian-plugin -- onboarding`
   - Files: `apps/obsidian-plugin/src/onboarding/invite.ts`, `apps/obsidian-plugin/src/onboarding/invite.test.ts`, `apps/obsidian-plugin/src/onboarding/controller.ts`, `apps/obsidian-plugin/src/onboarding/controller.test.ts`
 
-- [ ] **T026 — Observe and reconcile local Vault state**
+- [x] **T026 — Observe and reconcile local Vault state**
   - Acceptance: startup scan plus create/modify/rename/delete produce durable deduplicated operations; reserved paths and deleted-content snapshot behavior are correct.
   - Verify: `npm test --workspace @havemind/obsidian-plugin -- vault-adapter`
   - Files: `apps/obsidian-plugin/src/obsidian/vault-adapter.ts`, `apps/obsidian-plugin/src/obsidian/vault-adapter.test.ts`, `apps/obsidian-plugin/src/sync/reconciliation.ts`, `apps/obsidian-plugin/src/sync/reconciliation.test.ts`
 
-- [ ] **T027 — Run durable push/pull and safe remote apply**
+- [x] **T027 — Run durable push/pull and safe remote apply**
   - Acceptance: single-flight/backoff, expected hashes, multiple-open-buffer checks, durable editor confirmation, echo suppression, quarantine and cursor recovery work with fake vault/API.
   - Verify: `npm test --workspace @havemind/obsidian-plugin -- sync-runner`
   - Files: `apps/obsidian-plugin/src/sync/sync-runner.ts`, `apps/obsidian-plugin/src/sync/sync-runner.test.ts`, `apps/obsidian-plugin/src/obsidian/remote-apply.ts`, `apps/obsidian-plugin/src/obsidian/remote-apply.test.ts`
 
-- [ ] **T028 — Implement Activity, diff and restore UI model**
+- [x] **T028 — Implement Activity, diff and restore UI model**
   - Acceptance: local validated payloads and receipts produce safe Activity entries/diffs; restore creates a revision; delete/conflict/device events are accessible.
   - Verify: `npm test --workspace @havemind/obsidian-plugin -- activity`
   - Files: `apps/obsidian-plugin/src/activity/model.ts`, `apps/obsidian-plugin/src/activity/model.test.ts`, `apps/obsidian-plugin/src/activity/view.ts`, `apps/obsidian-plugin/src/activity/view.test.ts`
 
-- [ ] **T029 — Implement author overlay**
+- [x] **T029 — Implement author overlay**
   - Acceptance: UTF-16 provenance maps through public CodeMirror state/effects, visible ranges only, hash mismatch hides attribution and Reading View never guesses missing sections.
   - Verify: `npm test --workspace @havemind/obsidian-plugin -- attribution`
   - Files: `apps/obsidian-plugin/src/attribution/editor-extension.ts`, `apps/obsidian-plugin/src/attribution/editor-extension.test.ts`, `apps/obsidian-plugin/src/attribution/reading-view.ts`, `apps/obsidian-plugin/src/attribution/reading-view.test.ts`
 
 ## Packaging and private pilot
 
-- [ ] **T030 — Build hardened local Compose package**
+- [x] **T030 — Build hardened local Compose package**
   - Acceptance: non-root/read-only/cap-drop stack, no default public port, file secrets, health checks and pinned image build pass configuration tests.
   - Verify: `npm run compose:smoke`
   - Files: `apps/server/Dockerfile`, `deploy/compose.yaml`, `deploy/.env.example`, `scripts/compose-smoke.mjs`, `.dockerignore`
 
-- [ ] **T031 — Add end-to-end two-client fault harness**
+- [x] **T031 — Add end-to-end two-client fault harness**
   - Acceptance: real server plus two simulated clients passes create/update/rename/delete/restore, offline partitions, duplicate delivery, crash recovery, conflicts and epoch reset.
   - Verify: `npm run test:e2e`
   - Files: `tests/e2e/two-client.test.ts`, `tests/e2e/fault-matrix.ts`, `tests/e2e/helpers.ts`, `vitest.e2e.config.ts`

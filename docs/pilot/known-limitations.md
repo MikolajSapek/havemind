@@ -1,39 +1,49 @@
 # Znane ograniczenia (pilotaż)
 
-Stan na 2026-07-21. Źródło: audyty pętli bug-hunt (`plan/11-BACKLOG.md`, sekcja AUDIT-FINDINGS).
+Stan na 2026-08-07. Źródło: audyty pętli bug-hunt (`plan/11-BACKLOG.md`, sekcja AUDIT-FINDINGS).
 
 ## Auto-formatery na dwóch maszynach (AUD-03)
 
-Jeśli oba komputery mają plugin auto-formatujący (np. Linter z „format on save",
-Prettier-for-Obsidian) z **różnymi ustawieniami** (szerokość linii, cudzysłowy,
-trailing newline), ta sama notatka może być w kółko przeformatowywana i
-re-pushowana między maszynami. Bez utraty danych, ale generuje churn i może
-mnożyć wpisy w `Havemind Conflicts/`.
+**Naprawione (commit `37e609d`).** Treść jest teraz kanonikalizowana przed
+hashowaniem, z 1.5-sekundowym oknem „settling" i jednorazowym rebase'em
+base-hashy przy aktualizacji pluginu. Różnice w ustawieniach auto-formatera
+(np. Linter z „format on save", Prettier-for-Obsidian) między maszynami —
+szerokość linii, cudzysłowy, trailing newline — już nie generują churnu ani
+wpisów w `Havemind Conflicts/`. Załączniki binarne są wyłączone z rebase'u:
+ich base-hash liczony jest na surowych bajtach, nie na tekście, więc
+kanonikalizacja tekstu ich nie dotyczy.
 
-**Zalecenie na pilotaż:** zsynchronizować ustawienia formatera na obu maszynach
-albo wyłączyć „format on save" na jednej z nich.
-
-Pełny fix (kanonikalizacja treści przed hashowaniem + okno „settling") jest
-odłożony celowo — zmiana sposobu liczenia hashy w trakcie żywego pilotażu
-unieważniłaby base-hashe już zsynchronizowanych plików.
+**Zalecenie:** brak — pełny fix jest już w pilotażu, nie wymaga ręcznej
+synchronizacji ustawień formatera.
 
 ## Ścieżki z kropką i folder zastrzeżony (AUD-07)
 
 Notatki, których dowolny segment ścieżki zaczyna się kropką (np.
 `Notes/.drafts/x.md`), oraz notatki w folderze o nazwie `Havemind Conflicts/`
-**nie synchronizują się** — to celowy guard bezpieczeństwa (wyklucza
-`.obsidian/`, configi pluginów, artefakty konfliktów). Kierunek jest bezpieczny
-(under-sync, nigdy over-sync), ale takie notatki pozostają lokalne bez
-ostrzeżenia.
+**nie synchronizują się** — to celowy guard bezpieczeństwa. Kierunek jest
+bezpieczny (under-sync, nigdy over-sync), ale takie notatki pozostają lokalne
+bez ostrzeżenia.
+
+**Wyjątek (od commitu `dcd366f`):** `.obsidian/` ma teraz własny, osobny
+mechanizm mirrorowania configu (motyw, kolory, hotkeys, snippety, kod
+pluginów firm trzecich) przez polling adaptera, niezależny od guardu dot-path
+powyżej. Ten mechanizm ma własny twardy denylist, który zostaje lokalny na
+każdej maszynie: każdy `data.json`, `workspace.json`, `community-plugins.json`
+oraz folder `havemind-sync`. Poza tym wyjątkiem `.obsidian/` wciąż podlega
+ogólnemu guardowi dot-path opisanemu wyżej.
 
 **Zalecenie:** nie trzymać własnych notatek w ścieżkach z kropką ani w folderze
 `Havemind Conflicts/`.
 
 ## Zakres synchronizacji
 
-Synchronizują się wyłącznie pliki `.md`. Załączniki binarne (obrazy, PDF) są
-raportowane jako „N not synced (markdown only)" — pełne wsparcie w F9 (po
-pilotażu).
+Oprócz notatek `.md` synchronizują się też załączniki binarne w dopuszczonych
+formatach: `png`, `jpg`, `jpeg`, `gif`, `webp`, `svg`, `pdf` (commity
+`acbf46e`, `b7c663a`, `6959e90`). Twardy limit rozmiaru pliku to 25 MB —
+załącznik powyżej limitu jest wykluczony z powiadomieniem (nie jest to błąd)
+i nigdy nie wstrzymuje skanu ani synchronizacji reszty vaulta. Każdy inny
+format — poza dopuszczoną listą i `.md` — pozostaje niesynchronizowany i
+liczony w reconciliation jako wykluczony załącznik.
 
 ## Brak backupu (AUD-10)
 
