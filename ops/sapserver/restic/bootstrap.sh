@@ -1,15 +1,18 @@
 #!/usr/bin/env bash
-# Havemind — SRV-03 one-command bootstrap (sudo-free, rclone SMB backend).
-# Run this AFTER SMB is enabled on the NAS and rclone.conf holds real creds:
+# Havemind — SRV-03 one-command bootstrap (sudo-free, SFTP backend).
+# Run this AFTER the Mac side of the activation checklist is done (Remote Login
+# on, key authorised, `ssh havemind-backup true` works):
 #     bash ~/havemind-ops/bootstrap.sh
 #
 # It runs the full acceptance sequence in order and stops at the first failure:
-#   1. preflight  — NAS SMB reachable + rclone remote lists the share
+#   1. preflight  — Mac reachable over SSH + at least one artifact to back up
 #   2. init-repo  — create the encrypted restic repo (idempotent)
-#   3. backup     — take the first snapshot of HAVEMIND_APPDATA
+#   3. backup     — take the first snapshot of HAVEMIND_BACKUP_SOURCE
 #   4. verify     — `restic snapshots` + `restic check` (the SRV-03 AC method)
+#
 # Retention (prune.sh) is intentionally NOT auto-run here: it needs ≥1 snapshot
 # and always runs `restic check` before any forget/prune (plan/01 reguła 9).
+# The restore drill (restore-drill.sh) is the separate 1.0 release gate.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -17,22 +20,19 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${HERE}/restic.env"
 
 echo "== SRV-03 bootstrap =="
-echo "repo: ${RESTIC_REPOSITORY}"
-echo "source: ${HAVEMIND_APPDATA}"
+echo "repo:   ${RESTIC_REPOSITORY}"
+echo "source: ${HAVEMIND_BACKUP_SOURCE}"
 
 echo "-- step 1/4: preflight --"
-if ! nas_reachable; then
-  echo "ABORT: NAS SMB ${NAS_HOST}:${SMB_PORT} not reachable. Enable SMB on the NAS first." >&2
+if ! mac_reachable; then
+  echo "ABORT: ${MAC_SSH_ALIAS} not reachable. Finish the Mac side of the activation" >&2
+  echo "       checklist first (Remote Login on, key in authorized_keys)." >&2
   exit 1
 fi
-if ! rclone lsd "${RCLONE_REMOTE}:${RCLONE_SHARE}" >/dev/null 2>&1; then
-  echo "ABORT: rclone cannot list ${RCLONE_REMOTE}:${RCLONE_SHARE}. Check rclone.conf creds/share." >&2
+if ! source_has_artifact; then
+  echo "ABORT: no artifact under ${HAVEMIND_BACKUP_SOURCE}." >&2
+  echo "       Seed one first (inside the container): havemind backup --to /backups" >&2
   exit 1
-fi
-# Ensure the pilot backup source exists (staging with a marker file).
-if [ ! -d "${HAVEMIND_APPDATA}" ]; then
-  echo "note: creating pilot staging dir ${HAVEMIND_APPDATA}"
-  mkdir -p "${HAVEMIND_APPDATA}"
 fi
 
 echo "-- step 2/4: init-repo --"
@@ -44,4 +44,5 @@ bash "${HERE}/backup.sh"
 echo "-- step 4/4: verify (restic snapshots + restic check) --"
 bash "${HERE}/verify.sh"
 
-echo "== SRV-03 bootstrap complete. Apply retention any time with prune.sh. =="
+echo "== SRV-03 bootstrap complete. =="
+echo "Next: bash ${HERE}/restore-drill.sh   # the 1.0 release gate"

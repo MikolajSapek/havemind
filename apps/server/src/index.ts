@@ -11,8 +11,13 @@ import { statfs } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { buildApp } from './app.js';
+import { startBackupScheduler } from './backup-scheduler.js';
 import { sweepOrphanedBlobs } from './blob-gc.js';
-import { parseServerConfig, type ServerEnvironment } from './config.js';
+import {
+  parseScheduledBackupConfig,
+  parseServerConfig,
+  type ServerEnvironment,
+} from './config.js';
 import { DB_FILENAME, openDatabase } from './db.js';
 import { runMigrations } from './migrations.js';
 import { BlobStore } from './blob-store.js';
@@ -94,12 +99,39 @@ async function main(): Promise<void> {
     },
   });
 
+  // Scheduled backups (AUD-10 / 1.0 release gate). Opt-in via
+  // HAVEMIND_BACKUP_DIR: the server writes its own artifacts on a timer into a
+  // host bind mount, because the pilot operator account has neither the `docker`
+  // group nor non-interactive `sudo` and so cannot run a container CLI from
+  // cron. The sudo-free cron job then only ships the finished files off-box
+  // (ops/sapserver/restic).
+  const backupSettings = parseScheduledBackupConfig(process.env);
+  const backups =
+    backupSettings === null
+      ? null
+      : startBackupScheduler({
+          backupsRoot: backupSettings.backupsRoot,
+          database,
+          dataDir,
+          intervalMs: backupSettings.intervalMs,
+          keep: backupSettings.keep,
+          logger: {
+            error: (message) => {
+              app.log.error(message);
+            },
+            info: (message) => {
+              app.log.info(message);
+            },
+          },
+        });
+
   let closing = false;
   const close = (): void => {
     if (closing) {
       return;
     }
     closing = true;
+    backups?.stop();
     void app.close().finally(() => {
       try {
         database.close();

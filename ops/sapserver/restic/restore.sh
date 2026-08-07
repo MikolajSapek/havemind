@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
-# Havemind — restore from Restic (SRV-04 single-file, SRV-05 full-service).
-# Sudo-free: runs as the ordinary user over the rclone SMB backend. Never
-# restores over the live data directory: always restores into an explicit, empty
-# target you pass on the command line, so a mistake can't clobber existing data.
+# Havemind — restore files from Restic (SRV-04 single-file, SRV-05 full-service).
+# Sudo-free: runs as the ordinary user over the SFTP backend. NEVER restores over
+# the live data directory: it always restores into an explicit, empty target you
+# pass on the command line, so a mistake cannot clobber existing data.
+#
+# This recovers FILES. Turning a recovered artifact back into a running instance
+# is `havemind backup restore` — see restore-drill.sh, which does both.
 #
 # Usage:
 #   restore.sh <target-dir> [snapshot-id] [--include <path>]
@@ -12,7 +15,7 @@
 #
 # Examples:
 #   restore.sh ~/restore-test                       # full latest (SRV-05)
-#   restore.sh ~/restore-test latest --include /home/mikolaj/havemind-ops/staging
+#   restore.sh ~/restore-test latest --include /home/mikolaj/havemind/deploy/backups
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -27,8 +30,8 @@ if [ -z "${TARGET}" ]; then
   echo "ERROR: target directory required. See header for usage." >&2
   exit 1
 fi
-if ! nas_reachable; then
-  echo "ERROR: NAS SMB ${NAS_HOST}:${SMB_PORT} not reachable." >&2
+if ! mac_reachable; then
+  echo "ERROR: ${MAC_SSH_ALIAS} not reachable. Wake the Mac and retry." >&2
   exit 1
 fi
 mkdir -p "${TARGET}"

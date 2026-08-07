@@ -247,6 +247,59 @@ function isLoopbackHost(host: string): boolean {
   return host === '127.0.0.1' || host === '::1' || host === 'localhost';
 }
 
+// --- Scheduled backups (AUD-10 / 1.0 release gate) --------------------------
+
+/** Default cadence of the in-process backup timer, in hours. */
+export const DEFAULT_BACKUP_INTERVAL_HOURS = 24;
+/** Default number of newest artifacts kept on the host after each run. */
+export const DEFAULT_BACKUP_KEEP = 7;
+const MAX_BACKUP_INTERVAL_HOURS = 24 * 30;
+const MAX_BACKUP_KEEP = 365;
+const MILLISECONDS_PER_HOUR = 60 * 60 * 1000;
+
+export interface ScheduledBackupSettings {
+  readonly backupsRoot: string;
+  readonly intervalMs: number;
+  readonly keep: number;
+}
+
+/**
+ * Resolves the scheduled-backup settings, or null when the feature is off.
+ *
+ * Backups are OPT-IN: with `HAVEMIND_BACKUP_DIR` unset the server starts exactly
+ * as before and writes no artifacts, so a deployment without a prepared,
+ * writable backup directory cannot fail at boot or silently fill its data volume.
+ */
+export function parseScheduledBackupConfig(
+  environment: ServerEnvironment,
+): ScheduledBackupSettings | null {
+  const backupDir = environment.HAVEMIND_BACKUP_DIR;
+  if (backupDir === undefined || backupDir.trim() === '') {
+    return null;
+  }
+
+  const intervalHours = parseBoundedInteger(
+    environment.HAVEMIND_BACKUP_INTERVAL_HOURS,
+    'HAVEMIND_BACKUP_INTERVAL_HOURS',
+    DEFAULT_BACKUP_INTERVAL_HOURS,
+    1,
+    MAX_BACKUP_INTERVAL_HOURS,
+  );
+  const keep = parseBoundedInteger(
+    environment.HAVEMIND_BACKUP_KEEP,
+    'HAVEMIND_BACKUP_KEEP',
+    DEFAULT_BACKUP_KEEP,
+    1,
+    MAX_BACKUP_KEEP,
+  );
+
+  return Object.freeze({
+    backupsRoot: backupDir.trim(),
+    intervalMs: intervalHours * MILLISECONDS_PER_HOUR,
+    keep,
+  });
+}
+
 // --- Encrypted checkpoints (plans/006) --------------------------------------
 
 /** A 32-byte X25519 recipient public key is 64 lowercase hex characters. */
@@ -258,7 +311,7 @@ const HEX32_PATTERN = /^[0-9a-f]{64}$/u;
 /**
  * Validates the checkpoint recipient PUBLIC key from the environment. The
  * server only ever holds the public key (it can seal a new checkpoint but never
- * open any — plans/006 "Zarządzanie kluczem"). Returns null when unset so the
+ * open any — plans/006 "Key management"). Returns null when unset so the
  * CLI can require it only for `checkpoint create`.
  */
 export function parseCheckpointPublicKeyHex(

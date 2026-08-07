@@ -4,6 +4,7 @@ import {
   mkdir,
   readdir,
   readFile,
+  rm,
   stat,
   writeFile,
 } from 'node:fs/promises';
@@ -45,7 +46,8 @@ export type RestoreErrorCode =
   | 'MANIFEST_INVALID'
   | 'MANIFEST_MISMATCH'
   | 'MISSING_BACKUP_ARTIFACT'
-  | 'TARGET_NOT_EMPTY';
+  | 'TARGET_NOT_EMPTY'
+  | 'VERIFY_FAILED';
 
 /** A secret-free restore error safe to log; carries a machine-readable code. */
 export class RestoreError extends Error {
@@ -385,6 +387,142 @@ export async function restoreInstance(
   } finally {
     database.close();
   }
+}
+
+export interface BackupListing {
+  readonly backupId: string;
+  readonly backupDir: string;
+  readonly createdAt: string;
+}
+
+/**
+ * Lists publishable backup artifacts under `backupsRoot`, newest first by the
+ * manifest's `createdAt`. Dot-prefixed directories are ignored: that is how a
+ * crashed publication names its staging directory, so a half-written artifact
+ * is never listed, never restored from, and never counted by retention.
+ */
+export async function listBackups(
+  backupsRoot: string,
+): Promise<readonly BackupListing[]> {
+  let entries;
+  try {
+    entries = await readdir(backupsRoot, { withFileTypes: true });
+  } catch (error) {
+    if (isNodeError(error) && error.code === 'ENOENT') {
+      return [];
+    }
+    throw error;
+  }
+
+  const listings: BackupListing[] = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory() || entry.name.startsWith('.')) {
+      continue;
+    }
+    const backupDir = join(backupsRoot, entry.name);
+    let manifest: BackupManifest;
+    try {
+      manifest = await readManifest(backupDir);
+    } catch {
+      continue;
+    }
+    listings.push({
+      backupDir,
+      backupId: entry.name,
+      createdAt: manifest.createdAt,
+    });
+  }
+
+  listings.sort((left, right) =>
+    left.createdAt < right.createdAt
+      ? 1
+      : left.createdAt > right.createdAt
+        ? -1
+        : 0,
+  );
+  return listings;
+}
+
+/**
+ * Verifies one artifact WITHOUT restoring it: the manifest parses, the database
+ * snapshot exists and is non-empty, and every manifest blob is present and
+ * byte-exact. This is the "verify before forget" gate retention runs against the
+ * newest retained artifact, and the same check the restore drill runs on what it
+ * pulled back from the off-box repository.
+ */
+export async function verifyBackupStructure(
+  backupDir: string,
+): Promise<BackupManifest> {
+  const manifest = await readManifest(backupDir);
+
+  let databaseStat;
+  try {
+    databaseStat = await stat(join(backupDir, DB_FILENAME));
+  } catch (error) {
+    if (isNodeError(error) && error.code === 'ENOENT') {
+      throw new RestoreError(
+        'MISSING_BACKUP_ARTIFACT',
+        'The backup directory has no database snapshot.',
+      );
+    }
+    throw error;
+  }
+  if (databaseStat.size === 0) {
+    throw new RestoreError(
+      'VERIFY_FAILED',
+      'The backup database snapshot is empty.',
+    );
+  }
+
+  await verifyManifestBlobs(backupDir, manifest);
+  return manifest;
+}
+
+export interface PruneBackupsOptions {
+  readonly backupsRoot: string;
+  /** Number of newest artifacts to keep. */
+  readonly keep: number;
+}
+
+export interface PruneBackupsResult {
+  readonly kept: readonly BackupListing[];
+  readonly removed: readonly BackupListing[];
+}
+
+/**
+ * Keeps the `keep` newest artifacts and removes the rest — but NEVER deletes
+ * anything unless the newest retained artifact first passes
+ * `verifyBackupStructure` (plan/01 rule 9: no "forget" without a prior
+ * successful "verify"). If verification fails the error propagates and nothing
+ * is removed, so a corrupt latest backup can never eat the last good one.
+ */
+export async function pruneBackups(
+  options: PruneBackupsOptions,
+): Promise<PruneBackupsResult> {
+  if (!Number.isInteger(options.keep) || options.keep < 1) {
+    throw new RestoreError(
+      'VERIFY_FAILED',
+      'pruneBackups requires keep to be an integer >= 1.',
+    );
+  }
+
+  const all = await listBackups(options.backupsRoot);
+  if (all.length <= options.keep) {
+    return { kept: all, removed: [] };
+  }
+  const kept = all.slice(0, options.keep);
+  const removed = all.slice(options.keep);
+
+  const newest = kept[0];
+  if (newest === undefined) {
+    throw new RestoreError('VERIFY_FAILED', 'No backup artifact to verify.');
+  }
+  await verifyBackupStructure(newest.backupDir);
+
+  for (const listing of removed) {
+    await rm(listing.backupDir, { force: true, recursive: true });
+  }
+  return { kept, removed };
 }
 
 function rotateEpoch(

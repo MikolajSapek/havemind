@@ -1,16 +1,19 @@
 #!/usr/bin/env bash
-# Havemind — initialise the Restic repository on the NAS via rclone SMB (SRV-03).
-# Idempotent: if the repo already exists we report "already initialised" instead
-# of failing. Sudo-free: runs as the ordinary user, uses ~/bin/{restic,rclone}
-# and the 0600 password file under ~/havemind-ops/secrets.
+# Havemind — initialise the Restic repository on the Mac over SFTP (SRV-03).
+# Idempotent: an existing repo is reported, not overwritten. Sudo-free: runs as
+# the ordinary user with ~/bin/restic and the 0600 password file.
+#
+# Interactive step: unlike backup.sh/prune.sh this ABORTS loudly when the Mac is
+# unreachable, because the operator is watching and there is nothing to skip.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=restic.env
 source "${HERE}/restic.env"
 
-if ! nas_reachable; then
-  echo "ERROR: NAS SMB ${NAS_HOST}:${SMB_PORT} not reachable. Enable SMB on the NAS." >&2
+if ! mac_reachable; then
+  echo "ERROR: ${MAC_SSH_ALIAS} not reachable. Wake the Mac, confirm Remote Login is on," >&2
+  echo "       and that 'ssh ${MAC_SSH_ALIAS} true' succeeds without a password." >&2
   exit 1
 fi
 if [ ! -r "${RESTIC_PASSWORD_FILE}" ]; then

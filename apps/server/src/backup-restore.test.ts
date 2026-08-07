@@ -14,9 +14,12 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from './app.js';
 import {
   createBackup,
+  listBackups,
+  pruneBackups,
   readInstanceEpoch,
   restoreInstance,
   RestoreError,
+  verifyBackupStructure,
 } from './backup-restore.js';
 import { BlobStore } from './blob-store.js';
 import { parseServerConfig } from './config.js';
@@ -439,5 +442,146 @@ describe('restoreInstance', () => {
         targetDir: join(makeDataDir(), 'restored'),
       }),
     ).rejects.toBeInstanceOf(RestoreError);
+  });
+});
+
+describe('backup retention', () => {
+  async function writeBackup(
+    seed: SeededInstance,
+    root: string,
+    backupId: string,
+    createdAt: string,
+  ): Promise<string> {
+    const backupDir = join(root, backupId);
+    await createBackup({
+      backupDir,
+      database: seed.database,
+      dataDir: seed.dataDir,
+      now: () => new Date(createdAt),
+    });
+    return backupDir;
+  }
+
+  it('lists artifacts newest first and ignores dot-prefixed temp dirs', async () => {
+    const seed = await seedInstance();
+    const root = join(makeDataDir(), 'backups');
+    await writeBackup(seed, root, 'older', '2026-08-01T03:00:00.000Z');
+    await writeBackup(seed, root, 'newer', '2026-08-05T03:00:00.000Z');
+    // A crashed publication leaves a dot-prefixed temp dir; it is never a backup.
+    await writeBackup(seed, root, '.crashed.tmp', '2026-08-09T03:00:00.000Z');
+
+    const listed = await listBackups(root);
+    expect(listed.map((entry) => entry.backupId)).toEqual(['newer', 'older']);
+    expect(listed[0]?.createdAt).toBe('2026-08-05T03:00:00.000Z');
+  });
+
+  it('returns no listings for a directory that does not exist', async () => {
+    expect(await listBackups(join(makeDataDir(), 'absent'))).toEqual([]);
+  });
+
+  it('verifies a freshly written artifact structurally', async () => {
+    const seed = await seedInstance();
+    const root = join(makeDataDir(), 'backups');
+    const backupDir = await writeBackup(
+      seed,
+      root,
+      'one',
+      '2026-08-01T03:00:00.000Z',
+    );
+
+    const manifest = await verifyBackupStructure(backupDir);
+    expect(manifest.instanceId).toBe(seed.instanceId);
+    expect(manifest.blobs).toHaveLength(1);
+  });
+
+  it('fails verification when a blob was tampered with', async () => {
+    const seed = await seedInstance();
+    const root = join(makeDataDir(), 'backups');
+    const backupDir = await writeBackup(
+      seed,
+      root,
+      'one',
+      '2026-08-01T03:00:00.000Z',
+    );
+    await writeFile(
+      join(backupDir, 'blobs', seed.blobHash.slice(0, 2), seed.blobHash),
+      'corrupted-bytes',
+    );
+
+    await expect(verifyBackupStructure(backupDir)).rejects.toMatchObject({
+      code: 'MANIFEST_MISMATCH',
+    });
+  });
+
+  it('fails verification when the database snapshot is missing', async () => {
+    const seed = await seedInstance();
+    const root = join(makeDataDir(), 'backups');
+    const backupDir = await writeBackup(
+      seed,
+      root,
+      'one',
+      '2026-08-01T03:00:00.000Z',
+    );
+    rmSync(join(backupDir, DB_FILENAME));
+
+    await expect(verifyBackupStructure(backupDir)).rejects.toMatchObject({
+      code: 'MISSING_BACKUP_ARTIFACT',
+    });
+  });
+
+  it('keeps the newest N artifacts and removes the rest', async () => {
+    const seed = await seedInstance();
+    const root = join(makeDataDir(), 'backups');
+    await writeBackup(seed, root, 'a', '2026-08-01T03:00:00.000Z');
+    await writeBackup(seed, root, 'b', '2026-08-02T03:00:00.000Z');
+    await writeBackup(seed, root, 'c', '2026-08-03T03:00:00.000Z');
+
+    const pruned = await pruneBackups({ backupsRoot: root, keep: 2 });
+    expect(pruned.kept.map((entry) => entry.backupId)).toEqual(['c', 'b']);
+    expect(pruned.removed.map((entry) => entry.backupId)).toEqual(['a']);
+    expect((await listBackups(root)).map((entry) => entry.backupId)).toEqual([
+      'c',
+      'b',
+    ]);
+  });
+
+  it('removes nothing when the newest retained artifact fails verification', async () => {
+    const seed = await seedInstance();
+    const root = join(makeDataDir(), 'backups');
+    await writeBackup(seed, root, 'a', '2026-08-01T03:00:00.000Z');
+    const newest = await writeBackup(
+      seed,
+      root,
+      'b',
+      '2026-08-02T03:00:00.000Z',
+    );
+    await writeFile(
+      join(newest, 'blobs', seed.blobHash.slice(0, 2), seed.blobHash),
+      'corrupted-bytes',
+    );
+
+    await expect(
+      pruneBackups({ backupsRoot: root, keep: 1 }),
+    ).rejects.toMatchObject({ code: 'MANIFEST_MISMATCH' });
+    expect((await listBackups(root)).map((entry) => entry.backupId)).toEqual([
+      'b',
+      'a',
+    ]);
+  });
+
+  it('keeps everything when there are no more artifacts than keep', async () => {
+    const seed = await seedInstance();
+    const root = join(makeDataDir(), 'backups');
+    await writeBackup(seed, root, 'a', '2026-08-01T03:00:00.000Z');
+
+    const pruned = await pruneBackups({ backupsRoot: root, keep: 3 });
+    expect(pruned.removed).toEqual([]);
+    expect(pruned.kept).toHaveLength(1);
+  });
+
+  it('rejects a keep value below one', async () => {
+    await expect(
+      pruneBackups({ backupsRoot: makeDataDir(), keep: 0 }),
+    ).rejects.toMatchObject({ code: 'VERIFY_FAILED' });
   });
 });

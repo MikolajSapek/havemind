@@ -40,8 +40,33 @@ services:
       HAVEMIND_SERVER_NAME: ${HAVEMIND_SERVER_NAME:-Havemind}
       HAVEMIND_LOG_LEVEL: ${HAVEMIND_LOG_LEVEL:-info}
       HAVEMIND_DATA_DIR: /data
+      # Scheduled backups (AUD-10 / 1.0 release gate). The server writes its own
+      # artifacts here on a timer, because the pilot operator account has neither
+      # the `docker` group nor non-interactive `sudo` and therefore cannot run a
+      # container CLI from cron. Set HAVEMIND_BACKUP_DIR empty to switch the
+      # timer off entirely.
+      HAVEMIND_BACKUP_DIR: ${HAVEMIND_BACKUP_DIR-/backups}
+      HAVEMIND_BACKUP_INTERVAL_HOURS: ${HAVEMIND_BACKUP_INTERVAL_HOURS:-24}
+      HAVEMIND_BACKUP_KEEP: ${HAVEMIND_BACKUP_KEEP:-7}
     volumes:
       - havemind-data:/data
+      # Host-side backup directory, so the sudo-free user cron (and restic) can
+      # read finished artifacts WITHOUT docker. NOTE the path is relative to THIS
+      # FILE's directory: run from the repo checkout it is <repo>/deploy/backups,
+      # which is what ops/sapserver/restic/restic.env expects. If the stack is
+      # driven from a copied compose.yaml elsewhere, override
+      # HAVEMIND_BACKUP_SOURCE there. Same ownership caveat as the
+      # named volume (see docs/self-hosting.md "One-time volume ownership fix"):
+      # the container runs as uid 1000 with cap_drop: [ALL], so it cannot chown
+      # anything from the inside. The HOST must create this directory and give it
+      # to uid 1000 ONCE, before `up -d`:
+      #   mkdir -p deploy/backups && chmod 700 deploy/backups
+      #   docker run --rm -v "$PWD/deploy/backups:/backups" alpine \
+      #     chown -R 1000:1000 /backups
+      # (or plain `sudo chown -R 1000:1000 deploy/backups` as the operator).
+      # Docker would otherwise create it root-owned and every backup would fail
+      # with EACCES — logged, never fatal.
+      - ./backups:/backups
     secrets:
       - havemind_db_key
     tmpfs:
