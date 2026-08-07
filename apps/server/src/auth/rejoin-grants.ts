@@ -230,7 +230,10 @@ export class RejoinGrantService {
       }
       this.#requireOwnerMembership(ownerMembershipId, target.vaultId);
 
-      const boundDeviceId = this.#resolveBoundDevice(target.userId);
+      const boundDeviceId = this.#resolveBoundDevice(
+        target.userId,
+        target.vaultId,
+      );
       const grantId = this.#newUuid();
       this.#database
         .prepare(
@@ -403,18 +406,25 @@ export class RejoinGrantService {
     }
   }
 
-  #resolveBoundDevice(userId: string): string {
-    // In the pilot a member has one approved device; if more than one ever
-    // exists we bind deterministically to the most recently approved so the
-    // grant targets a single, well-defined device.
+  #resolveBoundDevice(userId: string, vaultId: string): string {
+    // Scoped to the grant's vault: a member who also belongs to another vault
+    // has an approved device there too, and an unscoped selection would bind
+    // the grant to it — handing an owner authority over a device in a vault
+    // they do not administer (same class as AUD2-04). `vault_id IS NULL` is the
+    // legacy fallback: a device onboarded before the scope column cannot prove
+    // its vault, so it stays eligible rather than losing rejoin entirely.
+    // Ordering makes that a LAST resort — a device proven to be in this vault
+    // always wins — and within each group the most recently approved is chosen,
+    // so the grant still targets a single, well-defined device.
     const row = this.#database
       .prepare(
         `SELECT id FROM devices
          WHERE user_id = ? AND status = 'approved'
-         ORDER BY approved_at DESC, id
+           AND (vault_id = ? OR vault_id IS NULL)
+         ORDER BY (vault_id IS NULL), approved_at DESC, id
          LIMIT 1`,
       )
-      .get(userId) as { id: string } | undefined;
+      .get(userId, vaultId) as { id: string } | undefined;
     if (row === undefined) {
       throw new RejoinGrantError('NO_BOUND_DEVICE');
     }
