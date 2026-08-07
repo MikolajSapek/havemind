@@ -260,18 +260,15 @@ describe('F8-01 fault matrix — two clients against a real opaque server', () =
     expect(totalApplied).toBe(REVISION_COUNT); // no event skipped or double-applied
     expect(bob.paths()).toHaveLength(REVISION_COUNT);
 
-    // Byte-identical final contents for every file. Bob has no prior mapping
-    // for these never-before-seen remote files, so the harness names each one
-    // deterministically from its fileId (`remote-<fileId8>.md`) rather than
-    // reusing Alice's original filename — comparing the multiset of contents
-    // (not path-for-path) is what actually proves every revision landed
-    // byte-identical with none skipped or double-applied.
-    const expectedContents = [...contents.values()].sort();
-    const actualContents = bob
-      .paths()
-      .map((path) => bob.read(path))
-      .sort();
-    expect(actualContents).toEqual(expectedContents);
+    // Byte-identical final contents for every file, path for path. The
+    // canonical vault path travels inside the opaque payload (the server never
+    // sees it), so Bob materialises each never-before-seen file at Alice's own
+    // path after decoding it — which is what proves every revision landed
+    // byte-identical with none skipped, misfiled or double-applied.
+    expect(bob.paths()).toEqual([...paths].sort());
+    for (const path of paths) {
+      expect(bob.read(path)).toBe(contents.get(path));
+    }
   });
 
   it('row 8: refresh-token rotation retry after a dropped response succeeds idempotently, and stale-token reuse is rejected', async () => {

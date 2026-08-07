@@ -3,17 +3,34 @@
  *
  *  - `VaultChangeObserver` + `reconcileVaultState` (vault-adapter,
  *    reconciliation) turn in-memory vault edits into local change operations;
+ *  - `buildRevisionEnvelope` / `decodeRevisionPayload` (sync-core) build and
+ *    read the opaque revision payload, so the canonical vault path travels
+ *    inside the payload exactly as it does in production (the server never sees
+ *    it);
+ *  - `listSyncableConfigPaths` + `pollConfigOnce` (config-adapter,
+ *    config-poller) discover `.obsidian/` config changes through a
+ *    DataAdapter-shaped port, because Obsidian surfaces hidden files through
+ *    neither `vault.getFiles()` nor a vault event;
  *  - `SyncRunner` (sync-runner) performs durable push/pull and the safe
  *    remote-apply decision.
  *
- * Only the transport and the vault/state ports are harness-owned glue — the
- * same seam the production plugin fills with HTTP + IndexedDB + Obsidian. The
- * transport speaks to the opaque server exactly over the wire routes, so the
+ * Only the transport and the vault/config/state ports are harness-owned glue —
+ * the same seam the production plugin fills with HTTP + IndexedDB + Obsidian.
+ * The transport speaks to the opaque server exactly over the wire routes, so the
  * server never computes a diff, provenance or merge on the client's behalf.
  */
 import { randomUUID } from 'node:crypto';
 
-import { PROTOCOL_VERSION } from '@havemind/protocol';
+import {
+  canonicalizeMarkdown,
+  isSyncableConfigPath,
+  sha256Hex,
+} from '@havemind/protocol';
+import {
+  buildRevisionEnvelope,
+  decodeRevisionPayload,
+  type RevisionEnvelopeOperation,
+} from '@havemind/sync-core';
 
 import {
   VaultChangeObserver,
@@ -23,6 +40,15 @@ import {
   type LocalFileMapping,
   type VaultSnapshotPort,
 } from '../../../apps/obsidian-plugin/src/obsidian/vault-adapter.js';
+import {
+  CONFIG_DIR,
+  listSyncableConfigPaths,
+  removeConfig,
+  writeConfigText,
+  type ConfigAdapterListing,
+  type ConfigAdapterPort,
+} from '../../../apps/obsidian-plugin/src/sync/config-adapter.js';
+import { pollConfigOnce } from '../../../apps/obsidian-plugin/src/sync/config-poller.js';
 import { reconcileVaultState } from '../../../apps/obsidian-plugin/src/sync/reconciliation.js';
 import {
   SyncRunner,
@@ -40,33 +66,151 @@ import {
 
 import type { ClientIdentity, ServerHarness } from './server.js';
 
-const SEMANTICS = Object.freeze({
-  pathNormalization: 'nfc-lowercase-v1',
-  payloadFormat: 'revision-payload-v1',
-  provenanceRecipe: 'source-range-v1',
-  syncSemantics: 'dag-cas-v1',
-} as const);
-
 const CONFLICT_DIR = 'Havemind Conflicts';
 
 interface PushRecord {
   readonly revisionId: string;
   readonly fileId: string;
   readonly contentHash: string;
-  readonly content: string;
+  /** Canonical text, or `null` for a delete tombstone. */
+  readonly content: string | null;
+  readonly operation: RevisionEnvelopeOperation;
+  readonly path: string;
+  readonly previousPath: string | null;
   readonly parents: readonly string[];
   readonly idempotencyKey: string;
 }
 
+/**
+ * The hidden `.obsidian/` tree, reachable ONLY through this DataAdapter-shaped
+ * port. Real Obsidian never returns a hidden file from `vault.getFiles()` and
+ * fires no vault event when one changes, so keeping the config tree in a store
+ * the vault file API cannot see is what makes the config-mirror e2e a genuine
+ * pipeline test: the only way to discover a config file is the production walk
+ * (`listSyncableConfigPaths`) over this port.
+ */
+class InMemoryConfigAdapter implements ConfigAdapterPort {
+  /** Hidden files present on this device's disk, including denylisted ones. */
+  readonly files = new Map<string, string>();
+  /** Directories explicitly created via `mkdir` (implicit ones come from files). */
+  readonly #folders = new Set<string>();
+
+  async list(path: string): Promise<ConfigAdapterListing> {
+    if (!this.#directoryExists(path)) {
+      // Obsidian's DataAdapter rejects a directory that does not exist; the
+      // production walk relies on catching that so a fresh vault never wedges.
+      throw new Error(`no such config directory: ${path}`);
+    }
+    const prefix = `${path}/`;
+    const files: string[] = [];
+    const folders = new Set<string>();
+    for (const candidate of [...this.files.keys(), ...this.#folders]) {
+      if (!candidate.startsWith(prefix)) continue;
+      const rest = candidate.slice(prefix.length);
+      const separator = rest.indexOf('/');
+      if (separator === -1) {
+        if (this.files.has(candidate)) {
+          files.push(candidate);
+        } else {
+          folders.add(candidate);
+        }
+        continue;
+      }
+      folders.add(`${prefix}${rest.slice(0, separator)}`);
+    }
+    return { files: files.sort(), folders: [...folders].sort() };
+  }
+
+  async read(path: string): Promise<string> {
+    const content = this.files.get(path);
+    if (content === undefined) {
+      throw new Error(`no such config file: ${path}`);
+    }
+    return content;
+  }
+
+  async readBinary(path: string): Promise<ArrayBuffer> {
+    const bytes = new TextEncoder().encode(await this.read(path));
+    return bytes.buffer.slice(
+      bytes.byteOffset,
+      bytes.byteOffset + bytes.byteLength,
+    ) as ArrayBuffer;
+  }
+
+  async write(path: string, data: string): Promise<void> {
+    // Like the real adapter, a write into a directory that does not exist yet
+    // fails — which is exactly what makes `ensureConfigParentDirs` (production)
+    // load-bearing for a brand-new `.obsidian/plugins/<foreign>/` folder.
+    this.#assertParentExists(path);
+    this.files.set(path, data);
+  }
+
+  async writeBinary(path: string, data: ArrayBuffer): Promise<void> {
+    await this.write(path, new TextDecoder().decode(new Uint8Array(data)));
+  }
+
+  async exists(path: string): Promise<boolean> {
+    return this.files.has(path) || this.#directoryExists(path);
+  }
+
+  async mkdir(path: string): Promise<void> {
+    this.#folders.add(path);
+  }
+
+  async remove(path: string): Promise<void> {
+    this.files.delete(path);
+  }
+
+  #directoryExists(path: string): boolean {
+    if (this.#folders.has(path)) return true;
+    const prefix = `${path}/`;
+    return [...this.files.keys()].some((file) => file.startsWith(prefix));
+  }
+
+  #assertParentExists(path: string): void {
+    const separator = path.lastIndexOf('/');
+    if (separator === -1) return;
+    const parent = path.slice(0, separator);
+    if (!this.#directoryExists(parent)) {
+      throw new Error(`no such config directory: ${parent}`);
+    }
+  }
+}
+
 /** In-memory vault contents shared by the snapshot port and apply port. */
 class InMemoryVault implements VaultSnapshotPort {
+  /** The `vault.getFiles()` analogue: visible vault files, never hidden ones. */
   readonly files = new Map<string, string>();
+  /** The hidden `.obsidian/` tree, reachable only through the DataAdapter port. */
+  readonly config = new InMemoryConfigAdapter();
+
+  /**
+   * Writes a visible vault file. A `.obsidian/` path is REJECTED here: real
+   * Obsidian cannot touch a hidden file through the Vault API, and letting one
+   * into `files` would make it visible to `getFiles()` — the exact fiction that
+   * would let a config-mirror test pass without the DataAdapter walk working.
+   */
+  setFile(path: string, content: string): void {
+    if (isSyncableConfigPath(path)) {
+      throw new Error(`a config path must be written through the adapter: ${path}`);
+    }
+    this.files.set(path, content);
+  }
 
   async listSyncablePaths(): Promise<readonly string[]> {
-    return [...this.files.keys()];
+    // Production parity (`obsidian-adapters.ts` snapshot.listSyncablePaths):
+    // vault files from the file API PLUS the `.obsidian/` walk over the
+    // DataAdapter, because `getFiles()` never returns a hidden file.
+    return [
+      ...this.files.keys(),
+      ...(await listSyncableConfigPaths(this.config, CONFIG_DIR)),
+    ];
   }
 
   async readText(path: string): Promise<string> {
+    if (isSyncableConfigPath(path)) {
+      return (await this.config.exists(path)) ? this.config.read(path) : '';
+    }
     const content = this.files.get(path);
     if (content === undefined) {
       throw new Error(`vault has no file at ${path}`);
@@ -75,19 +219,20 @@ class InMemoryVault implements VaultSnapshotPort {
   }
 
   async readBinary(): Promise<Uint8Array> {
-    // This harness (`fault-matrix.test.ts`) only ever models markdown notes;
-    // no path it tracks classifies as binary, so this is never invoked for a
-    // real file. Kept only to satisfy the VaultSnapshotPort interface.
+    // This harness only ever models markdown notes and TEXT config files; no
+    // path it tracks classifies as binary, so this is never invoked for a real
+    // file. Kept only to satisfy the VaultSnapshotPort interface.
     return new Uint8Array(0);
   }
 
   async listAllPaths(): Promise<readonly string[]> {
-    // The e2e harness only ever models markdown notes, so every tracked path
-    // is markdown; this mirrors listSyncablePaths for this fixture.
+    // Every visible vault file. Config is deliberately excluded (production
+    // parity): it is enumerated through the adapter, not `getFiles()`.
     return [...this.files.keys()];
   }
 
   async exists(path: string): Promise<boolean> {
+    if (isSyncableConfigPath(path)) return this.config.exists(path);
     return this.files.has(path);
   }
 }
@@ -142,6 +287,11 @@ class InMemoryChangeRepository implements LocalChangeRepository {
     }
     this.#mappings.set(mapping.collisionKey, { ...mapping });
   }
+
+  /** Drops the mapping for a remotely applied delete (the tombstone's twin). */
+  forgetRemoteMapping(collisionKey: string): void {
+    this.#mappings.delete(collisionKey);
+  }
 }
 
 /** Durable client state that must survive a client process restart. */
@@ -175,7 +325,9 @@ export class HarnessClient {
   #failNextApply = false;
   #failNextReceiptRecord = false;
   #sawEpochReconcile = false;
+  #offline = false;
   #lastPushReceipts: readonly PushReceipt[] = [];
+  readonly #backoffDelays: number[] = [];
 
   public constructor(harness: ServerHarness, identity: ClientIdentity) {
     this.#harness = harness;
@@ -241,13 +393,86 @@ export class HarnessClient {
    */
   public async edit(path: string, content: string): Promise<void> {
     const normalized = content.replace(/\r\n?/gu, '\n');
-    this.#vault.files.set(path, normalized);
-    this.#repository.drained.length = 0;
-    await reconcileVaultState({
-      observer: this.#observer,
-      repository: this.#repository,
-      vault: this.#vault,
+    this.#vault.setFile(path, normalized);
+    await this.#drainAndStage(async () =>
+      reconcileVaultState({
+        observer: this.#observer,
+        repository: this.#repository,
+        vault: this.#vault,
+      }),
+    );
+  }
+
+  /**
+   * Writes a hidden `.obsidian/` file the way the only actors that ever do
+   * write one behave: Obsidian itself, or a foreign plugin, straight through the
+   * DataAdapter and with NO vault event. That silence is precisely why the
+   * mirror needs a poller, so nothing is staged until {@link pollConfig} runs.
+   */
+  public async writeConfig(path: string, content: string): Promise<void> {
+    await writeConfigText(this.#vault.config, path, content);
+  }
+
+  /** Removes a hidden config file (an external actor deleting it). */
+  public async deleteConfig(path: string): Promise<void> {
+    await removeConfig(this.#vault.config, path);
+  }
+
+  /** Current content of a hidden config file on this device (or undefined). */
+  public readConfig(path: string): string | undefined {
+    return this.#vault.config.files.get(path);
+  }
+
+  /**
+   * Every hidden config path on this device's disk — INCLUDING denylisted ones,
+   * so a test can prove no secret was ever materialised here.
+   */
+  public configPaths(): string[] {
+    return [...this.#vault.config.files.keys()].sort();
+  }
+
+  /**
+   * Runs one production config poll tick (`pollConfigOnce`) over the DataAdapter
+   * walk and stages every genuine change it enqueued, exactly as `edit()` stages
+   * a note change. Returns the operations the tick produced (empty in steady
+   * state — the content-hash cycle guard).
+   */
+  public async pollConfig(): Promise<readonly LocalChangeOperation[]> {
+    let ops: readonly LocalChangeOperation[] = [];
+    await this.#drainAndStage(async () => {
+      ops = await pollConfigOnce({
+        listConfigPaths: () =>
+          listSyncableConfigPaths(this.#vault.config, CONFIG_DIR),
+        listMappings: () => this.#repository.listMappings(),
+        observer: this.#observer,
+      });
     });
+    return ops;
+  }
+
+  /** Drops the transport: every push/pull fails transiently (a network outage). */
+  public goOffline(): void {
+    this.#offline = true;
+  }
+
+  /** Restores the transport. */
+  public goOnline(): void {
+    this.#offline = false;
+  }
+
+  /**
+   * Backoff delays the runner armed after a failed cycle. The harness scheduler
+   * records them without firing (cycles are driven explicitly), so a test can
+   * prove a retry WAS scheduled rather than the failure being swallowed.
+   */
+  public scheduledBackoffs(): readonly number[] {
+    return [...this.#backoffDelays];
+  }
+
+  /** Runs a producer pass and stages every change it committed to the outbox. */
+  async #drainAndStage(pass: () => Promise<void>): Promise<void> {
+    this.#repository.drained.length = 0;
+    await pass();
     for (const operation of this.#repository.drained) {
       this.#stage(operation);
     }
@@ -279,36 +504,37 @@ export class HarnessClient {
   }
 
   #stage(operation: LocalChangeOperation): void {
-    if (operation.kind === 'delete') {
-      const parents = this.#parentsFor(operation.fileId);
-      const revisionId = randomUUID();
-      this.#state.outbox.set(revisionId, {
-        content: '',
-        contentHash: operation.previousContentHash ?? '',
-        fileId: operation.fileId,
-        idempotencyKey: randomUUID(),
-        parents,
-        revisionId,
-      });
-      this.#headByFile.set(operation.fileId, revisionId);
-      return;
+    if (operation.contentKind === 'binary') {
+      // Every path this harness models (markdown notes and TEXT config files)
+      // classifies as text; a binary revision would need the base64 payload
+      // path, which belongs to `onboarding-two-device.test.ts`.
+      throw new Error(
+        `the fault harness models text revisions only: ${operation.path}`,
+      );
     }
-
-    const content = operation.content ?? '';
-    const contentHash = operation.contentHash ?? '';
+    const isDelete = operation.kind === 'delete';
+    const revisionId = randomUUID();
     const parents =
       operation.kind === 'create' ? [] : this.#parentsFor(operation.fileId);
-    const revisionId = randomUUID();
+    const contentHash = isDelete
+      ? (operation.previousContentHash ?? '')
+      : (operation.contentHash ?? '');
     this.#state.outbox.set(revisionId, {
-      content,
+      content: isDelete ? null : (operation.content ?? ''),
       contentHash,
       fileId: operation.fileId,
       idempotencyKey: randomUUID(),
+      operation: operation.kind,
       parents,
+      path: operation.path,
+      previousPath: operation.previousPath,
       revisionId,
     });
     this.#headByFile.set(operation.fileId, revisionId);
 
+    if (isDelete) {
+      return;
+    }
     const buffer = this.#openBuffers.get(operation.fileId);
     if (buffer !== undefined) {
       this.#openBuffers.set(operation.fileId, {
@@ -332,9 +558,12 @@ export class HarnessClient {
   #buildRunner(): SyncRunner {
     return new SyncRunner({
       random: () => 0,
-      // A no-op scheduler: the harness drives cycles explicitly, so backoff
-      // retries never need to fire on a real timer.
-      scheduler: () => undefined,
+      // The harness drives cycles explicitly, so a backoff retry never fires on
+      // a real timer — but the armed delay is recorded so a test can assert that
+      // a failed cycle DID schedule a retry (see `scheduledBackoffs`).
+      scheduler: (_callback, delayMs) => {
+        this.#backoffDelays.push(delayMs);
+      },
       state: this.#statePort(),
       transport: this.#transport(),
       vault: this.#vaultPort(),
@@ -393,6 +622,11 @@ export class HarnessClient {
   async #push(
     revisions: readonly PushRevision[],
   ): Promise<readonly PushItemResult[]> {
+    if (this.#offline) {
+      // A transient transport failure (no `permanent`/`authDenied` marker), so
+      // the runner reports 'offline' and arms a backoff retry.
+      throw new Error('simulated transport offline');
+    }
     const records = revisions.map((revision) => {
       const record = this.#state.outbox.get(revision.revisionId);
       if (record === undefined) {
@@ -401,24 +635,41 @@ export class HarnessClient {
       return record;
     });
 
+    // The REAL producer envelope (`@havemind/sync-core`): the protected header
+    // plus an opaque payload carrying the canonical vault path. Rebuilding it
+    // from the unchanged outbox record is byte-deterministic, so a re-delivery
+    // after a lost receipt hits the server's idempotency replay rather than
+    // committing a second revision.
+    const envelopes = await Promise.all(
+      records.map(async (record) =>
+        buildRevisionEnvelope({
+          content: record.content,
+          idempotencyKey: record.idempotencyKey,
+          identity: {
+            deviceId: this.#identity.deviceId,
+            fileId: record.fileId,
+            memberId: this.#identity.membershipId,
+            vaultId: this.#identity.vaultId,
+          },
+          operation: record.operation,
+          parentRevisionIds: record.parents,
+          path: record.path,
+          revisionId: record.revisionId,
+          ...(record.previousPath === null
+            ? {}
+            : { previousPath: record.previousPath }),
+        }),
+      ),
+    );
+
     const response = await this.#harness.app.inject({
       headers: { authorization: `Bearer ${this.#identity.accessToken}` },
       method: 'POST',
       payload: {
-        revisions: records.map((record) => ({
-          header: {
-            expectedDeviceId: this.#identity.deviceId,
-            expectedMemberId: this.#identity.membershipId,
-            fileId: record.fileId,
-            parentRevisionIds: [...record.parents],
-            payloadEncoding: 'plaintext-json-v1',
-            protocol: PROTOCOL_VERSION,
-            revisionId: record.revisionId,
-            semantics: SEMANTICS,
-            vaultId: this.#identity.vaultId,
-          },
-          idempotencyKey: record.idempotencyKey,
-          payload: Buffer.from(record.content, 'utf8').toString('base64'),
+        revisions: envelopes.map((envelope) => ({
+          header: envelope.header,
+          idempotencyKey: envelope.idempotencyKey,
+          payload: envelope.payloadBase64,
         })),
       },
       url: `/vaults/${this.#identity.vaultId}/revisions`,
@@ -456,6 +707,9 @@ export class HarnessClient {
   }
 
   async #pull(after: number): Promise<PullResult> {
+    if (this.#offline) {
+      throw new Error('simulated transport offline');
+    }
     const epochQuery =
       this.#state.storedEpoch === undefined
         ? ''
@@ -515,33 +769,89 @@ export class HarnessClient {
       this.#failNextApply = false;
       throw new Error('simulated crash during local apply');
     }
-    const content = await this.#fetchBlob(event.revision.contentHash);
-    const path = await this.#pathForFile(event.revision.fileId);
-    this.#vault.files.set(path, content);
+    // The canonical target path travels inside the opaque payload (the server
+    // never sees it), so materialising a remote revision means DECODING it with
+    // the production codec — the same thing the plugin's apply adapter does.
+    const decoded = await this.#decodePayload(event);
+    const collisionKey = decoded.path.normalize('NFC').toLowerCase();
+
+    if (decoded.operation === 'delete') {
+      await this.#removeLocal(decoded.path);
+      this.#repository.forgetRemoteMapping(collisionKey);
+      this.#headByFile.set(event.revision.fileId, event.revision.revisionId);
+      return;
+    }
+
+    const content = canonicalizeMarkdown(decoded.content ?? '');
+    await this.#materialize(decoded.path, content);
     // Bind the server's authoritative fileId to this path as the new synced
     // base, so a later local edit produces a child revision of exactly this
-    // remote revision instead of a spurious unrelated file.
+    // remote revision instead of a spurious unrelated file. The adopted hash is
+    // the CONTENT hash (what the producer computes when it re-reads the file),
+    // never the payload/blob hash — otherwise the next producer pass would see a
+    // mismatch and re-push the peer's own bytes back at it.
+    const contentHash = await sha256Hex(content);
     this.#repository.setRemoteMapping({
-      collisionKey: path.normalize('NFC').toLowerCase(),
+      collisionKey,
       content,
-      contentHash: event.revision.contentHash,
+      contentHash,
       fileId: event.revision.fileId,
-      path,
+      path: decoded.path,
     });
     this.#headByFile.set(event.revision.fileId, event.revision.revisionId);
     const buffer = this.#openBuffers.get(event.revision.fileId);
     if (buffer !== undefined) {
       this.#openBuffers.set(event.revision.fileId, {
-        baseHash: event.revision.contentHash,
-        currentHash: event.revision.contentHash,
+        baseHash: contentHash,
+        currentHash: contentHash,
       });
     }
   }
 
   async #recordConflict(event: RemoteEvent): Promise<void> {
-    const content = await this.#fetchBlob(event.revision.contentHash);
+    const decoded = await this.#decodePayload(event);
     const conflictPath = `${CONFLICT_DIR}/${event.revision.fileId}-${event.revision.revisionId}.md`;
-    this.#vault.files.set(conflictPath, content);
+    this.#vault.setFile(
+      conflictPath,
+      canonicalizeMarkdown(decoded.content ?? ''),
+    );
+  }
+
+  /** Fetches a revision's opaque payload and decodes it (production codec). */
+  async #decodePayload(
+    event: RemoteEvent,
+  ): Promise<ReturnType<typeof decodeRevisionPayload>> {
+    const decoded = decodeRevisionPayload(
+      await this.#fetchBlob(event.revision.contentHash),
+    );
+    if (decoded.kind === 'binary') {
+      throw new Error(
+        `the fault harness models text revisions only: ${decoded.path}`,
+      );
+    }
+    return decoded;
+  }
+
+  /**
+   * Writes an applied revision where the real device would: a `.obsidian/`
+   * config path goes through the DataAdapter (materialising parent dirs), every
+   * other path through the vault file API.
+   */
+  async #materialize(path: string, content: string): Promise<void> {
+    if (isSyncableConfigPath(path)) {
+      await writeConfigText(this.#vault.config, path, content);
+      return;
+    }
+    this.#vault.setFile(path, content);
+  }
+
+  /** Removes a locally materialised file, honouring the same config split. */
+  async #removeLocal(path: string): Promise<void> {
+    if (isSyncableConfigPath(path)) {
+      await removeConfig(this.#vault.config, path);
+      return;
+    }
+    this.#vault.files.delete(path);
   }
 
   async #fetchBlob(blobHash: string): Promise<string> {
@@ -554,17 +864,5 @@ export class HarnessClient {
       throw new Error(`blob fetch failed with status ${response.statusCode}`);
     }
     return response.rawPayload.toString('utf8');
-  }
-
-  async #pathForFile(fileId: string): Promise<string> {
-    const mappings = await this.#repository.listMappings();
-    const existing = mappings.find((mapping) => mapping.fileId === fileId);
-    if (existing !== undefined) {
-      return existing.path;
-    }
-    // A never-before-seen remote file: derive a stable, deterministic path from
-    // its file id. The canonical path lives in the opaque payload the pilot
-    // does not decode here, so both clients simply key off the shared fileId.
-    return `remote-${fileId.slice(0, 8)}.md`;
   }
 }
