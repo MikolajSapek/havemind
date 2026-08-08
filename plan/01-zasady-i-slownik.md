@@ -31,9 +31,9 @@ agent reads ONLY this folder plus the canonical files listed in `02-fundamenty.m
    NARROWED HERE BY THE USER (decision recorded in this package's `README.md` "Open decisions"),
    not revoked outright: in this package's practice, "privileged configuration" means EXCLUSIVELY
    the items listed in rule 9, not every config change. The `ssh sapserver` connection (Tailscale,
-   `100.112.246.26`) is verified and stands open — this is not a hypothetical deployment target,
+   a verified tailnet IP) is verified and stands open — this is not a hypothetical deployment target,
    but a real machine on which the agent can independently install, configure and run Havemind
-   services within the rules from `08-sapserver-operations.md` (no `sudo NOPASSWD`, no adding
+   services within the rules from `08-sapserver-operations.md` (no passwordless sudo configuration, no adding
    itself to the `docker` group, no publicly exposing ports). There is no need to ask the user
    before every `docker compose up` on `sapserver`. The exceptions that still require asking the
    user are listed in rule 9 — if any of them arises, rule 9 overrides rule 8.

@@ -10,7 +10,7 @@
 | Architecture, protocol, engineering contract | `plans/001-technical-plan.md` | " |
 | T001–T033 task status | `plans/002-pilot-tasks.md` | `11-BACKLOG.md` only MAPS Txxx → Fx-NN, doesn't rewrite the content |
 | Research on existing solutions | `docs/research.md` | — |
-| Sapserver access, hardware, network, Docker, backup | `Mikolaj Private/Wiedza/Sapserver - dostęp i konfiguracja.md` | `08-sapserver-operations.md` cites the numbers, doesn't guess |
+| Sapserver access, hardware, network, Docker, backup | the operator's private setup note (outside this repo) | `08-sapserver-operations.md` cites the numbers, doesn't guess |
 
 The building agent reads the files above BEFORE each phase they concern — not from the planning
 session's memory.

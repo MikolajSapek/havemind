@@ -30,8 +30,8 @@ in the phase report (what works, what's deferred, evidence).
   - AC: table from `02-fundamenty.md` verified — every referenced file exists (curl/cat
     the path).
   - Evidence (2026-07-16): sentence-level diff plan/*.md vs specs/*.md+plans/*.md → 0 duplicated
-    sentences (≥12 words); 6/6 repo files exist; Sapserver note found at
-    `~/Documents/Mikolaj Private/Wiedza/Sapserver - dostęp i konfiguracja.md`.
+    sentences (≥12 words); 6/6 repo files exist; Sapserver note confirmed to exist as
+    the operator's private setup note (outside this repo).
 
 ## F1 — Cross-cutting systems
 

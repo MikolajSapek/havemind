@@ -82,7 +82,7 @@ jobs:
       # tagged artifact of it) is made public. Detection patterns are
       # deliberately generic so this workflow never embeds any private value:
       # `tail[0-9a-f]{4,}\.ts\.net` catches real Tailscale-assigned tailnet
-      # domains (e.g. `tail48b326.ts.net`) without matching documentation
+      # domains (e.g. `tail0123ab.ts.net`, a fabricated example) without matching documentation
       # placeholders like `your-tailnet.ts.net`; the 100.64.0.0/10 second-octet
       # range (64-127) catches CGNAT tailnet IPs.
       - name: AT5 — no secret markers in bundle
@@ -97,8 +97,8 @@ jobs:
       - name: AT6 — no private-infra markers in publishable files
         run: |
           if grep -rInE 'tail[0-9a-f]{4,}\.ts\.net|100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.[0-9]{1,3}\.[0-9]{1,3}|Documents/[^/]*Private|NOPASSWD' \
-            --include='*.md' --include='*.json' --include='*.ts' --include='*.mjs' \
-            --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=plan --exclude-dir=ops .; then
+            --include='*.md' --include='*.json' --include='*.ts' --include='*.mjs' --include='*.sh' --include='*.sql' \
+            --exclude-dir=node_modules --exclude-dir=.git .; then
             echo "REVIEW: matches found — must be scrubbed or justified before public tag"; exit 1
           fi
           echo "PASS: no private-infra markers in publishable files"

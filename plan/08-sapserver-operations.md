@@ -2,13 +2,13 @@
 
 A phase parallel to F7/F8, but with a separate blocker: **the backup must be ready BEFORE
 T032**, not in parallel with it (see `01-zasady-i-slownik.md` rule 8-9). The figures below come
-from `Wiedza/Sapserver - dostęp i konfiguracja.md` (Mikolaj Private) — re-verify them
+from the operator's private setup note (outside this repo) — re-verify them
 (`ssh sapserver` plus the commands in that note's "Przydatne polecenia" section) before starting
 this phase, since the note may have changed since its last update.
 
 ## The building agent is connected to the server and is allowed to modify it
 
-- Connection verified: `ssh sapserver` (Tailscale `100.112.246.26`) from the MacBook; alias
+- Connection verified: `ssh sapserver` (Tailscale, the server's tailnet IP) from the MacBook; alias
   `sapserver-lan` (`192.168.254.107`) as a fallback on the home network.
 - The agent (Claude Code / Codex, under the same trust model as "Dostęp Codexa przez CLI" in
   the Sapserver note) MAY independently: connect via SSH, diagnose service state, create Compose

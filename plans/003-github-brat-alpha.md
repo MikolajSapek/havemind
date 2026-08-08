@@ -160,12 +160,12 @@ custom crypto/Kubernetes) — BRAT and GitHub Releases add none of these to the 
 ## Acceptance tests
 
 Every test is functional and verifiable (a script / grep / manual step with a clear pass/fail).
-Paths are absolute from the repo root `/Users/mikolajsapek/havemind`.
+Paths below are relative to the repo root (adjust for your local checkout location).
 
 ### AT1 — the release artifact has exactly three files and matches the manifest
 
 ```bash
-cd /Users/mikolajsapek/havemind/apps/obsidian-plugin
+cd apps/obsidian-plugin
 npm run build
 test -f main.js && test -f manifest.json && test -f styles.css || { echo FAIL; exit 1; }
 echo "PASS: three-file artifact present"
@@ -176,7 +176,7 @@ Pass: all three files exist after the build. Fail: any one is missing.
 ### AT2 — tag version == manifest.json.version == package.json.version
 
 ```bash
-cd /Users/mikolajsapek/havemind/apps/obsidian-plugin
+cd apps/obsidian-plugin
 MANIFEST_V=$(node -p "require('./manifest.json').version")
 PKG_V=$(node -p "require('./package.json').version")
 [ "$MANIFEST_V" = "$PKG_V" ] || { echo "FAIL: manifest=$MANIFEST_V pkg=$PKG_V mismatch"; exit 1; }
@@ -189,7 +189,7 @@ CI release extension: additionally `[ "$GITHUB_REF_NAME" = "$MANIFEST_V" ]`.
 ### AT3 — `versions.json` has an entry for the published version with the correct minAppVersion
 
 ```bash
-cd /Users/mikolajsapek/havemind
+cd . # repo root
 V=$(node -p "require('./apps/obsidian-plugin/manifest.json').version")
 MIN=$(node -p "require('./apps/obsidian-plugin/manifest.json').minAppVersion")
 GOT=$(node -p "require('./versions.json')['$V'] || ''")
@@ -202,7 +202,7 @@ Pass: `versions.json[version] === manifest.minAppVersion`.
 ### AT4 — `manifest-beta.json` exists and is a valid superset of the manifest
 
 ```bash
-cd /Users/mikolajsapek/havemind/apps/obsidian-plugin
+cd apps/obsidian-plugin
 test -f manifest-beta.json || { echo "FAIL: manifest-beta.json missing"; exit 1; }
 node -e "const m=require('./manifest.json'),b=require('./manifest-beta.json');
 for (const k of ['id','name','minAppVersion','isDesktopOnly']) if(m[k]!==b[k]){console.log('FAIL key',k);process.exit(1)}
@@ -215,9 +215,9 @@ Pass: `id`/`name`/`minAppVersion`/`isDesktopOnly` identical, `version` present.
 ### AT5 — the artifact contains no secrets or forbidden runtime APIs
 
 ```bash
-cd /Users/mikolajsapek/havemind/apps/obsidian-plugin && npm run build
+cd apps/obsidian-plugin && npm run build
 # build.mjs guard already throws on node:/process./require(fs|path|electron)
-grep -nE 'sapserver|100\.112\.246\.26|refresh_token|BEGIN [A-Z]* PRIVATE KEY|invitation_secret' main.js \
+grep -nE 'sapserver|tail[0-9a-f]{4,}\.ts\.net|100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.[0-9]{1,3}\.[0-9]{1,3}|refresh_token|BEGIN [A-Z]* PRIVATE KEY|invitation_secret' main.js \
   && { echo "FAIL: secret-like content in bundle"; exit 1; } || echo "PASS: no secret markers in main.js"
 ```
 
@@ -226,7 +226,7 @@ Pass: no matches. (The guard on `node:`/`process.` is enforced by `build.mjs` it
 ### AT6 — the repo does not reveal private infrastructure (gate before publication)
 
 ```bash
-cd /Users/mikolajsapek/havemind
+cd . # repo root
 grep -rInE '100\.x\.y\.z|sapserver|Documents/[^/]*Private|Tailscale.*auth|passwordless-sudo' \
   --include='*.md' --include='*.json' --include='*.ts' --include='*.mjs' \
   --exclude-dir=node_modules --exclude-dir=.git . \
