@@ -27,7 +27,7 @@ npm run build --workspace @havemind/obsidian-plugin
 
 - Obsidian 1.11.4 or newer (the manifest `minAppVersion`).
 - Both MacBooks joined to the **same tailnet** as `sapserver`
-  (`100.112.246.26`). Verify with `tailscale status` — the server must be
+  (`100.x.y.z`). Verify with `tailscale status` — the server must be
   reachable before the plugin can sync. The second Mac in particular must be
   added to the tailnet (Tailscale admin console → invite/authorise the device)
   or it will stay `Offline`.
@@ -73,7 +73,7 @@ Once the server is deployed and the owner has generated an invitation envelope
 2. Paste either the `v1.…` invitation envelope (invitee) **or** the owner's
    `hm_pt_…` pairing token from `havemind setup` (owner's first device). For a
    pairing token, also fill in the server URL
-   (e.g. `https://sapserver.tail48b326.ts.net`); the plugin auto-detects which
+   (e.g. `https://<server>.<tailnet>.ts.net`); the plugin auto-detects which
    kind of token you pasted and runs the right flow.
 3. Review the server, vault and inviter shown, then confirm. The plugin redeems
    the invitation with a refresh token it generates locally and stores in

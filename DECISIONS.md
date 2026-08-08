@@ -315,7 +315,7 @@ workspace gate clean). No commit; production server untouched (code only).
    coverage-excluded `obsidian-adapters.ts`. The view is exported and unit-tested
    for input reading + progress reporting + empty-input guard.
 
-Server production instance (https://sapserver.tail48b326.ts.net) was not touched;
+Server production instance (https://<server>.<tailnet>.ts.net) was not touched;
 these changes ship on next deploy of the built server + plugin dist.
 
 ## 2026-07-16 — F8-02e production bootstrap wiring + rotate-pairing CLI

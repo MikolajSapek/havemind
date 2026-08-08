@@ -18,10 +18,10 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "22"
           cache: npm
@@ -75,8 +75,20 @@ jobs:
           if(!b.version){console.log('FAIL: no version');process.exit(1)}
           console.log('PASS: manifest-beta consistent')"
 
-      # AT5 (no secret markers in bundle) and AT6 (no private-infra markers in
-      # publishable files) are pre-publication privacy gates (plan 003) — they
-      # run at release/tag time in release.yml, not on every push, because the
-      # repo is currently private and pilot docs legitimately contain the real
-      # tailnet URL that pilot users need. Do not re-add them here.
+      # AT5 (no secret markers in bundle) runs only at release/tag time in
+      # release.yml, since it requires a full plugin build against the
+      # tagged version.
+      #
+      # AT6 (no private-infra markers in publishable files) is a static grep
+      # over source-controlled files, so it also runs here as a regression
+      # guard (audit #3 finding 1): docs/plans must stay scrubbed of real
+      # tailnet hostnames/IPs on every push, not just at tag time. Keep this
+      # pattern identical to AT6 in release.yml.
+      - name: AT6 — no private-infra markers in publishable files
+        run: |
+          if grep -rInE 'tail[0-9a-f]{4,}\.ts\.net|100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.[0-9]{1,3}\.[0-9]{1,3}|Documents/[^/]*Private|NOPASSWD' \
+            --include='*.md' --include='*.json' --include='*.ts' --include='*.mjs' \
+            --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=plan --exclude-dir=ops .; then
+            echo "REVIEW: matches found — must be scrubbed or justified before public tag"; exit 1
+          fi
+          echo "PASS: no private-infra markers in publishable files"
