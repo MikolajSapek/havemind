@@ -83,3 +83,10 @@ A disk failure means data loss.
 
 **Gate before 1.0:** `restore-drill.sh` must finish with `RESTORE DRILL: PASS`
 on sapserver. Date of the last successful run: _(not yet run)_.
+
+**Activation completed and drill PASSED (2026-08-08).** Backup pipeline is LIVE:
+scheduled in-server artifacts to `deploy/backups`, nightly restic push over SFTP
+to the owner's Mac (user crontab: backup 03:20 daily, prune 04:40 Sundays), and
+`restore-drill.sh` returned **PASS** (283 blobs byte-exact, 513 revisions,
+`integrity_check: ok`, artifact `2026-08-08T12-04-22-006Z-8a239483`). The 1.0
+release gate is satisfied.
