@@ -1,6 +1,7 @@
 /**
- * F-config — two-device end-to-end coverage for the `.obsidian/` config MIRROR
- * (theme, appearance, hotkeys, snippets, foreign plugin code).
+ * F-config — two-device end-to-end coverage for the `.obsidian/` APPEARANCE
+ * mirror (theme CSS, snippets, hotkeys, appearance/app settings). Plugin code
+ * and plugin state are OUTSIDE the allowlist and must never cross.
  *
  * The mirror is the one part of sync Obsidian gives no help with: hidden files
  * are never returned by `vault.getFiles()` and never fire a vault event, so the
@@ -16,11 +17,11 @@
  *  1. A config file written behind the vault API's back reaches the peer and
  *     materialises at the SAME hidden path, byte-identical — and a steady-state
  *     poll on either device enqueues nothing (the content-hash cycle guard).
- *  2. Denylist wins: a plugin's and a theme's `data.json` (and the per-machine
- *     `workspace.json`) produce ZERO revisions and materialise nothing on the
- *     peer, while a syncable sibling in those very same folders does sync —
- *     proving the walk descends there and the DENYLIST, not a blind spot, is
- *     what stops the secrets.
+ *  2. Allowlist wins: a foreign plugin's CODE (`main.js`), its `data.json`, a
+ *     theme's `data.json` and the per-machine `workspace.json` produce ZERO
+ *     revisions and materialise nothing on the peer, while an allowlisted
+ *     sibling in the same theme folder does sync — proving the walk descends
+ *     there and the ALLOWLIST, not a blind spot, is what stops them.
  *  3. Fault variant: a config push interrupted by an offline transport backs
  *     off, and after recovery the revision lands EXACTLY ONCE — including when
  *     the receipt is lost and the identical batch is re-delivered.
@@ -39,6 +40,7 @@ const PLUGIN_SECRET_PATH = '.obsidian/plugins/dataview/data.json';
 const THEME_SECRET_PATH = '.obsidian/themes/Minimal/data.json';
 const WORKSPACE_PATH = '.obsidian/workspace.json';
 const PLUGIN_CODE_PATH = '.obsidian/plugins/dataview/main.js';
+const PLUGIN_MANIFEST_PATH = '.obsidian/plugins/dataview/manifest.json';
 const THEME_CSS_PATH = '.obsidian/themes/Minimal/theme.css';
 
 const harnesses: ServerHarness[] = [];
@@ -117,47 +119,52 @@ describe('F-config `.obsidian/` mirror — two clients against a real opaque ser
     expect(server.revisionCount()).toBe(2);
   });
 
-  it('row 2: denylisted plugin/theme `data.json` and per-machine `workspace.json` produce zero revisions and materialise nothing, while a syncable sibling in the same folders syncs', async () => {
+  it('row 2: foreign plugin CODE, plugin/theme `data.json` and per-machine `workspace.json` produce zero revisions and materialise nothing, while an allowlisted sibling in the same folder syncs', async () => {
     const { server, alice, bob } = await makeHarness();
 
-    // Secrets and per-machine state, in the exact folders the walk descends.
+    // Foreign plugin code (audit #3 finding 2 — the remote-code-execution
+    // vector), secrets, and per-machine state, in the exact folders the walk
+    // descends.
+    await alice.writeConfig(PLUGIN_CODE_PATH, 'console.log("dataview");\n');
+    await alice.writeConfig(PLUGIN_MANIFEST_PATH, '{"id":"dataview"}\n');
     await alice.writeConfig(PLUGIN_SECRET_PATH, '{"apiKey":"super-secret"}\n');
     await alice.writeConfig(THEME_SECRET_PATH, '{"licenceKey":"do-not-share"}\n');
     await alice.writeConfig(WORKSPACE_PATH, '{"main":{"id":"local-only"}}\n');
 
-    // Nothing is even enqueued: the denylist is evaluated inside the walk and
-    // again in the producer guard, so no secret can reach the outbox.
+    // Nothing is even enqueued: the allowlist is evaluated inside the walk and
+    // again in the producer guard, so no plugin file can reach the outbox.
     expect(await alice.pollConfig()).toEqual([]);
     expect(alice.outboxSize()).toBe(0);
     await alice.sync();
     expect(server.revisionCount()).toBe(0);
     expect(server.eventCount()).toBe(0);
 
-    // The peer materialises nothing at all.
+    // The peer materialises nothing at all — no plugin code is ever written to
+    // a peer's `.obsidian/plugins/` tree.
     await bob.sync();
     expect(bob.configPaths()).toEqual([]);
     expect(bob.paths()).toEqual([]);
+    expect(bob.readConfig(PLUGIN_CODE_PATH)).toBeUndefined();
+    expect(bob.readConfig(PLUGIN_MANIFEST_PATH)).toBeUndefined();
     expect(bob.readConfig(PLUGIN_SECRET_PATH)).toBeUndefined();
     expect(bob.readConfig(THEME_SECRET_PATH)).toBeUndefined();
     expect(bob.readConfig(WORKSPACE_PATH)).toBeUndefined();
 
-    // Proof the walk genuinely reaches those folders (and that row 2 above is
-    // the denylist working, not the enumeration never looking): a syncable
-    // sibling next to each secret does cross, and the secrets still do not.
-    await alice.writeConfig(PLUGIN_CODE_PATH, 'console.log("dataview");\n');
+    // Proof the walk genuinely reaches those folders (and that the rows above
+    // are the ALLOWLIST working, not the enumeration never looking): an
+    // allowlisted sibling next to the theme's secret does cross, and none of the
+    // excluded files ever do.
     await alice.writeConfig(THEME_CSS_PATH, 'body { --accent: #7b5cff; }\n');
     const ops = await alice.pollConfig();
-    expect(ops.map((operation) => operation.path).sort()).toEqual([
-      PLUGIN_CODE_PATH,
-      THEME_CSS_PATH,
-    ]);
+    expect(ops.map((operation) => operation.path)).toEqual([THEME_CSS_PATH]);
 
     await alice.sync();
     await bob.sync();
-    expect(server.revisionCount()).toBe(2);
-    expect(bob.configPaths()).toEqual([PLUGIN_CODE_PATH, THEME_CSS_PATH].sort());
-    expect(bob.readConfig(PLUGIN_CODE_PATH)).toBe('console.log("dataview");\n');
+    expect(server.revisionCount()).toBe(1);
+    expect(bob.configPaths()).toEqual([THEME_CSS_PATH]);
     expect(bob.readConfig(THEME_CSS_PATH)).toBe('body { --accent: #7b5cff; }\n');
+    expect(bob.readConfig(PLUGIN_CODE_PATH)).toBeUndefined();
+    expect(bob.readConfig(PLUGIN_MANIFEST_PATH)).toBeUndefined();
     expect(bob.readConfig(PLUGIN_SECRET_PATH)).toBeUndefined();
     expect(bob.readConfig(THEME_SECRET_PATH)).toBeUndefined();
     expect(bob.readConfig(WORKSPACE_PATH)).toBeUndefined();

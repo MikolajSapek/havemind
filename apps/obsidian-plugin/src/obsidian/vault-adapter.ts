@@ -212,13 +212,14 @@ const SYNCABLE_BINARY_EXTENSION_SET: ReadonlySet<string> = new Set(
 );
 
 /**
- * Text extensions the `.obsidian/` config mirror carries through the
+ * Text extensions the `.obsidian/` appearance mirror carries through the
  * text/'markdown' content path (canonicalised, hashed as UTF-8). A binary
  * config asset (an extension in {@link SYNCABLE_BINARY_EXTENSION_SET}) rides the
  * existing base64 + size-cap path instead; that set is checked FIRST so a
  * genuinely binary format is never routed through the text path (which would
- * corrupt it). An unknown binary extension (e.g. `.wasm`) matches NEITHER set
- * and stays excluded-with-notice.
+ * corrupt it). An extension in NEITHER set stays excluded-with-notice — kept as
+ * defence in depth even though the scope allowlist admits no such extension
+ * today, so widening the allowlist can never silently corrupt a new format.
  */
 const CONFIG_TEXT_EXTENSIONS: ReadonlySet<string> = new Set([
   'md',
@@ -248,10 +249,13 @@ function configContentKind(canonicalPath: string): SyncContentKind | null {
  * conflict artifact is never re-synced (rule: no cycles).
  */
 function eligibleKind(canonicalPath: string): SyncContentKind | null {
-  // `.obsidian/` config MIRROR (theme, colours, hotkeys, snippets, themes and
-  // other plugins' code) — everything under `.obsidian/` EXCEPT a hard denylist
-  // enforced inside `isSyncableConfigPath` (secrets `data.json`, the Havemind
-  // pairing state, per-machine `workspace.json`, the enabled-plugins list).
+  // `.obsidian/` APPEARANCE ALLOWLIST (theme CSS, snippets, hotkeys,
+  // appearance/app settings) — ONLY the explicit set named inside
+  // `isSyncableConfigPath`. Third-party plugin code and state
+  // (`.obsidian/plugins/**`), the enabled-plugins registry and per-machine
+  // `workspace.json` are NOT in scope: mirroring a peer's plugin code let any
+  // vault member overwrite another member's installed plugin, which Obsidian
+  // then executes on reload (audit #3 finding 2).
   // Admitted here — and ONLY here — BEFORE the dotpath guard below that
   // (correctly) rejects every other dot-path. The content kind is chosen by
   // EXTENSION, not forced to text: a binary config asset uses the base64 path,

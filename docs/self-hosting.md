@@ -214,6 +214,13 @@ terminal:
 - **Tailnet-only, always.** Nothing here is designed to be exposed to the
   public internet. Don't put the container's port behind a public reverse
   proxy, and don't use `tailscale funnel`.
+- **Only appearance settings sync from `.obsidian/`.** Theme stylesheets, CSS
+  snippets, hotkeys, graph view settings and the `appearance.json` / `app.json`
+  settings mirror between devices, from an explicit allowlist. Plugin code and plugin state
+  (`.obsidian/plugins/`, every `data.json` included), the enabled-plugins
+  registry (`community-plugins.json`) and the per-machine window layout
+  (`workspace.json`) are never synced — so no member of a vault can replace
+  another member's installed plugin code.
 - **Data on the server is stored in plaintext.** The live database and blob
   store are unencrypted on the volume; the `havemind_db_key` secret encrypts
   only checkpoint snapshots, not the live data. Anyone who controls the server

@@ -36,6 +36,11 @@ requirements and the steps.
   fallback — no manual refresh, no waiting.
 - **Notes and attachments.** Markdown notes sync with line-level history; images
   (PNG/JPG/GIF/WebP/SVG) and PDFs up to 25 MB sync byte-for-byte.
+- **Appearance settings, from an explicit allowlist.** Theme stylesheets
+  (`.obsidian/themes/`), CSS snippets, hotkeys, graph view settings (node colour
+  groups included) and the `appearance.json` / `app.json` settings mirror between
+  devices, so a vault looks and behaves the same everywhere. That list is the
+  whole of it — nothing else under `.obsidian/` is in scope.
 - **Append-only history — zero silent overwrites.** A concurrent edit never
   destroys the other person's work. Non-overlapping edits merge automatically
   (3-way merge over a common ancestor); a genuine clash lands as a conflict copy
@@ -57,9 +62,15 @@ requirements and the steps.
 - **No cloud.** The server runs on your own hardware, reachable only over your
   private [Tailscale](https://tailscale.com) network. Nothing is ever published
   to the internet.
-- **No config sync.** `.obsidian/`, plugin settings and device state are
-  excluded by two independent guard layers — the machines can run entirely
-  different plugin sets without conflict.
+- **No plugin sync, and no device state.** `.obsidian/plugins/` is excluded in
+  full — no plugin code, no plugin state, no plugin secrets (`data.json`) — as
+  are the enabled-plugins registry (`community-plugins.json`) and the
+  per-machine window layout (`workspace.json`). No member of a vault can
+  replace another member's installed plugin code, and the machines can run
+  entirely different plugin sets without conflict. The allowlist is enforced at
+  two independent layers — the producer guard and the wire schema — so a
+  revision for an excluded path is rejected on arrival as well as at authoring
+  time.
 - **No server-side intelligence.** The server is an opaque, append-only relay: it
   stores content-addressed blobs and revision headers, and never computes diffs,
   merges or provenance. All of that happens in the client.
@@ -93,6 +104,14 @@ Havemind's security rests on **Tailscale**, not on application-layer encryption.
 The server is reachable only over your private tailnet — never the public internet
 — and all traffic between devices and the server is encrypted in transit by
 Tailscale (WireGuard), with per-device authentication.
+
+Within a vault, the trust boundary between members is drawn at **code**: the
+`.obsidian/` scope is an explicit allowlist of appearance settings (theme
+stylesheets, CSS snippets, hotkeys, `graph.json`, `appearance.json` /
+`app.json`), and
+`.obsidian/plugins/` is excluded in full. Plugin code, plugin state and plugin
+secrets never cross the wire, so one member cannot overwrite another member's
+installed plugin and have Obsidian execute it on the next reload.
 
 Content is stored on the server in plaintext, so **the trust boundary is the
 machine you run the server on**: anyone who controls that box can read the vault.

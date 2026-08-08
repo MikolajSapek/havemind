@@ -154,20 +154,48 @@ describe('appearance-config sync scope (integration)', () => {
     expect(enqueued).toHaveLength(0);
   });
 
-  it("mirrors a foreign plugin's code file (.obsidian/plugins/dataview/main.js)", async () => {
+  it("NEVER enqueues a foreign plugin's code file (.obsidian/plugins/dataview/main.js)", async () => {
+    // Audit #3 finding 2: mirroring plugin code let any vault member replace
+    // another member's installed plugin — remote code execution on reload. The
+    // allowlist admits appearance settings only, so the producer path never even
+    // classifies this file.
     const { vault, observer, repository, enqueued } = makeHarness();
     const mainJs = '.obsidian/plugins/dataview/main.js';
     vault.contents.set(mainJs, 'module.exports = {};\n');
 
     const operation = await observer.observeCreate(mainJs);
 
+    expect(operation).toBeNull();
+    expect(enqueued).toHaveLength(0);
+    expect(await repository.listMappings()).toHaveLength(0);
+  });
+
+  it("NEVER enqueues a foreign plugin's manifest or stylesheet either", async () => {
+    const { vault, observer, enqueued } = makeHarness();
+    for (const path of [
+      '.obsidian/plugins/dataview/manifest.json',
+      '.obsidian/plugins/dataview/styles.css',
+    ]) {
+      vault.contents.set(path, 'x');
+      expect(await observer.observeCreate(path)).toBeNull();
+    }
+    expect(enqueued).toHaveLength(0);
+  });
+
+  it('enqueues an allowlisted theme stylesheet (.obsidian/themes/Minimal/theme.css)', async () => {
+    const { vault, observer, repository, enqueued } = makeHarness();
+    const themeCss = '.obsidian/themes/Minimal/theme.css';
+    vault.contents.set(themeCss, 'body { --accent: #7c3aed; }\n');
+
+    const operation = await observer.observeCreate(themeCss);
+
     expect(operation).not.toBeNull();
-    expect(operation?.path).toBe(mainJs);
+    expect(operation?.path).toBe(themeCss);
     expect(enqueued).toHaveLength(1);
     const payload = decodeRevisionPayload(
       decodeContent(enqueued[0] as OutboxEnvelope),
     );
-    expect(payload.path).toBe(mainJs);
+    expect(payload.path).toBe(themeCss);
     expect(await repository.listMappings()).toHaveLength(1);
   });
 

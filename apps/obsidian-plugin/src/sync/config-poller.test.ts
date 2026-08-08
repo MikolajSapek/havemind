@@ -134,9 +134,12 @@ function enqueuedPaths(enqueued: readonly OutboxEnvelope[]): string[] {
 }
 
 describe('config poller — enumeration via adapter, not getFiles (regression #5)', () => {
-  it('enqueues syncable config from adapter.list while getFiles has no config', async () => {
+  it('enqueues allowlisted config from adapter.list while getFiles has no config', async () => {
     const vault = new HiddenConfigVault();
+    vault.adapter.files.set('.obsidian/appearance.json', '{}');
+    vault.adapter.files.set('.obsidian/themes/Minimal/theme.css', 'body{}');
     vault.adapter.files.set('.obsidian/graph.json', '{}');
+    vault.adapter.files.set('.obsidian/community-plugins.json', '["dataview"]');
     vault.adapter.files.set('.obsidian/plugins/dataview/main.js', 'x');
     vault.adapter.files.set('.obsidian/plugins/dataview/data.json', '{"s":1}');
     vault.adapter.files.set('.obsidian/plugins/havemind-sync/data.json', '{"p":1}');
@@ -145,13 +148,18 @@ describe('config poller — enumeration via adapter, not getFiles (regression #5
     await poll();
 
     const paths = enqueuedPaths(enqueued);
+    expect(paths).toContain('.obsidian/appearance.json');
     expect(paths).toContain('.obsidian/graph.json');
-    expect(paths).toContain('.obsidian/plugins/dataview/main.js');
+    expect(paths).toContain('.obsidian/themes/Minimal/theme.css');
+    // Plugin code is out of scope entirely (audit #3 finding 2), as is its
+    // secret store and any config file the allowlist does not name.
+    expect(paths).not.toContain('.obsidian/plugins/dataview/main.js');
     expect(paths).not.toContain('.obsidian/plugins/dataview/data.json');
     expect(paths).not.toContain('.obsidian/plugins/havemind-sync/data.json');
+    expect(paths).not.toContain('.obsidian/community-plugins.json');
     // The single getFiles() entry is a `.md` note the poller must ignore entirely.
     expect(paths).not.toContain('Notes/a.md');
-    expect(paths).toHaveLength(2);
+    expect(paths).toHaveLength(3);
   });
 });
 

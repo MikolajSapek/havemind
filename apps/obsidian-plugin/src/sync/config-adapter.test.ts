@@ -74,11 +74,14 @@ function seededAdapter(): InMemoryAdapter {
   const adapter = new InMemoryAdapter();
   adapter.files.set('.obsidian/appearance.json', '{"theme":"obsidian"}');
   adapter.files.set('.obsidian/app.json', '{}');
+  adapter.files.set('.obsidian/hotkeys.json', '{}');
   adapter.files.set('.obsidian/graph.json', '{}');
   adapter.files.set('.obsidian/community-plugins.json', '["dataview"]');
   adapter.files.set('.obsidian/workspace.json', '{"main":{}}');
   adapter.files.set('.obsidian/snippets/tweaks.css', 'body{}');
   adapter.files.set('.obsidian/themes/Minimal/theme.css', '.x{}');
+  adapter.files.set('.obsidian/themes/Minimal/manifest.json', '{"name":"Minimal"}');
+  adapter.files.set('.obsidian/themes/Minimal/data.json', '{"licence":"x"}');
   adapter.files.set('.obsidian/plugins/dataview/main.js', 'module.exports={}');
   adapter.files.set('.obsidian/plugins/dataview/manifest.json', '{"id":"dataview"}');
   adapter.files.set('.obsidian/plugins/dataview/data.json', '{"secret":"x"}');
@@ -88,30 +91,34 @@ function seededAdapter(): InMemoryAdapter {
 }
 
 describe('listSyncableConfigPaths', () => {
-  it('walks .obsidian recursively via adapter.list and mirrors syncable files', async () => {
+  it('walks .obsidian recursively via adapter.list and keeps only allowlisted files', async () => {
     const paths = await listSyncableConfigPaths(seededAdapter());
     expect(paths).toEqual(
       [
         '.obsidian/app.json',
         '.obsidian/appearance.json',
         '.obsidian/graph.json',
-        '.obsidian/plugins/dataview/main.js',
-        '.obsidian/plugins/dataview/manifest.json',
+        '.obsidian/hotkeys.json',
         '.obsidian/snippets/tweaks.css',
+        '.obsidian/themes/Minimal/manifest.json',
         '.obsidian/themes/Minimal/theme.css',
       ].sort(),
     );
   });
 
-  it('descends into foreign plugins but omits denylisted files', async () => {
+  it('descends into foreign plugins yet mirrors NOTHING from them (audit #3 finding 2)', async () => {
     const paths = await listSyncableConfigPaths(seededAdapter());
-    // Foreign plugin CODE mirrors:
-    expect(paths).toContain('.obsidian/plugins/dataview/main.js');
-    // …but its secret store never does:
+    // Foreign plugin CODE must never mirror — it would let a peer overwrite an
+    // installed plugin and get its code executed on the next reload.
+    expect(paths).not.toContain('.obsidian/plugins/dataview/main.js');
+    expect(paths).not.toContain('.obsidian/plugins/dataview/manifest.json');
+    // Nor its secret store:
     expect(paths).not.toContain('.obsidian/plugins/dataview/data.json');
-    // Machine-local + registry files never do:
+    // Machine-local and registry files never do either:
     expect(paths).not.toContain('.obsidian/workspace.json');
     expect(paths).not.toContain('.obsidian/community-plugins.json');
+    // A `data.json` segment loses even inside an allowed subtree:
+    expect(paths).not.toContain('.obsidian/themes/Minimal/data.json');
   });
 
   it('prunes our own havemind-sync plugin folder entirely', async () => {
@@ -131,18 +138,18 @@ describe('listSyncableConfigPaths', () => {
 describe('config disk I/O helpers', () => {
   it('ensureConfigParentDirs creates every ancestor shallowest-first', async () => {
     const adapter = new InMemoryAdapter();
-    await ensureConfigParentDirs(adapter, '.obsidian/plugins/foo/main.js');
+    await ensureConfigParentDirs(adapter, '.obsidian/themes/Minimal/theme.css');
     expect(adapter.dirs).toContain('.obsidian');
-    expect(adapter.dirs).toContain('.obsidian/plugins');
-    expect(adapter.dirs).toContain('.obsidian/plugins/foo');
-    expect(adapter.dirs).not.toContain('.obsidian/plugins/foo/main.js');
+    expect(adapter.dirs).toContain('.obsidian/themes');
+    expect(adapter.dirs).toContain('.obsidian/themes/Minimal');
+    expect(adapter.dirs).not.toContain('.obsidian/themes/Minimal/theme.css');
   });
 
   it('writeConfigText materialises parents then writes', async () => {
     const adapter = new InMemoryAdapter();
-    await writeConfigText(adapter, '.obsidian/plugins/foo/main.js', 'x');
-    expect(adapter.files.get('.obsidian/plugins/foo/main.js')).toBe('x');
-    expect(adapter.dirs).toContain('.obsidian/plugins/foo');
+    await writeConfigText(adapter, '.obsidian/themes/Minimal/theme.css', 'x');
+    expect(adapter.files.get('.obsidian/themes/Minimal/theme.css')).toBe('x');
+    expect(adapter.dirs).toContain('.obsidian/themes/Minimal');
   });
 
   it('removeConfig is idempotent for a missing file', async () => {

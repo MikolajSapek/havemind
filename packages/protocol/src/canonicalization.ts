@@ -87,13 +87,15 @@ function reservedRoot(path: string): boolean {
   if (root === undefined || !RESERVED_ROOTS.has(root.toLowerCase())) {
     return false;
   }
-  // Exception: the `.obsidian/` config MIRROR is permitted to cross the sync
-  // boundary — everything under `.obsidian/` EXCEPT the hard denylist enforced
-  // inside `isSyncableConfigPath` (secrets `data.json`, the Havemind pairing
-  // state, per-machine `workspace.json`, the enabled-plugins list). The denylist
-  // is checked first and always wins, so those stay reserved — rejected here at
-  // build, decode and schema-validation alike. `.trash` and `Havemind
-  // Conflicts/` are never under `.obsidian/`, so they stay reserved.
+  // Exception: the `.obsidian/` APPEARANCE ALLOWLIST is permitted to cross the
+  // sync boundary — only the explicit set named inside `isSyncableConfigPath`
+  // (`appearance.json`, `app.json`, `hotkeys.json`, `core-plugins.json`,
+  // `snippets/<name>.css`, `themes/<name>/…`). Everything else under
+  // `.obsidian/` stays reserved and is rejected here at build, decode and
+  // schema-validation alike — notably ALL of `.obsidian/plugins/**`, so a
+  // plugin-code revision authored by an older peer fails validation on arrival
+  // instead of being written to disk (audit #3 finding 2). `.trash` and
+  // `Havemind Conflicts/` are never under `.obsidian/`, so they stay reserved.
   if (isSyncableConfigPath(path)) {
     return false;
   }

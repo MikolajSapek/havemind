@@ -3,8 +3,10 @@
  * Vault file API. Obsidian never surfaces `.obsidian/` through `vault.getFiles()`
  * or its `create`/`modify`/`on(...)` events, so the config mirror must enumerate,
  * read and write through `vault.adapter.*` instead. Every discovered path is
- * filtered through `isSyncableConfigPath`, so secrets (`data.json`), the Havemind
- * pairing state and the per-machine `workspace.json` never cross the boundary.
+ * filtered through `isSyncableConfigPath`, an EXPLICIT APPEARANCE ALLOWLIST — so
+ * third-party plugin code and state (`.obsidian/plugins/**`), the
+ * enabled-plugins registry, the per-machine `workspace.json` and any unvetted
+ * config file never cross the boundary (audit #3 finding 2).
  *
  * Pure over an injected {@link ConfigAdapterPort}: no Obsidian imports, so the
  * walk and the disk I/O are unit-testable against an in-memory adapter.
@@ -52,11 +54,14 @@ function isUnderHavemindPlugin(folder: string): boolean {
 
 /**
  * Walks `root` (`.obsidian/` by default) recursively via `adapter.list`, returning
- * every SYNCABLE config file path (sorted). It DESCENDS into `.obsidian/plugins/`
- * so foreign plugin code (`main.js`, `manifest.json`, `styles.css`) is mirrored,
- * but prunes our own `havemind-sync/` folder and drops every non-syncable file
- * (all `data.json`, `workspace.json`, `community-plugins.json`, …) via
- * `isSyncableConfigPath`. A missing/uninitialised directory yields no entries
+ * every in-scope config file path (sorted). It keeps only what
+ * `isSyncableConfigPath` admits — the appearance allowlist — so every file under
+ * `.obsidian/plugins/` is dropped, foreign plugin code included, along with
+ * `workspace.json`, `community-plugins.json` and any config file not on the
+ * list. The walk still DESCENDS into `.obsidian/plugins/` (minus our own
+ * `havemind-sync/` folder, pruned outright): descending and then rejecting is
+ * what lets the tests prove the allowlist is doing the work, rather than an
+ * enumeration blind spot. A missing/uninitialised directory yields no entries
  * rather than throwing, so a fresh vault never wedges the walk.
  */
 export async function listSyncableConfigPaths(
