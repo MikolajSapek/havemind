@@ -1491,6 +1491,89 @@ interface PushProducerHandle {
   retryFailedCommit(path: string): RetryFailedCommitOutcome;
 }
 
+/**
+ * How many CONSECUTIVE failed config-poll ticks pass between user-facing
+ * notices. The first failure of a streak always notifies; after that only every
+ * Nth does. A persistently broken config mirror therefore stays visible without
+ * a Notice every {@link CONFIG_POLL_INTERVAL_MS} (which at a 5 s interval would
+ * be twelve toasts a minute for as long as the fault lasts).
+ */
+export const CONFIG_POLL_FAILURE_NOTICE_EVERY = 10;
+
+/**
+ * The throttled config-poll failure Notice. Deliberately generic: the detail
+ * lives in the console (and is itself reason-only), so nothing about the failing
+ * config file ever reaches the UI.
+ */
+export const CONFIG_POLL_FAILURE_NOTICE =
+  'Havemind: config sync ran into repeated errors — see console.';
+
+/**
+ * A leak-free description of a config-poll failure: the error's CLASS only. An
+ * error message raised while reading `.obsidian/` can quote the file's contents
+ * (a foreign plugin's `data.json` holding an API key) or an absolute vault path,
+ * none of which may reach the console or the UI (rule 4).
+ */
+function describeConfigPollFailure(error: unknown): string {
+  return error instanceof Error ? `reason=${error.name}` : `reason=${typeof error}`;
+}
+
+/** Seams for one config-poll tick, so failure handling is testable headlessly. */
+export interface ConfigPollTickDeps {
+  /** One poll attempt — the runtime injects `pollConfigOnce`. */
+  readonly poll: () => Promise<readonly LocalChangeOperation[]>;
+  /** Records a genuine change in the Activity feed. */
+  readonly recordActivity: (op: LocalChangeOperation) => void;
+  /** Requests a sync after a tick that enqueued something. */
+  readonly triggerSync: () => void;
+  /** User-facing sink — `new Notice` in the runtime. */
+  readonly notify: (message: string) => void;
+  /** Console sink; defaults to `console.warn`. */
+  readonly warn?: (message: string, reason: string) => void;
+}
+
+/**
+ * Builds the `.obsidian/` config-poll tick.
+ *
+ * The returned function NEVER rejects: one bad tick must never stop the interval
+ * or wedge sync. But a failure is never SILENT either (audit #3 finding 5) —
+ * every failure warns to the console with a reason-only detail, and the user sees
+ * a throttled {@link CONFIG_POLL_FAILURE_NOTICE} on the first failure of a streak
+ * and every {@link CONFIG_POLL_FAILURE_NOTICE_EVERY}-th after it. Recovery resets
+ * the streak SILENTLY, so a transient blip never earns a "back to normal" toast
+ * and the next genuine outage notifies immediately instead of waiting out the old
+ * streak's counter.
+ */
+export function createConfigPollTick(
+  deps: ConfigPollTickDeps,
+): () => Promise<void> {
+  const warn: (message: string, reason: string) => void =
+    deps.warn ?? ((message, reason) => console.warn(message, reason));
+  let consecutiveFailures = 0;
+
+  return async () => {
+    try {
+      const ops = await deps.poll();
+      // Silent recovery: reset the throttle so the next outage is reported from
+      // its own first failure.
+      consecutiveFailures = 0;
+      if (ops.length === 0) return;
+      for (const op of ops) deps.recordActivity(op);
+      deps.triggerSync();
+    } catch (error: unknown) {
+      consecutiveFailures += 1;
+      warn(
+        `Havemind: config sync tick failed (${consecutiveFailures} consecutive).`,
+        describeConfigPollFailure(error),
+      );
+      const shouldNotify =
+        consecutiveFailures === 1 ||
+        consecutiveFailures % CONFIG_POLL_FAILURE_NOTICE_EVERY === 0;
+      if (shouldNotify) deps.notify(CONFIG_POLL_FAILURE_NOTICE);
+    }
+  };
+}
+
 function startPushProducer(
   plugin: Plugin,
   state: DurableSyncState,
@@ -1822,22 +1905,22 @@ function startPushProducer(
     observeDelete: (path: string) =>
       lockedObserve(path, () => observer.observeDelete(path)),
   };
-  const runConfigPollTick = async (): Promise<void> => {
-    try {
-      const ops = await pollConfigOnce({
+  // A config poll must never wedge sync: a bad tick is skipped and the next
+  // interval retries. But it must not hide a PERSISTENT fault either (audit #3
+  // finding 5) — every failure warns to the console and a throttled Notice fires
+  // on the first failure of a streak and every Nth after it. Per-file commit
+  // failures are already surfaced by the observe path's own handling.
+  const runConfigPollTick = createConfigPollTick({
+    poll: () =>
+      pollConfigOnce({
         observer: configObserver,
         listConfigPaths: () => listSyncableConfigPaths(vault.adapter, CONFIG_DIR),
         listMappings: () => repository.listMappings(),
-      });
-      if (ops.length === 0) return;
-      for (const op of ops) recordActivity(op);
-      triggerSync();
-    } catch {
-      // A config poll must never wedge sync; a bad tick is skipped and the next
-      // interval retries. Per-file commit failures are already surfaced by the
-      // observe path's own handling.
-    }
-  };
+      }),
+    recordActivity,
+    triggerSync,
+    notify: (message) => new Notice(message),
+  });
   // registerInterval clears it on plugin UNLOAD; the explicit clear in dispose()
   // below covers a stop/RE-PAIR (which tears the producer down without unloading).
   const configPollId = window.setInterval(() => {

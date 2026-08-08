@@ -1665,8 +1665,6 @@ export default class HavemindPlugin extends Plugin {
 
     this.addSettingTab(new HavemindSettingTab(this.app, this));
 
-    this.registerEditorExtension([]);
-    this.registerMarkdownPostProcessor(() => undefined);
     this.registerObsidianProtocolHandler('havemind-join', (data) => {
       // The secret invitation is never accepted from the URI query. Only the
       // parameter-free passive URI opens the local paste wizard; any query

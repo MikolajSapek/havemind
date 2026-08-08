@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Plugin } from 'obsidian';
 
+import type { LocalChangeOperation } from '../obsidian/vault-adapter';
+
 // Obsidian's real `requestUrl()` resolves to `{ status, headers, arrayBuffer,
 // json, text }` (see obsidian.d.ts). The shared test mock re-exports the
 // platform surface used by lifecycle tests but has no reason to model
@@ -880,5 +882,126 @@ describe('buildRejoinControllerForInvitee role gate (sweep-P1)', () => {
 
     const controller = await buildRejoinControllerForInvitee(plugin);
     expect(controller).toBeNull();
+  });
+});
+
+describe('createConfigPollTick (audit #3 finding 5: a failing config poll is never silent)', () => {
+  /** A genuine change op — only the fields the tick forwards are modelled. */
+  function fakeOp(path: string): LocalChangeOperation {
+    return { path } as unknown as LocalChangeOperation;
+  }
+
+  it('contains a throwing tick so the interval survives, and the next tick still records and syncs', async () => {
+    const { createConfigPollTick } = await import('./obsidian-adapters');
+    const recorded: LocalChangeOperation[] = [];
+    const triggerSync = vi.fn();
+    const poll = vi
+      .fn<() => Promise<readonly LocalChangeOperation[]>>()
+      .mockRejectedValueOnce(new Error('config read failed'))
+      .mockResolvedValueOnce([fakeOp('.obsidian/appearance.json')]);
+    const tick = createConfigPollTick({
+      poll,
+      recordActivity: (op) => recorded.push(op),
+      triggerSync,
+      notify: vi.fn(),
+      warn: vi.fn(),
+    });
+
+    // The tick must RESOLVE on failure: an unhandled rejection escaping the
+    // `window.setInterval` callback is a crash, not a skipped tick.
+    await expect(tick()).resolves.toBeUndefined();
+    expect(triggerSync).not.toHaveBeenCalled();
+
+    await tick();
+    expect(recorded.map((op) => op.path)).toEqual([
+      '.obsidian/appearance.json',
+    ]);
+    expect(triggerSync).toHaveBeenCalledTimes(1);
+  });
+
+  it('throttles the user Notice to the first failure and every Nth after it, never one per failure', async () => {
+    const {
+      createConfigPollTick,
+      CONFIG_POLL_FAILURE_NOTICE,
+      CONFIG_POLL_FAILURE_NOTICE_EVERY,
+    } = await import('./obsidian-adapters');
+    const notify = vi.fn();
+    const tick = createConfigPollTick({
+      poll: () => Promise.reject(new Error('config read failed')),
+      recordActivity: vi.fn(),
+      triggerSync: vi.fn(),
+      notify,
+      warn: vi.fn(),
+    });
+
+    const failures = 25;
+    for (let attempt = 0; attempt < failures; attempt += 1) await tick();
+
+    // 25 consecutive failures notify at 1, 10 and 20 — three notices, not 25.
+    expect(CONFIG_POLL_FAILURE_NOTICE_EVERY).toBe(10);
+    expect(notify).toHaveBeenCalledTimes(3);
+    expect(notify).toHaveBeenCalledWith(CONFIG_POLL_FAILURE_NOTICE);
+  });
+
+  it('warns once per failure with a reason that leaks neither config contents nor vault paths', async () => {
+    const { createConfigPollTick } = await import('./obsidian-adapters');
+    const warn = vi.fn();
+    // A config read error can quote the file it was reading: a foreign plugin's
+    // data.json holding an API key, and an absolute vault path. Neither may
+    // reach the console.
+    const leaky = new Error(
+      'apiKey=super-secret-token while reading /Users/me/Vault/.obsidian/plugins/x/data.json',
+    );
+    const tick = createConfigPollTick({
+      poll: () => Promise.reject(leaky),
+      recordActivity: vi.fn(),
+      triggerSync: vi.fn(),
+      notify: vi.fn(),
+      warn,
+    });
+
+    await tick();
+    await tick();
+
+    expect(warn).toHaveBeenCalledTimes(2);
+    const logged = warn.mock.calls.flat().join(' ');
+    expect(logged).not.toContain('super-secret-token');
+    expect(logged).not.toContain('/Users/me/Vault');
+    // The failure CLASS still tells a transient read apart from a real bug.
+    expect(logged).toContain('Error');
+  });
+
+  it('resets the failure streak silently on recovery, so a later failure notices again', async () => {
+    const { createConfigPollTick, CONFIG_POLL_FAILURE_NOTICE } = await import(
+      './obsidian-adapters'
+    );
+    const notify = vi.fn();
+    const warn = vi.fn();
+    const poll = vi
+      .fn<() => Promise<readonly LocalChangeOperation[]>>()
+      .mockRejectedValueOnce(new Error('config read failed'))
+      .mockResolvedValueOnce([])
+      .mockRejectedValueOnce(new Error('config read failed again'));
+    const tick = createConfigPollTick({
+      poll,
+      recordActivity: vi.fn(),
+      triggerSync: vi.fn(),
+      notify,
+      warn,
+    });
+
+    await tick();
+    expect(notify).toHaveBeenCalledTimes(1);
+
+    // Recovery is SILENT: no "back to normal" notice, and nothing warned.
+    await tick();
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledTimes(1);
+
+    // The streak was reset, so this counts as a first failure again and notifies
+    // instead of waiting for the Nth of the old streak.
+    await tick();
+    expect(notify).toHaveBeenCalledTimes(2);
+    expect(notify).toHaveBeenNthCalledWith(2, CONFIG_POLL_FAILURE_NOTICE);
   });
 });

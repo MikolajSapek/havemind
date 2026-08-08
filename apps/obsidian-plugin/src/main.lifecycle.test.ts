@@ -47,8 +47,13 @@ describe('plugin lifecycle', () => {
     expect(registrationState.statusItems).toHaveLength(1);
     expect(registrationState.views.has(HAVEMIND_ACTIVITY_VIEW)).toBe(true);
     expect(registrationState.views.has(HAVEMIND_ONBOARDING_VIEW)).toBe(true);
-    expect(registrationState.editorExtensions).toHaveLength(1);
-    expect(registrationState.markdownPostProcessors).toHaveLength(1);
+    // Audit #3 finding 10: the shell used to register an EMPTY editor extension
+    // and a no-op markdown post-processor as placeholders for the author overlay
+    // (specs/001-mvp.md), which is not part of the shipped feature set. Dead
+    // hooks are removed, so onload must register NEITHER and still come up with
+    // the full passive shell below.
+    expect(registrationState.editorExtensions).toHaveLength(0);
+    expect(registrationState.markdownPostProcessors).toHaveLength(0);
     expect(registrationState.protocolHandlers.has('havemind-join')).toBe(true);
     expect(registrationState.commands.map(({ id }) => id)).toEqual([
       'open-activity',
