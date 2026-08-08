@@ -1,7 +1,7 @@
 {
   "id": "havemind-sync",
   "name": "Havemind",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "minAppVersion": "1.11.4",
   "description": "Real-time, self-hosted sync for a shared vault — one brain for your team and their AIs, full authorship and zero silent overwrites.",
   "author": "Mikolaj Pawel Sapek",

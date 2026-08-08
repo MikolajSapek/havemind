@@ -1208,7 +1208,7 @@ describe('plugin lifecycle', () => {
     expect(removed).toEqual(['m-magda']);
   });
 
-  it('removes registered resources and detached views during unload', async () => {
+  it('removes registered resources but leaves the workspace layout untouched during unload', async () => {
     const app = new App();
     const plugin = new HavemindPlugin(app, manifest);
     await plugin.onload();
@@ -1217,10 +1217,10 @@ describe('plugin lifecycle', () => {
     const status = registrationState.statusItems[0];
     plugin.unload();
 
-    expect(app.workspace.detachedTypes).toEqual([
-      HAVEMIND_ACTIVITY_VIEW,
-      HAVEMIND_ONBOARDING_VIEW,
-    ]);
+    // Obsidian's plugin guidelines say never to detach your own leaves in
+    // onunload — the workspace owns view lifecycle, and detaching here wiped
+    // the user's layout on every plugin update.
+    expect(app.workspace.detachedTypes).toEqual([]);
     expect(ribbon?.removed).toBe(true);
     expect(status?.removed).toBe(true);
     expect(registrationState.settingsTabs).toHaveLength(0);

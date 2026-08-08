@@ -1700,8 +1700,6 @@ export default class HavemindPlugin extends Plugin {
     this.syncState = null;
     this.activityLogUnsubscribe?.();
     this.activityLogUnsubscribe = null;
-    this.app.workspace.detachLeavesOfType(HAVEMIND_ACTIVITY_VIEW);
-    this.app.workspace.detachLeavesOfType(HAVEMIND_ONBOARDING_VIEW);
   }
 
   private openConnectView(): Promise<void> {
