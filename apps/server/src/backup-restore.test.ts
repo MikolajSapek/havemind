@@ -1,5 +1,5 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readdir, readFile, truncate, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -462,6 +462,59 @@ describe('backup retention', () => {
     return backupDir;
   }
 
+  /** Reads an artifact's manifest as raw JSON so a test can age or tamper it. */
+  async function readManifestJson(
+    backupDir: string,
+  ): Promise<Record<string, unknown>> {
+    return JSON.parse(
+      await readFile(join(backupDir, 'manifest.json'), 'utf8'),
+    ) as Record<string, unknown>;
+  }
+
+  async function writeManifestJson(
+    backupDir: string,
+    manifest: Record<string, unknown>,
+  ): Promise<void> {
+    await writeFile(
+      join(backupDir, 'manifest.json'),
+      `${JSON.stringify(manifest, null, 2)}\n`,
+    );
+  }
+
+  /**
+   * Rewrites the artifact's database snapshot so it keeps a valid SQLite header
+   * and the EXACT byte length the manifest recorded, while every page after the
+   * header is garbage. The old structural check — "the file exists and is
+   * non-empty" — passes on this file; `PRAGMA integrity_check` does not.
+   */
+  async function corruptDatabaseAfterHeader(backupDir: string): Promise<void> {
+    const path = join(backupDir, DB_FILENAME);
+    const bytes = await readFile(path);
+    expect(bytes.byteLength).toBeGreaterThan(100);
+    const corrupted = Buffer.from(bytes);
+    corrupted.fill(0xff, 100);
+    await writeFile(path, corrupted);
+    expect((await readFile(path)).byteLength).toBe(bytes.byteLength);
+  }
+
+  /**
+   * Same size, valid header AND valid page 1 — only interior pages are garbage.
+   * This is the variant where `PRAGMA integrity_check` returns a non-`ok`
+   * report instead of throwing, so it pins the "result is not exactly ok" arm.
+   */
+  async function corruptDatabaseInteriorPages(
+    backupDir: string,
+  ): Promise<void> {
+    const path = join(backupDir, DB_FILENAME);
+    const bytes = await readFile(path);
+    const declared = bytes.readUInt16BE(16);
+    const pageSize = declared === 1 ? 65_536 : declared;
+    expect(bytes.byteLength).toBeGreaterThan(pageSize * 4);
+    const corrupted = Buffer.from(bytes);
+    corrupted.fill(0x5a, pageSize * 2, pageSize * 4);
+    await writeFile(path, corrupted);
+  }
+
   it('lists artifacts newest first and ignores dot-prefixed temp dirs', async () => {
     const seed = await seedInstance();
     const root = join(makeDataDir(), 'backups');
@@ -510,6 +563,99 @@ describe('backup retention', () => {
 
     await expect(verifyBackupStructure(backupDir)).rejects.toMatchObject({
       code: 'MANIFEST_MISMATCH',
+    });
+  });
+
+  it('fails verification for a corrupt-but-non-empty database snapshot', async () => {
+    // Regression test (audit #3, finding 3): verification used to be satisfied
+    // by "the snapshot file exists and is non-empty". A snapshot whose pages
+    // are garbage is neither empty nor restorable, and passing it let retention
+    // delete older GOOD artifacts. The file below keeps a valid SQLite header
+    // and the exact byte length the manifest recorded, so ONLY an
+    // integrity_check can tell it apart from a good snapshot.
+    const seed = await seedInstance();
+    const root = join(makeDataDir(), 'backups');
+    const backupDir = await writeBackup(
+      seed,
+      root,
+      'one',
+      '2026-08-01T03:00:00.000Z',
+    );
+    await corruptDatabaseAfterHeader(backupDir);
+
+    await expect(verifyBackupStructure(backupDir)).rejects.toMatchObject({
+      code: 'INTEGRITY_CHECK_FAILED',
+    });
+  });
+
+  it('fails verification when integrity_check reports corrupt interior pages', async () => {
+    const seed = await seedInstance();
+    const root = join(makeDataDir(), 'backups');
+    const backupDir = await writeBackup(
+      seed,
+      root,
+      'one',
+      '2026-08-01T03:00:00.000Z',
+    );
+    await corruptDatabaseInteriorPages(backupDir);
+
+    await expect(verifyBackupStructure(backupDir)).rejects.toMatchObject({
+      code: 'INTEGRITY_CHECK_FAILED',
+    });
+  });
+
+  it('leaves the artifact directory unchanged after a successful verification', async () => {
+    // The integrity check opens the snapshot read-only; SQLite would otherwise
+    // leave -wal/-shm sidecars behind inside a published artifact.
+    const seed = await seedInstance();
+    const root = join(makeDataDir(), 'backups');
+    const backupDir = await writeBackup(
+      seed,
+      root,
+      'one',
+      '2026-08-01T03:00:00.000Z',
+    );
+    const before = (await readdir(backupDir)).sort();
+
+    await verifyBackupStructure(backupDir);
+
+    expect((await readdir(backupDir)).sort()).toEqual(before);
+    expect(before).toEqual(['blobs', DB_FILENAME, 'manifest.json'].sort());
+  });
+
+  it('fails verification when the snapshot size disagrees with the manifest', async () => {
+    const seed = await seedInstance();
+    const root = join(makeDataDir(), 'backups');
+    const backupDir = await writeBackup(
+      seed,
+      root,
+      'one',
+      '2026-08-01T03:00:00.000Z',
+    );
+    const path = join(backupDir, DB_FILENAME);
+    const full = (await readFile(path)).byteLength;
+    await truncate(path, full - 512);
+
+    await expect(verifyBackupStructure(backupDir)).rejects.toMatchObject({
+      code: 'VERIFY_FAILED',
+    });
+  });
+
+  it('skips the size check for an older artifact whose manifest omits it', async () => {
+    const seed = await seedInstance();
+    const root = join(makeDataDir(), 'backups');
+    const backupDir = await writeBackup(
+      seed,
+      root,
+      'one',
+      '2026-08-01T03:00:00.000Z',
+    );
+    const manifest = await readManifestJson(backupDir);
+    manifest.database = { filename: DB_FILENAME };
+    await writeManifestJson(backupDir, manifest);
+
+    await expect(verifyBackupStructure(backupDir)).resolves.toMatchObject({
+      instanceId: seed.instanceId,
     });
   });
 
@@ -564,6 +710,82 @@ describe('backup retention', () => {
       pruneBackups({ backupsRoot: root, keep: 1 }),
     ).rejects.toMatchObject({ code: 'MANIFEST_MISMATCH' });
     expect((await listBackups(root)).map((entry) => entry.backupId)).toEqual([
+      'b',
+      'a',
+    ]);
+  });
+
+  it('removes nothing when the newest retained artifact has a corrupt database', async () => {
+    // Audit #3, finding 3: the corrupt snapshot is non-empty and the manifest's
+    // blobs are all byte-exact, so the old gate waved it through and the last
+    // GOOD artifact ('a') was deleted. Retention must refuse instead.
+    const seed = await seedInstance();
+    const root = join(makeDataDir(), 'backups');
+    await writeBackup(seed, root, 'a', '2026-08-01T03:00:00.000Z');
+    const newest = await writeBackup(
+      seed,
+      root,
+      'b',
+      '2026-08-02T03:00:00.000Z',
+    );
+    await corruptDatabaseAfterHeader(newest);
+
+    await expect(
+      pruneBackups({ backupsRoot: root, keep: 1 }),
+    ).rejects.toMatchObject({ code: 'INTEGRITY_CHECK_FAILED' });
+    expect((await listBackups(root)).map((entry) => entry.backupId)).toEqual([
+      'b',
+      'a',
+    ]);
+  });
+
+  it('removes nothing when an older RETAINED artifact fails verification', async () => {
+    // keep: 2 over three artifacts means the retained set is [c, b]. 'b' is
+    // corrupt, so deleting 'a' would shrink the good set to one. Deleting only
+    // ever happens from a fully verified retained set.
+    const seed = await seedInstance();
+    const root = join(makeDataDir(), 'backups');
+    await writeBackup(seed, root, 'a', '2026-08-01T03:00:00.000Z');
+    const middle = await writeBackup(
+      seed,
+      root,
+      'b',
+      '2026-08-02T03:00:00.000Z',
+    );
+    await writeBackup(seed, root, 'c', '2026-08-03T03:00:00.000Z');
+    await corruptDatabaseAfterHeader(middle);
+
+    await expect(
+      pruneBackups({ backupsRoot: root, keep: 2 }),
+    ).rejects.toMatchObject({ code: 'INTEGRITY_CHECK_FAILED' });
+    expect((await listBackups(root)).map((entry) => entry.backupId)).toEqual([
+      'c',
+      'b',
+      'a',
+    ]);
+  });
+
+  it('removes nothing when a retained artifact has a tampered blob', async () => {
+    const seed = await seedInstance();
+    const root = join(makeDataDir(), 'backups');
+    await writeBackup(seed, root, 'a', '2026-08-01T03:00:00.000Z');
+    const middle = await writeBackup(
+      seed,
+      root,
+      'b',
+      '2026-08-02T03:00:00.000Z',
+    );
+    await writeBackup(seed, root, 'c', '2026-08-03T03:00:00.000Z');
+    await writeFile(
+      join(middle, 'blobs', seed.blobHash.slice(0, 2), seed.blobHash),
+      'corrupted-bytes',
+    );
+
+    await expect(
+      pruneBackups({ backupsRoot: root, keep: 2 }),
+    ).rejects.toMatchObject({ code: 'MANIFEST_MISMATCH' });
+    expect((await listBackups(root)).map((entry) => entry.backupId)).toEqual([
+      'c',
       'b',
       'a',
     ]);

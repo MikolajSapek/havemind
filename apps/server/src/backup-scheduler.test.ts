@@ -8,11 +8,16 @@ import type Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
+  assertValidBackupId,
   runScheduledBackup,
   startBackupScheduler,
   type BackupTimer,
 } from './backup-scheduler.js';
-import { listBackups, verifyBackupStructure } from './backup-restore.js';
+import {
+  listBackups,
+  RestoreError,
+  verifyBackupStructure,
+} from './backup-restore.js';
 import {
   DEFAULT_BACKUP_INTERVAL_HOURS,
   DEFAULT_BACKUP_KEEP,
@@ -125,7 +130,94 @@ afterEach(() => {
   }
 });
 
+/** Runs `execute` and returns whatever it threw (or null when it did not). */
+function captureError(execute: () => void): unknown {
+  try {
+    execute();
+    return null;
+  } catch (error) {
+    return error;
+  }
+}
+
+/**
+ * Every id below either escapes `backupsRoot` outright or is reserved:
+ * dot-prefixed names are how a crashed publication stages its temp directory,
+ * so `listBackups` ignores them and an artifact named that way would be
+ * invisible to both retention and restore.
+ */
+const REJECTED_BACKUP_IDS: readonly string[] = [
+  '../evil',
+  '..',
+  '.',
+  'a/b',
+  'a\\b',
+  '/tmp/x',
+  '',
+  '.hidden',
+  'a'.repeat(129),
+  'has space',
+];
+
+describe('assertValidBackupId', () => {
+  it('accepts a timestamp-shaped id', () => {
+    expect(captureError(() => {
+      assertValidBackupId('2026-08-08T10-00-00');
+    })).toBeNull();
+    expect(captureError(() => {
+      assertValidBackupId('backup-0001');
+    })).toBeNull();
+    expect(captureError(() => {
+      assertValidBackupId('2026-08-07T03-00-00-000Z-ab12cd34');
+    })).toBeNull();
+  });
+
+  it('rejects traversal, separators, reserved and over-long ids', () => {
+    for (const id of REJECTED_BACKUP_IDS) {
+      expect(
+        captureError(() => {
+          assertValidBackupId(id);
+        }),
+        `expected ${JSON.stringify(id)} to be rejected`,
+      ).toMatchObject({ code: 'BACKUP_ID_INVALID' });
+    }
+  });
+
+  it('reports a secret-free RestoreError', () => {
+    const error = captureError(() => {
+      assertValidBackupId('../evil');
+    });
+    expect(error).toBeInstanceOf(RestoreError);
+    expect((error as RestoreError).message).not.toContain('\n');
+  });
+});
+
 describe('runScheduledBackup', () => {
+  it('refuses a traversal id even when the caller skipped validation', async () => {
+    // Audit #3, finding 4: `join(backupsRoot, backupId)` resolves '../escaped'
+    // OUTSIDE the backups root, so an unvalidated id wrote an artifact anywhere
+    // the server could reach. The scheduler validates itself — defence in depth
+    // for any future caller that forgets.
+    const seed = await seedInstance();
+    const parent = makeDir();
+    const backupsRoot = join(parent, 'backups');
+
+    await expect(
+      runScheduledBackup({
+        backupsRoot,
+        backupId: () => '../escaped',
+        database: seed.database,
+        dataDir: seed.dataDir,
+        keep: 7,
+        now: () => new Date(START_TIME),
+      }),
+    ).rejects.toMatchObject({ code: 'BACKUP_ID_INVALID' });
+
+    // Nothing was created: not the escaped directory, not even the root.
+    expect(await readdir(parent)).toEqual([]);
+  });
+
+
   it('publishes one verifiable artifact and leaves no temp directory behind', async () => {
     const seed = await seedInstance();
     const backupsRoot = join(makeDir(), 'backups');

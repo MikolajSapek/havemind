@@ -1,5 +1,5 @@
 import { mkdtempSync, rmSync } from 'node:fs';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -131,6 +131,52 @@ describe('havemind backup', () => {
 
     const listed = await listBackups(backupsRoot);
     expect(listed.map((entry) => entry.backupId)).toEqual(['backup-0003']);
+  });
+
+  it('rejects an --id that is not a single safe path segment', async () => {
+    // Audit #3, finding 4: `--id` was passed through unvalidated and the
+    // scheduler resolves `join(backupsRoot, id)`, so '../escaped' wrote the
+    // artifact OUTSIDE the backups root. Dot-prefixed ids are reserved for
+    // staging directories, so they are refused too.
+    const seed = await seedInstance();
+    const parent = makeDir();
+    const backupsRoot = join(parent, 'backups');
+
+    for (const id of [
+      '../escaped',
+      '..',
+      '.',
+      'a/b',
+      'a\\b',
+      '/tmp/x',
+      '',
+      '.hidden',
+    ]) {
+      const result = await runBackupCli(['--to', backupsRoot, '--id', id], {
+        env: { HAVEMIND_DATA_DIR: seed.dataDir },
+      });
+      expect(result.exitCode, `id ${JSON.stringify(id)}`).toBe(1);
+      expect(result.stderr).toContain('--id');
+      expect(result.stdout).toBe('');
+    }
+
+    // Rejected at the boundary: no artifact, no backups root, no escape.
+    expect(await readdir(parent)).toEqual([]);
+  });
+
+  it('accepts a timestamp-shaped --id', async () => {
+    const seed = await seedInstance();
+    const backupsRoot = join(makeDir(), 'backups');
+
+    const result = await runBackupCli(
+      ['--to', backupsRoot, '--id', '2026-08-08T10-00-00'],
+      { env: { HAVEMIND_DATA_DIR: seed.dataDir } },
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect((await listBackups(backupsRoot)).map((entry) => entry.backupId)).toEqual([
+      '2026-08-08T10-00-00',
+    ]);
   });
 
   it('fails without HAVEMIND_DATA_DIR', async () => {

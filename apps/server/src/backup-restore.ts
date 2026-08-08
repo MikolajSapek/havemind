@@ -11,7 +11,7 @@ import {
 import { join } from 'node:path';
 
 import { hashBlob } from '@havemind/protocol';
-import type Database from 'better-sqlite3';
+import Database from 'better-sqlite3';
 
 import { DB_FILENAME, openDatabase } from './db.js';
 
@@ -19,9 +19,30 @@ const BLOBS_DIRNAME = 'blobs';
 const MANIFEST_FILENAME = 'manifest.json';
 const MANIFEST_SCHEMA_VERSION = 1 as const;
 
+/**
+ * Files SQLite creates beside a WAL-mode database when it opens one. A published
+ * artifact holds none of them (`Database.backup` writes a single consolidated
+ * file), so verification deletes any it caused to appear.
+ */
+const SQLITE_SIDE_FILE_SUFFIXES = ['-wal', '-shm'] as const;
+
+/** Keeps an integrity_check report short and single-line for logs. */
+const MAX_INTEGRITY_REPORT_CHARS = 200;
+
 export interface BlobManifestEntry {
   readonly hash: string;
   readonly size: number;
+}
+
+export interface DatabaseManifestEntry {
+  readonly filename: string;
+  /**
+   * Byte length of the snapshot at creation time. Optional on READ only: an
+   * artifact written before the field was verified has no size to compare
+   * against, and refusing it would turn an old-but-good backup into a failure.
+   * `createBackup` always records it.
+   */
+  readonly sizeBytes?: number;
 }
 
 export interface BackupManifest {
@@ -30,7 +51,7 @@ export interface BackupManifest {
   readonly sourceServerEpoch: string;
   readonly sourceRestoreEpoch: number;
   readonly createdAt: string;
-  readonly database: { readonly filename: string; readonly sizeBytes: number };
+  readonly database: DatabaseManifestEntry;
   readonly blobs: readonly BlobManifestEntry[];
 }
 
@@ -41,6 +62,7 @@ export interface InstanceEpoch {
 }
 
 export type RestoreErrorCode =
+  | 'BACKUP_ID_INVALID'
   | 'INSTANCE_STATE_MISSING'
   | 'INTEGRITY_CHECK_FAILED'
   | 'MANIFEST_INVALID'
@@ -265,6 +287,19 @@ async function readManifest(backupDir: string): Promise<BackupManifest> {
   return parsed;
 }
 
+function isDatabaseManifestEntry(
+  value: unknown,
+): value is DatabaseManifestEntry {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.filename === 'string' &&
+    (record.sizeBytes === undefined || typeof record.sizeBytes === 'number')
+  );
+}
+
 function isManifest(value: unknown): value is BackupManifest {
   if (typeof value !== 'object' || value === null) {
     return false;
@@ -272,6 +307,7 @@ function isManifest(value: unknown): value is BackupManifest {
   const record = value as Record<string, unknown>;
   return (
     record.schemaVersion === MANIFEST_SCHEMA_VERSION &&
+    isDatabaseManifestEntry(record.database) &&
     typeof record.instanceId === 'string' &&
     typeof record.sourceServerEpoch === 'string' &&
     typeof record.sourceRestoreEpoch === 'number' &&
@@ -443,21 +479,109 @@ export async function listBackups(
   return listings;
 }
 
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch (error) {
+    if (isNodeError(error) && error.code === 'ENOENT') {
+      return false;
+    }
+    throw error;
+  }
+}
+
+/** Collapses a multi-line integrity_check report into one short log line. */
+function summarizeIntegrityReport(report: string): string {
+  const collapsed = report.replace(/\s+/gu, ' ').trim();
+  return collapsed.length > MAX_INTEGRITY_REPORT_CHARS
+    ? `${collapsed.slice(0, MAX_INTEGRITY_REPORT_CHARS)} [truncated]`
+    : collapsed;
+}
+
+function readIntegrityReport(databasePath: string): string {
+  const database = new Database(databasePath, {
+    fileMustExist: true,
+    readonly: true,
+  });
+  try {
+    const value = database.pragma('integrity_check', { simple: true });
+    return typeof value === 'string' ? value : String(value);
+  } finally {
+    database.close();
+  }
+}
+
+/**
+ * Opens the artifact's snapshot READ-ONLY and requires `PRAGMA integrity_check`
+ * to answer exactly `ok`. A snapshot whose pages are garbage is neither empty
+ * nor restorable, so "the file exists and is non-empty" is not evidence of a
+ * usable backup — this is the check that makes retention's "verify before
+ * forget" mean something.
+ *
+ * SQLite refuses to answer at all for some corruptions (it throws
+ * SQLITE_CORRUPT/SQLITE_NOTADB instead); both arms are the same verification
+ * failure and no raw driver error escapes. Reading a WAL-mode database makes
+ * SQLite create -wal/-shm files beside it, so any side file this check caused is
+ * removed again — a verified artifact stays byte-identical to the published one.
+ */
+async function verifyDatabaseIntegrity(databasePath: string): Promise<void> {
+  const preexisting = new Set<string>();
+  for (const suffix of SQLITE_SIDE_FILE_SUFFIXES) {
+    if (await pathExists(`${databasePath}${suffix}`)) {
+      preexisting.add(suffix);
+    }
+  }
+
+  let report: string;
+  try {
+    report = readIntegrityReport(databasePath);
+  } catch (error) {
+    throw new RestoreError(
+      'INTEGRITY_CHECK_FAILED',
+      'The backup database snapshot could not be read for integrity_check.',
+      { cause: error } as ErrorOptions,
+    );
+  } finally {
+    for (const suffix of SQLITE_SIDE_FILE_SUFFIXES) {
+      if (preexisting.has(suffix)) {
+        continue;
+      }
+      try {
+        await rm(`${databasePath}${suffix}`, { force: true });
+      } catch {
+        // A stray side file is harmless; never fail a verification over it.
+      }
+    }
+  }
+
+  if (report !== 'ok') {
+    throw new RestoreError(
+      'INTEGRITY_CHECK_FAILED',
+      `The backup database snapshot failed integrity_check: ${summarizeIntegrityReport(
+        report,
+      )}.`,
+    );
+  }
+}
+
 /**
  * Verifies one artifact WITHOUT restoring it: the manifest parses, the database
- * snapshot exists and is non-empty, and every manifest blob is present and
- * byte-exact. This is the "verify before forget" gate retention runs against the
- * newest retained artifact, and the same check the restore drill runs on what it
- * pulled back from the off-box repository.
+ * snapshot exists, is non-empty, matches the size the manifest recorded and
+ * passes `PRAGMA integrity_check`, and every manifest blob is present and
+ * byte-exact. This is the "verify before forget" gate retention runs against
+ * every artifact it is about to retain, and the same check the restore drill
+ * runs on what it pulled back from the off-box repository.
  */
 export async function verifyBackupStructure(
   backupDir: string,
 ): Promise<BackupManifest> {
   const manifest = await readManifest(backupDir);
+  const databasePath = join(backupDir, DB_FILENAME);
 
   let databaseStat;
   try {
-    databaseStat = await stat(join(backupDir, DB_FILENAME));
+    databaseStat = await stat(databasePath);
   } catch (error) {
     if (isNodeError(error) && error.code === 'ENOENT') {
       throw new RestoreError(
@@ -474,6 +598,17 @@ export async function verifyBackupStructure(
     );
   }
 
+  const declaredSize = manifest.database.sizeBytes;
+  if (declaredSize !== undefined && declaredSize !== databaseStat.size) {
+    throw new RestoreError(
+      'VERIFY_FAILED',
+      `The backup database snapshot is ${String(
+        databaseStat.size,
+      )} bytes; the manifest declares ${String(declaredSize)}.`,
+    );
+  }
+
+  await verifyDatabaseIntegrity(databasePath);
   await verifyManifestBlobs(backupDir, manifest);
   return manifest;
 }
@@ -491,10 +626,15 @@ export interface PruneBackupsResult {
 
 /**
  * Keeps the `keep` newest artifacts and removes the rest — but NEVER deletes
- * anything unless the newest retained artifact first passes
- * `verifyBackupStructure` (plan/01 rule 9: no "forget" without a prior
- * successful "verify"). If verification fails the error propagates and nothing
- * is removed, so a corrupt latest backup can never eat the last good one.
+ * anything unless EVERY artifact it is about to retain first passes
+ * `verifyBackupStructure`, integrity_check included (plan/01 rule 9: no "forget"
+ * without a prior successful "verify"). If any retained artifact fails, the
+ * error propagates and nothing is removed, so deleting only ever happens from a
+ * fully verified retained set: neither a corrupt newest backup nor a corrupt
+ * older-but-retained one can eat the last good artifact.
+ *
+ * Cost: one integrity_check plus one blob re-hash per retained artifact per
+ * cycle. That is the price of never trading a good backup for a bad one.
  */
 export async function pruneBackups(
   options: PruneBackupsOptions,
@@ -513,11 +653,12 @@ export async function pruneBackups(
   const kept = all.slice(0, options.keep);
   const removed = all.slice(options.keep);
 
-  const newest = kept[0];
-  if (newest === undefined) {
+  if (kept.length === 0) {
     throw new RestoreError('VERIFY_FAILED', 'No backup artifact to verify.');
   }
-  await verifyBackupStructure(newest.backupDir);
+  for (const listing of kept) {
+    await verifyBackupStructure(listing.backupDir);
+  }
 
   for (const listing of removed) {
     await rm(listing.backupDir, { force: true, recursive: true });

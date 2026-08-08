@@ -9,7 +9,7 @@ import {
   RestoreError,
   verifyBackupStructure,
 } from './backup-restore.js';
-import { runScheduledBackup } from './backup-scheduler.js';
+import { isValidBackupId, runScheduledBackup } from './backup-scheduler.js';
 import { DB_FILENAME, openDatabase } from './db.js';
 import type { CliResult } from './setup/cli.js';
 
@@ -43,10 +43,12 @@ const USAGE = [
   '  backup [--to <dir>] [--keep <n>]     Write one artifact into <dir> (default:',
   '    [--id <name>]                      HAVEMIND_BACKUP_DIR) and apply keep-N',
   '                                       retention (default 7). Needs',
-  '                                       HAVEMIND_DATA_DIR.',
+  '                                       HAVEMIND_DATA_DIR. --id must be one',
+  '                                       path segment of [A-Za-z0-9._-].',
   '  backup verify --from <artifactDir>   Verify an artifact without restoring it:',
-  '                                       manifest, database snapshot and every',
-  '                                       blob byte-for-byte.',
+  '                                       manifest, snapshot size, SQLite',
+  '                                       integrity_check and every blob',
+  '                                       byte-for-byte.',
   '  backup restore --from <artifactDir>  Restore into an EMPTY target directory,',
   '    --to <targetDir>                   run integrity_check, then rotate the',
   '                                       instance epoch so stale-cursor clients',
@@ -80,6 +82,11 @@ function parseFlags(args: readonly string[]): ParsedFlags {
 
 function fail(message: string): CliResult {
   return { exitCode: 1, stderr: `${message}\n`, stdout: '' };
+}
+
+/** `sizeBytes` is optional on read: artifacts predate the recorded size. */
+function describeSizeBytes(sizeBytes: number | undefined): string {
+  return sizeBytes === undefined ? 'unknown' : `${String(sizeBytes)} bytes`;
 }
 
 function describeError(error: unknown): string {
@@ -118,6 +125,13 @@ async function runCreate(
     keep = parsedKeep;
   }
   const explicitId = parsed.flags.get('id');
+  if (explicitId !== undefined && !isValidBackupId(explicitId)) {
+    // An artifact id becomes a directory name under the backups root, so an id
+    // holding a separator or a `..` component would write outside it.
+    return fail(
+      'backup: --id must be a single path segment of 1-128 characters from [A-Za-z0-9._-], starting with a letter or digit.',
+    );
+  }
   const backupId =
     explicitId === undefined
       ? dependencies.backupId
@@ -138,7 +152,7 @@ async function runCreate(
       `  Artifact id:   ${result.backupId}`,
       `  Location:      ${result.backupDir}`,
       `  Blobs:         ${String(result.manifest.blobs.length)}`,
-      `  Database size: ${String(result.manifest.database.sizeBytes)} bytes`,
+      `  Database size: ${describeSizeBytes(result.manifest.database.sizeBytes)}`,
       `  Instance id:   ${result.manifest.instanceId}`,
       `  Retention:     kept ${String(result.keptCount)}, removed ${String(
         result.removedCount,
@@ -165,6 +179,9 @@ async function runVerify(parsed: ParsedFlags): Promise<CliResult> {
       `  Location:      ${from}`,
       `  Created at:    ${manifest.createdAt}`,
       `  Instance id:   ${manifest.instanceId}`,
+      `  Database:      ${describeSizeBytes(
+        manifest.database.sizeBytes,
+      )}, integrity_check ok`,
       `  Blobs:         ${String(manifest.blobs.length)} (all byte-exact)`,
       '',
     ].join('\n');

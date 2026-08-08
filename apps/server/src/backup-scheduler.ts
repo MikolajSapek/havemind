@@ -7,6 +7,7 @@ import type Database from 'better-sqlite3';
 import {
   createBackup,
   pruneBackups,
+  RestoreError,
   type BackupManifest,
 } from './backup-restore.js';
 
@@ -43,6 +44,42 @@ export interface ScheduledBackupResult {
   readonly removedCount: number;
 }
 
+/**
+ * An artifact id is exactly ONE safe path segment: 1-128 characters from
+ * `[A-Za-z0-9._-]`, first character a letter or digit.
+ *
+ * The leading-character rule is not cosmetic. `listBackups` ignores
+ * dot-prefixed directories because that is how a crashed publication names its
+ * staging directory, so an artifact called `.hidden` would be invisible to both
+ * retention and restore. The character class is what keeps `join(backupsRoot,
+ * backupId)` inside `backupsRoot`.
+ */
+const BACKUP_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
+
+/** True when `backupId` is a single safe path segment. */
+export function isValidBackupId(backupId: string): boolean {
+  return (
+    BACKUP_ID_PATTERN.test(backupId) &&
+    backupId !== '.' &&
+    backupId !== '..' &&
+    !backupId.includes('/') &&
+    !backupId.includes('\\')
+  );
+}
+
+/**
+ * Throws unless `backupId` is a single safe path segment. The message never
+ * echoes the rejected id: it goes to logs, and an id arrives from outside.
+ */
+export function assertValidBackupId(backupId: string): void {
+  if (!isValidBackupId(backupId)) {
+    throw new RestoreError(
+      'BACKUP_ID_INVALID',
+      'A backup id must be a single path segment of 1-128 characters from [A-Za-z0-9._-], starting with a letter or digit.',
+    );
+  }
+}
+
 function defaultBackupId(now: () => Date): string {
   // Lexicographically sortable, filesystem-safe, collision-free.
   return `${now().toISOString().replace(/[:.]/gu, '-')}-${randomUUID().slice(0, 8)}`;
@@ -56,12 +93,18 @@ function defaultBackupId(now: () => Date): string {
  * directory that *looks* like a complete artifact — `listBackups` ignores
  * dot-prefixed directories, so an interrupted run is invisible to both retention
  * and restore.
+ *
+ * The id is validated here even though every current caller validates it at its
+ * own boundary: `join(backupsRoot, backupId)` resolves `../x` OUTSIDE the
+ * backups root, so this is the one place that must not depend on a caller
+ * remembering.
  */
 export async function runScheduledBackup(
   options: ScheduledBackupOptions,
 ): Promise<ScheduledBackupResult> {
   const now = options.now ?? ((): Date => new Date());
   const backupId = options.backupId?.() ?? defaultBackupId(now);
+  assertValidBackupId(backupId);
 
   await mkdir(options.backupsRoot, { mode: 0o700, recursive: true });
   const backupDir = join(options.backupsRoot, backupId);
