@@ -90,3 +90,30 @@ to the owner's Mac (user crontab: backup 03:20 daily, prune 04:40 Sundays), and
 `restore-drill.sh` returned **PASS** (283 blobs byte-exact, 513 revisions,
 `integrity_check: ok`, artifact `2026-08-08T12-04-22-006Z-8a239483`). The 1.0
 release gate is satisfied.
+
+## Keychain entries accumulate: SecretStorage has no delete
+
+Obsidian's `SecretStorage` API (minimum app version 1.11.4, see
+`apps/obsidian-plugin/manifest.json`) exposes exactly three operations:
+`setSecret(id, secret)`, `getSecret(id)` and `listSecrets()`. There is no
+delete or remove operation (`apps/obsidian-plugin/src/obsidian.d.ts`).
+
+Havemind therefore retires a credential entry by **blanking** it rather than
+removing it: `apps/obsidian-plugin/src/storage/secret-store.ts` writes `''`
+over the superseded id on refresh-token rotation and on disconnect, and the
+read path treats an empty value as absent. Every rotation mints a fresh id of
+the form `havemind-<client_instance_id>-refresh-<randomUUID>`, checked for
+collisions against `listSecrets()` before use.
+
+The consequence: the number of Havemind ids in the OS keychain grows by one per
+rotation and never shrinks over the lifetime of a device pairing. The retired
+entries hold an empty string — no credential material remains in them — and
+their ids are unique, so a stale entry can never be mistaken for the active
+one. They do, however, remain visible to `listSecrets()` and in the operating
+system's keychain UI.
+
+**Recommendation:** none for the pilot — the accumulated entries are empty and
+harmless. Should the count become inconvenient, the entries can be deleted
+manually in the OS keychain; Havemind reads only the ids recorded in its own
+reference state, so removing a blanked entry has no effect on an active
+connection.
