@@ -795,11 +795,14 @@ function resolveStatus(counts: {
   conflicts: number;
   deferred: number;
 }): SyncCycleStatus {
-  if (counts.deferred > 0) {
-    return 'deferred';
-  }
+  // A conflict outranks a deferral: a conflict copy is on disk and needs the
+  // user, while a deferral wrote nothing and clears itself on a later cycle. If
+  // the deferral won, a real conflict would stay hidden behind it.
   if (counts.conflicts > 0) {
     return 'conflict';
+  }
+  if (counts.deferred > 0) {
+    return 'deferred';
   }
   return 'synced';
 }

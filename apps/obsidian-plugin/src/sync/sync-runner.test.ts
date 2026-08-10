@@ -756,6 +756,33 @@ describe('SyncRunner remote apply', () => {
     expect(state.cursor).toBe(0);
   });
 
+  it('reports conflict, not deferred, when a cycle produces both', async () => {
+    // A conflict copy was written to disk, so the status must surface it — a
+    // deferred apply (nothing written, retried next cycle) must never hide it.
+    const vault = new FakeVault();
+    vault.buffers.set('file-a', [{ baseHash: 'base', currentHash: 'local-edit' }]);
+    vault.buffers.set('file-b', [{ baseHash: null, currentHash: 'local-edit' }]);
+    const { runner } = makeRunner({
+      vault,
+      transport: {
+        push: vi.fn(async () => []),
+        pull: vi.fn(async () => ({
+          cursor: 2,
+          events: [
+            event(1, 'file-a', 'remote-hash'),
+            event(2, 'file-b', 'other-hash'),
+          ],
+        })),
+      },
+    });
+
+    const result = await runner.trigger();
+
+    expect(result.conflicts).toBe(1);
+    expect(result.deferred).toBe(1);
+    expect(result.status).toBe('conflict');
+  });
+
   it('applies when a divergent buffer already equals the incoming remote content', async () => {
     const vault = new FakeVault();
     vault.buffers.set('file-a', [

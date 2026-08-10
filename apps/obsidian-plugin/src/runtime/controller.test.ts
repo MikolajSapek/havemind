@@ -6,7 +6,7 @@ import {
   type WakeSubscriptionLike,
 } from './controller';
 import type { SchedulerHooks } from './scheduler';
-import type { StatusBarView } from './status';
+import type { ConnectionStatus, StatusBarView } from './status';
 import type { SyncCycleResult } from '../sync/sync-runner';
 
 const CLEAN: SyncCycleResult = {
@@ -77,22 +77,27 @@ function build(overrides?: {
   runner: FakeRunner;
   hooks: FakeHooks;
   statuses: StatusBarView[];
+  reported: ConnectionStatus[];
 } {
   const runner = new FakeRunner();
   const hooks = new FakeHooks();
   const statuses: StatusBarView[] = [];
+  const reported: ConnectionStatus[] = [];
   const controller = new HavemindSyncController({
     runner,
     hooks,
     intervalMs: overrides?.intervalMs ?? 60_000,
-    onStatus: (_status, view) => statuses.push(view),
+    onStatus: (status, view) => {
+      reported.push(status);
+      statuses.push(view);
+    },
     now: () => 1_000,
     ...(overrides?.wake === undefined ? {} : { wake: overrides.wake }),
     ...(overrides?.pushConnectedIntervalMs === undefined
       ? {}
       : { pushConnectedIntervalMs: overrides.pushConnectedIntervalMs }),
   });
-  return { controller, runner, hooks, statuses };
+  return { controller, runner, hooks, statuses, reported };
 }
 
 describe('HavemindSyncController', () => {
@@ -100,7 +105,7 @@ describe('HavemindSyncController', () => {
     const { controller, statuses } = build();
     await controller.syncNow();
     expect(statuses.map((view) => view.text)).toEqual([
-      'Havemind: syncing',
+      'Havemind: Syncing',
       'Havemind: Synced',
     ]);
   });
@@ -179,10 +184,25 @@ const OFFLINE: SyncCycleResult = { ...CLEAN, status: 'offline' };
 
   it('does not latch Offline on a single transient failure — shows a retrying state', () => {
     const { controller, statuses } = build();
-    // One blip: the status must be a brief retrying state, never "Offline".
+    // One blip: the status must say it is retrying, never "Offline" — and never
+    // "Syncing" either, because no progress is being made during the outage.
     controller.observeCycle(OFFLINE);
-    expect(statuses.at(-1)?.text).toBe('Havemind: syncing');
+    expect(statuses.at(-1)?.text).toBe('Havemind: Retrying…');
     expect(statuses.at(-1)?.text).not.toBe('Havemind: Offline');
+    expect(statuses.at(-1)?.text).not.toBe('Havemind: Syncing');
+  });
+
+  it('reports the retrying status, not syncing, for every failure below the threshold', () => {
+    const { controller, reported } = build();
+    controller.observeCycle(OFFLINE);
+    controller.observeCycle(OFFLINE);
+    expect(reported).toEqual(['retrying', 'retrying']);
+  });
+
+  it('maps a deferred cycle onto the waiting status, never Conflict', () => {
+    const { controller, reported } = build();
+    controller.observeCycle({ ...CLEAN, status: 'deferred', deferred: 1 });
+    expect(reported.at(-1)).toBe('deferred');
   });
 
   it('recovers to Synced on the next successful cycle after a failure', () => {
@@ -208,7 +228,7 @@ const OFFLINE: SyncCycleResult = { ...CLEAN, status: 'offline' };
     const { controller, statuses } = build();
     controller.observeCycle(OFFLINE);
     controller.observeCycle(OFFLINE);
-    expect(statuses.at(-1)?.text).toBe('Havemind: syncing');
+    expect(statuses.at(-1)?.text).toBe('Havemind: Retrying…');
     controller.observeCycle(OFFLINE);
     expect(statuses.at(-1)?.text).toBe('Havemind: Offline');
   });

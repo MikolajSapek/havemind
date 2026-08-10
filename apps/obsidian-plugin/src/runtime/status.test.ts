@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   buildConnectionPanel,
@@ -13,7 +13,9 @@ describe('connectionStatusFromCycle', () => {
     ['synced', 'synced'],
     ['offline', 'offline'],
     ['conflict', 'conflict'],
-    ['deferred', 'conflict'],
+    // A deferred apply is NOT a conflict: nothing was written, no conflict copy
+    // exists, so it must never point the user at the Conflicts folder.
+    ['deferred', 'deferred'],
     ['unauthenticated', 'reconnect-required'],
   ])('maps cycle %s to connection %s', (cycle, expected) => {
     expect(connectionStatusFromCycle(cycle)).toBe(expected);
@@ -58,27 +60,82 @@ describe('buildConnectionPanel', () => {
     for (const status of [
       'disconnected',
       'syncing',
+      'retrying',
       'synced',
       'offline',
       'conflict',
+      'deferred',
       'reconnect-required',
+      'reset-required',
     ] as const) {
       const panel = buildConnectionPanel({ status });
       expect(panel.icon.length).toBeGreaterThan(0);
       expect(panel.label.length).toBeGreaterThan(0);
     }
   });
+
+  it('warns while retrying instead of claiming progress, and keeps the reason', () => {
+    // A failed cycle awaiting its retry is not progress: it gets the warning
+    // colour and the offline-style reason, never the accent "Syncing…" look.
+    const panel = buildConnectionPanel({
+      status: 'retrying',
+      errorMessage: 'The server did not answer.',
+    });
+    expect(panel.icon).toBe('refresh-cw');
+    expect(panel.colorToken).toBe('--text-warning');
+    expect(panel.spin).toBe(true);
+    expect(panel.showForm).toBe(false);
+    expect(panel.detail).toContain('The server did not answer.');
+    expect(buildConnectionPanel({ status: 'retrying', reducedMotion: true }).spin).toBe(
+      false,
+    );
+  });
+
+  it('explains a deferred apply as waiting, never as a conflict', () => {
+    const panel = buildConnectionPanel({ status: 'deferred' });
+    expect(panel.icon).toBe('clock');
+    expect(panel.colorToken).toBe('--text-muted');
+    expect(panel.spin).toBe(false);
+    expect(panel.showForm).toBe(false);
+    expect(panel.detail).toContain(
+      'A change waits for an open note to settle before applying.',
+    );
+    // No conflict copy exists, so the panel must not send the user looking.
+    expect(panel.detail).not.toContain('Havemind Conflicts');
+    expect(panel.label).not.toContain('Conflict');
+  });
 });
 
 describe('formatStatusBar', () => {
   it('renders each connection status with a stable label', () => {
     expect(formatStatusBar({ status: 'disconnected' }).text).toBe(
-      'Havemind: disconnected',
+      'Havemind: Disconnected',
     );
-    expect(formatStatusBar({ status: 'syncing' }).text).toBe('Havemind: syncing');
+    expect(formatStatusBar({ status: 'syncing' }).text).toBe('Havemind: Syncing');
+    expect(formatStatusBar({ status: 'retrying' }).text).toBe('Havemind: Retrying…');
     expect(formatStatusBar({ status: 'synced' }).text).toBe('Havemind: Synced');
     expect(formatStatusBar({ status: 'offline' }).text).toBe('Havemind: Offline');
     expect(formatStatusBar({ status: 'conflict' }).text).toBe('Havemind: Conflict');
+    expect(formatStatusBar({ status: 'deferred' }).text).toBe(
+      'Havemind: Waiting to apply',
+    );
+  });
+
+  it('starts every label with a capital — one sentence-case convention', () => {
+    for (const status of [
+      'disconnected',
+      'syncing',
+      'retrying',
+      'synced',
+      'offline',
+      'conflict',
+      'deferred',
+      'reconnect-required',
+      'reset-required',
+    ] as const) {
+      const label = formatStatusBar({ status }).text.replace('Havemind: ', '');
+      expect(label.charAt(0)).toBe(label.charAt(0).toUpperCase());
+    }
   });
 
   it('reports the last sync time in the tooltip when known', () => {
@@ -99,5 +156,59 @@ describe('formatStatusBar', () => {
     expect(formatStatusBar({ status: 'synced' }).tooltip.toLowerCase()).toContain(
       'no end-to-end encryption',
     );
+  });
+});
+
+describe('default timestamp format', () => {
+  // Fixtures are built from local-time components so the expectations hold in
+  // any timezone the suite runs in.
+  const NOW = new Date(2026, 6, 16, 18, 30);
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('shows only the clock time for a sync earlier the same day', () => {
+    const at = new Date(2026, 6, 16, 9, 5).getTime();
+    expect(formatStatusBar({ status: 'synced', lastSyncedAt: at }).tooltip).toContain(
+      'Last sync: 09:05.',
+    );
+  });
+
+  it('adds the day and month for a sync on an earlier day', () => {
+    const at = new Date(2026, 6, 4, 21, 7).getTime();
+    expect(formatStatusBar({ status: 'synced', lastSyncedAt: at }).tooltip).toContain(
+      'Last sync: 4 Jul, 21:07.',
+    );
+  });
+
+  it('never shows a raw ISO timestamp', () => {
+    const at = new Date(2026, 6, 16, 9, 5).getTime();
+    expect(
+      formatStatusBar({ status: 'synced', lastSyncedAt: at }).tooltip,
+    ).not.toMatch(/\d{4}-\d{2}-\d{2}T/);
+  });
+
+  it('uses the same human format in the Connect panel', () => {
+    const at = new Date(2026, 6, 16, 9, 5).getTime();
+    const panel = buildConnectionPanel({ status: 'synced', lastSyncedAt: at });
+    expect(panel.detail).toContain('Last sync: 09:05');
+    expect(panel.detail).not.toMatch(/\d{4}-\d{2}-\d{2}T/);
+  });
+
+  it('still honours an injected formatter', () => {
+    const at = new Date(2026, 6, 16, 9, 5).getTime();
+    expect(
+      formatStatusBar({
+        status: 'synced',
+        lastSyncedAt: at,
+        formatTimestamp: () => 'moments ago',
+      }).tooltip,
+    ).toContain('moments ago');
   });
 });

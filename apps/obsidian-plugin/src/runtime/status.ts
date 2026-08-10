@@ -11,9 +11,23 @@ import type { SyncCycleStatus } from '../sync/sync-runner';
 export type ConnectionStatus =
   | 'disconnected'
   | 'syncing'
+  /**
+   * A cycle failed and the next attempt is pending, but not enough consecutive
+   * failures have accumulated to call the connection lost. Distinct from
+   * `syncing`: nothing is progressing, so the indicator must not imply it does.
+   * Distinct from `offline`, which is the sustained-failure verdict.
+   */
+  | 'retrying'
   | 'synced'
   | 'offline'
   | 'conflict'
+  /**
+   * A remote change is held back because the target note is open with unsaved
+   * divergent edits. Nothing was written and no conflict copy exists — the apply
+   * simply retries once the buffer settles, so this must never be reported as a
+   * conflict.
+   */
+  | 'deferred'
   | 'reconnect-required'
   /**
    * The persisted connection state is broken — a half-written record, or a
@@ -25,12 +39,16 @@ export type ConnectionStatus =
    */
   | 'reset-required';
 
+// Sentence case throughout — one convention, so the status bar never mixes
+// lowercase and capitalised labels between states.
 const LABELS: Readonly<Record<ConnectionStatus, string>> = {
-  disconnected: 'disconnected',
-  syncing: 'syncing',
+  disconnected: 'Disconnected',
+  syncing: 'Syncing',
+  retrying: 'Retrying…',
   synced: 'Synced',
   offline: 'Offline',
   conflict: 'Conflict',
+  deferred: 'Waiting to apply',
   'reconnect-required': 'Reconnect required',
   'reset-required': 'Reset required',
 };
@@ -45,6 +63,14 @@ export const RESET_REQUIRED_DETAIL =
 
 const NO_E2EE_NOTE = 'Private Tailscale network only — no end-to-end encryption.';
 
+/**
+ * What the user sees while a remote change is held back. It says what is
+ * happening and that it resolves itself — no conflict copy was written, so it
+ * must never send the user to the Conflicts folder.
+ */
+export const DEFERRED_DETAIL =
+  'A change waits for an open note to settle before applying.';
+
 /** Maps a completed sync cycle status onto a status-bar connection status. */
 export function connectionStatusFromCycle(
   status: SyncCycleStatus,
@@ -55,8 +81,11 @@ export function connectionStatusFromCycle(
     case 'offline':
       return 'offline';
     case 'conflict':
-    case 'deferred':
       return 'conflict';
+    // A deferred apply wrote nothing and produced no conflict copy, so it gets
+    // its own waiting state rather than the conflict warning.
+    case 'deferred':
+      return 'deferred';
     case 'unauthenticated':
       return 'reconnect-required';
   }
@@ -83,8 +112,44 @@ export function formatStatusBar(input: StatusBarInput): StatusBarView {
   return { text, tooltip: `${text} — ${lastSync} ${NO_E2EE_NOTE}` };
 }
 
-function defaultFormatTimestamp(timestamp: number): string {
-  return new Date(timestamp).toISOString();
+/**
+ * English month abbreviations packed three characters each, indexed by
+ * `Date#getMonth()` times three. A fixed table rather than `Intl`: the label is
+ * then identical on every machine (ICU renders September as "Sept" under en-GB)
+ * and needs no locale data.
+ */
+const MONTH_ABBREVIATIONS = 'JanFebMarAprMayJunJulAugSepOctNovDec';
+
+function twoDigits(value: number): string {
+  return value < 10 ? `0${value}` : String(value);
+}
+
+/**
+ * Renders a sync time the way a person reads a clock: `HH:MM` when it happened
+ * today, `D MMM, HH:MM` otherwise. Local time, 24-hour, no dependencies. A raw
+ * ISO string is precise but unreadable at a glance, and its date half is noise
+ * in the common case — a sync minutes ago.
+ *
+ * `now` is a parameter so the same-day test is deterministic; callers use the
+ * `formatTimestamp` injection point on the inputs instead.
+ */
+function defaultFormatTimestamp(
+  timestamp: number,
+  now: number = Date.now(),
+): string {
+  const at = new Date(timestamp);
+  const today = new Date(now);
+  const clock = `${twoDigits(at.getHours())}:${twoDigits(at.getMinutes())}`;
+  const sameDay =
+    at.getFullYear() === today.getFullYear() &&
+    at.getMonth() === today.getMonth() &&
+    at.getDate() === today.getDate();
+  if (sameDay) {
+    return clock;
+  }
+  const monthStart = at.getMonth() * 3;
+  const month = MONTH_ABBREVIATIONS.slice(monthStart, monthStart + 3);
+  return `${at.getDate()} ${month}, ${clock}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -144,6 +209,15 @@ const PANEL_STYLES: Readonly<Record<ConnectionStatus, PanelStyle>> = {
     spin: true,
     showForm: false,
   },
+  // A pending retry is not progress: it keeps the warning colour and its own
+  // glyph so it is never mistaken for the accent-coloured Syncing state.
+  retrying: {
+    icon: 'refresh-cw',
+    label: 'Retrying…',
+    colorToken: '--text-warning',
+    spin: true,
+    showForm: false,
+  },
   synced: {
     icon: 'check-circle',
     label: 'Connected — synced',
@@ -162,6 +236,15 @@ const PANEL_STYLES: Readonly<Record<ConnectionStatus, PanelStyle>> = {
     icon: 'alert-triangle',
     label: 'Conflict — see Havemind Conflicts',
     colorToken: '--text-warning',
+    spin: false,
+    showForm: false,
+  },
+  // Nothing is wrong and nothing needs doing, so this is muted rather than a
+  // warning — and it never mentions the Conflicts folder, which stays empty.
+  deferred: {
+    icon: 'clock',
+    label: 'Waiting to apply',
+    colorToken: '--text-muted',
     spin: false,
     showForm: false,
   },
@@ -195,8 +278,17 @@ export function buildConnectionPanel(
   if (input.status === 'synced' && input.lastSyncedAt !== undefined) {
     parts.push(`Last sync: ${format(input.lastSyncedAt)}`);
   }
-  if (input.status === 'reconnect-required' || input.status === 'offline') {
+  if (
+    input.status === 'reconnect-required' ||
+    input.status === 'offline' ||
+    // A pending retry states its reason too, so the panel explains what went
+    // wrong before the failures add up to Offline.
+    input.status === 'retrying'
+  ) {
     parts.push(input.errorMessage ?? 'The server refused the session.');
+  }
+  if (input.status === 'deferred') {
+    parts.push(DEFERRED_DETAIL);
   }
   // A damaged local record is never the server's fault, so it gets its own
   // explanation rather than the session-refused line.
