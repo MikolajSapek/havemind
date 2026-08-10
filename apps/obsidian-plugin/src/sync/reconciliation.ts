@@ -26,6 +26,20 @@ export interface ReconcileVaultStateOptions {
   vault: VaultSnapshotPort;
 }
 
+/**
+ * Upper bound on how many per-file skip reasons a single reconcile reports. The
+ * `skipped` COUNT stays exact; only the named detail list is capped, so a vault
+ * with thousands of failing files can neither balloon this result nor flood the
+ * console. Ten is enough to diagnose a pattern by hand.
+ */
+const MAX_SKIPPED_DETAILS = 10;
+
+/** One per-file reconcile failure: which file, and why it was skipped. */
+export interface SkippedFileDetail {
+  path: string;
+  reason: string;
+}
+
 export interface ReconcileResult {
   /**
    * Count of vault files whose type the pilot never syncs — anything that is
@@ -53,6 +67,14 @@ export interface ReconcileResult {
    * single note can never abort the whole scan.
    */
   skipped: number;
+  /**
+   * The first {@link MAX_SKIPPED_DETAILS} skipped files, each with the reason its
+   * observation failed. A bare count is undiagnosable — neither the user nor a
+   * maintainer reading the console could tell which file was dropped or why — so
+   * every failure records its path and message. Bounded on purpose: the count
+   * above stays exact, but this list never grows with the vault.
+   */
+  skippedPaths: readonly SkippedFileDetail[];
   unchanged: number;
   updated: number;
 }
@@ -81,6 +103,19 @@ export function formatReconcileNotices(result: ReconcileResult): string[] {
     );
   }
   return notices;
+}
+
+/**
+ * Writes one console line per skipped file behind the count-only Notice, so the
+ * failure is diagnosable after the fact. Deliberately NOT a Notice: a 40-file
+ * toast storm is worse than no toast at all, whereas the console is where the
+ * rest of this plugin already reports per-item failures. Inherently bounded —
+ * {@link ReconcileResult.skippedPaths} is capped at {@link MAX_SKIPPED_DETAILS}.
+ */
+export function warnSkippedPaths(result: ReconcileResult): void {
+  for (const { path, reason } of result.skippedPaths) {
+    console.warn(`Havemind: skipped ${path}: ${reason}`);
+  }
 }
 
 interface EligibleVaultFile {
@@ -155,6 +190,12 @@ export async function reconcileVaultState(
   let updated = 0;
   let skipped = 0;
   let binaryExcluded = 0;
+  const skippedPaths: SkippedFileDetail[] = [];
+  const recordSkip = (detail: SkippedFileDetail): void => {
+    // Bounded on purpose: past the cap the count carries the scale and the
+    // detail list stays a fixed-size diagnostic sample (see MAX_SKIPPED_DETAILS).
+    if (skippedPaths.length < MAX_SKIPPED_DETAILS) skippedPaths.push(detail);
+  };
   const unmatchedVault: EligibleVaultFile[] = [];
 
   for (const [collisionKey, { readPath, kind }] of eligible) {
@@ -176,7 +217,9 @@ export async function reconcileVaultState(
     mappingsByCollision.delete(collisionKey);
     if (mapping.content === content) {
       unchanged += 1;
-    } else if (await observeResilient(() => observer.observeModify(readPath))) {
+    } else if (
+      await observeResilient(readPath, recordSkip, () => observer.observeModify(readPath))
+    ) {
       updated += 1;
     } else {
       skipped += 1;
@@ -189,7 +232,12 @@ export async function reconcileVaultState(
     deleted,
     renamed,
     skipped: tailSkipped,
-  } = await applyRenamesCreatesDeletes(observer, unmatchedVault, unmatchedMappings);
+  } = await applyRenamesCreatesDeletes(
+    observer,
+    unmatchedVault,
+    unmatchedMappings,
+    recordSkip,
+  );
 
   return {
     attachmentsExcluded,
@@ -200,6 +248,7 @@ export async function reconcileVaultState(
     ignored,
     renamed,
     skipped: skipped + tailSkipped,
+    skippedPaths,
     unchanged,
     updated,
   };
@@ -211,21 +260,41 @@ export async function reconcileVaultState(
  * if it was skipped for a per-file reason (an oversized payload or an envelope
  * build error). A structural vault collision stays fatal — it is a data-integrity
  * problem the user must resolve, matching the enumeration-phase collision guard.
+ *
+ * Every skip reports `path` and the failure's message through `onSkip`: dropping
+ * the error here left the count as the only evidence, which named no file and
+ * told nobody why it failed.
  */
-async function observeResilient(task: () => Promise<unknown>): Promise<boolean> {
+async function observeResilient(
+  path: string,
+  onSkip: (detail: SkippedFileDetail) => void,
+  task: () => Promise<unknown>,
+): Promise<boolean> {
   try {
     await task();
     return true;
   } catch (error) {
     if (error instanceof LocalVaultError) throw error;
+    onSkip({ path, reason: describeSkipReason(error) });
     return false;
   }
+}
+
+/**
+ * The one-line reason for a per-file skip. A thrown non-`Error` (or an `Error`
+ * with an empty message) still has to say something, hence the explicit fallback
+ * rather than an empty half-sentence in the log.
+ */
+function describeSkipReason(error: unknown): string {
+  if (error instanceof Error && error.message !== '') return error.message;
+  return 'unknown error';
 }
 
 async function applyRenamesCreatesDeletes(
   observer: VaultChangeObserver,
   unmatchedVault: readonly EligibleVaultFile[],
   unmatchedMappings: readonly LocalFileMapping[],
+  onSkip: (detail: SkippedFileDetail) => void,
 ): Promise<{ created: number; deleted: number; renamed: number; skipped: number }> {
   const vaultByContent = groupBy(unmatchedVault, (file) => file.content);
   const mappingsByContent = groupBy(unmatchedMappings, (m) => m.content);
@@ -244,7 +313,12 @@ async function applyRenamesCreatesDeletes(
       // as a create+delete (which would fail identically for an oversized note).
       consumedVault.add(file);
       consumedMappings.add(mapping);
-      if (await observeResilient(() => observer.observeRename(mapping.path, file.readPath))) {
+      // Report the CURRENT on-disk path: that is the one the user can find.
+      if (
+        await observeResilient(file.readPath, onSkip, () =>
+          observer.observeRename(mapping.path, file.readPath),
+        )
+      ) {
         renamed += 1;
       } else {
         skipped += 1;
@@ -255,7 +329,11 @@ async function applyRenamesCreatesDeletes(
   let created = 0;
   for (const file of unmatchedVault) {
     if (consumedVault.has(file)) continue;
-    if (await observeResilient(() => observer.observeCreate(file.readPath))) {
+    if (
+      await observeResilient(file.readPath, onSkip, () =>
+        observer.observeCreate(file.readPath),
+      )
+    ) {
       created += 1;
     } else {
       skipped += 1;
@@ -265,7 +343,11 @@ async function applyRenamesCreatesDeletes(
   let deleted = 0;
   for (const mapping of unmatchedMappings) {
     if (consumedMappings.has(mapping)) continue;
-    if (await observeResilient(() => observer.observeDelete(mapping.path))) {
+    if (
+      await observeResilient(mapping.path, onSkip, () =>
+        observer.observeDelete(mapping.path),
+      )
+    ) {
       deleted += 1;
     } else {
       skipped += 1;

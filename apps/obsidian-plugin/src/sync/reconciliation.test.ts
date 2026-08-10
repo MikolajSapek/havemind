@@ -1,10 +1,11 @@
 import { canonicalizeMarkdown } from '@havemind/protocol';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { RevisionPayloadTooLargeError } from '@havemind/sync-core';
 
 import {
   bytesToBase64,
+  LocalVaultError,
   MAX_BINARY_FILE_BYTES,
   pathExtension,
   SYNCABLE_BINARY_EXTENSIONS,
@@ -17,6 +18,7 @@ import {
 import {
   formatReconcileNotices,
   reconcileVaultState,
+  warnSkippedPaths,
   type ReconcileResult,
 } from './reconciliation';
 
@@ -97,6 +99,33 @@ class ThrowingRepository extends ReconciliationRepository {
       throw new RevisionPayloadTooLargeError(commit.operation.path, 999, 100);
     }
     return super.commitLocalChange(commit);
+  }
+}
+
+/** Fails EVERY commit with a per-file (skippable) reason. */
+class AlwaysTooLargeRepository extends ReconciliationRepository {
+  override async commitLocalChange(
+    commit: LocalChangeCommit,
+  ): Promise<string | null> {
+    throw new RevisionPayloadTooLargeError(commit.operation.path, 999, 100);
+  }
+}
+
+/** Fails every commit with a STRUCTURAL vault error, which must stay fatal. */
+class StructuralFailureRepository extends ReconciliationRepository {
+  override async commitLocalChange(): Promise<string | null> {
+    throw new LocalVaultError(
+      'path-collision',
+      'Two live vault files map to the same collision key.',
+    );
+  }
+}
+
+/** Fails every commit with a thrown value that carries no readable message. */
+class MessagelessFailureRepository extends ReconciliationRepository {
+  override async commitLocalChange(): Promise<string | null> {
+    const failure: unknown = 'no message property here';
+    throw failure;
   }
 }
 
@@ -204,6 +233,69 @@ describe('startup reconciliation', () => {
       .map((entry) => entry.operation.path)
       .sort();
     expect(createdPaths).toEqual(['Notes/Good1.md', 'Notes/Good2.md']);
+  });
+
+  it('names each skipped file and why it failed, not just how many failed', async () => {
+    // The count alone is undiagnosable: neither the user nor a maintainer reading
+    // the console can tell WHICH file was dropped or WHY. Every per-file failure
+    // must therefore carry its path and the underlying reason.
+    const vault = new ReconciliationVault();
+    vault.contents.set('Notes/Good.md', 'good one');
+    vault.contents.set('Notes/Oversized.md', 'OVERSIZED');
+    const repository = new ThrowingRepository('OVERSIZED');
+    const observer = createObserver(vault, repository);
+
+    const result = await reconcileVaultState({ observer, repository, vault });
+
+    expect(result.skipped).toBe(1);
+    expect(result.skippedPaths).toHaveLength(1);
+    expect(result.skippedPaths[0]?.path).toBe('Notes/Oversized.md');
+    expect(result.skippedPaths[0]?.reason).toContain('too large to sync');
+  });
+
+  it('caps the named skip list at ten entries while keeping the count exact', async () => {
+    // A 10k-file vault could skip thousands of files; the detail list must not
+    // grow with the vault. The exact count still tells the user the true scale.
+    const vault = new ReconciliationVault();
+    for (let index = 0; index < 12; index += 1) {
+      vault.contents.set(`Notes/Bad${index}.md`, `content ${index}`);
+    }
+    const repository = new AlwaysTooLargeRepository();
+    const observer = createObserver(vault, repository);
+
+    const result = await reconcileVaultState({ observer, repository, vault });
+
+    expect(result.completed).toBe(true);
+    expect(result.skipped).toBe(12);
+    expect(result.skippedPaths).toHaveLength(10);
+  });
+
+  it('reports "unknown error" when a per-file failure carries no message', async () => {
+    const vault = new ReconciliationVault();
+    vault.contents.set('Notes/Broken.md', 'broken');
+    const repository = new MessagelessFailureRepository();
+    const observer = createObserver(vault, repository);
+
+    const result = await reconcileVaultState({ observer, repository, vault });
+
+    expect(result.skipped).toBe(1);
+    expect(result.skippedPaths[0]).toEqual({
+      path: 'Notes/Broken.md',
+      reason: 'unknown error',
+    });
+  });
+
+  it('keeps a structural vault error fatal instead of recording it as a skip', async () => {
+    // A collision is a data-integrity problem the user must resolve — naming
+    // skipped files must not soften it into a per-file skip.
+    const vault = new ReconciliationVault();
+    vault.contents.set('Notes/A.md', 'a');
+    const repository = new StructuralFailureRepository();
+    const observer = createObserver(vault, repository);
+
+    await expect(
+      reconcileVaultState({ observer, repository, vault }),
+    ).rejects.toMatchObject({ code: 'path-collision' });
   });
 
   it('counts non-syncable attachments as excluded without reading or enqueuing them', async () => {
@@ -367,6 +459,55 @@ describe('formatReconcileNotices', () => {
   it('returns no notices when nothing was excluded', () => {
     expect(formatReconcileNotices(baseResult())).toEqual([]);
   });
+
+  it('leaves the skip counters alone — a skip is not an exclusion', () => {
+    expect(
+      formatReconcileNotices(
+        baseResult({
+          skipped: 2,
+          skippedPaths: [{ path: 'Notes/Bad.md', reason: 'too large' }],
+        }),
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe('warnSkippedPaths', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('warns once per skipped file, naming the path and the reason', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    warnSkippedPaths(
+      baseResult({
+        skipped: 2,
+        skippedPaths: [
+          { path: 'Notes/Oversized.md', reason: 'too large to sync' },
+          { path: 'Notes/Broken.md', reason: 'unknown error' },
+        ],
+      }),
+    );
+
+    expect(warn).toHaveBeenCalledTimes(2);
+    expect(warn).toHaveBeenNthCalledWith(
+      1,
+      'Havemind: skipped Notes/Oversized.md: too large to sync',
+    );
+    expect(warn).toHaveBeenNthCalledWith(
+      2,
+      'Havemind: skipped Notes/Broken.md: unknown error',
+    );
+  });
+
+  it('stays silent when nothing was skipped', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    warnSkippedPaths(baseResult());
+
+    expect(warn).not.toHaveBeenCalled();
+  });
 });
 
 function baseResult(overrides: Partial<ReconcileResult> = {}): ReconcileResult {
@@ -379,6 +520,7 @@ function baseResult(overrides: Partial<ReconcileResult> = {}): ReconcileResult {
     ignored: 0,
     renamed: 0,
     skipped: 0,
+    skippedPaths: [],
     unchanged: 0,
     updated: 0,
     ...overrides,

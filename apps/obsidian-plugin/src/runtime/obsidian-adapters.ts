@@ -40,7 +40,11 @@ import {
   type LocalFileMapping,
   type VaultSnapshotPort,
 } from '../obsidian/vault-adapter';
-import { formatReconcileNotices, reconcileVaultState } from '../sync/reconciliation';
+import {
+  formatReconcileNotices,
+  reconcileVaultState,
+  warnSkippedPaths,
+} from '../sync/reconciliation';
 import {
   CONFIG_DIR,
   listSyncableConfigPaths,
@@ -2059,6 +2063,10 @@ function startPushProducer(
           new Notice(
             `Havemind: ${result.skipped} file(s) could not be synced and were skipped.`,
           );
+          // The Notice carries the count only — a per-file toast storm would be
+          // worse than no toast — so the console gets the names and reasons a
+          // count alone can never supply (bounded by the reconcile detail cap).
+          warnSkippedPaths(result);
         }
         // A remaining exclusion (an unsupported file type, or an allowlisted
         // binary over the size cap, F9) must never be silent: surface each
