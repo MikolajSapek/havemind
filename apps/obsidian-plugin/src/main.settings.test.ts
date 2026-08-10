@@ -36,6 +36,22 @@ describe('HavemindSettingTab refresh affordance (FINDING 4)', () => {
     resetObsidianMock();
   });
 
+  it('holds a typed reference to its own plugin instead of casting', async () => {
+    const app = new App();
+    const plugin = new HavemindPlugin(app, manifest);
+    await plugin.onload();
+
+    const tab = registrationState.settingsTabs[0];
+    if (tab === undefined) throw new Error('settings tab was not registered');
+
+    // `PluginSettingTab.plugin` is typed as the base Plugin, so the tab keeps
+    // its own narrowed field — that is what removes the double cast the display
+    // body used to need on every read.
+    expect(
+      (tab as unknown as { havemind: HavemindPlugin }).havemind,
+    ).toBe(plugin);
+  });
+
   it('re-renders the live connection status on demand while the tab is open', async () => {
     const app = new App();
     const plugin = new HavemindPlugin(app, manifest);

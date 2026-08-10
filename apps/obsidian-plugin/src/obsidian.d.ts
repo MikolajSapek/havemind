@@ -156,7 +156,17 @@ declare module 'obsidian' {
   }
 
   export interface Command {
-    callback: () => unknown;
+    /**
+     * Unconditional action. Optional because a command that guards its own
+     * availability supplies `checkCallback` instead — Obsidian accepts either.
+     */
+    callback?: () => unknown;
+    /**
+     * Availability-aware action. Obsidian calls it with `true` to ask whether
+     * the command applies right now (a `false` answer greys it out in the
+     * palette and blocks its hotkey), and with `false` to run it.
+     */
+    checkCallback?: (checking: boolean) => boolean;
     id: string;
     name: string;
   }

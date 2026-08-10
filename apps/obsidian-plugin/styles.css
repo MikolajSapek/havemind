@@ -187,6 +187,26 @@
   stroke-width: 1.75;
 }
 
+/*
+ * Keyboard focus. Every control here is created by the plugin, so nothing else
+ * draws a focus ring for it — a keyboard user would otherwise have no idea where
+ * they are. One shared accent ring keeps the panel, the modal and the status bar
+ * item consistent. `:focus-visible` only, so a mouse click never leaves a ring
+ * behind. Selectors stay inside the plugin's own class prefixes — no global
+ * Obsidian element is ever restyled. Rows are not listed because a row is not
+ * itself focusable: each one delegates to the buttons it contains, which are.
+ */
+.havemind-view button:focus-visible,
+.havemind-view a:focus-visible,
+.havemind-view input:focus-visible,
+.havemind-view textarea:focus-visible,
+.havemind-view select:focus-visible,
+.havemind-status-bar:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-s);
+}
+
 /* =========================================================================
    4. Connection status indicator
    One line: glyph (or dot) + word. Semantic colour is set inline from

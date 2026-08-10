@@ -106,6 +106,14 @@ function prefersReducedMotion(): boolean {
   );
 }
 
+/**
+ * Attributes for a glyph that carries no information of its own. Every Havemind
+ * icon and colour dot sits beside its own word (the panel convention: never
+ * colour alone), so assistive technology must skip the glyph rather than
+ * announce an unnamed image next to the label that already says it.
+ */
+const DECORATIVE = { 'aria-hidden': 'true' } as const;
+
 /** Compact local time for an activity row (e.g. "16 Jul, 15:42"). */
 function formatActivityTime(timestamp: number): string {
   const date = new Date(timestamp);
@@ -122,7 +130,9 @@ function formatActivityTime(timestamp: number): string {
 function renderViewTitle(content: HTMLElement, text: string): void {
   const heading = content.createEl('h3', { text });
   heading.addClass('havemind-view-title');
-  const icon = heading.createEl('span');
+  // Pure decoration: the heading already carries the title text, so a screen
+  // reader must not announce the glyph as a second, unnamed thing.
+  const icon = heading.createEl('span', { attr: DECORATIVE });
   icon.addClass('havemind-title-icon');
   setIcon(icon, 'hexagon');
 }
@@ -229,7 +239,7 @@ function renderRejoinRoster(
     item.addClass('havemind-roster-row');
     // Colour dot coloured by the member's stable token — paired with the text
     // status label below so colour is never the only signal.
-    const dot = item.createEl('span');
+    const dot = item.createEl('span', { attr: DECORATIVE });
     dot.addClass('havemind-roster-dot');
     if (!row.connected) dot.addClass('is-disconnected');
     // The owner's own row uses the theme accent; other members keep their stable
@@ -349,7 +359,7 @@ export function renderConflictSection(
 
   const header = content.createDiv({ text: '' });
   header.addClass('havemind-conflict-header');
-  const icon = header.createEl('span');
+  const icon = header.createEl('span', { attr: DECORATIVE });
   icon.addClass('havemind-conflict-icon');
   setIcon(icon, 'git-merge');
   header.createEl('span', { text: ' Conflicts' });
@@ -944,7 +954,7 @@ export class HavemindOnboardingView extends ItemView {
       row.addClass('havemind-status-dot');
     }
     row.style.setProperty('color', `var(${panel.colorToken})`);
-    const icon = row.createEl('span');
+    const icon = row.createEl('span', { attr: DECORATIVE });
     setIcon(icon, panel.icon);
     row.createEl('span', { text: ` ${panel.label}` });
     const detail = content.createDiv({ text: panel.detail });
@@ -1037,7 +1047,7 @@ export class HavemindOnboardingView extends ItemView {
       },
     });
     toggle.addClass('havemind-help-toggle');
-    setIcon(toggle.createEl('span'), 'life-buoy');
+    setIcon(toggle.createEl('span', { attr: DECORATIVE }), 'life-buoy');
     toggle.onClickEvent(() => {
       this.helpOpen = !this.helpOpen;
       this.render();
@@ -1095,7 +1105,7 @@ export class HavemindOnboardingView extends ItemView {
     const row = content.createDiv({ text: '' });
     row.addClass('havemind-status');
     row.style.setProperty('color', 'var(--text-accent)');
-    setIcon(row.createEl('span'), 'loader');
+    setIcon(row.createEl('span', { attr: DECORATIVE }), 'loader');
     row.createEl('span', { text: ' Waiting for the other device to approve…' });
     content
       .createDiv({ text: 'Read this 6-digit code to the vault owner.' })
@@ -1121,7 +1131,7 @@ export class HavemindOnboardingView extends ItemView {
     const row = content.createDiv({ text: '' });
     row.addClass('havemind-status');
     row.style.setProperty('color', 'var(--text-error)');
-    setIcon(row.createEl('span'), 'alert-triangle');
+    setIcon(row.createEl('span', { attr: DECORATIVE }), 'alert-triangle');
     row.createEl('span', { text: ' This invitation is no longer valid' });
     content
       .createDiv({
@@ -1309,7 +1319,7 @@ export class HavemindOnboardingView extends ItemView {
     const row = content.createDiv({ text: '' });
     row.addClass('havemind-status');
     row.style.setProperty('color', 'var(--text-success)');
-    setIcon(row.createEl('span'), 'check-circle');
+    setIcon(row.createEl('span', { attr: DECORATIVE }), 'check-circle');
     row.createEl('span', { text: ` ${notice}` });
   }
 
@@ -1322,7 +1332,7 @@ export class HavemindOnboardingView extends ItemView {
     const row = content.createDiv({ text: '' });
     row.addClass('havemind-pending-row');
     row.style.setProperty('color', 'var(--text-accent)');
-    setIcon(row.createEl('span'), 'user-round-check');
+    setIcon(row.createEl('span', { attr: DECORATIVE }), 'user-round-check');
     row.createEl('span', {
       text: ` ${entry.intendedMemberDisplayName ?? 'Pending device'} · expires ${entry.expiresAt}`,
     });
@@ -1358,13 +1368,25 @@ export class HavemindOnboardingView extends ItemView {
 }
 
 class HavemindSettingTab extends PluginSettingTab {
+  /**
+   * This tab's own plugin, typed. `PluginSettingTab.plugin` is declared as the
+   * base `Plugin`, so keeping a narrowed field is what lets `display()` read the
+   * Havemind surface directly instead of casting through `unknown` every time.
+   */
+  private readonly havemind: HavemindPlugin;
+
+  constructor(app: App, plugin: HavemindPlugin) {
+    super(app, plugin);
+    this.havemind = plugin;
+  }
+
   override display(): void {
     this.containerEl.empty();
 
     // MINOR 9: replace the stale "onboarding coming next slice" stub with the
     // live connection status plus a single action to open the pane, where the
     // real connect/onboarding surface already lives.
-    const plugin = this.plugin as unknown as HavemindPlugin;
+    const plugin = this.havemind;
     new Setting(this.containerEl).setName('Havemind').setHeading();
     new Setting(this.containerEl)
       .setName('Connection')
@@ -1647,6 +1669,39 @@ export default class HavemindPlugin extends Plugin {
       name: 'Create connection (owner)',
       callback: () => this.openCreateConnectionView(),
     });
+    // The three connection actions the panel exposes as buttons also belong in
+    // the palette, so they can be run — and bound to a hotkey — without hunting
+    // for the pane. `checkCallback` reports availability: syncing and
+    // disconnecting are meaningless with nothing connected, so they grey out
+    // rather than fail on invocation.
+    this.addCommand({
+      id: 'sync-now',
+      name: 'Sync now',
+      checkCallback: (checking) => {
+        if (checking) return this.connection !== null;
+        void this.syncNow();
+        return true;
+      },
+    });
+    this.addCommand({
+      id: 'disconnect',
+      name: 'Disconnect',
+      checkCallback: (checking) => {
+        if (checking) return this.connection !== null;
+        this.disconnect();
+        return true;
+      },
+    });
+    // Reset carries no availability guard on purpose: it exists for the state in
+    // which the stored pairing is damaged, and that state is not always
+    // detectable up front — a user who needs it must always be able to reach it.
+    this.addCommand({
+      id: 'reset-connection',
+      name: 'Reset connection',
+      callback: () => {
+        void this.resetConnection();
+      },
+    });
 
     this.addRibbonIcon('hexagon', 'Open Havemind activity', () => {
       void this.openActivityView();
@@ -1659,6 +1714,20 @@ export default class HavemindPlugin extends Plugin {
     // the one place the button and full status detail render. The click listener
     // sits on the element itself, so subsequent setStatus text updates keep it.
     this.statusItem.onClickEvent(() => {
+      void this.openView(HAVEMIND_ONBOARDING_VIEW);
+    });
+    // The item is a real control, so it must say so and be reachable without a
+    // mouse: the role and name make it announce itself as "Open Havemind panel,
+    // button", the tabindex puts it in the tab order, and Enter/Space open the
+    // same panel the click opens. Attributes live on the element itself, so the
+    // setStatus rebuild (which only replaces children) keeps them.
+    this.statusItem.setAttribute('role', 'button');
+    this.statusItem.setAttribute('tabindex', '0');
+    this.statusItem.setAttribute('aria-label', 'Open Havemind panel');
+    this.statusItem.addEventListener('keydown', (event: KeyboardEvent) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      // Space would otherwise scroll the pane behind the status bar.
+      event.preventDefault();
       void this.openView(HAVEMIND_ONBOARDING_VIEW);
     });
     this.setStatus(formatStatusBar({ status: 'disconnected' }));
@@ -2087,6 +2156,24 @@ export default class HavemindPlugin extends Plugin {
       // MRG-05: sweep any pre-existing conflict copies now that a base is loaded.
       this.scheduleConflictSweep();
     }
+  }
+
+  /**
+   * Command-palette "Sync now": force an immediate cycle instead of waiting for
+   * the loop's own schedule. The connection handle exposes no direct sync entry
+   * point, so this reuses the panel's "Retry now" path — stop the running loop,
+   * start a fresh one — which is exactly the forced cycle the button performs.
+   *
+   * The palette greys the command out while nothing is connected, so this guard
+   * is the belt to that braces: a direct invocation explains itself rather than
+   * looking like a silent no-op.
+   */
+  private async syncNow(): Promise<void> {
+    if (this.connection === null) {
+      new Notice('Havemind: connect before syncing.');
+      return;
+    }
+    await this.retryConnection();
   }
 
   /** Stops the live sync loop; the paste form returns so the user can reconnect. */
@@ -2699,7 +2786,7 @@ export default class HavemindPlugin extends Plugin {
     // clobber the glyph, so rebuild the item: glyph first, then the same text
     // in a trailing span. The label string and tooltip are unchanged.
     item.empty();
-    const glyph = item.createEl('span');
+    const glyph = item.createEl('span', { attr: DECORATIVE });
     setIcon(glyph, 'hexagon');
     item.createEl('span', { text: view.text });
   }

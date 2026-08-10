@@ -59,6 +59,9 @@ describe('plugin lifecycle', () => {
       'open-activity',
       'connect',
       'create-connection',
+      'sync-now',
+      'disconnect',
+      'reset-connection',
     ]);
     expect(app.vault.getMarkdownFilesCalls).toBe(0);
     expect(app.network.requestCalls).toBe(0);
@@ -109,7 +112,7 @@ describe('plugin lifecycle', () => {
 
     const command = registrationState.commands[0];
     expect(command).toBeDefined();
-    await command?.callback();
+    await command?.callback?.();
 
     expect(app.workspace.rightLeaf?.states).toEqual([
       { active: true, type: HAVEMIND_ACTIVITY_VIEW },
@@ -125,14 +128,14 @@ describe('plugin lifecycle', () => {
     await plugin.onload();
 
     const command = registrationState.commands[0];
-    await command?.callback();
+    await command?.callback?.();
 
     expect(existingLeaf.states).toEqual([]);
     expect(app.workspace.revealedLeaves).toEqual([existingLeaf]);
 
     app.workspace.leaves.clear();
     app.workspace.rightLeaf = null;
-    await command?.callback();
+    await command?.callback?.();
     expect(app.workspace.revealedLeaves).toEqual([existingLeaf]);
   });
 
@@ -237,7 +240,7 @@ describe('plugin lifecycle', () => {
 
     const connect = registrationState.commands.find(({ id }) => id === 'connect');
     expect(connect).toBeDefined();
-    await connect?.callback();
+    await connect?.callback?.();
 
     expect(app.workspace.rightLeaf?.states).toEqual([
       { active: true, type: HAVEMIND_ONBOARDING_VIEW },
@@ -254,7 +257,7 @@ describe('plugin lifecycle', () => {
       ({ id }) => id === 'create-connection',
     );
     expect(command).toBeDefined();
-    await command?.callback();
+    await command?.callback?.();
 
     expect(app.workspace.rightLeaf?.states).toEqual([
       { active: true, type: HAVEMIND_ONBOARDING_VIEW },

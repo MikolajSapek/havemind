@@ -15,6 +15,11 @@ export type MockElement = {
   attrs: Record<string, string>;
   placeholder: string;
   addClass: (cls: string) => void;
+  /** Records a DOM listener so a test can dispatch it via `triggerEvent`. */
+  addEventListener: (
+    type: string,
+    handler: (event: unknown) => unknown,
+  ) => void;
   createDiv: (options?: { text?: string }) => MockElement;
   createEl: (tag: string, options?: CreateElOptions) => MockElement;
   disabled: boolean;
@@ -23,12 +28,16 @@ export type MockElement = {
   onClickEvent: (callback: Callback) => void;
   remove: () => void;
   removed: boolean;
+  /** Mirrors `HTMLElement.setAttribute`, writing into `attrs`. */
+  setAttribute: (name: string, value: string) => void;
   setText: (value: string) => void;
   style: { setProperty: (name: string, value: string) => void };
   tag: string;
   text: string;
   value: string;
   triggerClick: () => unknown;
+  /** Fires every listener registered for `type` with the supplied event. */
+  triggerEvent: (type: string, event?: unknown) => void;
 };
 
 type ViewCreator = (leaf: WorkspaceLeaf) => ItemView;
@@ -39,6 +48,8 @@ export type RegistrationState = {
   markdownPostProcessors: Array<
     (element: HTMLElement, context: unknown) => unknown
   >;
+  /** Every `Notice` message raised since the last reset, in order. */
+  notices: string[];
   protocolHandlers: Map<
     string,
     (data: ObsidianProtocolData) => unknown
@@ -54,11 +65,16 @@ export function setIcon(element: unknown, iconId: string): void {
   (element as MockElement).iconName = iconId;
 }
 
-/** Minimal stand-in for Obsidian's `Notice` — records the message, no UI. */
+/**
+ * Minimal stand-in for Obsidian's `Notice` — records the message, no UI. Every
+ * message is also appended to `registrationState.notices` so a test can assert
+ * what the user was told without holding the instance.
+ */
 export class Notice {
   readonly message: string;
   constructor(message: string) {
     this.message = message;
+    registrationState.notices.push(message);
   }
 }
 
@@ -111,6 +127,7 @@ export function requestUrl(): never {
 function createMockElement(): MockElement {
   const children: MockElement[] = [];
   const classes: string[] = [];
+  const listeners = new Map<string, Array<(event: unknown) => unknown>>();
   let clickCallback: Callback = () => undefined;
   const element: MockElement = {
     children,
@@ -119,6 +136,10 @@ function createMockElement(): MockElement {
     placeholder: '',
     addClass(cls: string): void {
       classes.push(cls);
+    },
+    addEventListener(type: string, handler: (event: unknown) => unknown): void {
+      const existing = listeners.get(type) ?? [];
+      listeners.set(type, [...existing, handler]);
     },
     disabled: false,
     iconName: '',
@@ -154,6 +175,9 @@ function createMockElement(): MockElement {
     remove(): void {
       element.removed = true;
     },
+    setAttribute(name: string, value: string): void {
+      element.attrs[name] = value;
+    },
     setText(value: string): void {
       element.text = value;
     },
@@ -162,6 +186,9 @@ function createMockElement(): MockElement {
     value: '',
     triggerClick(): unknown {
       return clickCallback();
+    },
+    triggerEvent(type: string, event?: unknown): void {
+      for (const handler of listeners.get(type) ?? []) handler(event);
     },
     onClickEvent(callback: Callback): void {
       clickCallback = callback;
@@ -263,7 +290,14 @@ export interface PluginManifest {
 }
 
 export interface Command {
-  callback: () => unknown;
+  /** Unconditional action; absent on a command that guards with checkCallback. */
+  callback?: () => unknown;
+  /**
+   * Availability-aware action, mirroring Obsidian: called with `true` to ask
+   * whether the command applies right now (greyed out in the palette when it
+   * returns false), and with `false` to actually run it.
+   */
+  checkCallback?: (checking: boolean) => boolean;
   id: string;
   name: string;
 }
@@ -274,6 +308,7 @@ export const registrationState: RegistrationState = {
   commands: [],
   editorExtensions: [],
   markdownPostProcessors: [],
+  notices: [],
   protocolHandlers: new Map(),
   ribbons: [],
   settingsTabs: [],
@@ -286,6 +321,7 @@ export function resetObsidianMock(): void {
   registrationState.commands.splice(0);
   registrationState.editorExtensions.splice(0);
   registrationState.markdownPostProcessors.splice(0);
+  registrationState.notices.splice(0);
   registrationState.protocolHandlers.clear();
   registrationState.ribbons.splice(0);
   registrationState.settingsTabs.splice(0);
