@@ -1,8 +1,18 @@
 import { canonicalizeMarkdown, hashBlob } from '@havemind/protocol';
 
+import { CONFLICT_FOLDER } from '../runtime/conflict-resolution';
 import { isSyncableConfigPath } from '../sync/appearance-scope';
 
-const RESERVED_TOP_LEVEL_DIRECTORIES = new Set(['Havemind Conflicts']);
+/**
+ * Top-level folders the producer never syncs. The reserved conflict folder is
+ * imported from its single definition in `runtime/conflict-resolution.ts` rather
+ * than re-typed here: the name is load-bearing in three places (this exclusion,
+ * the resolution flow, and the apply adapter's `conflictFolder`), and a
+ * divergence would make every conflict copy sync back as an ordinary note — an
+ * endless echo. `conflict-resolution.ts` has no runtime imports of its own
+ * (Obsidian types only), so this direction introduces no cycle.
+ */
+const RESERVED_TOP_LEVEL_DIRECTORIES = new Set([CONFLICT_FOLDER]);
 
 /**
  * Non-markdown file extensions the pilot syncs as whole-file binary attachments

@@ -13,6 +13,7 @@ import {
   type LocalVaultError,
   type VaultSnapshotPort,
 } from './vault-adapter';
+import { CONFLICT_FOLDER } from '../runtime/conflict-resolution';
 import {
   ModifyDebouncer,
   type DebounceTimer,
@@ -818,5 +819,28 @@ describe('settled modify vs rename/delete of the same path (phantom-create guard
 
     expect(op).toBeNull();
     expect(repo.commits).toEqual([]);
+  });
+});
+
+describe('reserved conflict folder exclusion', () => {
+  it('keys the reserved-root exclusion on the shared CONFLICT_FOLDER constant', () => {
+    // Drift regression: the folder name used to be a private literal here, a
+    // second literal in `conflict-resolution.ts` and a third in
+    // `obsidian-adapters.ts`. Renaming one would have started re-syncing every
+    // conflict copy — an infinite echo. Assert the exclusion tracks the ONE
+    // exported constant instead of a copy of its current value.
+    expect(classifyVaultPath(`${CONFLICT_FOLDER}/copy.md`).eligible).toBe(false);
+    expect(
+      classifyVaultPath(`${CONFLICT_FOLDER}/Nested/copy.png`).eligible,
+    ).toBe(false);
+  });
+
+  it('excludes only the exact reserved root, never a lookalike sibling folder', () => {
+    expect(classifyVaultPath(`${CONFLICT_FOLDER} Archive/note.md`).eligible).toBe(
+      true,
+    );
+    expect(classifyVaultPath(`Notes/${CONFLICT_FOLDER}/note.md`).eligible).toBe(
+      true,
+    );
   });
 });

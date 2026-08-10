@@ -14,7 +14,15 @@
 
 import type { TFile, Vault } from 'obsidian';
 
-/** Reserved, sync-excluded folder holding conflict copies. */
+/**
+ * Reserved, sync-excluded folder holding conflict copies — the SINGLE definition
+ * of the name. Three sites depend on it agreeing exactly: this resolution flow,
+ * the producer's reserved-root exclusion (`obsidian/vault-adapter.ts`) and the
+ * apply adapter's `conflictFolder` (`runtime/obsidian-adapters.ts`). All three
+ * import it from here; a private duplicate would let the exclusion drift away
+ * from the folder that is actually written to, and every conflict copy would then
+ * sync back as an ordinary note.
+ */
 export const CONFLICT_FOLDER = 'Havemind Conflicts';
 
 /** A single UUID (8-4-4-4-12 hex). Legacy copies are two of these joined. */

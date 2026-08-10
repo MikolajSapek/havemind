@@ -121,6 +121,17 @@ declare module 'obsidian' {
     revealLeaf(leaf: WorkspaceLeaf): Promise<void>;
     onLayoutReady(callback: () => void): void;
     on(name: string, callback: (...args: unknown[]) => unknown): unknown;
+    /**
+     * Fires a workspace event. Used for `css-change`, the signal that makes
+     * Obsidian re-read custom CSS (snippets and the active theme) — the only way
+     * a synced appearance file becomes visible without a restart.
+     *
+     * The real runtime always provides it; declared OPTIONAL here because this
+     * ambient stub is also what the headless test mock is structurally checked
+     * against, and a purely cosmetic refresh must not become a hard requirement
+     * of every test double. Call sites use `trigger?.(...)` accordingly.
+     */
+    trigger?(name: string, ...data: unknown[]): void;
   }
 
   export interface App {

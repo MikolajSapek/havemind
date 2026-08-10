@@ -42,6 +42,39 @@ class FakeVault {
     { kind: 'file' | 'folder'; content?: string; binaryContent?: ArrayBuffer }
   >();
 
+  /**
+   * Hidden `.obsidian/` files, which real Obsidian exposes ONLY through the
+   * DataAdapter (never through the Vault file API). Kept in a separate map so a
+   * config write is observably distinct from a note write.
+   */
+  readonly configEntries = new Map<string, string | ArrayBuffer>();
+
+  /** The DataAdapter surface `writeConfigText`/`writeConfigBinary`/`removeConfig` use. */
+  readonly adapter = {
+    exists: async (path: string): Promise<boolean> =>
+      this.configEntries.has(path),
+    list: async (): Promise<{ files: string[]; folders: string[] }> => ({
+      files: [],
+      folders: [],
+    }),
+    mkdir: async (): Promise<void> => undefined,
+    read: async (path: string): Promise<string> =>
+      String(this.configEntries.get(path) ?? ''),
+    readBinary: async (path: string): Promise<ArrayBuffer> => {
+      const value = this.configEntries.get(path);
+      return value instanceof ArrayBuffer ? value : new ArrayBuffer(0);
+    },
+    remove: async (path: string): Promise<void> => {
+      this.configEntries.delete(path);
+    },
+    write: async (path: string, data: string): Promise<void> => {
+      this.configEntries.set(path, data);
+    },
+    writeBinary: async (path: string, data: ArrayBuffer): Promise<void> => {
+      this.configEntries.set(path, data);
+    },
+  };
+
   constructor(
     private readonly TFileClass: new () => AbstractFileLike,
     private readonly TFolderClass: new () => AbstractFileLike,
@@ -125,6 +158,10 @@ class FakeVault {
 
   async modifyBinary(file: AbstractFileLike, data: ArrayBuffer): Promise<void> {
     this.entries.set(file.path, { kind: 'file', binaryContent: data });
+  }
+
+  async delete(file: AbstractFileLike): Promise<void> {
+    this.entries.delete(file.path);
   }
 
   contentAt(path: string): string | undefined {
@@ -1003,5 +1040,279 @@ describe('createConfigPollTick (audit #3 finding 5: a failing config poll is nev
     await tick();
     expect(notify).toHaveBeenCalledTimes(2);
     expect(notify).toHaveBeenNthCalledWith(2, CONFIG_POLL_FAILURE_NOTICE);
+  });
+});
+
+describe('classifyConfigApplyEffect', () => {
+  it('classifies every CSS-affecting appearance path as css-reload', async () => {
+    const { classifyConfigApplyEffect } = await import('./obsidian-adapters');
+
+    for (const path of [
+      '.obsidian/appearance.json',
+      '.obsidian/snippets/mine.css',
+      '.obsidian/themes/Minimal/theme.css',
+      '.obsidian/themes/Minimal/manifest.json',
+      '.obsidian/themes/Minimal/preview.png',
+    ]) {
+      expect(classifyConfigApplyEffect(path)).toBe('css-reload');
+    }
+  });
+
+  it('classifies non-CSS settings files as reload-notice', async () => {
+    const { classifyConfigApplyEffect } = await import('./obsidian-adapters');
+
+    // graph.json is deliberately here: some graph colours re-render live, but
+    // nothing guarantees it, so the honest answer is "reload to apply".
+    for (const path of [
+      '.obsidian/app.json',
+      '.obsidian/core-plugins.json',
+      '.obsidian/graph.json',
+      '.obsidian/hotkeys.json',
+    ]) {
+      expect(classifyConfigApplyEffect(path)).toBe('reload-notice');
+    }
+  });
+
+  it('normalises Windows backslash separators before classifying', async () => {
+    const { classifyConfigApplyEffect } = await import('./obsidian-adapters');
+
+    expect(classifyConfigApplyEffect('.obsidian\\snippets\\mine.css')).toBe(
+      'css-reload',
+    );
+    expect(classifyConfigApplyEffect('.obsidian\\themes\\Minimal\\theme.css')).toBe(
+      'css-reload',
+    );
+  });
+});
+
+describe('createConfigApplyReloader', () => {
+  /** Captures the single scheduled flush so the test drives the debounce. */
+  function makeScheduler(): {
+    readonly schedule: (run: () => void, delayMs: number) => void;
+    readonly runs: Array<() => void>;
+    readonly delays: number[];
+    flush(): void;
+  } {
+    const runs: Array<() => void> = [];
+    const delays: number[] = [];
+    return {
+      schedule: (run, delayMs) => {
+        runs.push(run);
+        delays.push(delayMs);
+      },
+      runs,
+      delays,
+      flush(): void {
+        const pending = runs.splice(0, runs.length);
+        for (const run of pending) run();
+      },
+    };
+  }
+
+  it('triggers css-change exactly once for a whole batch of CSS paths', async () => {
+    const { createConfigApplyReloader } = await import('./obsidian-adapters');
+    const scheduler = makeScheduler();
+    const triggerCssChange = vi.fn();
+    const notify = vi.fn();
+    const reloader = createConfigApplyReloader({
+      triggerCssChange,
+      notify,
+      schedule: scheduler.schedule,
+    });
+
+    reloader.applied('.obsidian/snippets/a.css');
+    reloader.applied('.obsidian/snippets/b.css');
+    reloader.applied('.obsidian/themes/Minimal/theme.css');
+
+    // Nothing fires until the batch window closes, and exactly ONE flush is armed.
+    expect(triggerCssChange).not.toHaveBeenCalled();
+    expect(scheduler.runs).toHaveLength(1);
+
+    scheduler.flush();
+
+    expect(triggerCssChange).toHaveBeenCalledTimes(1);
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  it('shows exactly ONE reload Notice per batch of non-CSS config files', async () => {
+    const { createConfigApplyReloader, CONFIG_RELOAD_NOTICE } = await import(
+      './obsidian-adapters'
+    );
+    const scheduler = makeScheduler();
+    const triggerCssChange = vi.fn();
+    const notify = vi.fn();
+    const reloader = createConfigApplyReloader({
+      triggerCssChange,
+      notify,
+      schedule: scheduler.schedule,
+    });
+
+    reloader.applied('.obsidian/graph.json');
+    reloader.applied('.obsidian/hotkeys.json');
+    reloader.applied('.obsidian/app.json');
+    scheduler.flush();
+
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify).toHaveBeenCalledWith(CONFIG_RELOAD_NOTICE);
+    expect(CONFIG_RELOAD_NOTICE).toBe(
+      'Havemind: settings synced — reload Obsidian to apply them.',
+    );
+    expect(triggerCssChange).not.toHaveBeenCalled();
+  });
+
+  it('fires each effect once for a mixed batch', async () => {
+    const { createConfigApplyReloader } = await import('./obsidian-adapters');
+    const scheduler = makeScheduler();
+    const triggerCssChange = vi.fn();
+    const notify = vi.fn();
+    const reloader = createConfigApplyReloader({
+      triggerCssChange,
+      notify,
+      schedule: scheduler.schedule,
+    });
+
+    reloader.applied('.obsidian/appearance.json');
+    reloader.applied('.obsidian/hotkeys.json');
+    reloader.applied('.obsidian/snippets/a.css');
+    scheduler.flush();
+
+    expect(triggerCssChange).toHaveBeenCalledTimes(1);
+    expect(notify).toHaveBeenCalledTimes(1);
+  });
+
+  it('arms a fresh window for the next batch after a flush', async () => {
+    const { createConfigApplyReloader } = await import('./obsidian-adapters');
+    const scheduler = makeScheduler();
+    const triggerCssChange = vi.fn();
+    const notify = vi.fn();
+    const reloader = createConfigApplyReloader({
+      triggerCssChange,
+      notify,
+      schedule: scheduler.schedule,
+    });
+
+    reloader.applied('.obsidian/snippets/a.css');
+    scheduler.flush();
+    reloader.applied('.obsidian/snippets/a.css');
+    scheduler.flush();
+
+    expect(triggerCssChange).toHaveBeenCalledTimes(2);
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  it('does not let a failing side effect escape the scheduled flush', async () => {
+    const { createConfigApplyReloader } = await import('./obsidian-adapters');
+    const scheduler = makeScheduler();
+    const notify = vi.fn();
+    const warn = vi.fn();
+    const reloader = createConfigApplyReloader({
+      triggerCssChange: () => {
+        throw new Error('workspace is gone');
+      },
+      notify,
+      schedule: scheduler.schedule,
+      warn,
+    });
+
+    reloader.applied('.obsidian/snippets/a.css');
+    reloader.applied('.obsidian/hotkeys.json');
+
+    expect(() => scheduler.flush()).not.toThrow();
+    // The unrelated notice still lands even though the CSS reload failed.
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('createVaultFilePort config apply visibility', () => {
+  it('reports a text config apply so the receiving device does not need a restart', async () => {
+    const { createVaultFilePort } = await import('./obsidian-adapters');
+    const { TFile, TFolder } = await import('obsidian');
+    const vault = new FakeVault(TFile, TFolder);
+    const applied: string[] = [];
+    const port = createVaultFilePort({
+      vault: vault as never,
+      state: noopState as never,
+      configApply: { applied: (path: string) => applied.push(path) },
+    });
+
+    await port.writeByPath('.obsidian/snippets/mine.css', 'body { color: red; }');
+
+    expect(vault.configEntries.get('.obsidian/snippets/mine.css')).toBe(
+      'body { color: red; }',
+    );
+    expect(applied).toEqual(['.obsidian/snippets/mine.css']);
+  });
+
+  it('reports a binary config apply (a theme preview image)', async () => {
+    const { createVaultFilePort } = await import('./obsidian-adapters');
+    const { TFile, TFolder } = await import('obsidian');
+    const vault = new FakeVault(TFile, TFolder);
+    const applied: string[] = [];
+    const port = createVaultFilePort({
+      vault: vault as never,
+      state: noopState as never,
+      configApply: { applied: (path: string) => applied.push(path) },
+    });
+
+    await port.writeBinaryByPath(
+      '.obsidian/themes/Minimal/preview.png',
+      new Uint8Array([1, 2, 3]),
+    );
+
+    expect(applied).toEqual(['.obsidian/themes/Minimal/preview.png']);
+  });
+
+  it('reports a config delete, so a removed snippet stops applying immediately', async () => {
+    const { createVaultFilePort } = await import('./obsidian-adapters');
+    const { TFile, TFolder } = await import('obsidian');
+    const vault = new FakeVault(TFile, TFolder);
+    vault.configEntries.set('.obsidian/snippets/mine.css', 'body {}');
+    const applied: string[] = [];
+    const port = createVaultFilePort({
+      vault: vault as never,
+      state: noopState as never,
+      configApply: { applied: (path: string) => applied.push(path) },
+    });
+
+    await port.deleteByPath('.obsidian/snippets/mine.css');
+
+    expect(vault.configEntries.has('.obsidian/snippets/mine.css')).toBe(false);
+    expect(applied).toEqual(['.obsidian/snippets/mine.css']);
+  });
+
+  it('never reports an ordinary note write as a config apply', async () => {
+    const { createVaultFilePort } = await import('./obsidian-adapters');
+    const { TFile, TFolder } = await import('obsidian');
+    const vault = new FakeVault(TFile, TFolder);
+    const applied: string[] = [];
+    const port = createVaultFilePort({
+      vault: vault as never,
+      state: noopState as never,
+      configApply: { applied: (path: string) => applied.push(path) },
+    });
+
+    await port.writeByPath('Note.md', 'text\n');
+    await port.writeBinaryByPath('img.png', new Uint8Array([1]));
+    await port.deleteByPath('Note.md');
+
+    expect(applied).toEqual([]);
+  });
+});
+
+describe('reserved conflict folder name', () => {
+  it('is single-sourced across all three usage sites', async () => {
+    const adapters = await import('./obsidian-adapters');
+    const { CONFLICT_FOLDER } = await import('./conflict-resolution');
+    const { classifyVaultPath } = await import('../obsidian/vault-adapter');
+
+    // Site 1 — the one definition.
+    expect(CONFLICT_FOLDER).toBe('Havemind Conflicts');
+    // Site 2 — the apply adapter's reserved folder is that same constant, not a
+    // private duplicate literal that could drift.
+    expect(adapters.CONFLICT_FOLDER).toBe(CONFLICT_FOLDER);
+    // Site 3 — the producer's reserved-root exclusion keys on it too, so a
+    // conflict copy is never re-synced.
+    expect(classifyVaultPath(`${CONFLICT_FOLDER}/copy.md`).eligible).toBe(false);
   });
 });
