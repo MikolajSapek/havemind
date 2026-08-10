@@ -821,3 +821,67 @@
   border-left: 2px solid var(--havemind-bad);
   background: hsla(var(--color-red-hsl), 0.07);
 }
+
+/* ------------------------------------------------------------------------- */
+/* F6 author overlay (specs/001-mvp.md)                                      */
+/*                                                                           */
+/* Both surfaces set `--havemind-overlay-color` to one of the shared          */
+/* `--havemind-author-*` tokens declared at the top of this file, so a person  */
+/* is the same colour here, in the roster and in the Activity log. Colour is   */
+/* never the only signal: the editor mark carries an underline and the reading */
+/* block a left border, and both carry the author's name in `title` plus       */
+/* `aria-label`. Every value below is an Obsidian variable or derived from the */
+/* overlay custom property — no literal colours.                              */
+/* ------------------------------------------------------------------------- */
+
+/* Live Preview: one attributed span inside the editor. */
+.havemind-author-mark {
+  border-bottom: 2px solid var(--havemind-overlay-color, var(--text-faint));
+  /* Keeps the underline off the glyphs so text stays as legible as it was. */
+  padding-bottom: 1px;
+}
+
+/* Reading view: one attributed block. */
+.havemind-author-block {
+  position: relative;
+  padding-left: var(--size-4-2);
+}
+
+/*
+ * The colour bar is drawn as a pseudo-element: decorative by construction, so
+ * assistive technology has no extra node to announce beside the name that the
+ * block's own title/aria-label already carries.
+ */
+.havemind-author-block::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--havemind-overlay-color, var(--text-faint));
+}
+
+/* A brief settle after the marker appears; suppressed under reduced motion by
+   the overlay model, which simply omits the animate class. */
+.havemind-author-mark-animate,
+.havemind-author-block-animate {
+  animation: havemind-author-settle 240ms ease-out;
+}
+
+@keyframes havemind-author-settle {
+  from {
+    opacity: 0.55;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .havemind-author-mark-animate,
+  .havemind-author-block-animate {
+    animation: none;
+  }
+}

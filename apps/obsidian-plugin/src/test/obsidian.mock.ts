@@ -32,6 +32,8 @@ export type MockElement = {
   setAttribute: (name: string, value: string) => void;
   setText: (value: string) => void;
   style: { setProperty: (name: string, value: string) => void };
+  /** Every CSS custom property written through `style.setProperty`. */
+  styleProperties: Record<string, string>;
   tag: string;
   text: string;
   value: string;
@@ -42,11 +44,23 @@ export type MockElement = {
 
 type ViewCreator = (leaf: WorkspaceLeaf) => ItemView;
 
+/**
+ * The slice of Obsidian's `MarkdownPostProcessorContext` the author overlay
+ * uses. Kept structural so a test can hand a plain object to a registered
+ * processor without building the whole renderer context.
+ */
+export interface MarkdownPostProcessorContext {
+  sourcePath: string;
+  getSectionInfo(
+    element: HTMLElement,
+  ): { text: string; lineStart: number; lineEnd: number } | null;
+}
+
 export type RegistrationState = {
   commands: Command[];
   editorExtensions: EditorExtension[];
   markdownPostProcessors: Array<
-    (element: HTMLElement, context: unknown) => unknown
+    (element: HTMLElement, context: MarkdownPostProcessorContext) => unknown
   >;
   /** Every `Notice` message raised since the last reset, in order. */
   notices: string[];
@@ -124,9 +138,10 @@ export function requestUrl(): never {
   throw new Error('requestUrl is not available in the headless obsidian mock');
 }
 
-function createMockElement(): MockElement {
+export function createMockElement(): MockElement {
   const children: MockElement[] = [];
   const classes: string[] = [];
+  const styleProperties: Record<string, string> = {};
   const listeners = new Map<string, Array<(event: unknown) => unknown>>();
   let clickCallback: Callback = () => undefined;
   const element: MockElement = {
@@ -134,6 +149,7 @@ function createMockElement(): MockElement {
     classes,
     attrs: {},
     placeholder: '',
+    styleProperties,
     addClass(cls: string): void {
       classes.push(cls);
     },
@@ -143,7 +159,11 @@ function createMockElement(): MockElement {
     },
     disabled: false,
     iconName: '',
-    style: { setProperty: () => undefined },
+    style: {
+      setProperty(name: string, value: string): void {
+        styleProperties[name] = value;
+      },
+    },
     createDiv(options?: { text?: string }): MockElement {
       const child = createMockElement();
       child.text = options?.text ?? '';
@@ -240,6 +260,16 @@ export class Workspace {
     this.revealedLeaves.push(leaf);
   }
 
+  /**
+   * Counts `updateOptions()` calls — how the plugin asks Obsidian to re-run
+   * every registered editor extension after the author overlay is toggled.
+   */
+  updateOptionsCalls = 0;
+
+  updateOptions(): void {
+    this.updateOptionsCalls += 1;
+  }
+
   onLayoutReady(_callback: () => void): void {
     // The layout is never "ready" in the headless mock, so the passive shell
     // never starts the connected sync runtime during lifecycle tests.
@@ -302,7 +332,11 @@ export interface Command {
   name: string;
 }
 
-export type EditorExtension = readonly unknown[];
+/**
+ * Whatever `registerEditorExtension()` was handed. Opaque here: the headless
+ * suites only count registrations and check teardown, never run CodeMirror.
+ */
+export type EditorExtension = unknown;
 
 export const registrationState: RegistrationState = {
   commands: [],
@@ -349,11 +383,13 @@ export class Plugin {
   }
 
   addRibbonIcon(
-    _icon: string,
+    icon: string,
     _title: string,
     callback: Callback,
   ): HTMLElement {
     const element = createMockElement();
+    // Records the Lucide icon name so a test can tell two ribbon actions apart.
+    element.iconName = icon;
     element.onClickEvent(callback);
     registrationState.ribbons.push(element);
     this.cleanup.push(() => element.remove());
@@ -398,7 +434,10 @@ export class Plugin {
   }
 
   registerMarkdownPostProcessor(
-    processor: (element: HTMLElement, context: unknown) => unknown,
+    processor: (
+      element: HTMLElement,
+      context: MarkdownPostProcessorContext,
+    ) => unknown,
   ): void {
     registrationState.markdownPostProcessors.push(processor);
     this.cleanup.push(() => {
@@ -468,13 +507,64 @@ export class PluginSettingTab {
   display(): void {}
 }
 
+/**
+ * Stand-in for Obsidian's `ButtonComponent`. Records the label plus the CTA,
+ * tooltip and disabled state a settings row asked for, and exposes `trigger()`
+ * so a test can click the button without a DOM.
+ */
+export class ButtonComponent {
+  buttonText = '';
+  cta = false;
+  disabled = false;
+  tooltip = '';
+  private click: Callback = () => undefined;
+
+  setButtonText(text: string): this {
+    this.buttonText = text;
+    return this;
+  }
+
+  setCta(): this {
+    this.cta = true;
+    return this;
+  }
+
+  setDisabled(disabled: boolean): this {
+    this.disabled = disabled;
+    return this;
+  }
+
+  setTooltip(tooltip: string): this {
+    this.tooltip = tooltip;
+    return this;
+  }
+
+  onClick(callback: Callback): this {
+    this.click = callback;
+    return this;
+  }
+
+  trigger(): unknown {
+    return this.click();
+  }
+}
+
 export class Setting {
   readonly descriptions: string[] = [];
   readonly names: string[] = [];
+  readonly buttons: ButtonComponent[] = [];
+  heading = false;
 
   constructor(containerEl: unknown) {
     void containerEl;
     registrationState.settingsRows.push(this);
+  }
+
+  addButton(callback: (button: ButtonComponent) => unknown): this {
+    const button = new ButtonComponent();
+    this.buttons.push(button);
+    callback(button);
+    return this;
   }
 
   setDesc(description: string): this {
@@ -483,6 +573,7 @@ export class Setting {
   }
 
   setHeading(): this {
+    this.heading = true;
     return this;
   }
 
@@ -491,3 +582,13 @@ export class Setting {
     return this;
   }
 }
+
+/**
+ * Stand-in for Obsidian's `editorInfoField` — the CodeMirror `StateField` that
+ * carries the file behind a live editor. The headless suites never build a real
+ * `EditorView`, so nothing ever reads it; the export exists because the Live
+ * Preview extension imports it and this module stands in for `obsidian`.
+ */
+export const editorInfoField = {
+  havemindHeadlessStub: true,
+};

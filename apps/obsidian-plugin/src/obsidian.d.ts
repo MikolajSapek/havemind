@@ -1,5 +1,11 @@
 declare module 'obsidian' {
-  export type EditorExtension = readonly unknown[];
+  /**
+   * What `registerEditorExtension()` accepts. Obsidian passes it straight to
+   * CodeMirror, so it is CodeMirror's own `Extension` union (a facet value, a
+   * view plugin, or a nested array of either) — not just an array, which is what
+   * this stub used to say when nothing but an empty placeholder was registered.
+   */
+  export type EditorExtension = import('@codemirror/state').Extension;
 
   export interface ObsidianProtocolData {
     action: string;
@@ -132,6 +138,17 @@ declare module 'obsidian' {
      * of every test double. Call sites use `trigger?.(...)` accordingly.
      */
     trigger?(name: string, ...data: unknown[]): void;
+    /**
+     * Asks Obsidian to re-apply every registered editor extension to all open
+     * editors. The author overlay reads its "Show authors" flag live, so this is
+     * what makes a toggle visible in Live Preview without an edit or a reload.
+     *
+     * Declared OPTIONAL for the same reason as `trigger` above: this ambient
+     * stub is also the shape the headless test mock is checked against, and a
+     * cosmetic refresh must not become a hard requirement of every double.
+     * Call sites use `updateOptions?.()`.
+     */
+    updateOptions?(): void;
   }
 
   export interface App {
@@ -198,7 +215,10 @@ declare module 'obsidian' {
     onunload(): void;
     registerEditorExtension(extension: EditorExtension): void;
     registerMarkdownPostProcessor(
-      processor: (element: HTMLElement, context: unknown) => unknown,
+      processor: (
+        element: HTMLElement,
+        context: MarkdownPostProcessorContext,
+      ) => unknown,
     ): void;
     registerObsidianProtocolHandler(
       action: string,
@@ -235,13 +255,56 @@ declare module 'obsidian' {
     abstract display(): void;
   }
 
+  export class ButtonComponent {
+    setButtonText(text: string): this;
+    setCta(): this;
+    setDisabled(disabled: boolean): this;
+    setTooltip(tooltip: string): this;
+    onClick(callback: () => unknown): this;
+  }
+
   export class Setting {
     constructor(containerEl: HTMLElement);
 
+    addButton(callback: (button: ButtonComponent) => unknown): this;
     setDesc(description: string): this;
     setHeading(): this;
     setName(name: string): this;
   }
+
+  /** The section of the source a rendered Reading-view block came from. */
+  export interface MarkdownSectionInformation {
+    /** The FULL source text of the file being rendered. */
+    text: string;
+    /** 0-based inclusive first line of this block within `text`. */
+    lineStart: number;
+    /** 0-based inclusive last line of this block within `text`. */
+    lineEnd: number;
+  }
+
+  export interface MarkdownPostProcessorContext {
+    /** Vault path of the file being rendered. */
+    sourcePath: string;
+    /**
+     * Where this element came from in the source, or `null`. Obsidian documents
+     * it as frequently null, which is why the author overlay skips a block
+     * outright rather than guessing a range for it.
+     */
+    getSectionInfo(element: HTMLElement): MarkdownSectionInformation | null;
+  }
+
+  /** The file behind a live editor, as carried by `editorInfoField`. */
+  export interface MarkdownFileInfo {
+    readonly file: TFile | null;
+  }
+
+  /**
+   * CodeMirror `StateField` holding the {@link MarkdownFileInfo} for an editor.
+   * The only supported way for an editor extension to learn WHICH file the view
+   * in front of it is showing — which is what keeps per-file attribution
+   * correct in split panes instead of following the active file.
+   */
+  export const editorInfoField: import('@codemirror/state').StateField<MarkdownFileInfo>;
 }
 
 interface HTMLElement {

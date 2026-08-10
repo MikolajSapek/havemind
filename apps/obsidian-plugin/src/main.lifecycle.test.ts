@@ -43,17 +43,18 @@ describe('plugin lifecycle', () => {
     await plugin.onload();
 
     expect(registrationState.settingsTabs).toHaveLength(1);
-    expect(registrationState.ribbons).toHaveLength(1);
+    // Two ribbon actions: open Activity, and the F6 "Show authors" toggle.
+    expect(registrationState.ribbons).toHaveLength(2);
     expect(registrationState.statusItems).toHaveLength(1);
     expect(registrationState.views.has(HAVEMIND_ACTIVITY_VIEW)).toBe(true);
     expect(registrationState.views.has(HAVEMIND_ONBOARDING_VIEW)).toBe(true);
-    // Audit #3 finding 10: the shell used to register an EMPTY editor extension
-    // and a no-op markdown post-processor as placeholders for the author overlay
-    // (specs/001-mvp.md), which is not part of the shipped feature set. Dead
-    // hooks are removed, so onload must register NEITHER and still come up with
-    // the full passive shell below.
-    expect(registrationState.editorExtensions).toHaveLength(0);
-    expect(registrationState.markdownPostProcessors).toHaveLength(0);
+    // Audit #3 finding 10 removed an EMPTY editor extension and a no-op markdown
+    // post-processor that stood in for the author overlay. FINDING 1 replaced
+    // both with the real thing: the Live Preview decoration extension and the
+    // Reading-view block-marker processor, each registered exactly once and each
+    // silent until "Show authors" is on.
+    expect(registrationState.editorExtensions).toHaveLength(1);
+    expect(registrationState.markdownPostProcessors).toHaveLength(1);
     expect(registrationState.protocolHandlers.has('havemind-join')).toBe(true);
     expect(registrationState.commands.map(({ id }) => id)).toEqual([
       'open-activity',
@@ -62,6 +63,7 @@ describe('plugin lifecycle', () => {
       'sync-now',
       'disconnect',
       'reset-connection',
+      'show-authors',
     ]);
     expect(app.vault.getMarkdownFilesCalls).toBe(0);
     expect(app.network.requestCalls).toBe(0);
@@ -82,11 +84,17 @@ describe('plugin lifecycle', () => {
     expect(descriptions.some((d) => d.includes('next slice'))).toBe(false);
     // A live status line is shown (the disconnected panel label).
     expect(descriptions.length).toBeGreaterThan(0);
-    // The one action opens the pane.
-    const button = flatten(
-      tab?.containerEl as unknown as MockElement,
-    ).find((e) => e.text === 'Open Havemind panel');
-    expect(button).toBeDefined();
+    // FINDING 7: the pane action is now a proper Setting row button, alongside
+    // the other connection actions, rather than a bare button in the container.
+    const cta = registrationState.settingsRows
+      .flatMap((row) => row.buttons)
+      .find((button) => button.buttonText === 'Open Havemind panel');
+    expect(cta?.cta).toBe(true);
+    // Refresh stays a plain control in the container (FINDING 4).
+    const refresh = flatten(tab?.containerEl as unknown as MockElement).find(
+      (e) => e.text === 'Refresh',
+    );
+    expect(refresh).toBeDefined();
   });
 
   it('registers a single owner connection command and drops the split commands', async () => {
@@ -164,12 +172,23 @@ describe('plugin lifecycle', () => {
     registrationState.settingsTabs[0]?.display();
     expect(registrationState.settingsRows.map(({ names }) => names)).toEqual([
       ['Havemind'],
+      ['Server'],
       ['Connection'],
+      ['Last sync'],
+      ['Vault members'],
+      ['Actions'],
+      ['Havemind panel'],
+      ['Sync now'],
+      ['Disconnect'],
+      ['Reset connection'],
+      ['Author overlay'],
     ]);
 
+    // A block whose section did not resolve: the overlay must stay silent rather
+    // than guess a range for it.
     registrationState.markdownPostProcessors[0]?.(
       container as unknown as HTMLElement,
-      {},
+      { sourcePath: 'Notes/One.md', getSectionInfo: () => null },
     );
     registrationState.protocolHandlers.get('havemind-join')?.({
       action: 'havemind-join',

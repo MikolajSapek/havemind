@@ -12,6 +12,16 @@ import {
 
 import { hashPlaintext } from '@havemind/protocol';
 
+import {
+  buildLivePreviewOverlay,
+  buildReadingViewOverlay,
+} from './attribution/attribution';
+import { buildFileOverlayInput } from './attribution/overlay-source';
+import { createAuthorOverlayExtension } from './attribution/editor-extension';
+import {
+  createAuthorReadingViewProcessor,
+  type ReadingViewSectionInfo,
+} from './attribution/reading-view';
 import { isSafePassiveJoinProtocolData } from './onboarding/invite';
 import { parseFailedToQueuePath } from './runtime/sync-state';
 import type { DurableSyncState } from './runtime/sync-state';
@@ -97,6 +107,9 @@ const EMPTY_ACTIVITY_TEXT =
 
 /** Debounce window for the MRG-05 auto-repair sweep — a burst becomes one pass. */
 const CONFLICT_SWEEP_DEBOUNCE_MS = 2000;
+
+/** `data.json` key holding the F6 "Show authors" toggle. */
+const SHOW_AUTHORS_KEY = 'showAuthors';
 
 function prefersReducedMotion(): boolean {
   return (
@@ -1367,6 +1380,36 @@ export class HavemindOnboardingView extends ItemView {
   }
 }
 
+/** The read-only facts the settings tab shows, all already known locally. */
+export interface HavemindSettingsInfo {
+  /** Server host from the live connection handle, or a plain "not connected". */
+  readonly server: string;
+  /** The same status wording the panel and status bar use. */
+  readonly status: string;
+  readonly lastSync: string;
+  readonly members: string;
+  /** Whether a live connection exists — gates the sync/disconnect actions. */
+  readonly connected: boolean;
+}
+
+/**
+ * The connection actions, defined once by the plugin and shared by the command
+ * palette entries and the settings-tab buttons.
+ */
+export interface HavemindConnectionActions {
+  readonly syncNow: () => void;
+  readonly disconnect: () => void;
+  readonly resetConnection: () => void;
+  /** Availability of `syncNow`/`disconnect` — meaningless while disconnected. */
+  readonly connected: () => boolean;
+}
+
+/** "2 members" / "1 member" / an honest empty state. */
+function formatMemberCount(count: number): string {
+  if (count === 0) return 'No members recorded yet';
+  return count === 1 ? '1 member' : `${count} members`;
+}
+
 class HavemindSettingTab extends PluginSettingTab {
   /**
    * This tab's own plugin, typed. `PluginSettingTab.plugin` is declared as the
@@ -1383,19 +1426,25 @@ class HavemindSettingTab extends PluginSettingTab {
   override display(): void {
     this.containerEl.empty();
 
-    // MINOR 9: replace the stale "onboarding coming next slice" stub with the
-    // live connection status plus a single action to open the pane, where the
-    // real connect/onboarding surface already lives.
+    // FINDING 7: the tab used to be a dead end — one status line and a button
+    // that sent the user somewhere else. It now answers the four questions a
+    // settings pane is opened for (which server, what state, when last synced,
+    // who is in the vault) and offers every connection action in place. There
+    // are still no editable options, so nothing here invents one.
     const plugin = this.havemind;
+    const info = plugin.settingsInfo();
+
     new Setting(this.containerEl).setName('Havemind').setHeading();
+    new Setting(this.containerEl).setName('Server').setDesc(info.server);
+    new Setting(this.containerEl).setName('Connection').setDesc(info.status);
+    new Setting(this.containerEl).setName('Last sync').setDesc(info.lastSync);
     new Setting(this.containerEl)
-      .setName('Connection')
-      .setDesc(plugin.panelStatusLabel());
-    const open = this.containerEl.createEl('button', {
-      text: 'Open Havemind panel',
-    });
-    open.addClass('mod-cta');
-    open.onClickEvent(() => plugin.revealPanel());
+      .setName('Vault members')
+      .setDesc(info.members);
+
+    new Setting(this.containerEl).setName('Actions').setHeading();
+    this.renderActions(plugin, info);
+
     // FINDING 4: the settings tab reads the connection status once at display()
     // time, so a status change while the tab stays open leaves the line stale.
     // A subscribe/unsubscribe hook would need a `hide()` override the ambient
@@ -1403,6 +1452,78 @@ class HavemindSettingTab extends PluginSettingTab {
     // Refresh control that re-reads the live status on demand by re-rendering.
     const refresh = this.containerEl.createEl('button', { text: 'Refresh' });
     refresh.onClickEvent(() => this.display());
+  }
+
+  /**
+   * The action rows. Every button routes into the SAME plugin method its command
+   * palette entry runs — `connectionActions()` is the single definition of what
+   * each action does, so the two surfaces can never drift apart.
+   */
+  private renderActions(
+    plugin: HavemindPlugin,
+    info: HavemindSettingsInfo,
+  ): void {
+    const actions = plugin.connectionActions();
+
+    new Setting(this.containerEl)
+      .setName('Havemind panel')
+      .setDesc(
+        'Connect a device, invite a peer, resolve conflicts and inspect the send queue.',
+      )
+      .addButton((button) =>
+        button
+          .setButtonText('Open Havemind panel')
+          .setCta()
+          .onClick(() => plugin.revealPanel()),
+      );
+
+    new Setting(this.containerEl)
+      .setName('Sync now')
+      .setDesc('Force a fresh sync cycle instead of waiting for the next poll.')
+      .addButton((button) =>
+        button
+          .setButtonText('Sync now')
+          .setDisabled(!info.connected)
+          .onClick(() => actions.syncNow()),
+      );
+
+    new Setting(this.containerEl)
+      .setName('Disconnect')
+      .setDesc('Stop syncing. Notes on disk are left exactly as they are.')
+      .addButton((button) =>
+        button
+          .setButtonText('Disconnect')
+          .setDisabled(!info.connected)
+          .onClick(() => actions.disconnect()),
+      );
+
+    new Setting(this.containerEl)
+      .setName('Reset connection')
+      .setDesc(
+        'Clear the stored pairing so this device can be paired again. No note is touched.',
+      )
+      .addButton((button) =>
+        button
+          .setButtonText('Reset connection')
+          .onClick(() => actions.resetConnection()),
+      );
+
+    const overlayOn = plugin.authorOverlayEnabled();
+    new Setting(this.containerEl)
+      .setName('Author overlay')
+      .setDesc(
+        overlayOn
+          ? 'Currently on. Each note shows who last changed it, by colour and by name.'
+          : 'Currently off. Author colours and names are hidden in both editor views.',
+      )
+      .addButton((button) =>
+        button
+          .setButtonText(overlayOn ? 'Hide authors' : 'Show authors')
+          .onClick(() => {
+            plugin.toggleAuthorOverlay();
+            this.display();
+          }),
+      );
   }
 }
 
@@ -1577,6 +1698,21 @@ export default class HavemindPlugin extends Plugin {
   private readonly conflictSweepGuard = new RerunGuard(() =>
     this.runConflictSweepOnce(),
   );
+  /**
+   * F6 author overlay: whether "Show authors" is on for this vault. OFF by
+   * default — attribution decoration changes how every note looks, so it is
+   * opt-in. Persisted under `showAuthors` in `data.json` through the shared
+   * plugin-data mutex; a data.json that cannot be read leaves the flag
+   * session-only rather than blocking load.
+   */
+  private showAuthors = false;
+  /**
+   * True once the user has decided for this session. `restoreAuthorOverlayFlag`
+   * runs asynchronously from `onload`, so a toggle can land BEFORE the stored
+   * value comes back off disk; without this guard the restore would silently
+   * undo that toggle and then persist the undone value.
+   */
+  private authorOverlayChosen = false;
 
   override onload(): void {
     // Wire the Activity view to the live feed: the log snapshot is mapped through
@@ -1674,12 +1810,13 @@ export default class HavemindPlugin extends Plugin {
     // for the pane. `checkCallback` reports availability: syncing and
     // disconnecting are meaningless with nothing connected, so they grey out
     // rather than fail on invocation.
+    const actions = this.connectionActions();
     this.addCommand({
       id: 'sync-now',
       name: 'Sync now',
       checkCallback: (checking) => {
-        if (checking) return this.connection !== null;
-        void this.syncNow();
+        if (checking) return actions.connected();
+        actions.syncNow();
         return true;
       },
     });
@@ -1687,8 +1824,8 @@ export default class HavemindPlugin extends Plugin {
       id: 'disconnect',
       name: 'Disconnect',
       checkCallback: (checking) => {
-        if (checking) return this.connection !== null;
-        this.disconnect();
+        if (checking) return actions.connected();
+        actions.disconnect();
         return true;
       },
     });
@@ -1699,13 +1836,46 @@ export default class HavemindPlugin extends Plugin {
       id: 'reset-connection',
       name: 'Reset connection',
       callback: () => {
-        void this.resetConnection();
+        actions.resetConnection();
       },
+    });
+    // F6 author overlay: the one control that turns both surfaces on and off.
+    // No availability guard — with nothing recorded yet the overlay simply draws
+    // nothing, which is a legitimate state rather than an unavailable action.
+    this.addCommand({
+      id: 'show-authors',
+      name: 'Show authors',
+      callback: () => this.toggleAuthorOverlay(),
     });
 
     this.addRibbonIcon('hexagon', 'Open Havemind activity', () => {
       void this.openActivityView();
     });
+    this.addRibbonIcon('users', 'Show authors', () => {
+      this.toggleAuthorOverlay();
+    });
+
+    // FINDING 1: both author-overlay surfaces promised by `specs/001-mvp.md`.
+    // Obsidian owns their lifecycle — a registered editor extension and markdown
+    // post processor are torn down with the plugin — and both read the live flag
+    // and the live Activity feed through closures, so nothing else is retained.
+    this.registerEditorExtension(
+      createAuthorOverlayExtension({
+        overlayFor: (path, content) => {
+          const input = this.overlayInputFor(path, content);
+          return input === null ? null : buildLivePreviewOverlay(input);
+        },
+      }),
+    );
+    this.registerMarkdownPostProcessor(
+      createAuthorReadingViewProcessor({
+        overlayFor: (path, content, section) =>
+          this.readingViewOverlay(path, content, section),
+      }),
+    );
+    // Restore the persisted toggle. Fire-and-forget: onload must not wait on
+    // disk, and a failure leaves the overlay off rather than blocking startup.
+    void this.restoreAuthorOverlayFlag();
 
     this.statusItem = this.addStatusBarItem();
     this.statusItem.addClass('havemind-status-bar');
@@ -2699,9 +2869,133 @@ export default class HavemindPlugin extends Plugin {
     return this.connectionPanel().label;
   }
 
-  /** Opens (or reveals) the Havemind pane — the settings tab's one action. */
+  /** Opens (or reveals) the Havemind pane. */
   revealPanel(): void {
     void this.openView(HAVEMIND_ONBOARDING_VIEW);
+  }
+
+  /**
+   * The three connection actions plus their availability, in one place. Both the
+   * command palette entries (see `onload`) and the settings-tab buttons call
+   * through here, so neither surface holds its own copy of what an action does.
+   */
+  connectionActions(): HavemindConnectionActions {
+    return {
+      syncNow: () => {
+        void this.syncNow();
+      },
+      disconnect: () => {
+        this.disconnect();
+      },
+      resetConnection: () => {
+        void this.resetConnection();
+      },
+      connected: () => this.connection !== null,
+    };
+  }
+
+  /** The read-only summary the settings tab renders (FINDING 7). */
+  settingsInfo(): HavemindSettingsInfo {
+    const serverName = this.connection?.serverName ?? '';
+    return {
+      server: serverName.length === 0 ? 'Not connected' : serverName,
+      status: this.panelStatusLabel(),
+      lastSync:
+        this.lastSyncedAt === undefined
+          ? 'Not yet'
+          : formatActivityTime(this.lastSyncedAt),
+      members: formatMemberCount(this.rosterMembers.length),
+      connected: this.connection !== null,
+    };
+  }
+
+  /** Whether the F6 author overlay is currently drawing. */
+  authorOverlayEnabled(): boolean {
+    return this.showAuthors;
+  }
+
+  /**
+   * The "Show authors" action, shared by the command, the ribbon and the
+   * settings tab. Holds no listener of its own: both overlay surfaces read this
+   * flag through a closure, so flipping it plus asking Obsidian to re-run the
+   * registered editor extensions is the whole effect. Reading view redraws on
+   * its next render, which the Notice says out loud rather than leaving the user
+   * wondering why one pane changed and the other did not.
+   */
+  toggleAuthorOverlay(): void {
+    this.showAuthors = !this.showAuthors;
+    this.authorOverlayChosen = true;
+    this.app.workspace.updateOptions?.();
+    new Notice(
+      `Havemind: author overlay ${
+        this.showAuthors ? 'on' : 'off'
+      }. Reading view updates on its next render.`,
+    );
+    void this.persistAuthorOverlayFlag();
+  }
+
+  /** Reads the persisted "Show authors" flag; absent or unreadable means off. */
+  private async restoreAuthorOverlayFlag(): Promise<void> {
+    try {
+      const stored = await getPluginDataMutex(this).load();
+      // A toggle that landed while this read was in flight wins: the user's
+      // explicit choice must never be undone by the value it just replaced.
+      if (this.authorOverlayChosen) return;
+      this.showAuthors = stored[SHOW_AUTHORS_KEY] === true;
+      if (this.showAuthors) {
+        this.app.workspace.updateOptions?.();
+      }
+    } catch {
+      // data.json is unreadable (the corrupt-file state P1 #5 exists for). The
+      // overlay stays off for this session; never block load over a preference.
+    }
+  }
+
+  /** Persists the flag without disturbing any other `data.json` key. */
+  private async persistAuthorOverlayFlag(): Promise<void> {
+    try {
+      await getPluginDataMutex(this).update((current) => ({
+        ...current,
+        [SHOW_AUTHORS_KEY]: this.showAuthors,
+      }));
+    } catch {
+      // Same as above: the toggle simply stays session-only.
+    }
+  }
+
+  /**
+   * Overlay input for one file, honestly degraded to whole-file attribution —
+   * see `attribution/overlay-source.ts` for why per-line is not derivable yet.
+   */
+  private overlayInputFor(
+    path: string | null,
+    content: string,
+  ): ReturnType<typeof buildFileOverlayInput> {
+    return buildFileOverlayInput({
+      enabled: this.showAuthors,
+      path,
+      content,
+      entries: this.activityLog.snapshot(),
+      roster: this.rosterMembers,
+      reducedMotion: prefersReducedMotion(),
+      formatTimestamp: formatActivityTime,
+    });
+  }
+
+  /** The Reading-view overlay for the one block Obsidian just rendered. */
+  private readingViewOverlay(
+    path: string,
+    content: string,
+    section: ReadingViewSectionInfo,
+  ): ReturnType<typeof buildReadingViewOverlay> | null {
+    const input = this.overlayInputFor(path, content);
+    if (input === null) return null;
+    return buildReadingViewOverlay(input, [
+      {
+        blockId: `${path}:${section.lineStart}-${section.lineEnd}`,
+        section: { lineStart: section.lineStart, lineEnd: section.lineEnd },
+      },
+    ]);
   }
 
   private connectionPanel(): ConnectionPanelView {
