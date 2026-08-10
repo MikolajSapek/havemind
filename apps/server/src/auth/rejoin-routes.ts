@@ -123,7 +123,8 @@ function loadTargetVault(
  * - `POST /owner/rejoin-grants` — owner-authenticated. Self-authenticates the
  *   bearer session (the protected-scope preHandler lives inside auth-routes and
  *   does not reach here), then requires the caller to be an active owner in the
- *   target membership's vault. Returns non-secret binding metadata only.
+ *   target membership's vault. Returns non-secret binding metadata only. Rate
+ *   limited before the handler runs, so a flood costs no session lookup.
  * - `POST /auth/rejoin` — pre-auth. The invitee's terminal connection has no
  *   valid session, so no bearer is required; the grant is matched server-side by
  *   the (membershipId, deviceId) binding the invitee presents from its own
@@ -146,59 +147,72 @@ export function registerRejoinRoutes(
     now,
     (request) => request.ip,
   );
+  // The owner grant route is IP-keyed the same way (an unauthenticated attempt
+  // still costs a session lookup plus two membership queries, so it must be
+  // limited before the handler runs) but gets its OWN bucket: a pre-auth
+  // /auth/rejoin flood from the shared tunnel must not lock the owner out of
+  // re-admitting a member.
+  const grantRateLimit = createRateLimiter(
+    deps.rateLimit ?? DEFAULT_RATE_LIMIT,
+    now,
+    (request) => request.ip,
+  );
 
   void app.register(async (instance) => {
-    // /owner/rejoin-grants is bearer-authenticated (session looked up below)
-    // and deliberately left unlimited here: giving it the same device-keyed
-    // treatment as the authenticated auth-routes surface would require
-    // duplicating `defaultClientKey`'s session-aware exemption logic (not
-    // exported from auth-routes.ts), which is not a one-liner. Bolting on the
-    // IP-keyed limiter built for /auth/rejoin instead would fight the
-    // device-keyed pattern used elsewhere for authenticated traffic behind a
-    // shared tunnel (see auth-routes.ts `defaultClientKey`). Left as a
-    // follow-up rather than widening this hardening pass's scope.
-    instance.post('/owner/rejoin-grants', async (request, reply) => {
-      const token = extractBearerToken(request.headers.authorization);
-      if (token === null) {
-        return sendError(reply, 401, 'UNAUTHENTICATED');
-      }
-      const session = deps.sessions.lookupAccess(token);
-      if (session === null) {
-        return sendError(reply, 401, 'UNAUTHENTICATED');
-      }
-      if (hasImpersonationHeader(request, session.userId)) {
-        return sendError(reply, 403, 'FORBIDDEN');
-      }
-      const body = createGrantBodySchema.safeParse(request.body);
-      if (!body.success) {
-        return sendError(reply, 400, 'INVALID_REQUEST');
-      }
-      const vaultId = loadTargetVault(deps.database, body.data.membershipId);
-      // A missing target and a target the caller cannot see are
-      // indistinguishable from outside, so enumeration learns nothing.
-      if (vaultId === null) {
-        return sendError(reply, 403, 'FORBIDDEN');
-      }
-      const owner = loadActiveMembership(deps.database, session.userId, vaultId);
-      if (owner === null || owner.role !== 'owner') {
-        return sendError(reply, 403, 'FORBIDDEN');
-      }
-      try {
-        const grant = service.createGrant({
-          ownerMembershipId: owner.membershipId,
-          targetMembershipId: body.data.membershipId,
-        });
-        reply.header('cache-control', 'no-store');
-        return {
-          boundDeviceId: grant.boundDeviceId,
-          expiresAt: grant.expiresAt,
-          membershipId: grant.membershipId,
-          status: 'granted',
-        };
-      } catch (error) {
-        return sendRejoinError(reply, error);
-      }
-    });
+    instance.post(
+      '/owner/rejoin-grants',
+      {
+        onRequest: async (request, reply) => {
+          grantRateLimit(request, reply);
+        },
+      },
+      async (request, reply) => {
+        const token = extractBearerToken(request.headers.authorization);
+        if (token === null) {
+          return sendError(reply, 401, 'UNAUTHENTICATED');
+        }
+        const session = deps.sessions.lookupAccess(token);
+        if (session === null) {
+          return sendError(reply, 401, 'UNAUTHENTICATED');
+        }
+        if (hasImpersonationHeader(request, session.userId)) {
+          return sendError(reply, 403, 'FORBIDDEN');
+        }
+        const body = createGrantBodySchema.safeParse(request.body);
+        if (!body.success) {
+          return sendError(reply, 400, 'INVALID_REQUEST');
+        }
+        const vaultId = loadTargetVault(deps.database, body.data.membershipId);
+        // A missing target and a target the caller cannot see are
+        // indistinguishable from outside, so enumeration learns nothing.
+        if (vaultId === null) {
+          return sendError(reply, 403, 'FORBIDDEN');
+        }
+        const owner = loadActiveMembership(
+          deps.database,
+          session.userId,
+          vaultId,
+        );
+        if (owner === null || owner.role !== 'owner') {
+          return sendError(reply, 403, 'FORBIDDEN');
+        }
+        try {
+          const grant = service.createGrant({
+            ownerMembershipId: owner.membershipId,
+            targetMembershipId: body.data.membershipId,
+          });
+          reply.header('cache-control', 'no-store');
+          return {
+            boundDeviceId: grant.boundDeviceId,
+            expiresAt: grant.expiresAt,
+            membershipId: grant.membershipId,
+            status: 'granted',
+          };
+        } catch (error) {
+          return sendRejoinError(reply, error);
+        }
+      },
+    );
 
     instance.post(
       '/auth/rejoin',

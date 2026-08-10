@@ -3,6 +3,11 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
 import {
+  createRateLimiter,
+  DEFAULT_RATE_LIMIT,
+  type AuthRateLimitConfig,
+} from './auth-routes.js';
+import {
   MembershipRevocationError,
   MembershipRevocationService,
 } from './membership-revocation.js';
@@ -32,6 +37,7 @@ export interface RevokeRoutesDeps {
   readonly sessions: SessionRepository;
   readonly revocation?: MembershipRevocationService;
   readonly now?: () => Date;
+  readonly rateLimit?: AuthRateLimitConfig;
 }
 
 const membershipParamsSchema = z
@@ -141,6 +147,10 @@ function sendRevokeError(reply: FastifyReply, error: unknown): FastifyReply {
  *   owns are permanently revoked (append-only — a status change, never a delete)
  *   in one transaction, so the member's past revisions and attribution survive
  *   while their sessions are burned and they are terminally locked out.
+ *
+ * The route is rate limited like every sibling surface: an unauthenticated
+ * attempt still costs a session lookup plus two membership queries, so the
+ * limiter runs before the handler rather than after the bearer check.
  */
 export function registerRevokeRoutes(
   app: FastifyInstance,
@@ -149,8 +159,20 @@ export function registerRevokeRoutes(
   const now = deps.now ?? (() => new Date());
   const service =
     deps.revocation ?? new MembershipRevocationService(deps.database, { now });
+  // Keyed by IP, as on the rejoin surface: the session-aware `defaultClientKey`
+  // lives inside auth-routes and is deliberately not exported, so this module
+  // stays decoupled from it and reuses only the limiter factory.
+  const rateLimit = createRateLimiter(
+    deps.rateLimit ?? DEFAULT_RATE_LIMIT,
+    now,
+    (request) => request.ip,
+  );
 
   void app.register(async (instance) => {
+    instance.addHook('onRequest', async (request, reply) => {
+      rateLimit(request, reply);
+    });
+
     instance.post(
       '/owner/memberships/:membershipId/revoke',
       async (request, reply) => {

@@ -157,7 +157,10 @@ function makeFixture(): Fixture {
   };
 }
 
-function createApp(fixture: Fixture) {
+function createApp(
+  fixture: Fixture,
+  rateLimit?: { maxRequests: number; windowMs: number },
+) {
   const config = parseServerConfig(TEST_ENV);
   const app = buildApp({
     auth: {
@@ -165,6 +168,7 @@ function createApp(fixture: Fixture) {
       database: fixture.database,
       invitations: fixture.invitations,
       now: () => new Date(fixture.clock.ms),
+      ...(rateLimit === undefined ? {} : { rateLimit }),
       sessions: fixture.sessions,
       sync: {
         blobStore: fixture.blobStore,
@@ -377,6 +381,32 @@ describe('POST /owner/memberships/:membershipId/revoke', () => {
       url: `/owner/memberships/${INVITEE_MEMBERSHIP}/revoke`,
     });
     expect(response.statusCode).toBe(401);
+  });
+});
+
+describe('rate limiting on POST /owner/memberships/:membershipId/revoke', () => {
+  it('429s once one client exceeds the revoke threshold', async () => {
+    const fixture = makeFixture();
+    const app = createApp(fixture, { maxRequests: 2, windowMs: 60_000 });
+
+    // Even a rejected attempt costs a session lookup plus two membership
+    // queries, so the limiter has to run before the handler.
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const response = await revoke(app, 'not-a-live-token', INVITEE_MEMBERSHIP);
+      expect(response.statusCode).toBe(401);
+    }
+
+    const limited = await revoke(app, 'not-a-live-token', INVITEE_MEMBERSHIP);
+    expect(limited.statusCode).toBe(429);
+    expect(limited.json()).toMatchObject({ error: { code: 'RATE_LIMITED' } });
+  });
+
+  it('leaves under-threshold revoke traffic unaffected', async () => {
+    const fixture = makeFixture();
+    const app = createApp(fixture, { maxRequests: 5, windowMs: 60_000 });
+
+    const response = await revoke(app, fixture.ownerAccessToken, INVITEE_MEMBERSHIP);
+    expect(response.statusCode).toBe(200);
   });
 });
 

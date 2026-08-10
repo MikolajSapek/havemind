@@ -343,6 +343,57 @@ describe('POST /auth/rejoin', () => {
   });
 });
 
+describe('rate limiting on POST /owner/rejoin-grants', () => {
+  it('429s once one client exceeds the owner grant threshold', async () => {
+    const fixture = makeFixture();
+    const app = createApp(fixture, { maxRequests: 2, windowMs: 60_000 });
+
+    // Even a rejected attempt costs a session lookup plus two membership
+    // queries, so the limiter has to run before the handler.
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const response = await requestGrant(app, 'not-a-live-token', INVITEE_MEMBERSHIP);
+      expect(response.statusCode).toBe(401);
+    }
+
+    const limited = await requestGrant(app, 'not-a-live-token', INVITEE_MEMBERSHIP);
+    expect(limited.statusCode).toBe(429);
+    expect(limited.json()).toMatchObject({ error: { code: 'RATE_LIMITED' } });
+  });
+
+  it('leaves under-threshold grant traffic unaffected', async () => {
+    const fixture = makeFixture();
+    const app = createApp(fixture, { maxRequests: 5, windowMs: 60_000 });
+
+    const response = await requestGrant(
+      app,
+      fixture.ownerAccessToken,
+      INVITEE_MEMBERSHIP,
+    );
+    expect(response.statusCode).toBe(200);
+  });
+
+  it('keeps the owner grant budget independent of a pre-auth rejoin flood', async () => {
+    const fixture = makeFixture();
+    const app = createApp(fixture, { maxRequests: 2, windowMs: 60_000 });
+
+    // Exhaust the pre-auth /auth/rejoin bucket from the same IP …
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await redeem(app, hashRefreshToken(generateRefreshToken()));
+    }
+    const flooded = await redeem(app, hashRefreshToken(generateRefreshToken()));
+    expect(flooded.statusCode).toBe(429);
+
+    // … and the owner's administrative path still works: a stranger's flood
+    // must not lock the owner out of re-admitting a member.
+    const response = await requestGrant(
+      app,
+      fixture.ownerAccessToken,
+      INVITEE_MEMBERSHIP,
+    );
+    expect(response.statusCode).toBe(200);
+  });
+});
+
 describe('rate limiting on POST /auth/rejoin', () => {
   it('429s once one IP exceeds the pre-auth rejoin threshold', async () => {
     const fixture = makeFixture();
