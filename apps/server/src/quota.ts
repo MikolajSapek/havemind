@@ -18,6 +18,12 @@ import { DEFAULT_VAULT_QUOTA_BYTES } from './config.js';
  * set. Backed by the `revisions_by_blob_hash` index. This is the single source of
  * truth for both enforcement and the owner-facing usage read; there is no
  * materialised counter to drift from it.
+ *
+ * Grouping is by `blob_hash` alone, so a hash is charged exactly once even if it
+ * is recorded with conflicting sizes. The content-addressed store makes the size
+ * a function of the hash, so an honest commit cannot produce such rows; for a
+ * corrupted or hand-edited row `MAX(blob_size)` wins, which fails safe by
+ * over-charging rather than letting a vault quietly exceed its quota.
  */
 export function computeVaultStorageBytes(
   database: Database.Database,
@@ -27,9 +33,10 @@ export function computeVaultStorageBytes(
     .prepare(
       `SELECT COALESCE(SUM(blob_size), 0) AS used
        FROM (
-         SELECT DISTINCT blob_hash, blob_size
+         SELECT blob_hash, MAX(blob_size) AS blob_size
          FROM revisions
          WHERE vault_id = ?
+         GROUP BY blob_hash
        )`,
     )
     .get(vaultId) as { used: number } | undefined;

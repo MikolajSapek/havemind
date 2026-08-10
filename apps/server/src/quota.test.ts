@@ -22,8 +22,8 @@ import {
  * on purpose: the accounting contract is defined over `revisions.blob_hash` and
  * `revisions.blob_size` alone, and only raw inserts can express the boundary
  * rows a real commit path would never produce (a zero-byte blob, one hash with
- * two recorded sizes). These are characterisation tests — they pin down what
- * the module does today.
+ * two recorded sizes). These tests pin down the documented contract, including
+ * how it resolves those unreachable boundary rows.
  */
 
 const START_TIME = '2026-08-09T09:00:00.000Z';
@@ -244,11 +244,12 @@ describe('computeVaultStorageBytes', () => {
     expect(computeVaultStorageBytes(fixture.database, VAULT_B)).toBe(64);
   });
 
-  it('charges one hash twice when it is recorded with two conflicting sizes', () => {
-    // Characterisation, not an endorsement: the query de-duplicates the
-    // (blob_hash, blob_size) pair, not blob_hash alone. The CAS makes the size
+  it('charges one hash once, at its largest recorded size, when sizes conflict', () => {
+    // The contract is one charge per DISTINCT blob_hash, so conflicting sizes
+    // for a single hash must still yield a single charge. The CAS makes the size
     // a function of the hash, so the honest commit path cannot produce these
-    // rows; a corrupted or hand-edited row would be charged twice.
+    // rows; for a corrupted or hand-edited row the largest size wins, which
+    // over-charges rather than letting a vault exceed its quota unnoticed.
     const fixture = makeFixture();
     const shared = blobHash('conflicting-');
     fixture.insertRevision({
@@ -264,7 +265,7 @@ describe('computeVaultStorageBytes', () => {
       vaultId: VAULT_A,
     });
 
-    expect(computeVaultStorageBytes(fixture.database, VAULT_A)).toBe(107);
+    expect(computeVaultStorageBytes(fixture.database, VAULT_A)).toBe(100);
   });
 });
 
