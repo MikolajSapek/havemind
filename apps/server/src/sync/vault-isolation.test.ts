@@ -87,6 +87,10 @@ interface Fixture {
 const databases: Database.Database[] = [];
 const temporaryDirectories: string[] = [];
 const applications: Array<ReturnType<typeof buildApp>> = [];
+const wakeRegistries: Array<{
+  readonly registry: VaultWakeRegistry;
+  readonly vaultIds: readonly string[];
+}> = [];
 
 function insertUser(
   database: Database.Database,
@@ -241,6 +245,14 @@ function makeFixture(): Fixture {
     userId: MEMBER_B_USER,
   };
 
+  // Tracked so `afterEach` can release any /wait hold a case left parked. A
+  // failed assertion can abort a case before it wakes its own waiters, and a
+  // held long-poll's timer must not outlive the case that opened it.
+  wakeRegistries.push({
+    registry: wakeRegistry,
+    vaultIds: [VAULT_A, createdB.vaultId],
+  });
+
   return {
     blobStore,
     database,
@@ -256,7 +268,10 @@ function makeFixture(): Fixture {
   };
 }
 
-function createApp(fixture: Fixture): ReturnType<typeof buildApp> {
+function createApp(
+  fixture: Fixture,
+  options?: { readonly waitTimeoutMs?: number },
+): ReturnType<typeof buildApp> {
   const config = parseServerConfig(TEST_ENV);
   const app = buildApp({
     auth: {
@@ -270,7 +285,7 @@ function createApp(fixture: Fixture): ReturnType<typeof buildApp> {
         database: fixture.database,
         revisions: fixture.revisions,
         wakeRegistry: fixture.wakeRegistry,
-        waitTimeoutMs: 200,
+        waitTimeoutMs: options?.waitTimeoutMs ?? 200,
       },
     },
     config,
@@ -346,6 +361,11 @@ async function waitFor(predicate: () => boolean, timeoutMs = 1_000): Promise<voi
 }
 
 afterEach(async () => {
+  for (const { registry, vaultIds } of wakeRegistries.splice(0)) {
+    for (const vaultId of vaultIds) {
+      registry.notify(vaultId, 0);
+    }
+  }
   await Promise.all(applications.splice(0).map(async (app) => app.close()));
   for (const database of databases.splice(0)) {
     database.close();
@@ -573,15 +593,35 @@ describe('adversarial cross-vault isolation (two vaults, one server)', () => {
   // must not release a /wait waiter parked on vault B.
   it('does not wake a vault-B waiter when a revision commits in vault A', async () => {
     const fixture = makeFixture();
-    const app = createApp(fixture);
+    // Both holds below are released by an explicit wake, never by elapsed time,
+    // so the hold window is set far beyond any plausible commit duration. That
+    // is what makes the negative assertion an ordering fact rather than a race:
+    // vault B's waiter cannot self-resolve while the commit is in flight, no
+    // matter how slow the runner. (The timeout path itself is covered by
+    // sync-routes.test.ts, 'resolves with the unchanged cursor when the hold
+    // times out'.)
+    const app = createApp(fixture, { waitTimeoutMs: 60_000 });
 
-    // Park a real waiter on vault B (owner B is a member, cursor at head 0).
+    // Park a real waiter on each vault: owner A on A, owner B on B. Both are
+    // members with their cursor at head 0, so both hold rather than fast-path.
+    // Vault A's waiter is the positive control — if the commit wake were broken
+    // outright, it would never resolve and this test would fail, so B staying
+    // parked cannot pass vacuously.
+    const heldA = app.inject({
+      headers: { authorization: `Bearer ${fixture.ownerA.accessToken}` },
+      method: 'GET',
+      url: `/vaults/${VAULT_A}/wait?cursor=0`,
+    });
     const heldB = app.inject({
       headers: { authorization: `Bearer ${fixture.ownerB.accessToken}` },
       method: 'GET',
       url: `/vaults/${fixture.vaultB}/wait?cursor=0`,
     });
-    await waitFor(() => fixture.wakeRegistry.pendingCount(fixture.vaultB) === 1);
+    await waitFor(
+      () =>
+        fixture.wakeRegistry.pendingCount(VAULT_A) === 1 &&
+        fixture.wakeRegistry.pendingCount(fixture.vaultB) === 1,
+    );
 
     // Commit a revision in vault A. This must notify ONLY vault A's waiters.
     const committed = await push(app, fixture.ownerA.accessToken, VAULT_A, [
@@ -589,11 +629,22 @@ describe('adversarial cross-vault isolation (two vaults, one server)', () => {
     ]);
     expect(committed.statusCode).toBe(200);
 
-    // Vault B's waiter is still parked immediately after A's commit — the commit
-    // did not cross vaults.
+    // Vault A's waiter woke with A's advanced cursor. Awaiting it proves the
+    // commit's wake has already been dispatched — no sleeping required.
+    const resolvedA = await heldA;
+    expect(resolvedA.statusCode).toBe(200);
+    expect(resolvedA.json()).toEqual({ cursor: 1 });
+    expect(fixture.wakeRegistry.pendingCount(VAULT_A)).toBe(0);
+
+    // Vault B's waiter is still parked after that same wake — it did not cross
+    // vaults, and its own hold has ~60 s left to run.
     expect(fixture.wakeRegistry.pendingCount(fixture.vaultB)).toBe(1);
 
-    // It only resolves later, via its own timeout, with B's UNCHANGED cursor (0).
+    // B resolves only when B itself is woken, and then with B's UNCHANGED
+    // cursor (0): A's commit advanced A's cursor to 1 and left B's at 0.
+    const cursorB = fixture.revisions.getCursor(fixture.vaultB);
+    expect(cursorB).toBe(0);
+    fixture.wakeRegistry.notify(fixture.vaultB, cursorB);
     const resolvedB = await heldB;
     expect(resolvedB.statusCode).toBe(200);
     expect(resolvedB.json()).toEqual({ cursor: 0 });
