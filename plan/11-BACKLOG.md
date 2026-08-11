@@ -293,12 +293,12 @@ in the phase report (what works, what's deferred, evidence).
   dormant; revisit before connecting a real vault (USB or SFTP to the Mac).
   - Done without sudo: scripts in ops/sapserver/restic + ~/havemind-ops on the server (backup/
     prune 7/4/6 with restic check before forget/restore/verify), a 384-bit repo password in a 0600
-    file, an smb-credentials template, systemd mount+automount for //192.168.254.10/backup.
+    file, an smb-credentials template, systemd mount+automount for //192.168.x.n/backup.
   - UPDATE (2026-07-16, sudo-free architecture): restic 0.19.1 + rclone 1.74.4 static binaries
     in ~/bin (SHA256-verified), smb remote `nas-backup` in rclone.conf 0600, repo string
     `rclone:nas-backup:backup/havemind-restic`, 7/4/6 retention in prune.sh (check before forget),
     bootstrap.sh closes out init+backup+verify with one command. ZERO sudo steps.
-  - USER BLOCKERS (the only ones): (1) enable SMB on NAS 192.168.254.10 + a writable `backup`
+  - USER BLOCKERS (the only ones): (1) enable SMB on the NAS at 192.168.x.n + a writable `backup`
     share (445/139 currently refused); (2) `rclone config` on sapserver — enter the SMB
     credentials interactively; then `bash ~/havemind-ops/bootstrap.sh`.
   - AC: repo encrypted off the server's system disk, 7/4/6 retention configured

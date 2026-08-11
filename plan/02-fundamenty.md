@@ -35,7 +35,7 @@ session's memory.
 - User `mikolaj` is NOT in the `docker` group — administrative commands go through `sudo`,
   performed knowingly by the user when a password is required (see `01-zasady-i-slownik.md`
   rule 9).
-- UFW: `22/tcp` only from `192.168.254.0/24` and the `tailscale0` interface; no rules for other
+- UFW: `22/tcp` only from `192.168.x.0/24` and the `tailscale0` interface; no rules for other
   ports until they are explicitly added as part of a specific issue.
 
 ## Hidden work (S8) added to the input — without this the backlog stalls halfway

@@ -81,7 +81,7 @@ into new migration files.
 ## 2026-07-16 — SRV-02: backup target = local NAS
 
 User initially chose a local-network NAS (SMB share `backup` on
-`192.168.254.10`). REVISED 2026-07-16: that host turned out to be a UniFi
+`192.168.x.n`). REVISED 2026-07-16: that host turned out to be a UniFi
 Cloud Key (network controller, no file storage — SMB impossible). B2 was
 briefly considered, then REJECTED by the user on principle: **files live only
 on the user's own hardware — no cloud storage of any kind.**

@@ -9,7 +9,7 @@ this phase, since the note may have changed since its last update.
 ## The building agent is connected to the server and is allowed to modify it
 
 - Connection verified: `ssh sapserver` (Tailscale, the server's tailnet IP) from the MacBook; alias
-  `sapserver-lan` (`192.168.254.107`) as a fallback on the home network.
+  `sapserver-lan` (a static LAN address) as a fallback on the home network.
 - The agent (Claude Code / Codex, under the same trust model as "Dostęp Codexa przez CLI" in
   the Sapserver note) MAY independently: connect via SSH, diagnose service state, create Compose
   files in `/srv/compose/havemind/`, run `docker compose up/down` (via `sudo`, knowingly, within
