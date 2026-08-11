@@ -17,7 +17,7 @@ There are two different user experiences:
 1. **Joining a shared vault** must be almost zero-configuration.
 2. **Hosting a new Havemind server** is an administrator action. It can be simplified with Docker and a setup wizard, but it still requires storage and a secure HTTPS route.
 
-Someone installing the community plugin does not automatically connect to Mikołaj's server. Each shared vault belongs to a specific Havemind instance selected by its owner.
+Someone installing the community plugin does not automatically connect to Mikolaj's server. Each shared vault belongs to a specific Havemind instance selected by its owner.
 
 ## Transport-independent plugin
 

@@ -6,7 +6,7 @@
 
 ## Objective
 
-Havemind is developed first as a private, two-person pilot and, if that pilot proves reliable, released as an open-source project that other people can self-host without depending on Mikołaj's infrastructure.
+Havemind is developed first as a private, two-person pilot and, if that pilot proves reliable, released as an open-source project that other people can self-host without depending on Mikolaj's infrastructure.
 
 Open source does not mean open access to `sapserver`. Every deployment has its own users, vaults, storage, encryption keys and administrator. The owner's deployment remains private and invitation-only.
 
