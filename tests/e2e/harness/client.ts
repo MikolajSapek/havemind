@@ -40,6 +40,8 @@ import {
   type LocalFileMapping,
   type VaultSnapshotPort,
 } from '../../../apps/obsidian-plugin/src/obsidian/vault-adapter.js';
+import type { RemoteAppliedInfo } from '../../../apps/obsidian-plugin/src/runtime/activity-log.js';
+import type { ConfigApplyReloader } from '../../../apps/obsidian-plugin/src/runtime/obsidian-adapters.js';
 import {
   CONFIG_DIR,
   listSyncableConfigPaths,
@@ -303,12 +305,31 @@ interface DurableClientState {
   reconcileRequested: boolean;
 }
 
+/** Optional seams a spec can attach to one harness device. */
+export interface HarnessClientOptions {
+  /**
+   * The production config-apply reloader
+   * (`createConfigApplyReloader`), notified after every successful `.obsidian/`
+   * apply — write or delete — exactly as the live `createVaultFilePort` notifies
+   * it from its own `.obsidian/` branch. That port needs a real Obsidian `Vault`
+   * with a DataAdapter, which this harness does not model, so the harness makes
+   * the same call at the same point in its apply path; the port-side call site is
+   * unit-tested in `runtime/obsidian-adapters.test.ts`. Omitted by default: a
+   * client without it still writes the bytes correctly and simply cannot refresh
+   * a UI, which is what every disk-state-only spec wants.
+   */
+  readonly configApply?: ConfigApplyReloader;
+}
+
 export class HarnessClient {
   readonly #harness: ServerHarness;
   readonly #identity: ClientIdentity;
   readonly #vault = new InMemoryVault();
   readonly #repository = new InMemoryChangeRepository();
   readonly #observer: VaultChangeObserver;
+  readonly #configApply: ConfigApplyReloader | undefined;
+  /** Every remote revision this device genuinely applied, in apply order. */
+  readonly #appliedRemote: RemoteAppliedInfo[] = [];
 
   readonly #state: DurableClientState = {
     cursor: 0,
@@ -329,9 +350,14 @@ export class HarnessClient {
   #lastPushReceipts: readonly PushReceipt[] = [];
   readonly #backoffDelays: number[] = [];
 
-  public constructor(harness: ServerHarness, identity: ClientIdentity) {
+  public constructor(
+    harness: ServerHarness,
+    identity: ClientIdentity,
+    options: HarnessClientOptions = {},
+  ) {
     this.#harness = harness;
     this.#identity = identity;
+    this.#configApply = options.configApply;
     this.#observer = new VaultChangeObserver({
       clock: () => 0,
       generateFileId: () => randomUUID(),
@@ -372,6 +398,16 @@ export class HarnessClient {
   /** Receipts returned by the most recent push (for idempotency assertions). */
   public lastPushReceipts(): readonly PushReceipt[] {
     return this.#lastPushReceipts;
+  }
+
+  /**
+   * Every remote revision this device genuinely applied, in apply order, with the
+   * facts DECODED from the server's relayed payload (path, operation) rather than
+   * anything a test supplied. This is what the runtime feeds the Activity feed —
+   * and through it the author overlay — on the apply path.
+   */
+  public appliedRemote(): readonly RemoteAppliedInfo[] {
+    return [...this.#appliedRemote];
   }
 
   /** Marks a file as open in the editor with its content as the synced base. */
@@ -779,6 +815,7 @@ export class HarnessClient {
       await this.#removeLocal(decoded.path);
       this.#repository.forgetRemoteMapping(collisionKey);
       this.#headByFile.set(event.revision.fileId, event.revision.revisionId);
+      this.#recordApplied(event, decoded);
       return;
     }
 
@@ -806,6 +843,25 @@ export class HarnessClient {
         currentHash: contentHash,
       });
     }
+    this.#recordApplied(event, decoded);
+  }
+
+  /**
+   * Records a GENUINELY applied remote revision (never a conflict — those land in
+   * `#recordConflict` and are not this device learning a new head for the path).
+   * The runtime records the same facts at the same point, plus a wall-clock
+   * timestamp and the bootstrap/live origin the production apply adapter owns.
+   */
+  #recordApplied(
+    event: RemoteEvent,
+    decoded: ReturnType<typeof decodeRevisionPayload>,
+  ): void {
+    this.#appliedRemote.push({
+      fileId: event.revision.fileId,
+      operation: decoded.operation,
+      path: decoded.path,
+      revisionId: event.revision.revisionId,
+    });
   }
 
   async #recordConflict(event: RemoteEvent): Promise<void> {
@@ -840,6 +896,11 @@ export class HarnessClient {
   async #materialize(path: string, content: string): Promise<void> {
     if (isSyncableConfigPath(path)) {
       await writeConfigText(this.#vault.config, path, content);
+      // The bytes alone change nothing the user can see — Obsidian caches its
+      // config in memory. Report the apply exactly as `createVaultFilePort` does
+      // from its own `.obsidian/` write branch, so the batch can refresh the CSS
+      // or tell the user a reload is needed.
+      this.#configApply?.applied(path);
       return;
     }
     this.#vault.setFile(path, content);
@@ -849,6 +910,9 @@ export class HarnessClient {
   async #removeLocal(path: string): Promise<void> {
     if (isSyncableConfigPath(path)) {
       await removeConfig(this.#vault.config, path);
+      // A removal is the same visibility problem in reverse: a snippet the peer
+      // deleted keeps styling this vault until Obsidian re-reads its CSS.
+      this.#configApply?.applied(path);
       return;
     }
     this.#vault.files.delete(path);
