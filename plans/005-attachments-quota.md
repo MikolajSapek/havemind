@@ -51,9 +51,10 @@ Accounting query (parameterized, uses `revisions_by_blob_hash`):
 ```sql
 SELECT COALESCE(SUM(blob_size), 0) AS used
 FROM (
-  SELECT DISTINCT blob_hash, blob_size
+  SELECT blob_hash, MAX(blob_size) AS blob_size
   FROM revisions
   WHERE vault_id = ?
+  GROUP BY blob_hash
 );
 ```
 
