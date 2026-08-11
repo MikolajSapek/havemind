@@ -50,7 +50,7 @@ session's memory.
 5. Diagnostics with no secret leakage (`havemind doctor` or an equivalent command) — required
    before T032.
 6. Backup-recovery test on a clean machine (not just documentation) — required before T032.
-7. Tailscale update on the server (Sapserver checklist, "Następne kroki") — minor, but blocks
+7. Tailscale update on the server (Sapserver checklist, "Next steps") — minor, but blocks
    the pilot if the new version fixes a CVE; check before the pilot.
 8. Autostart after a power failure in BIOS — without this the 7-day pilot won't survive a power
    outage.

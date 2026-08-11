@@ -84,8 +84,8 @@ agent reads ONLY this folder plus the canonical files listed in `02-fundamenty.m
 
 - The absence of E2EE in the pilot is explicitly flagged on every UI surface (`Synced` on
   disposable data, never a suggestion of real-vault-grade security).
-- Backup on `sapserver` currently does NOT exist (per the state of the "Sapserver — dostęp i
-  konfiguracja" note, "Następne kroki" section) — treated as missing work blocking Phase 7, not
-  an oversight.
+- Backup on `sapserver` currently does NOT exist (per the state of the operator's private
+  Sapserver access-and-configuration note, "Next steps" section) — treated as missing work
+  blocking Phase 7, not an oversight.
 - Hardware constraints (120 GB, no GPU drivers) are stated explicitly in
   `08-sapserver-operations.md`, not hidden behind "sufficient resources".

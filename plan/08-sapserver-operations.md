@@ -10,11 +10,11 @@ this phase, since the note may have changed since its last update.
 
 - Connection verified: `ssh sapserver` (Tailscale, the server's tailnet IP) from the MacBook; alias
   `sapserver-lan` (a static LAN address) as a fallback on the home network.
-- The agent (Claude Code / Codex, under the same trust model as "Dostęp Codexa przez CLI" in
-  the Sapserver note) MAY independently: connect via SSH, diagnose service state, create Compose
-  files in `/srv/compose/havemind/`, run `docker compose up/down` (via `sudo`, knowingly, within
-  a single session), configure Tailscale Serve for the Havemind service, edit files in
-  `/srv/appdata/havemind` following the service-per-directory convention.
+- The agent (Claude Code / Codex, under the same trust model as the "CLI agent access" section
+  of the operator's private Sapserver note) MAY independently: connect via SSH, diagnose service
+  state, create Compose files in `/srv/compose/havemind/`, run `docker compose up/down` (via
+  `sudo`, knowingly, within a single session), configure Tailscale Serve for the Havemind
+  service, edit files in `/srv/appdata/havemind` following the service-per-directory convention.
 - The agent MAY NOT, without asking the user: perform steps that require the `sudo` password
   (it doesn't know the password — it must ask the user to type it in interactively, or perform
   the step itself), enable Tailscale Funnel, add itself/the user `mikolaj` to the `docker`
