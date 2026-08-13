@@ -13,7 +13,11 @@
  * calls `applyRemote`; `recordConflict` handles that separate case.
  */
 
-import { canonicalizeMarkdown, hashBlob } from '@havemind/protocol';
+import {
+  canonicalizeMarkdown,
+  hashBlob,
+  isSyncableConfigPath,
+} from '@havemind/protocol';
 import { mergeText, type DecodedRevisionPayload } from '@havemind/sync-core';
 
 import {
@@ -124,6 +128,31 @@ export interface ConflictNaming {
 
 /** Longest a note basename may be inside a conflict filename (keeps paths sane). */
 const MAX_CONFLICT_BASENAME_LENGTH = 60;
+
+/**
+ * Whether a divergence at `path` is resolved LAST-WRITER-WINS instead of by a
+ * conflict copy — true for the allowlisted `.obsidian/` settings files, false for
+ * every note and vault attachment.
+ *
+ * USER DECISION, 2026-08-12. Rule 3 ("zero silent overwrites") is a guarantee
+ * about NOTES: a divergent note is preserved in `Havemind Conflicts/` because
+ * prose a person typed can never be reconstructed. A settings file is different
+ * on both counts. There is nothing to reconstruct — the losing side is a value the
+ * user can set again in one click — and the conflict copy was actively harmful:
+ * `Havemind Conflicts/graph (conflict …).md` is not a settings file Obsidian will
+ * ever read, so the copy protected nothing while the colour groups the user wanted
+ * synced kept losing to the churn and never landed on the second device. So a
+ * config divergence resolves by RECENCY: revisions are pulled and applied in the
+ * server's total order (ascending `serverSequence`), so the last revision applied
+ * for a file is the last writer, and its content wins. A local settings change
+ * already sitting in the outbox is not discarded by this — it keeps its place in
+ * the queue and, once the server accepts it, becomes the later writer in turn.
+ *
+ * Notes and attachments keep the conflict-copy behaviour byte-identical.
+ */
+function resolvesLastWriterWins(path: string): boolean {
+  return isSyncableConfigPath(path);
+}
 
 /** Whether an applied remote revision came from the initial catch-up or a live edit. */
 export type RemoteAppliedOrigin = 'bootstrap' | 'live';
@@ -348,6 +377,12 @@ export class VaultApplyAdapter implements VaultApplyPort {
 
     const text = decoded.content ?? '';
 
+    // An allowlisted `.obsidian/` settings file resolves a divergence by recency
+    // rather than by a conflict copy (see `resolvesLastWriterWins`). Every guard
+    // below is unchanged for notes; for a settings file the diversion is skipped
+    // and the incoming (later) revision is written.
+    const lastWriterWins = resolvesLastWriterWins(decoded.path);
+
     // A rename moves the owned previous path before writing the new one. The
     // base hash is keyed by fileId, so it survives the move unchanged. But the
     // delete of the OLD path must never silently discard a local edit made
@@ -360,7 +395,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
       this.files.fileIdAtPath(decoded.previousPath) === fileId
     ) {
       const previousOnDisk = await this.files.readByPath(decoded.previousPath);
-      if (previousOnDisk !== null) {
+      if (previousOnDisk !== null && !lastWriterWins) {
         const base = this.files.baseHashFor(fileId);
         const previousHash = await this.hashContent(previousOnDisk);
         if (base === null || previousHash !== base) {
@@ -442,8 +477,18 @@ export class VaultApplyAdapter implements VaultApplyPort {
       // overwrite it and never claim ownership: preserve both via a conflict
       // artifact (the F2 conflict path). No shared ancestor exists across two
       // independently-minted fileIds, so a three-way merge is not attempted here.
-      await this.writeConflict(event, decoded);
-      return 'conflict';
+      if (!lastWriterWins) {
+        await this.writeConflict(event, decoded);
+        return 'conflict';
+      }
+      // A SETTINGS file instead resolves by recency: the incoming revision is the
+      // later writer, so it takes the path over. Retire the superseded fileId's
+      // state FIRST (same ordering requirement as the convergence branch above:
+      // a later same-path forget would otherwise undo the adoption below), then
+      // fall through to the ordinary write.
+      await this.producerSync?.onRemoteDelete({ fileId: owner, path: decoded.path });
+      await this.files.forgetBaseHash(owner);
+      await this.files.forgetBaseContent(owner);
     }
 
     // On-disk overwrite guard (rule 3, zero silent overwrites). The runner's
@@ -502,8 +547,12 @@ export class VaultApplyAdapter implements VaultApplyPort {
         if (merged !== null) {
           return merged;
         }
-        await this.writeConflict(event, decoded);
-        return 'conflict';
+        // A settings file has no conflict copy: the incoming revision is the
+        // later writer, so fall through to the write below and let it win.
+        if (!lastWriterWins) {
+          await this.writeConflict(event, decoded);
+          return 'conflict';
+        }
       }
     }
 
@@ -530,7 +579,13 @@ export class VaultApplyAdapter implements VaultApplyPort {
     // copy) instead of clobbering it. No `await` separates this read from the
     // write below, so nothing can interleave between them.
     const preWriteOnDisk = await this.files.readByPath(decoded.path);
-    if (preWriteOnDisk !== null && !contentMatches(preWriteOnDisk, text)) {
+    // A settings file skips the diversion entirely (last-writer-wins): the write
+    // below replaces the semantic content whatever landed since the first read.
+    if (
+      preWriteOnDisk !== null &&
+      !lastWriterWins &&
+      !contentMatches(preWriteOnDisk, text)
+    ) {
       const preWriteBase = this.files.baseHashFor(fileId);
       const preWriteHash = await this.hashContent(preWriteOnDisk);
       if (preWriteBase === null || preWriteHash !== preWriteBase) {
@@ -554,7 +609,12 @@ export class VaultApplyAdapter implements VaultApplyPort {
     try {
       await this.files.writeByPath(decoded.path, text);
     } catch (error) {
-      if (error instanceof ParentFolderOccupiedError) {
+      // A settings file never lands in the conflict folder, so it is not diverted
+      // here either. Config writes go through the DataAdapter, which tolerates an
+      // existing directory and cannot raise this error at all — the guard is kept
+      // so that a future config write path can only ever throw (and be retried),
+      // never quietly deposit a settings file among the conflict copies.
+      if (error instanceof ParentFolderOccupiedError && !lastWriterWins) {
         // A file occupies an ancestor of the target path, so the parent-folder
         // hierarchy cannot be created. Roll back the pre-write producer
         // adoption and preserve the incoming content in a conflict artifact.
@@ -707,6 +767,10 @@ export class VaultApplyAdapter implements VaultApplyPort {
     // Producer-mapping content for a binary file is base64 of the raw bytes —
     // the same form the observer stores, so a reflected vault event dedupes.
     const incomingBase64 = bytesToBase64(bytes);
+    // A binary appearance asset (a theme's preview image) is still a settings
+    // file: it resolves a divergence by recency, never by a conflict copy (see
+    // `resolvesLastWriterWins`). An ordinary vault attachment is unaffected.
+    const lastWriterWins = resolvesLastWriterWins(decoded.path);
 
     if (
       decoded.operation === 'rename' &&
@@ -714,7 +778,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
       this.files.fileIdAtPath(decoded.previousPath) === fileId
     ) {
       const previousOnDisk = await this.files.readBinaryByPath(decoded.previousPath);
-      if (previousOnDisk !== null) {
+      if (previousOnDisk !== null && !lastWriterWins) {
         const base = this.files.baseHashFor(fileId);
         const previousHash = await hashBlob(previousOnDisk);
         if (base === null || previousHash !== base) {
@@ -753,8 +817,15 @@ export class VaultApplyAdapter implements VaultApplyPort {
         });
         return 'noop';
       }
-      await this.writeConflict(event, decoded);
-      return 'conflict';
+      if (!lastWriterWins) {
+        await this.writeConflict(event, decoded);
+        return 'conflict';
+      }
+      // Settings asset: the incoming revision is the later writer and takes the
+      // path over. Retire the superseded fileId's state before the adoption below.
+      await this.producerSync?.onRemoteDelete({ fileId: owner, path: decoded.path });
+      await this.files.forgetBaseHash(owner);
+      await this.files.forgetBaseContent(owner);
     }
 
     if (onDisk !== null) {
@@ -771,13 +842,15 @@ export class VaultApplyAdapter implements VaultApplyPort {
         });
         return 'noop';
       }
+      // A settings asset skips both diversions below: the incoming revision is
+      // the later writer, so the write further down replaces the bytes.
       const base = this.files.baseHashFor(fileId);
       const onDiskHash = await hashBlob(onDisk);
-      if (base === null || onDiskHash !== base) {
+      if (!lastWriterWins && (base === null || onDiskHash !== base)) {
         await this.writeConflict(event, decoded);
         return 'conflict';
       }
-      if (!(await this.isCausalFastForward(fileId, event))) {
+      if (!lastWriterWins && !(await this.isCausalFastForward(fileId, event))) {
         await this.writeConflict(event, decoded);
         return 'conflict';
       }
@@ -797,7 +870,11 @@ export class VaultApplyAdapter implements VaultApplyPort {
     // diverged bytes are preserved in a conflict artifact, never overwritten
     // (binaries never merge). No `await` separates this read from the write.
     const preWriteOnDisk = await this.files.readBinaryByPath(decoded.path);
-    if (preWriteOnDisk !== null && !bytesEqual(preWriteOnDisk, bytes)) {
+    if (
+      preWriteOnDisk !== null &&
+      !lastWriterWins &&
+      !bytesEqual(preWriteOnDisk, bytes)
+    ) {
       const preWriteBase = this.files.baseHashFor(fileId);
       const preWriteHash = await hashBlob(preWriteOnDisk);
       if (preWriteBase === null || preWriteHash !== preWriteBase) {
@@ -809,9 +886,11 @@ export class VaultApplyAdapter implements VaultApplyPort {
     try {
       await this.files.writeBinaryByPath(decoded.path, bytes);
     } catch (error) {
-      if (error instanceof ParentFolderOccupiedError) {
+      if (error instanceof ParentFolderOccupiedError && !lastWriterWins) {
         // Same per-item divertion as the markdown path, over raw bytes and
-        // preserving the original extension. Never a cycle-killing throw.
+        // preserving the original extension. Never a cycle-killing throw. A
+        // settings asset is never diverted (it cannot reach the conflict folder);
+        // the config write path cannot raise this error in the first place.
         await this.producerSync?.onRemoteDelete({ fileId, path: decoded.path });
         await this.writeConflict(event, decoded);
         return 'conflict';
@@ -830,6 +909,13 @@ export class VaultApplyAdapter implements VaultApplyPort {
     return 'applied';
   }
 
+  /**
+   * The runner's separate open-BUFFER divergence path: the incoming revision is
+   * preserved as a conflict copy without touching the live file. Unreachable for
+   * an allowlisted `.obsidian/` settings file, which is why it needs no
+   * last-writer-wins branch — Obsidian never opens a hidden config file as an
+   * editor buffer, so `openBuffers` can never report one for a config fileId.
+   */
   async recordConflict(event: RemoteEvent): Promise<void> {
     const decoded = await this.resolveRevision(event);
     await this.writeConflict(event, decoded);

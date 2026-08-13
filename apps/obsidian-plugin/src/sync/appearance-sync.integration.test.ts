@@ -33,6 +33,7 @@ const IDENTITY = {
 const APPEARANCE_PATH = '.obsidian/appearance.json';
 const APPEARANCE_JSON = '{"accentColor":"#7c3aed","theme":"obsidian"}';
 const PLUGIN_SECRET_PATH = '.obsidian/plugins/foo/data.json';
+const GRAPH_PATH = '.obsidian/graph.json';
 
 /** Minimal in-memory vault that (unlike real Obsidian) surfaces `.obsidian/`. */
 class InMemoryConfigVault implements VaultSnapshotPort {
@@ -208,6 +209,85 @@ describe('appearance-config sync scope (integration)', () => {
 
     expect(operation).toBeNull();
     expect(enqueued).toHaveLength(0);
+  });
+
+  it('pushes graph.json WITHOUT its machine-local view state', async () => {
+    // `scale` and the `collapse-*` flags describe this screen, not the user's
+    // settings. They must never reach the wire, or the peer would adopt this
+    // machine's zoom level (see `config-normalize.ts`).
+    const { vault, observer, enqueued } = makeHarness();
+    vault.contents.set(
+      GRAPH_PATH,
+      JSON.stringify({
+        scale: 1.739,
+        close: true,
+        'collapse-filter': true,
+        colorGroups: [{ query: 'tag:#work', color: { a: 1, rgb: 8087286 } }],
+        showTags: true,
+      }),
+    );
+
+    const operation = await observer.observeCreate(GRAPH_PATH);
+
+    expect(operation).not.toBeNull();
+    expect(enqueued).toHaveLength(1);
+    const payload = decodeRevisionPayload(
+      decodeContent(enqueued[0] as OutboxEnvelope),
+    );
+    const pushed = JSON.parse(payload.content ?? '') as Record<string, unknown>;
+    expect(pushed).toEqual({
+      colorGroups: [{ query: 'tag:#work', color: { a: 1, rgb: 8087286 } }],
+      showTags: true,
+    });
+  });
+
+  it('enqueues NOTHING when opening the graph view rewrote only scale/collapse state', async () => {
+    // The reported bug: merely OPENING the graph view makes Obsidian rewrite
+    // graph.json, which used to produce a revision on every open — two devices
+    // then ping-ponged and spawned conflict copies of a settings file.
+    const { vault, observer, enqueued } = makeHarness();
+    const semantic = { colorGroups: [{ query: 'tag:#work' }], showTags: true };
+    vault.contents.set(GRAPH_PATH, JSON.stringify({ ...semantic, scale: 1 }));
+    await observer.observeCreate(GRAPH_PATH);
+    expect(enqueued).toHaveLength(1);
+
+    // Obsidian rewrites the file: new zoom, panels folded, nothing semantic.
+    vault.contents.set(
+      GRAPH_PATH,
+      JSON.stringify({
+        ...semantic,
+        scale: 2.7182818,
+        close: true,
+        'collapse-forces': true,
+      }),
+    );
+    const afterOpen = await observer.observeModify(GRAPH_PATH);
+
+    expect(afterOpen).toBeNull();
+    expect(enqueued).toHaveLength(1);
+  });
+
+  it('still enqueues a genuine colour-group change to graph.json', async () => {
+    const { vault, observer, enqueued } = makeHarness();
+    vault.contents.set(GRAPH_PATH, JSON.stringify({ colorGroups: [], scale: 1 }));
+    await observer.observeCreate(GRAPH_PATH);
+
+    vault.contents.set(
+      GRAPH_PATH,
+      JSON.stringify({
+        colorGroups: [{ query: 'tag:#work', color: { a: 1, rgb: 8087286 } }],
+        scale: 9,
+      }),
+    );
+    const operation = await observer.observeModify(GRAPH_PATH);
+
+    expect(operation?.kind).toBe('update');
+    expect(enqueued).toHaveLength(2);
+    const payload = decodeRevisionPayload(
+      decodeContent(enqueued[1] as OutboxEnvelope),
+    );
+    expect(payload.content).toContain('"rgb": 8087286');
+    expect(payload.content).not.toContain('scale');
   });
 
   it('never enqueues anything under our own .obsidian/plugins/havemind-sync/ folder', async () => {

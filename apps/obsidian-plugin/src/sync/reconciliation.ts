@@ -1,6 +1,7 @@
 import { canonicalizeMarkdown } from '@havemind/protocol';
 
 import { isSyncableConfigPath } from './appearance-scope';
+import { normalizeConfigContent } from './config-normalize';
 import {
   bytesToBase64,
   classifyVaultPath,
@@ -141,7 +142,15 @@ async function readEligibleContent(
     if (bytes.byteLength > MAX_BINARY_FILE_BYTES) return 'too-large';
     return { content: bytesToBase64(bytes) };
   }
-  return { content: normalizeContent(await vault.readText(readPath)) };
+  // Same volatile-field filter the observer applies when it hashes a config file
+  // (`config-normalize.ts`), so a graph.json whose zoom changed since the last
+  // scan reads as UNCHANGED here instead of being handed to `observeModify` —
+  // the mapping it is compared against holds the normalized form.
+  return {
+    content: normalizeContent(
+      normalizeConfigContent(readPath, await vault.readText(readPath)),
+    ),
+  };
 }
 
 export async function reconcileVaultState(

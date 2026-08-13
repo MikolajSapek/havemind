@@ -1474,3 +1474,136 @@ describe('VaultApplyAdapter — per-file apply serialisation', () => {
     await Promise.all([a, b]);
   });
 });
+
+/**
+ * FIX 2 — an allowlisted `.obsidian/` settings file resolves a divergence
+ * LAST-WRITER-WINS instead of spawning a conflict copy (user decision,
+ * 2026-08-12). `Havemind Conflicts/graph (conflict …).md` is not a file Obsidian
+ * ever reads, so the copy protected nothing while the churn it came with stopped
+ * the user's colour groups from ever landing on the second device.
+ *
+ * The port hands this adapter the SYNCED form of a config file (see
+ * `vault-file-port.ts`), so the on-disk strings below are already semantic —
+ * the volatile-key overlay is the port's job and is covered in
+ * `obsidian-adapters.test.ts`.
+ */
+describe('VaultApplyAdapter — config divergence is last-writer-wins', () => {
+  const GRAPH = '.obsidian/graph.json';
+  const SNIPPET = '.obsidian/snippets/custom.css';
+
+  it('overwrites a divergent graph.json instead of writing a conflict copy', async () => {
+    const { adapter, files } = build(() => content(GRAPH, '{"colorGroups":["new"]}'));
+    files.owners.set(GRAPH, 'file-1');
+    files.onDisk.set(GRAPH, '{"colorGroups":["local"]}');
+    // A base that matches NEITHER side: the divergence the old code turned into
+    // a conflict copy of a settings file.
+    files.baseHashes.set('file-1', 'h:{"colorGroups":["ancestor"]}');
+
+    const outcome = await adapter.applyRemote(event('rev-2', 'file-1'));
+
+    expect(outcome).toBe('applied');
+    expect(files.conflicts).toEqual([]);
+    expect(files.onDisk.get(GRAPH)).toBe('{"colorGroups":["new"]}');
+  });
+
+  it('never lets a settings file reach Havemind Conflicts when the base is unknown', async () => {
+    // Two devices that each held their own graph.json, never converged: base is
+    // null and the contents differ. This is the field case where the colours
+    // never landed.
+    const { adapter, files } = build(() => content(GRAPH, '{"colorGroups":["peer"]}'));
+    files.owners.set(GRAPH, 'file-1');
+    files.onDisk.set(GRAPH, '{"colorGroups":["mine"]}');
+
+    const outcome = await adapter.applyRemote(event('rev-2', 'file-1'));
+
+    expect(outcome).toBe('applied');
+    expect(files.conflicts).toEqual([]);
+    expect(files.onDisk.get(GRAPH)).toBe('{"colorGroups":["peer"]}');
+  });
+
+  it('adopts the incoming fileId when another fileId owns the settings path', async () => {
+    // Content-addressed reconciliation with DIVERGENT content: each device minted
+    // its own fileId for graph.json. A note would conflict here; a settings file
+    // hands the path to the later writer and retires the superseded fileId.
+    const forgotten: string[] = [];
+    const files = new FakeFiles();
+    files.owners.set(GRAPH, 'old-file');
+    files.onDisk.set(GRAPH, '{"showTags":false}');
+    files.baseHashes.set('old-file', 'h:{"showTags":false}');
+    const adapter = new VaultApplyAdapter({
+      files,
+      conflictFolder: 'Havemind Conflicts',
+      resolveRevision: async () => content(GRAPH, '{"showTags":true}'),
+      hashContent: fakeHash,
+      producerSync: {
+        onRemoteWrite: async () => undefined,
+        onRemoteDelete: async ({ fileId }) => {
+          forgotten.push(fileId);
+        },
+      },
+    });
+
+    const outcome = await adapter.applyRemote(event('rev-7', 'file-1'));
+
+    expect(outcome).toBe('applied');
+    expect(files.conflicts).toEqual([]);
+    expect(files.owners.get(GRAPH)).toBe('file-1');
+    expect(files.baseHashes.has('old-file')).toBe(false);
+    expect(forgotten).toContain('old-file');
+  });
+
+  it('still reports a converged settings file as a noop, with no write', async () => {
+    const { adapter, files } = build(() => content(GRAPH, '{"showTags":true}'));
+    files.owners.set(GRAPH, 'file-1');
+    files.onDisk.set(GRAPH, '{"showTags":true}');
+
+    const outcome = await adapter.applyRemote(event('rev-2', 'file-1'));
+
+    expect(outcome).toBe('noop');
+    expect(files.writes).toEqual([]);
+  });
+
+  it('applies a divergent CSS snippet last-writer-wins too', async () => {
+    const { adapter, files } = build(() => content(SNIPPET, 'body { --a: 2; }\n'));
+    files.owners.set(SNIPPET, 'file-1');
+    files.onDisk.set(SNIPPET, 'body { --a: 1; }\n');
+
+    const outcome = await adapter.applyRemote(event('rev-2', 'file-1'));
+
+    expect(outcome).toBe('applied');
+    expect(files.conflicts).toEqual([]);
+    expect(files.onDisk.get(SNIPPET)).toBe('body { --a: 2; }\n');
+  });
+
+  it('applies a divergent binary theme asset last-writer-wins (no conflict copy)', async () => {
+    const themeAsset = '.obsidian/themes/Minimal/preview.png';
+    const incoming = new Uint8Array([9, 9, 9]);
+    const { adapter, files } = build(() => binaryContent(themeAsset, incoming));
+    files.owners.set(themeAsset, 'file-1');
+    files.binaryOnDisk.set(themeAsset, new Uint8Array([1, 2, 3]));
+
+    const outcome = await adapter.applyRemote(event('rev-2', 'file-1'));
+
+    expect(outcome).toBe('applied');
+    expect(files.binaryConflicts).toEqual([]);
+    expect(files.binaryOnDisk.get(themeAsset)).toEqual(incoming);
+  });
+
+  it('leaves a diverged NOTE on the conflict-copy path, byte-identical to before', async () => {
+    // The control: rule 3 is unchanged for notes. Only `.obsidian/` is LWW.
+    const { adapter, files } = build(() => content('Notes/a.md', 'peer\n'));
+    files.owners.set('Notes/a.md', 'file-1');
+    files.onDisk.set('Notes/a.md', 'mine\n');
+
+    const outcome = await adapter.applyRemote(event('rev-2', 'file-1'));
+
+    expect(outcome).toBe('conflict');
+    expect(files.conflicts).toEqual([
+      {
+        path: 'Havemind Conflicts/a (conflict Windows 2026-07-22 2156).md',
+        content: 'peer\n',
+      },
+    ]);
+    expect(files.onDisk.get('Notes/a.md')).toBe('mine\n');
+  });
+});

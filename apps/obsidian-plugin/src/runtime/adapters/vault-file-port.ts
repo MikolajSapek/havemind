@@ -17,6 +17,10 @@ import {
   writeConfigBinary,
   writeConfigText,
 } from '../../sync/config-adapter';
+import {
+  mergeConfigContent,
+  normalizeConfigContent,
+} from '../../sync/config-normalize';
 import type { OpenBuffer } from '../../sync/sync-runner';
 import type { DurableSyncState } from '../sync-state';
 import {
@@ -179,7 +183,16 @@ export function createVaultFilePort(options: VaultFilePortOptions): VaultFilePor
       // the DataAdapter, canonicalised on equal terms with the producer.
       if (isSyncableConfigPath(path)) {
         if (!(await vault.adapter.exists(path))) return null;
-        return canonicalizeMarkdown(await vault.adapter.read(path));
+        // The port speaks the SYNCED form of a config file, which for
+        // `.obsidian/graph.json` is the file MINUS its machine-local view state
+        // (`config-normalize.ts`). Without this projection the apply side would
+        // compare a disk copy carrying this machine's zoom level against a
+        // revision that carries none, read every apply as a divergence, and
+        // spawn a conflict copy of a settings file on every graph open.
+        // Identity for every other config path.
+        return canonicalizeMarkdown(
+          normalizeConfigContent(path, await vault.adapter.read(path)),
+        );
       }
       const existing = vault.getAbstractFileByPath(path);
       if (existing === null) return null;
@@ -221,7 +234,20 @@ export function createVaultFilePort(options: VaultFilePortOptions): VaultFilePor
       // overwrite), materialising parent dirs — the Vault file API cannot touch
       // hidden paths.
       if (isSyncableConfigPath(path)) {
-        await writeConfigText(vault.adapter, path, content);
+        // MERGE, never replace, for a config file with machine-local view state:
+        // the incoming semantic keys are overlaid onto what is on disk so this
+        // machine keeps its own graph zoom and panel folds while adopting the
+        // peer's colour groups. Re-normalising the merged result reproduces the
+        // incoming payload exactly, which is what the caller adopted into the
+        // producer mapping — so this write cannot echo back as a local change.
+        const local = (await vault.adapter.exists(path))
+          ? await vault.adapter.read(path)
+          : null;
+        await writeConfigText(
+          vault.adapter,
+          path,
+          mergeConfigContent(path, local, content),
+        );
         // The bytes alone change nothing the user can see — Obsidian holds its
         // config in memory. Report the apply so the batch can refresh the CSS or
         // tell the user a reload is needed.

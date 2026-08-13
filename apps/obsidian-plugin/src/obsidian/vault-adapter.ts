@@ -2,6 +2,7 @@ import { canonicalizeMarkdown, hashBlob } from '@havemind/protocol';
 
 import { CONFLICT_FOLDER } from '../runtime/conflict-resolution';
 import { isSyncableConfigPath } from '../sync/appearance-scope';
+import { normalizeConfigContent } from '../sync/config-normalize';
 
 /**
  * Top-level folders the producer never syncs. The reserved conflict folder is
@@ -425,7 +426,16 @@ export class VaultChangeObserver {
       if (bytes.byteLength > MAX_BINARY_FILE_BYTES) return null;
       return { content: bytesToBase64(bytes), contentHash: await hashBlob(bytes) };
     }
-    const content = normalizeContent(await this.options.vault.readText(readPath));
+    // A config file with machine-local VIEW STATE syncs only its semantic part
+    // (`config-normalize.ts`): `.obsidian/graph.json` carries the graph view's
+    // current zoom and panel-fold flags, which Obsidian rewrites merely because
+    // the view was opened. Hashing the NORMALIZED form is what makes such a
+    // rewrite compare EQUAL to the mapping, so it produces no revision at all —
+    // and it is the normalized form that is pushed, so a peer never adopts this
+    // machine's zoom level. Identity for every other path.
+    const content = normalizeContent(
+      normalizeConfigContent(canonicalPath, await this.options.vault.readText(readPath)),
+    );
     return { content, contentHash: await sha256Hex(content) };
   }
 
