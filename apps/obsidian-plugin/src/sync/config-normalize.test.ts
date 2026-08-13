@@ -56,6 +56,62 @@ describe('hasVolatileConfigFields', () => {
 });
 
 describe('normalizeConfigContent', () => {
+  it('SPLIT CONTRACT: every named setting syncs, only the six view-state keys do not', () => {
+    // USER DECISION, 2026-08-13, stated key by key. Everything the user can
+    // choose in the graph view — colour groups, the size multipliers, the filter
+    // toggles, the force sliders — is a SETTING and must reach the other device.
+    // Only the six keys that describe the current view's shape on this screen
+    // stay behind. Enumerated here so a future edit to the volatile set cannot
+    // quietly demote a setting (or start syncing a zoom level) without a red test.
+    const MUST_SYNC = [
+      'colorGroups',
+      'nodeSizeMultiplier',
+      'lineSizeMultiplier',
+      'textFadeMultiplier',
+      'search',
+      'showTags',
+      'showAttachments',
+      'hideUnresolved',
+      'showOrphans',
+      'showArrow',
+      'centerStrength',
+      'repelStrength',
+      'linkStrength',
+      'linkDistance',
+    ];
+    const MUST_NOT_SYNC = [
+      'scale',
+      'close',
+      'collapse-filter',
+      'collapse-color-groups',
+      'collapse-display',
+      'collapse-forces',
+    ];
+
+    const normalized = JSON.parse(
+      normalizeConfigContent(
+        GRAPH_PATH,
+        graphJson({ ...SEMANTIC_GRAPH, ...VOLATILE_GRAPH }),
+      ),
+    ) as Record<string, unknown>;
+
+    expect(Object.keys(normalized).sort()).toEqual([...MUST_SYNC].sort());
+    for (const key of MUST_NOT_SYNC) {
+      expect(normalized).not.toHaveProperty(key);
+    }
+    // The two the user named first, spelled out: the colours and the node size
+    // survive with their exact values while the zoom is gone.
+    expect(normalized.colorGroups).toEqual(SEMANTIC_GRAPH.colorGroups);
+    expect(normalized.nodeSizeMultiplier).toBe(SEMANTIC_GRAPH.nodeSizeMultiplier);
+    expect(normalized.scale).toBeUndefined();
+    // And the two lists are exhaustive: nothing is both, nothing is neither.
+    expect(
+      [...MUST_SYNC, ...MUST_NOT_SYNC].sort(),
+    ).toEqual(
+      [...Object.keys(SEMANTIC_GRAPH), ...Object.keys(VOLATILE_GRAPH)].sort(),
+    );
+  });
+
   it('drops every volatile view-state key from graph.json', () => {
     const text = graphJson({ ...VOLATILE_GRAPH, ...SEMANTIC_GRAPH });
 
@@ -128,7 +184,7 @@ describe('normalizeConfigContent', () => {
   });
 
   it('tolerates a UTF-8 BOM before the JSON object', () => {
-    const text = `﻿${JSON.stringify({ scale: 2, showTags: true })}`;
+    const text = `\uFEFF${JSON.stringify({ scale: 2, showTags: true })}`;
 
     expect(JSON.parse(normalizeConfigContent(GRAPH_PATH, text))).toEqual({
       showTags: true,

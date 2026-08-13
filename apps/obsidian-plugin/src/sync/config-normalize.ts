@@ -86,7 +86,7 @@ export function hasVolatileConfigFields(path: string): boolean {
 function parseConfigObject(text: string): Record<string, unknown> | null {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(text.replace(/^﻿/u, ''));
+    parsed = JSON.parse(text.replace(/^\uFEFF/u, ''));
   } catch {
     return null;
   }

@@ -189,7 +189,15 @@ describe('F-config-apply — a received `.obsidian/` change becomes visible on t
     await alice.sync();
 
     await bob.sync();
-    expect(bob.readConfig(GRAPH_PATH)).toBe(graph);
+    // `graph.json` is the one allowlisted file that does NOT cross as a byte copy:
+    // it syncs its SEMANTIC part only, so what lands here is the normalised
+    // settings object, not Alice's formatting or her machine-local view state
+    // (`sync/config-normalize.ts`, covered in
+    // `config-semantic-sync-two-device.test.ts`). The colours — the point of
+    // syncing this file — are what must arrive intact.
+    expect(JSON.parse(bob.readConfig(GRAPH_PATH) ?? '')).toEqual({
+      colorGroups: [{ color: { rgb: 8087286 } }],
+    });
 
     bobEffects.flush();
     // Exactly the message the user sees, once — and no CSS refresh pretending

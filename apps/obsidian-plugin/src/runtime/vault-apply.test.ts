@@ -1606,4 +1606,108 @@ describe('VaultApplyAdapter — config divergence is last-writer-wins', () => {
     ]);
     expect(files.onDisk.get('Notes/a.md')).toBe('mine\n');
   });
+
+  // A theme PREVIEW IMAGE is on the appearance allowlist too
+  // (`.obsidian/themes/<name>/*.png`), so the binary apply path has its own
+  // last-writer-wins branches. They were untested: only the markdown rows above
+  // and the `.css` snippet exercised the decision, and a `.obsidian/…png`
+  // divergence would have kept depositing `Havemind Conflicts/preview (conflict
+  // …).png` — a file Obsidian never reads, for a value one click restores.
+  const THEME_PREVIEW = '.obsidian/themes/Minimal/preview.png';
+
+  it('overwrites a divergent theme preview image instead of writing a conflict copy', async () => {
+    const incoming = new Uint8Array([9, 9, 9]);
+    const { adapter, files } = build(() => binaryContent(THEME_PREVIEW, incoming));
+    files.owners.set(THEME_PREVIEW, 'file-1');
+    files.binaryOnDisk.set(THEME_PREVIEW, new Uint8Array([1, 1, 1]));
+    files.baseHashes.set('file-1', 'a-base-matching-neither-side');
+
+    const outcome = await adapter.applyRemote(event('rev-2', 'file-1'));
+
+    expect(outcome).toBe('applied');
+    expect(files.binaryConflicts).toEqual([]);
+    expect(files.binaryOnDisk.get(THEME_PREVIEW)).toEqual(incoming);
+  });
+
+  it('hands a settings image path to the incoming fileId when another owns it', async () => {
+    const forgotten: string[] = [];
+    const incoming = new Uint8Array([7, 7]);
+    const files = new FakeFiles();
+    files.owners.set(THEME_PREVIEW, 'old-file');
+    files.binaryOnDisk.set(THEME_PREVIEW, new Uint8Array([1]));
+    files.baseHashes.set('old-file', await hashBlob(new Uint8Array([1])));
+    const adapter = new VaultApplyAdapter({
+      files,
+      conflictFolder: 'Havemind Conflicts',
+      resolveRevision: async () => binaryContent(THEME_PREVIEW, incoming),
+      hashContent: fakeHash,
+      producerSync: {
+        onRemoteWrite: async () => undefined,
+        onRemoteDelete: async ({ fileId }) => {
+          forgotten.push(fileId);
+        },
+      },
+    });
+
+    const outcome = await adapter.applyRemote(event('rev-7', 'file-1'));
+
+    expect(outcome).toBe('applied');
+    expect(files.binaryConflicts).toEqual([]);
+    expect(files.owners.get(THEME_PREVIEW)).toBe('file-1');
+    expect(files.baseHashes.has('old-file')).toBe(false);
+    expect(forgotten).toContain('old-file');
+  });
+
+  it('applies a settings image whose incoming revision is not a causal fast-forward', async () => {
+    // The second binary divergence gate: on-disk still matches the base, but the
+    // peer's revision does not descend from our head. A note would conflict here;
+    // a settings asset takes the later writer's bytes.
+    const incoming = new Uint8Array([5]);
+    const onDisk = new Uint8Array([4]);
+    const files = new FakeFiles();
+    files.owners.set(THEME_PREVIEW, 'file-1');
+    files.binaryOnDisk.set(THEME_PREVIEW, onDisk);
+    files.baseHashes.set('file-1', await hashBlob(onDisk));
+    const adapter = new VaultApplyAdapter({
+      files,
+      conflictFolder: 'Havemind Conflicts',
+      resolveRevision: async () => binaryContent(THEME_PREVIEW, incoming),
+      hashContent: fakeHash,
+      producerSync: {
+        onRemoteWrite: async () => undefined,
+        onRemoteDelete: async () => undefined,
+        // A head the incoming revision does not name as a parent.
+        localHeadFor: async () => 'some-other-head',
+      },
+    });
+
+    const outcome = await adapter.applyRemote(event('rev-2', 'file-1', ['unrelated']));
+
+    expect(outcome).toBe('applied');
+    expect(files.binaryConflicts).toEqual([]);
+    expect(files.binaryOnDisk.get(THEME_PREVIEW)).toEqual(incoming);
+  });
+
+  it('leaves a diverged vault ATTACHMENT on the conflict-copy path', async () => {
+    // The binary control: an ordinary attachment is untouched by the LWW rule.
+    const incoming = new Uint8Array([2, 2]);
+    const { adapter, files } = build(() =>
+      binaryContent('Attachments/photo.png', incoming),
+    );
+    files.owners.set('Attachments/photo.png', 'file-1');
+    files.binaryOnDisk.set('Attachments/photo.png', new Uint8Array([1]));
+
+    const outcome = await adapter.applyRemote(event('rev-2', 'file-1'));
+
+    expect(outcome).toBe('conflict');
+    expect(files.binaryConflicts).toEqual([
+      {
+        path: 'Havemind Conflicts/photo (conflict Windows 2026-07-22 2156).png',
+        bytes: incoming,
+      },
+    ]);
+    expect(files.binaryOnDisk.get('Attachments/photo.png')).toEqual(
+      new Uint8Array([1]),
+    );
+  });
 });

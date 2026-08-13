@@ -23,6 +23,7 @@ import {
 } from '../obsidian/vault-adapter';
 import type { OutboxEnvelope } from '../runtime/sync-state';
 import { OutboxLocalChangeRepository, type ProducerState } from './outbox-repository';
+import { reconcileVaultState } from './reconciliation';
 
 const IDENTITY = {
   vaultId: '11111111-1111-4111-8111-111111111111',
@@ -282,6 +283,61 @@ describe('appearance-config sync scope (integration)', () => {
     const operation = await observer.observeModify(GRAPH_PATH);
 
     expect(operation?.kind).toBe('update');
+    expect(enqueued).toHaveLength(2);
+    const payload = decodeRevisionPayload(
+      decodeContent(enqueued[1] as OutboxEnvelope),
+    );
+    expect(payload.content).toContain('"rgb": 8087286');
+    expect(payload.content).not.toContain('scale');
+  });
+
+  it('a full reconcile scan reads a zoom-only graph.json rewrite as UNCHANGED', async () => {
+    // The observer is only one of the two producer entry points. The startup /
+    // post-outage scan (`reconcileVaultState`) reads every eligible file itself
+    // and compares it against the mapping, so it needs the same volatile-field
+    // filter — otherwise a device that merely had the graph view open before a
+    // restart re-pushes a settings revision on every reconnect.
+    const { vault, observer, repository, enqueued } = makeHarness();
+    const semantic = {
+      colorGroups: [{ query: 'tag:#work', color: { a: 1, rgb: 8087286 } }],
+      showTags: true,
+    };
+    vault.contents.set(GRAPH_PATH, JSON.stringify({ ...semantic, scale: 1 }));
+    await observer.observeCreate(GRAPH_PATH);
+    expect(enqueued).toHaveLength(1);
+
+    vault.contents.set(
+      GRAPH_PATH,
+      JSON.stringify({
+        ...semantic,
+        scale: 3.14159,
+        close: true,
+        'collapse-display': true,
+      }),
+    );
+    const result = await reconcileVaultState({ observer, repository, vault });
+
+    expect(result.unchanged).toBe(1);
+    expect(result.updated).toBe(0);
+    expect(enqueued).toHaveLength(1);
+  });
+
+  it('a full reconcile scan still stages a genuine colour-group change', async () => {
+    const { vault, observer, repository, enqueued } = makeHarness();
+    vault.contents.set(GRAPH_PATH, JSON.stringify({ colorGroups: [], scale: 1 }));
+    await observer.observeCreate(GRAPH_PATH);
+
+    vault.contents.set(
+      GRAPH_PATH,
+      JSON.stringify({
+        colorGroups: [{ query: 'tag:#work', color: { a: 1, rgb: 8087286 } }],
+        scale: 1,
+      }),
+    );
+    const result = await reconcileVaultState({ observer, repository, vault });
+
+    expect(result.updated).toBe(1);
+    expect(result.unchanged).toBe(0);
     expect(enqueued).toHaveLength(2);
     const payload = decodeRevisionPayload(
       decodeContent(enqueued[1] as OutboxEnvelope),

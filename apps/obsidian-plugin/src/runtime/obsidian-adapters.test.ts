@@ -1300,6 +1300,138 @@ describe('createVaultFilePort config apply visibility', () => {
   });
 });
 
+/**
+ * The port-side half of the graph.json volatile-field contract
+ * (`sync/config-normalize.ts`). `config-normalize.test.ts` pins the pure
+ * functions and `vault-apply.test.ts` pins the apply decision; both assume THIS
+ * port projects the file, and that assumption was never asserted. It is the
+ * load-bearing seam: `readByPath` must hand the apply side the SYNCED form (or a
+ * disk copy carrying this machine's zoom reads as a divergence on every graph
+ * open), and `writeByPath` must MERGE rather than replace (or the peer's zoom
+ * level is planted on this machine and the write echoes back as a local change).
+ */
+describe('createVaultFilePort graph.json volatile-field projection', () => {
+  const GRAPH_PATH = '.obsidian/graph.json';
+  const APPEARANCE_PATH = '.obsidian/appearance.json';
+
+  /** The peer's semantic keys, exactly as the apply side hands them over. */
+  const SEMANTIC = {
+    colorGroups: [{ query: 'tag:#work', color: { a: 1, rgb: 8087286 } }],
+    showTags: true,
+  };
+  /** The revision payload: the semantic form the producer pushes. */
+  const PAYLOAD = `${JSON.stringify(SEMANTIC, null, 2)}\n`;
+  /** What Obsidian left on THIS machine's disk: semantics plus view state. */
+  const LOCAL_GRAPH = JSON.stringify(
+    {
+      scale: 1.7391304347826086,
+      close: true,
+      'collapse-filter': true,
+      colorGroups: [{ query: 'tag:#old', color: { a: 1, rgb: 1 } }],
+      showTags: false,
+    },
+    null,
+    2,
+  );
+
+  /** The real port over a FakeVault, optionally seeded with one config file. */
+  async function makePort(seed?: { path: string; content: string }) {
+    const { createVaultFilePort } = await import('./obsidian-adapters');
+    const { TFile, TFolder } = await import('obsidian');
+    const vault = new FakeVault(TFile, TFolder);
+    if (seed !== undefined) vault.configEntries.set(seed.path, seed.content);
+    const port = createVaultFilePort({
+      vault: vault as never,
+      state: noopState as never,
+    });
+    return { port, vault };
+  }
+
+  it('readByPath hands the apply side graph.json MINUS its machine-local view state', async () => {
+    const { port } = await makePort({ path: GRAPH_PATH, content: LOCAL_GRAPH });
+
+    const read = await port.readByPath(GRAPH_PATH);
+
+    const parsed = JSON.parse(read ?? '') as Record<string, unknown>;
+    expect(parsed).toEqual({
+      colorGroups: [{ query: 'tag:#old', color: { a: 1, rgb: 1 } }],
+      showTags: false,
+    });
+    expect(parsed).not.toHaveProperty('scale');
+    expect(parsed).not.toHaveProperty('close');
+    expect(parsed).not.toHaveProperty('collapse-filter');
+  });
+
+  it('readByPath still reports a missing graph.json as absent, not as empty settings', async () => {
+    const { port } = await makePort();
+
+    expect(await port.readByPath(GRAPH_PATH)).toBeNull();
+  });
+
+  it('readByPath leaves every OTHER config file verbatim, volatile-looking keys included', async () => {
+    // `scale` is only volatile in graph.json. A file that happens to carry the
+    // same key name must still sync whole.
+    const appearance = '{"accentColor":"#7c3aed","scale":9}';
+    const { port } = await makePort({ path: APPEARANCE_PATH, content: appearance });
+
+    expect(await port.readByPath(APPEARANCE_PATH)).toBe(`${appearance}\n`);
+  });
+
+  it('writeByPath overlays the peer semantic keys and keeps the LOCAL zoom and fold state', async () => {
+    const { port, vault } = await makePort({
+      path: GRAPH_PATH,
+      content: LOCAL_GRAPH,
+    });
+
+    await port.writeByPath(GRAPH_PATH, PAYLOAD);
+
+    const written = JSON.parse(
+      String(vault.configEntries.get(GRAPH_PATH)),
+    ) as Record<string, unknown>;
+    // The peer's colours landed…
+    expect(written.colorGroups).toEqual(SEMANTIC.colorGroups);
+    expect(written.showTags).toBe(true);
+    // …and this machine's own view state was never touched.
+    expect(written.scale).toBe(1.7391304347826086);
+    expect(written.close).toBe(true);
+    expect(written['collapse-filter']).toBe(true);
+  });
+
+  it('writeByPath writes the semantic content when this device has no graph.json yet', async () => {
+    const { port, vault } = await makePort();
+
+    await port.writeByPath(GRAPH_PATH, PAYLOAD);
+
+    expect(JSON.parse(String(vault.configEntries.get(GRAPH_PATH)))).toEqual(
+      SEMANTIC,
+    );
+  });
+
+  it('reads a written revision back as EXACTLY the applied payload — the write cannot echo', async () => {
+    // The anti-ping-pong identity: the producer re-reads this file through the
+    // same port and compares against the payload it adopted into its mapping. Any
+    // difference here is a revision pushed straight back at the peer.
+    const { port } = await makePort({ path: GRAPH_PATH, content: LOCAL_GRAPH });
+
+    await port.writeByPath(GRAPH_PATH, PAYLOAD);
+
+    expect(await port.readByPath(GRAPH_PATH)).toBe(PAYLOAD);
+  });
+
+  it('writeByPath still replaces a non-volatile config file whole', async () => {
+    const { port, vault } = await makePort({
+      path: APPEARANCE_PATH,
+      content: '{"accentColor":"#000000"}',
+    });
+
+    await port.writeByPath(APPEARANCE_PATH, '{"accentColor":"#7c3aed"}');
+
+    expect(vault.configEntries.get(APPEARANCE_PATH)).toBe(
+      '{"accentColor":"#7c3aed"}',
+    );
+  });
+});
+
 describe('reserved conflict folder name', () => {
   it('is single-sourced across all three usage sites', async () => {
     const adapters = await import('./obsidian-adapters');

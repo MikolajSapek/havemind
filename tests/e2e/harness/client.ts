@@ -50,6 +50,7 @@ import {
   type ConfigAdapterListing,
   type ConfigAdapterPort,
 } from '../../../apps/obsidian-plugin/src/sync/config-adapter.js';
+import { mergeConfigContent } from '../../../apps/obsidian-plugin/src/sync/config-normalize.js';
 import { pollConfigOnce } from '../../../apps/obsidian-plugin/src/sync/config-poller.js';
 import { reconcileVaultState } from '../../../apps/obsidian-plugin/src/sync/reconciliation.js';
 import {
@@ -895,7 +896,24 @@ export class HarnessClient {
    */
   async #materialize(path: string, content: string): Promise<void> {
     if (isSyncableConfigPath(path)) {
-      await writeConfigText(this.#vault.config, path, content);
+      // MERGE, never replace — the same production call `createVaultFilePort`
+      // makes from its own `.obsidian/` write branch, with the same arguments
+      // (`mergeConfigContent`, real module). For `.obsidian/graph.json` the
+      // incoming semantic keys are overlaid onto what is on disk, so this device
+      // keeps its own graph zoom and panel folds while adopting the peer's colour
+      // groups; every other config path is written verbatim. HARNESS GLUE for the
+      // same reason the config-apply reloader is glue here: the live port needs an
+      // Obsidian `Vault` with a DataAdapter, which this harness does not model, so
+      // it calls the real function at the same point in its own apply path. The
+      // port-side call site is unit-tested in `runtime/obsidian-adapters.test.ts`.
+      const local = (await this.#vault.config.exists(path))
+        ? await this.#vault.config.read(path)
+        : null;
+      await writeConfigText(
+        this.#vault.config,
+        path,
+        mergeConfigContent(path, local, content),
+      );
       // The bytes alone change nothing the user can see — Obsidian caches its
       // config in memory. Report the apply exactly as `createVaultFilePort` does
       // from its own `.obsidian/` write branch, so the batch can refresh the CSS
