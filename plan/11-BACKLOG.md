@@ -286,11 +286,11 @@ in the phase report (what works, what's deferred, evidence).
     orchestrator session).
   - Follow-up for SRV-03: before deploying Restic, ask the user for the NAS host/share/protocol
     (NFS/SMB/SFTP) — this data hasn't been provided yet.
-- [ ] **SRV-03** `sapserver,security` Restic deployment — DEFERRED by user decision
-  (2026-07-16): zero backup during the pilot, files stay only on the user's hardware (NAS = Cloud
-  Key, cloud rejected). SRV-03/04/05 stop blocking F8-02 (explicit gate waiver by the
-  user — see DECISIONS.md). The sudo-free foundation (restic/rclone in ~/bin, scripts) stays
-  dormant; revisit before connecting a real vault (USB or SFTP to the Mac).
+- [x] **SRV-03** `sapserver,security` Restic deployment — WON'T FIX (closed 2026-08-18 by user
+  decision, see DECISIONS.md). The server is a pure opaque relay; every vault's full content and
+  history already lives on each member's local machine, so a server-side backup protects no data
+  that isn't already duplicated. Not a pilot-only waiver anymore — closed for the life of this
+  architecture. Revisit only if the server ever stops being a pure relay.
   - Done without sudo: scripts in ops/sapserver/restic + ~/havemind-ops on the server (backup/
     prune 7/4/6 with restic check before forget/restore/verify), a 384-bit repo password in a 0600
     file, an smb-credentials template, systemd mount+automount for //192.168.x.n/backup.
@@ -306,12 +306,10 @@ in the phase report (what works, what's deferred, evidence).
   - Depends on: F7-01 (application backup/restore needs an endpoint/CLI before Restic wraps
     the same logic around a real repository on the server — see `08-sapserver-operations.md`).
   - Blocks: F8-02.
-- [ ] **SRV-04** `sapserver` Single-file restore test
-  - AC: the file restored from backup is byte-for-byte identical to the original (functional,
-    method: `diff`/hash).
-- [ ] **SRV-05** `sapserver` Full-service restore test onto a clean instance
-  - AC: Havemind comes up from the recovered data, `PRAGMA integrity_check` is clean (functional).
-  - Blocks: F8-02.
+- [x] **SRV-04** `sapserver` Single-file restore test — WON'T FIX, closed with SRV-03
+  (2026-08-18): no backup to restore from; see DECISIONS.md.
+- [x] **SRV-05** `sapserver` Full-service restore test onto a clean instance — WON'T FIX, closed
+  with SRV-03 (2026-08-18): no backup to restore from; see DECISIONS.md.
 - [ ] **SRV-06** `sapserver` Docker test page on `127.0.0.1:8080` + Tailscale Serve
   - AC: the page is reachable only over the tailnet, `ss -lntu` (no `sudo` needed to
     check the bind address) shows no port on the public interface (functional

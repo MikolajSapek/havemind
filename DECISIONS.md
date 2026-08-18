@@ -3,6 +3,35 @@
 Log of blockers, open questions and simpler-variant choices raised during
 `/loop` execution. One entry per decision; newest first.
 
+## 2026-08-18 — SRV-03/04/05 (Restic backup) closed as won't-fix, not deferred
+
+**Decision:** the server backup work (SRV-03 Restic deployment, SRV-04
+single-file restore test, SRV-05 full-service restore test) is closed
+permanently, not merely deferred past the pilot.
+
+**Reasoning:** the server is an opaque relay, by design — it "never computes
+diffs, merges or provenance" (README, Architecture). Every vault's full
+content and history already lives on each member's local machine; the server
+only holds the content-addressed blob store and revision headers that pass
+through it. Losing the server's disk loses the sync bridge (Activity log
+detail, in-flight queued revisions, the DAG of who-changed-what) but not the
+notes themselves — those survive on both local vaults regardless. A backup
+whose only job is protecting data that already has two independent full
+copies elsewhere is not solving a real risk for this deployment shape.
+
+This reverses the pilot-era framing ("SRV-03/04/05 stop blocking F8-02 —
+explicit gate waiver by the user", 2026-07-16), which treated no-backup as a
+temporary risk accepted only for the 7-day trial. The user has now confirmed
+the local-vault-as-source-of-truth model is permanent, not pilot-specific, so
+the same reasoning applies indefinitely — this is not a "not yet" but a
+"not needed under this architecture."
+
+**If this changes:** revisit if the server ever becomes anything other than a
+pure relay (e.g. server-side history becomes authoritative, or a member's
+local vault is not itself considered reliable). The sudo-free restic/rclone
+foundation built for SRV-03 (`ops/sapserver/restic`, `~/havemind-ops`) is left
+in place, dormant, in case that happens.
+
 ## 2026-07-16 — F8-02b STOP: onboarding/auth HTTP surface (T019) is unimplemented
 
 **Follow-up F8-02b** asked to (A) close the plugin live loop by wiring the
