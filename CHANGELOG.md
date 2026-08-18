@@ -5,6 +5,13 @@ All notable changes to this project are documented here. The format is based on
 follows independent [Semantic Versioning](https://semver.org) for the plugin
 and the server.
 
+## [1.1.4] — 2026-08-18
+
+### Changed
+
+- Plugin description rewritten to lead with what it does, matching the
+  convention of the community catalogue.
+
 ## [1.1.3] — 2026-08-18
 
 ### Fixed
