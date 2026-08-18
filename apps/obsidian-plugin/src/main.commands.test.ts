@@ -186,4 +186,30 @@ describe('command palette actions', () => {
       ),
     ).toBe(true);
   });
+
+  it('closes the owner composer on Done, so the status indicator returns', async () => {
+    // The onboarding view gives the composer priority and returns before it
+    // draws the status row. Leaving `connectionActive` set after Done therefore
+    // hides "Connected — synced" for as long as the pane stays open, which
+    // reads as a dropped connection on a vault that is in fact synced.
+    const plugin = newPlugin();
+    await plugin.onload();
+    const internals = plugin as unknown as {
+      connectionActive: boolean;
+      pendingInvitation: unknown;
+      dismissInvitation: () => void;
+    };
+
+    internals.connectionActive = true;
+    internals.pendingInvitation = {
+      envelope: 'v1.ABC',
+      expiresAt: '2999-01-01T00:00:00.000Z',
+      invitationId: 'id-1',
+    };
+
+    internals.dismissInvitation();
+
+    expect(internals.connectionActive).toBe(false);
+    expect(internals.pendingInvitation).toBeNull();
+  });
 });

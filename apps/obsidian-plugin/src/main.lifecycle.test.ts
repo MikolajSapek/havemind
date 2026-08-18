@@ -927,6 +927,7 @@ describe('plugin lifecycle', () => {
     expect(dismissed).toBe(1);
   });
 
+
   it('withholds an expired invitation envelope and offers recovery', async () => {
     const view = new HavemindOnboardingView(new WorkspaceLeaf(), {
       composerProvider: () => ({

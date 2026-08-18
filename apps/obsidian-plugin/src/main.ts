@@ -1641,8 +1641,16 @@ export default class HavemindPlugin extends Plugin {
   }
 
   /** Clears the minted-invitation display without touching the waiting list. */
+  /**
+   * Closes the owner composer and returns to the connection panel. Clearing
+   * `connectionActive` is what makes Done a real exit: `render()` gives the
+   * composer priority and returns before drawing the status indicator, so
+   * leaving the composer open would hide "Connected — synced" indefinitely and
+   * read as if the vault had disconnected.
+   */
   private dismissInvitation(): void {
     this.pendingInvitation = null;
+    this.connectionActive = false;
     this.connectionNotice = undefined;
     this.connectionNoticeKind = undefined;
     this.onboardingView?.refresh();
