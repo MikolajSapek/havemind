@@ -5,6 +5,16 @@ All notable changes to this project are documented here. The format is based on
 follows independent [Semantic Versioning](https://semver.org) for the plugin
 and the server.
 
+## [1.1.5] — 2026-08-18
+
+### Fixed
+
+- The "Self-hosting guide" link actually opens the guide. 1.1.2 corrected the
+  URL but the link stayed inert: a bare `<a href>` inside a plugin view does not
+  reliably reach the browser. It now opens the URL explicitly and carries
+  Obsidian's `external-link` class. Covered by a test that asserts the click
+  behaviour, not just the URL value.
+
 ## [1.1.4] — 2026-08-18
 
 ### Changed
