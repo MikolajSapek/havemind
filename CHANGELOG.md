@@ -5,6 +5,20 @@ All notable changes to this project are documented here. The format is based on
 follows independent [Semantic Versioning](https://semver.org) for the plugin
 and the server.
 
+## [1.1.6] — 2026-08-18
+
+### Added
+
+- Release artifacts carry GitHub build-provenance attestations, so `main.js`
+  and `styles.css` can be verified as built by CI from this repository. Closes
+  the gap where a release was trusted on account control alone.
+
+### Documentation
+
+- README states what the plugin accesses and why: vault-wide path enumeration
+  (needed to pair files with revisions and detect renames) and clipboard writes
+  (the invitation Copy button; the clipboard is never read).
+
 ## [1.1.5] — 2026-08-18
 
 ### Fixed
