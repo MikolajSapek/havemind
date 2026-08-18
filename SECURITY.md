@@ -1,12 +1,15 @@
 # Security policy
 
-Havemind is an early technical alpha. We take security seriously and welcome
-reports of vulnerabilities.
+We take security seriously and welcome reports of vulnerabilities.
 
 ## Supported versions
 
-Only the latest published `0.9.x` alpha release is supported. Older builds
-receive no fixes — please update before reporting.
+Only the latest published `1.1.x` release is supported. Older builds receive no
+fixes — please update before reporting.
+
+Note that 1.1.0 closed a device-impersonation path in the rejoin flow. Devices
+paired before that release fail closed and must re-pair; running anything older
+than 1.1.0 is not supported.
 
 ## Reporting a vulnerability
 
@@ -32,6 +35,11 @@ network configuration — those are operated separately and are out of scope.
 
 ## Data-safety reminder
 
-The alpha uses a plaintext pilot payload format and has no end-to-end
-encryption. Use **disposable vaults only**. Never connect a vault holding real
-or sensitive notes.
+Havemind has **no end-to-end encryption**. Note content is stored on the server
+in plaintext, so anyone who controls the machine running the server can read the
+vault. Run it only on hardware you and your circle trust, keep it tailnet-only,
+and treat server access as vault access.
+
+This is a deliberate scope decision for a small, self-hosted, trusted-circle
+tool — not an oversight. If your threat model includes the server operator, this
+is not the right tool for that vault.

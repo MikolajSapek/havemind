@@ -18,8 +18,11 @@ every human and every agent works from one continuously-synced brain. You write,
 your Claude writes, their Claude writes — Havemind keeps it one coherent
 knowledge base, live, with full authorship and zero silent overwrites.
 
-**Version 0.9.0 — release candidate.** Feature-complete and hardened; in a 7-day
-live trial before 1.0.
+**Version 1.1.1 — stable.** The seven-day pilot closed on 2026-08-07 with zero
+data loss across real two-device use. Note that content is stored on the server
+in plaintext and there is no end-to-end encryption, so the machine running the
+server is the trust boundary — see [Security model](#security-model) before
+connecting a vault you care about.
 
 **Self-hosting your own instance?** See
 [docs/self-hosting.md](docs/self-hosting.md) for the full zero-to-working
