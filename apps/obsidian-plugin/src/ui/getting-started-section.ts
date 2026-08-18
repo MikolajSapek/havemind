@@ -39,7 +39,7 @@ export function renderGettingStarted(
       body.createEl('span', { text: ' ' });
       const link = body.createEl('a', {
         text: step.docRef.label,
-        attr: { href: step.docRef.url },
+        attr: { href: step.docRef.url, target: '_blank', rel: 'noopener' },
       });
       link.addClass('havemind-step-link');
     }

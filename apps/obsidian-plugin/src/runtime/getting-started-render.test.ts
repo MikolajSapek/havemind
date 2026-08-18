@@ -42,7 +42,16 @@ describe('buildGettingStartedViewModel', () => {
       label: 'Self-hosting guide',
       url: SELF_HOSTING_DOC_PATH,
     });
-    expect(SELF_HOSTING_DOC_PATH).toBe('docs/self-hosting.md');
+    expect(SELF_HOSTING_DOC_PATH).toBe(
+      'https://github.com/MikolajSapek/havemind/blob/main/docs/self-hosting.md',
+    );
+  });
+
+  it('gives the self-hosting guide an absolute URL, not a bare repo-relative path', () => {
+    // Obsidian's desktop shell resolves a relative <a href> against its own
+    // internal origin, not GitHub — a bare "docs/self-hosting.md" is a dead
+    // click. The link must carry a scheme and host.
+    expect(SELF_HOSTING_DOC_PATH).toMatch(/^https:\/\//);
   });
 
   it('attaches the doc link only to the credentials step', () => {

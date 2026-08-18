@@ -10,8 +10,14 @@
  * exposes.
  */
 
-/** In-repo path to the self-hosting guide referenced by the tutorial. */
-export const SELF_HOSTING_DOC_PATH = 'docs/self-hosting.md';
+/**
+ * Absolute URL to the self-hosting guide referenced by the tutorial. Must be
+ * absolute (scheme + host), not a repo-relative path: Obsidian's desktop shell
+ * resolves an `<a href>` against its own internal origin, not GitHub, so a bare
+ * `docs/self-hosting.md` silently fails to navigate anywhere on click.
+ */
+export const SELF_HOSTING_DOC_PATH =
+  'https://github.com/MikolajSapek/havemind/blob/main/docs/self-hosting.md';
 
 /** A documentation reference rendered as an inline link after a step. */
 export interface GettingStartedDocRef {
