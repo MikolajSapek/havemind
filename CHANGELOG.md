@@ -5,6 +5,15 @@ All notable changes to this project are documented here. The format is based on
 follows independent [Semantic Versioning](https://semver.org) for the plugin
 and the server.
 
+## [1.1.3] — 2026-08-18
+
+### Fixed
+
+- Selecting **Done** in the owner's Create-connection panel returns to the
+  connection view instead of leaving the composer open. The composer takes
+  render priority over the status row, so a connected vault previously showed
+  no "Connected — synced" anywhere and read as if sync had dropped.
+
 ## [1.1.2] — 2026-08-18
 
 ### Fixed
