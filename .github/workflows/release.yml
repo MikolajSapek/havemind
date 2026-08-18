@@ -9,6 +9,13 @@ on:
 
 permissions:
   contents: write
+  # Artifact attestations: `id-token` signs the provenance claim with the
+  # workflow's OIDC identity, `attestations` records it. Together they let a
+  # user verify main.js/styles.css were built by this workflow from this
+  # repository — the gap plans/003 T1 flagged, where BRAT trusts a release with
+  # no signature check and account control is the only boundary.
+  id-token: write
+  attestations: write
 
 concurrency:
   group: release-${{ github.workflow }}-${{ github.ref }}
@@ -105,6 +112,16 @@ jobs:
             echo "REVIEW: matches found — must be scrubbed or justified before public tag"; exit 1
           fi
           echo "PASS: no private-infra markers in publishable files"
+
+      # Runs after every gate above has passed, so the attestation only ever
+      # covers a bundle that built, typechecked, linted, tested and cleared the
+      # secret and private-infra scans.
+      - name: Attest build provenance for the release artifact
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            apps/obsidian-plugin/main.js
+            apps/obsidian-plugin/styles.css
 
       - name: Create GitHub Release with three-file artifact
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
