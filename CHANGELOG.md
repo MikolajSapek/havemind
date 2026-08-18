@@ -5,6 +5,13 @@ All notable changes to this project are documented here. The format is based on
 follows independent [Semantic Versioning](https://semver.org) for the plugin
 and the server.
 
+## [1.1.7] — 2026-08-18
+
+### Added
+
+- First release built and attested by the release workflow, so `main.js` and
+  `styles.css` carry verifiable build provenance.
+
 ## [1.1.6] — 2026-08-18
 
 ### Added
