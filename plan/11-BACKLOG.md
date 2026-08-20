@@ -473,6 +473,40 @@ Research: `docs/research-conflicts.md`. Execution order AFTER the conflict-casca
   of persistent per-file state, no coverage for binaries/rename, "not production-ready" even at
   large vendors) — revisit only if a real need for live concurrent editing arises.
 
+## UI — interface rebuild (plans/007, owner decision 2026-08-20)
+
+The plugin is public, so this interface is now the first thing every new user
+meets. E2EE deliberately deferred in favour of this (owner decision). Stages
+are sequential; each is independently releasable.
+
+- [ ] **UI-01** `plugin` Split the two entry paths (plans/007 Stage 1)
+  - A chooser replaces the unconditional five-step tutorial: "I have an
+    invitation" goes straight to the paste form, "I'll host the server" gets
+    the tutorial. Both keep a back affordance; a `havemind-join` URI skips the
+    chooser.
+  - AC: AT1-1…AT1-5 from `plans/007-ui-rebuild.md` green.
+  - AC negative: no change to `HavemindOnboardingViewOptions` semantics —
+    `main.ts` wiring compiles untouched.
+  - Presentation only: no protocol, server or sync change.
+
+- [ ] **UI-02** `plugin` Hierarchy in the connected panel (plans/007 Stage 2)
+  - Three tiers: always-visible (status, anything actionable), collapsed
+    (roster, idle send queue), behind an affordance (tutorial). A healthy panel
+    shows the status row and little else.
+  - AC: AT2-1…AT2-4 from `plans/007-ui-rebuild.md` green.
+  - AC negative (T3): nothing actionable — a conflict, a quarantined send — is
+    ever collapsed out of first paint.
+
+- [ ] **UI-03** `plugin` Explicit view state (plans/007 Stage 3)
+  - Replace the ordered `if … return` chain in `render()` with a discriminated
+    `ViewState` and one exhaustive `switch`; derive it in a pure, unit-tested
+    `resolveViewState`. Invitation composer becomes a modal, not a screen.
+  - AC: AT3-1…AT3-4 from `plans/007-ui-rebuild.md` green.
+  - AC: `ui/onboarding-view.ts` under 250 lines; no file in `ui/screens/` over 200.
+  - AC (regression, structural): opening the composer while connected leaves the
+    status row rendered — the 1.1.3 defect becomes impossible, not just fixed.
+  - AC: `npm run test:e2e` green **without modifying** the e2e suites.
+
 ## GITLAB-IMPORT
 
 - Labels: `foundation`, `server`, `plugin`, `sapserver`, `security`, `user-decision`.
