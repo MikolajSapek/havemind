@@ -5,6 +5,16 @@ All notable changes to this project are documented here. The format is based on
 follows independent [Semantic Versioning](https://semver.org) for the plugin
 and the server.
 
+## [1.1.8] — 2026-08-20
+
+### Added
+
+- The distribution repository now attests its own release artifacts. The
+  monorepo already attested the same bundle, but that attestation is recorded
+  against the monorepo — someone installing from the distribution repo could
+  not verify it there. The release people actually install is now attested
+  against the repository it is served from.
+
 ## [1.1.7] — 2026-08-18
 
 ### Added
