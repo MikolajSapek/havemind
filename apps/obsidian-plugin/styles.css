@@ -1006,3 +1006,58 @@
   cursor: pointer;
 }
 .havemind-footer-action:hover { color: var(--text-normal); }
+
+/* =========================================================================
+   The entry chooser (design 1d)
+   Stacked rows, not side-by-side cards: at 300px a card is 140px and both
+   titles wrap, which turns a two-word choice into a puzzle.
+   ========================================================================= */
+
+.havemind-entry-head { display: flex; align-items: center; gap: 7px; }
+.havemind-entry-subheading { color: var(--havemind-quiet); margin-bottom: var(--havemind-gap); }
+
+.havemind-entry-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: var(--havemind-gap) 0;
+}
+.havemind-entry-option {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  border: 1px solid var(--havemind-hairline);
+  border-radius: 6px;
+  background: none;
+  color: var(--text-normal);
+  font: inherit;
+  cursor: pointer;
+}
+.havemind-entry-option:hover { background: var(--background-modifier-hover); }
+.havemind-entry-option-title { font-weight: 500; margin-bottom: 2px; }
+
+.havemind-entry-back {
+  background: none;
+  border: none;
+  padding: 0 0 8px;
+  color: var(--havemind-quiet);
+  font: inherit;
+  cursor: pointer;
+}
+.havemind-entry-back:hover { color: var(--text-normal); }
+
+.havemind-host-steps { margin: var(--havemind-gap) 0; }
+/* A command is rendered as code, not prose: prose invites paraphrase, and a
+   paraphrased docker command does not run. */
+.havemind-host-command {
+  display: block;
+  margin-top: 4px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  background: var(--background-secondary);
+  font-family: var(--font-monospace);
+  font-size: 0.9em;
+  overflow-wrap: anywhere;
+}
+.havemind-entry-primary { margin-top: var(--havemind-gap); }

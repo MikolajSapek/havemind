@@ -83,6 +83,30 @@ describe('priority column — calm state', () => {
   });
 });
 
+describe('entry chooser', () => {
+  it('asks which path a fresh user is on', () => {
+    const root = pane({
+      panelProvider: () => buildConnectionPanel({ status: 'disconnected' }),
+    });
+
+    expect(texts(root).some((t) => /sent me an invitation/i.test(t))).toBe(true);
+    // The Docker tutorial is behind the host branch, not above the form.
+    expect(texts(root).some((t) => /Install Docker/i.test(t))).toBe(false);
+  });
+
+  it('skips the question for someone who followed a join link', () => {
+    // Clicking obsidian://havemind-join already answers it: that user holds an
+    // invitation. Asking anyway makes them answer twice.
+    const root = pane({
+      panelProvider: () => buildConnectionPanel({ status: 'disconnected' }),
+      arrivedWithInvitationProvider: () => true,
+    });
+
+    expect(texts(root).some((t) => /sent me an invitation/i.test(t))).toBe(false);
+    expect(flatten(root).some((el) => el.tag === 'textarea')).toBe(true);
+  });
+});
+
 describe('priority column — footer', () => {
   it('carries the authorship toggle that lost its ribbon icon', () => {
     let toggled = 0;

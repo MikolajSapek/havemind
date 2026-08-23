@@ -23,8 +23,18 @@ import {
   type ConnectionPanelView,
 } from '../runtime/status';
 
+import {
+  buildEntryChooser,
+  buildHostView,
+  type EntryChoice,
+} from '../runtime/entry-choice';
+
 import { renderActivityRows } from './activity-section';
 import { renderConflictSection } from './conflict-section';
+import {
+  renderEntryChooser,
+  renderHostPath,
+} from './entry-chooser-section';
 import { renderPaneFooter } from './pane-footer';
 import { renderPaneHeader, type PaneMenuItem } from './pane-header';
 import { renderGettingStarted } from './getting-started-section';
@@ -103,6 +113,12 @@ export interface OnboardingViewOptions {
   readonly authorOverlayProvider?: () => boolean;
   /** Flips the author overlay from the footer (the toggle lost its ribbon icon). */
   readonly onToggleAuthorOverlay?: () => void;
+  /**
+   * True when the user reached the pane through an `obsidian://havemind-join`
+   * link. That click already answers the entry chooser — they hold an
+   * invitation — so the question is skipped (design 1d).
+   */
+  readonly arrivedWithInvitationProvider?: () => boolean;
   /** Restores a revision from an activity row. */
   readonly onRestore?: (revisionId: string) => void;
   /**
@@ -236,6 +252,12 @@ export class HavemindOnboardingView extends ItemView {
   private activityOpen = false;
   /** Whether the header overflow menu is open. */
   private menuOpen = false;
+  /**
+   * Which entry path the user picked on the connect screen (design 1d).
+   * `undecided` shows the chooser; a typed token or a `havemind-join` URI
+   * counts as having chosen, so those users never see the question.
+   */
+  private entryChoice: EntryChoice = 'undecided';
   /** Live input elements from the current render, read during the next one. */
   private liveInputs: {
     token?: HTMLElement;
@@ -326,12 +348,7 @@ export class HavemindOnboardingView extends ItemView {
     renderSection(content, 'conflicts', () => this.renderConflicts(content));
     renderSection(content, 'connection', () => {
       if (panel.showForm) {
-        // Disconnected/empty state is the tutorial's natural home: show the
-        // numbered "Getting started" steps above the connect form so a fresh
-        // user knows exactly what to do before pasting anything.
-        renderGettingStarted(content, buildGettingStartedViewModel());
-        content.createEl('hr').addClass('havemind-divider');
-        this.renderForm(content);
+        this.renderEntryPath(content);
       } else {
         this.renderConnected(content);
       }
@@ -432,6 +449,60 @@ export class HavemindOnboardingView extends ItemView {
     });
   }
 
+
+  /**
+   * The disconnected pane: a chooser, then only the branch the user picked
+   * (design 1d). The five-step tutorial used to render unconditionally above
+   * the form — correct for the half of users who will host a server, and fatal
+   * for the half who only need to paste an invitation someone sent them.
+   *
+   * A user who arrived through `obsidian://havemind-join`, or who already has a
+   * token typed, has self-evidently chosen: skip the question.
+   */
+  private renderEntryPath(content: HTMLElement): void {
+    const decided =
+      this.entryChoice !== 'undecided' ||
+      this.draft.token.length > 0 ||
+      this.options.arrivedWithInvitationProvider?.() === true;
+
+    if (!decided) {
+      renderEntryChooser(content, {
+        model: buildEntryChooser(),
+        onChoose: (choice) => {
+          this.entryChoice = choice;
+          this.render();
+        },
+      });
+      return;
+    }
+
+    if (this.entryChoice === 'hosting') {
+      renderHostPath(content, {
+        model: buildHostView(),
+        onBack: () => {
+          this.entryChoice = 'undecided';
+          this.render();
+        },
+        onContinue: () => {
+          this.entryChoice = 'joining';
+          this.render();
+        },
+        onOpenGuide: (url) => {
+          window.open(url, '_blank');
+        },
+      });
+      return;
+    }
+
+    // The joining path: three fields and one button, with no tutorial above it.
+    const back = content.createEl('button', { text: 'Back' });
+    back.addClass('havemind-entry-back');
+    back.onClickEvent(() => {
+      this.entryChoice = 'undecided';
+      this.render();
+    });
+    this.renderForm(content);
+  }
 
   private renderConnected(content: HTMLElement): void {
     // The revision feed lives here now rather than in a second pane

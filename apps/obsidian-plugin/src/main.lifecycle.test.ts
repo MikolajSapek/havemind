@@ -31,6 +31,23 @@ function flatten(element: MockElement): MockElement[] {
   return element.children.flatMap((child) => [child, ...flatten(child)]);
 }
 
+/**
+ * Picks "Someone sent me an invitation" on the entry chooser (design 1d), which
+ * now stands between a fresh pane and the connect form. Tests that exercise the
+ * form itself go through it the way a user does.
+ */
+function chooseInvitationPath(view: { containerEl: unknown }): void {
+  const root = view.containerEl as unknown as MockElement;
+  const option = flatten(root).find(
+    (el) =>
+      el.tag === 'button' &&
+      flatten(el).some((child) => /sent me an invitation/i.test(child.text ?? '')),
+  );
+  if (option === undefined) throw new Error('entry chooser option not rendered');
+  // The click re-renders on its own; calling onOpen() again would wipe it.
+  option.triggerClick();
+}
+
 describe('plugin lifecycle', () => {
   beforeEach(() => {
     resetObsidianMock();
@@ -839,6 +856,7 @@ describe('plugin lifecycle', () => {
       },
     });
     await view.onOpen();
+    chooseInvitationPath(view);
 
     const kids =
       (view.containerEl as unknown as MockElement).children[1]?.children ?? [];
@@ -859,6 +877,7 @@ describe('plugin lifecycle', () => {
       onConnect: () => undefined,
     });
     await view.onOpen();
+    chooseInvitationPath(view);
 
     const content = (view.containerEl as unknown as MockElement).children[1];
     const textarea = flatten(content as MockElement).find(
@@ -1080,6 +1099,7 @@ describe('plugin lifecycle', () => {
       onConnect: (input) => captured.push(input),
     });
     await view.onOpen();
+    chooseInvitationPath(view);
 
     const kids =
       (view.containerEl as unknown as MockElement).children[1]?.children ?? [];

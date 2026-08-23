@@ -183,6 +183,11 @@ export default class HavemindPlugin extends Plugin {
   private pendingInvitation: CreatedInvitation | null = null;
   private pendingApprovals: PendingApprovalEntry[] = [];
   private connectionActive = false;
+  /**
+   * True once the user opened an `obsidian://havemind-join` link, which answers
+   * the entry chooser on their behalf: they hold an invitation (design 1d).
+   */
+  private arrivedWithInvitation = false;
   private connectionNotice: string | undefined;
   /** Visual treatment for `connectionNotice`; see CreateConnectionViewModel. */
   private connectionNoticeKind: 'info' | 'success' | undefined;
@@ -328,6 +333,7 @@ export default class HavemindPlugin extends Plugin {
         // pane footer now, beside the vault it annotates.
         authorOverlayProvider: () => this.authorOverlayEnabled(),
         onToggleAuthorOverlay: () => this.toggleAuthorOverlay(),
+        arrivedWithInvitationProvider: () => this.arrivedWithInvitation,
         composerProvider: () =>
           this.connectionActive ? this.composerModel() : null,
         guestWaitingProvider: () => this.awaitingApproval,
@@ -510,6 +516,10 @@ export default class HavemindPlugin extends Plugin {
       // A passive join URI belongs to the guest paste wizard, not the owner
       // composer.
       this.connectionActive = false;
+      // Arriving through havemind-join *is* the answer to the entry chooser:
+      // this user has an invitation. Asking them anyway would be asking a
+      // question they have already answered by clicking the link (design 1d).
+      this.arrivedWithInvitation = true;
       void this.openView(HAVEMIND_ONBOARDING_VIEW);
     });
 
