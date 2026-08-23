@@ -445,15 +445,7 @@ export class HavemindOnboardingView extends ItemView {
       // Inviting happens inside People now (round 2, Q3), so an open composer
       // selects that tab rather than a fourth one of its own.
       active: composerOpen ? 'people' : this.activeTab,
-      activityCount: count(
-        () => this.options.activityFeedProvider?.().length ?? 0,
-      ),
-      peopleCount: count(
-        () => this.options.rejoinRosterProvider?.()?.rows.length ?? 0,
-      ),
-      attentionCount:
-        count(() => this.options.conflictsProvider?.().length ?? 0) +
-        count(() => this.options.sendQueueProvider?.()?.failed.length ?? 0),
+      attentionCount: this.attentionCount(),
     });
   }
 

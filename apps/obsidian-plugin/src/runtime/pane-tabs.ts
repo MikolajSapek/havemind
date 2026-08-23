@@ -36,9 +36,11 @@ export interface PaneTab {
 
 export interface PaneTabsInput {
   readonly active: PaneTabId;
-  readonly activityCount: number;
-  readonly peopleCount: number;
-  /** Conflicts and failed sends live under Status and demand attention. */
+  /**
+   * Conflicts and failed sends. The only count in the strip: Activity and
+   * People used to carry one too, and three numbers competing in a 300px strip
+   * made the one that matters unreadable.
+   */
   readonly attentionCount: number;
 }
 
@@ -57,18 +59,12 @@ export function buildPaneTabs(input: PaneTabsInput): PaneTabsView {
         ? { count: input.attentionCount, needsAttention: true }
         : {}),
     },
-    {
-      id: 'activity',
-      label: 'Activity',
-      icon: 'history',
-      ...(input.activityCount > 0 ? { count: input.activityCount } : {}),
-    },
-    {
-      id: 'people',
-      label: 'People',
-      icon: 'users',
-      ...(input.peopleCount > 0 ? { count: input.peopleCount } : {}),
-    },
+    // No counts on Activity or People (round 2, cut list): "12 today" and
+    // "2 connected" are facts nobody can act on, and three competing numbers in
+    // a 300px strip turn the one number that matters — the conflict count —
+    // into noise. Counts in the strip went 3 → 1.
+    { id: 'activity', label: 'Activity', icon: 'history' },
+    { id: 'people', label: 'People', icon: 'users' },
   ];
 
   // Three tabs for everyone. Inviting used to be a fourth, owner-only tab —

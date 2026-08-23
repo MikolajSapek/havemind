@@ -4,8 +4,6 @@ import { buildPaneTabs, type PaneTabsInput } from './pane-tabs';
 
 const base: PaneTabsInput = {
   active: 'status',
-  activityCount: 0,
-  peopleCount: 0,
   attentionCount: 0,
 };
 
@@ -28,13 +26,14 @@ describe('pane tabs', () => {
     }
   });
 
-  it('shows a count only when there is something to count', () => {
-    const quiet = buildPaneTabs(base);
-    expect(quiet.tabs.every((t) => t.count === undefined)).toBe(true);
-
-    const busy = buildPaneTabs({ ...base, activityCount: 12, peopleCount: 2 });
-    expect(busy.tabs.find((t) => t.id === 'activity')?.count).toBe(12);
-    expect(busy.tabs.find((t) => t.id === 'people')?.count).toBe(2);
+  it('carries a count only on the tab that needs action', () => {
+    // Activity and People used to show one too. Three numbers competing in a
+    // 300px strip made the one that matters unreadable, and "12 today" is not
+    // something anyone can act on.
+    const busy = buildPaneTabs({ ...base, attentionCount: 2 });
+    expect(busy.tabs.find((t) => t.id === 'status')?.count).toBe(2);
+    expect(busy.tabs.find((t) => t.id === 'activity')?.count).toBeUndefined();
+    expect(busy.tabs.find((t) => t.id === 'people')?.count).toBeUndefined();
   });
 
   it('marks the status tab when something needs the user', () => {
@@ -45,7 +44,7 @@ describe('pane tabs', () => {
   });
 
   it('never marks a tab that has nothing wrong', () => {
-    const view = buildPaneTabs({ ...base, activityCount: 40 });
+    const view = buildPaneTabs(base);
     expect(view.tabs.every((t) => t.needsAttention !== true)).toBe(true);
   });
 
