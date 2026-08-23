@@ -10,20 +10,22 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { HavemindOnboardingView } from './onboarding-view';
 import { buildConnectionPanel } from '../runtime/status';
 import {
   WorkspaceLeaf,
   type MockElement,
 } from '../test/obsidian.mock';
 
+import {
+  HavemindOnboardingView,
+  type OnboardingViewOptions,
+} from './onboarding-view';
+
 function flatten(el: MockElement): MockElement[] {
   return [el, ...(el.children ?? []).flatMap(flatten)];
 }
 
-function connectedPane(
-  options: Partial<Parameters<typeof HavemindOnboardingView.prototype.constructor>[1]> = {},
-): MockElement {
+function connectedPane(options: OnboardingViewOptions = {}): MockElement {
   const view = new HavemindOnboardingView(new WorkspaceLeaf(), {
     panelProvider: () => buildConnectionPanel({ status: 'synced' }),
     ...options,

@@ -184,6 +184,12 @@ export interface ConnectionPanelView {
   /** Show the paste form (true) or the connected panel with Disconnect (false). */
   readonly showForm: boolean;
   readonly detail: string;
+  /**
+   * The connected server's host, when there is one. Kept out of `detail` so the
+   * pane can put it in the overflow menu rather than spending a status line on
+   * an address the user already knows (design 1a).
+   */
+  readonly serverName?: string;
 }
 
 interface PanelStyle {
@@ -272,9 +278,9 @@ export function buildConnectionPanel(
   const style = PANEL_STYLES[input.status];
   const format = input.formatTimestamp ?? defaultFormatTimestamp;
   const parts: string[] = [];
-  if (input.serverName !== undefined && input.serverName.length > 0) {
-    parts.push(`Server: ${input.serverName}`);
-  }
+  // The server address is carried separately (see `serverName` below) so the
+  // detail line keeps only what changes: recency, the queue, and why a bad
+  // state is bad.
   if (input.status === 'synced' && input.lastSyncedAt !== undefined) {
     parts.push(`Last sync: ${format(input.lastSyncedAt)}`);
   }
@@ -305,5 +311,11 @@ export function buildConnectionPanel(
     spin: style.spin && input.reducedMotion !== true,
     showForm: style.showForm,
     detail: parts.join(' · '),
+    // The pane draws the address in its overflow menu rather than under the
+    // status word (design 1a): nobody needs their own server address daily, and
+    // in a 300px column it pushed the line that actually changes out of view.
+    ...(input.serverName !== undefined && input.serverName.length > 0
+      ? { serverName: input.serverName }
+      : {}),
   };
 }

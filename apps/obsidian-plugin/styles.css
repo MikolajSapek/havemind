@@ -885,3 +885,124 @@
     animation: none;
   }
 }
+
+/* =========================================================================
+   The priority column (design 1a)
+   One scrolling column: status on top, anything actionable injected beneath
+   it, everything idle collapsed to a summary row. The calm pane carries no
+   fill anywhere — so the first tinted surface a user sees IS the thing that
+   needs them, with no badge vocabulary to learn.
+   ========================================================================= */
+
+.havemind-pane-header {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 6px 8px 0;
+  border-bottom: 1px solid var(--havemind-hairline);
+  margin-bottom: var(--havemind-gap);
+}
+
+.havemind-pane-mark { display: flex; color: var(--havemind-accent); }
+.havemind-pane-title { font-weight: 500; }
+
+.havemind-pane-more {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--havemind-quiet);
+  cursor: pointer;
+}
+.havemind-pane-more:hover { color: var(--text-normal); }
+
+.havemind-pane-menu {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--havemind-hairline);
+  border-radius: 6px;
+  padding: 4px;
+  margin-bottom: var(--havemind-gap);
+}
+.havemind-pane-menu-item {
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 6px 8px;
+  border-radius: 4px;
+  color: var(--text-normal);
+  font: inherit;
+  cursor: pointer;
+}
+.havemind-pane-menu-item:hover { background: var(--background-modifier-hover); }
+/* The server address: present for reference, never interactive. */
+.havemind-pane-menu-note {
+  padding: 6px 8px;
+  color: var(--havemind-quiet);
+  font-size: 0.85em;
+  overflow-wrap: anywhere;
+}
+
+/* A collapsed section states its own count, so the pane proves it is awake
+   without spending the column on history nobody asked for. */
+.havemind-collapse-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 0;
+  background: none;
+  border: none;
+  border-top: 1px solid var(--havemind-hairline);
+  color: var(--text-normal);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.havemind-collapse-header > span:first-child { flex: 1; }
+.havemind-collapse-count { color: var(--text-faint); font-size: 0.88em; }
+.havemind-collapse-body { padding-bottom: 6px; }
+
+.havemind-pane-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 7px;
+  border-top: 1px solid var(--havemind-hairline);
+}
+.havemind-footer-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--havemind-quiet);
+  font: inherit;
+  font-size: 0.88em;
+  cursor: pointer;
+}
+/* Pressed state is carried by aria-pressed as well as this colour: colour is
+   never the only signal. */
+.havemind-footer-toggle.is-on { color: var(--havemind-accent); }
+.havemind-footer-actions { margin-left: auto; display: flex; gap: 4px; }
+.havemind-footer-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--havemind-quiet);
+  cursor: pointer;
+}
+.havemind-footer-action:hover { color: var(--text-normal); }

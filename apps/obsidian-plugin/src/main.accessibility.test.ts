@@ -183,12 +183,23 @@ describe('panel glyph accessibility', () => {
 
     const content = (view.containerEl as unknown as MockElement)
       .children[1] as MockElement;
-    const decorative = glyphs(content);
+    // An icon is either decoration, which must be hidden, or the entire label of
+    // a control, which must instead carry an accessible name. A glyph that is
+    // neither is unreachable and unannounced.
+    const decorative = glyphs(content).filter(
+      (glyph) => (glyph.attrs['aria-label'] ?? '') === '',
+    );
     // The panel does draw glyphs (title hexagon, status icon, roster dots) —
     // otherwise this test would pass vacuously.
     expect(decorative.length).toBeGreaterThan(2);
     for (const glyph of decorative) {
       expect(glyph.attrs['aria-hidden']).toBe('true');
+    }
+
+    for (const named of glyphs(content).filter(
+      (glyph) => (glyph.attrs['aria-label'] ?? '') !== '',
+    )) {
+      expect(named.tag).toBe('button');
     }
   });
 
@@ -234,13 +245,14 @@ describe('panel glyph accessibility', () => {
 
     const content = (view.containerEl as unknown as MockElement)
       .children[1] as MockElement;
-    const toggle = flatten(content).find((element) =>
-      element.classes.includes('havemind-help-toggle'),
+    // The help toggle moved into the pane footer (design 1a) but keeps its
+    // contract: an icon-only control states what pressing it will do, and
+    // reports whether the panel it controls is currently open.
+    const toggle = flatten(content).find(
+      (element) => element.attrs['aria-label'] === 'Show getting started',
     );
-    expect(toggle?.attrs['aria-label']).toBe('Show getting started');
-    for (const glyph of glyphs(toggle as MockElement)) {
-      expect(glyph.attrs['aria-hidden']).toBe('true');
-    }
+    expect(toggle).toBeDefined();
+    expect(toggle?.attrs['aria-expanded']).toBe('false');
   });
 
   it('hides the conflicts header glyph, whose meaning is already in the text', () => {

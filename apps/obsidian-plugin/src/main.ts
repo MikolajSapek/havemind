@@ -324,6 +324,10 @@ export default class HavemindPlugin extends Plugin {
         // Activity view reads, so the two can never disagree.
         activityFeedProvider: () => this.activityOptions.feedProvider?.() ?? [],
         onRestore: (revisionId) => this.handleRestore(revisionId),
+        // The overlay toggle lost its ribbon icon in Stage 0 and lives in the
+        // pane footer now, beside the vault it annotates.
+        authorOverlayProvider: () => this.authorOverlayEnabled(),
+        onToggleAuthorOverlay: () => this.toggleAuthorOverlay(),
         composerProvider: () =>
           this.connectionActive ? this.composerModel() : null,
         guestWaitingProvider: () => this.awaitingApproval,

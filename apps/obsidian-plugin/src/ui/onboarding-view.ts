@@ -25,6 +25,8 @@ import {
 
 import { renderActivityRows } from './activity-section';
 import { renderConflictSection } from './conflict-section';
+import { renderPaneFooter } from './pane-footer';
+import { renderPaneHeader, type PaneMenuItem } from './pane-header';
 import { renderGettingStarted } from './getting-started-section';
 import { DECORATIVE, renderSection, renderViewTitle } from './primitives';
 import { renderRejoinRoster } from './roster-section';
@@ -97,6 +99,10 @@ export interface OnboardingViewOptions {
    * the standalone Activity view uses, so the two cannot disagree.
    */
   readonly activityFeedProvider?: () => readonly RevisionRecord[];
+  /** Current author-overlay state, for the footer toggle. */
+  readonly authorOverlayProvider?: () => boolean;
+  /** Flips the author overlay from the footer (the toggle lost its ribbon icon). */
+  readonly onToggleAuthorOverlay?: () => void;
   /** Restores a revision from an activity row. */
   readonly onRestore?: (revisionId: string) => void;
   /**
@@ -228,6 +234,8 @@ export class HavemindOnboardingView extends ItemView {
    * pane spends its lines on what needs attention, not on history (plans/007).
    */
   private activityOpen = false;
+  /** Whether the header overflow menu is open. */
+  private menuOpen = false;
   /** Live input elements from the current render, read during the next one. */
   private liveInputs: {
     token?: HTMLElement;
@@ -242,7 +250,9 @@ export class HavemindOnboardingView extends ItemView {
   }
 
   override getDisplayText(): string {
-    return 'Connect to Havemind';
+    // The pane holds everything now — connecting, activity, people, conflicts —
+    // so naming it after one of those would misdescribe the other three.
+    return 'Havemind';
   }
 
   override getIcon(): string {
@@ -292,11 +302,22 @@ export class HavemindOnboardingView extends ItemView {
       return;
     }
 
-    renderViewTitle(content, 'Connect to Havemind');
-
     const panel =
       this.options.panelProvider?.() ??
       buildConnectionPanel({ status: 'disconnected' });
+
+    // Header strip with the overflow menu (design 1a). Disconnect, Reset and
+    // the server address live behind it rather than costing standing lines in
+    // a 300px column.
+    renderPaneHeader(content, {
+      title: 'Havemind',
+      menuOpen: this.menuOpen,
+      onToggleMenu: () => {
+        this.menuOpen = !this.menuOpen;
+        this.render();
+      },
+      items: this.headerMenuItems(panel),
+    });
     // MAJOR 5: each section renders inside its own guard so a synchronous
     // provider throw degrades that one section to an inline fallback rather than
     // blanking the whole panel (content.empty() has already run above).
@@ -411,41 +432,8 @@ export class HavemindOnboardingView extends ItemView {
     });
   }
 
-  /**
-   * The collapsed help affordance for the connected panel: a small life-buoy
-   * icon button that toggles the "Getting started" steps in place. It never
-   * nags — the steps stay hidden until the user asks for them, and re-opening
-   * them touches no connection state.
-   */
-  private renderHelpAffordance(content: HTMLElement): void {
-    const bar = content.createDiv();
-    bar.addClass('havemind-help-bar');
-    const toggle = bar.createEl('button', {
-      attr: {
-        'aria-label': this.helpOpen
-          ? 'Hide getting started'
-          : 'Show getting started',
-        'aria-expanded': this.helpOpen ? 'true' : 'false',
-      },
-    });
-    toggle.addClass('havemind-help-toggle');
-    setIcon(toggle.createEl('span', { attr: DECORATIVE }), 'life-buoy');
-    toggle.onClickEvent(() => {
-      this.helpOpen = !this.helpOpen;
-      this.render();
-    });
-    if (this.helpOpen) {
-      renderGettingStarted(content, buildGettingStartedViewModel());
-      content.createEl('hr').addClass('havemind-divider');
-    }
-  }
 
   private renderConnected(content: HTMLElement): void {
-    // Once connected the tutorial collapses to a small, unobtrusive help button
-    // near the panel title; clicking it re-opens the same "Getting started"
-    // steps in place, so the guidance stays discoverable without nagging.
-    this.renderHelpAffordance(content);
-
     // The revision feed lives here now rather than in a second pane
     // (plans/007 Stage 0), collapsed by default: in the calm state it is one
     // summary row carrying a count, so the pane proves it is awake without
@@ -458,8 +446,64 @@ export class HavemindOnboardingView extends ItemView {
     if (roster !== undefined) {
       this.renderRoster(content, roster);
     }
-    const disconnect = content.createEl('button', { text: 'Disconnect' });
-    disconnect.onClickEvent(() => this.options.onDisconnect?.());
+
+    // Disconnect moved into the header overflow menu: a standing button spends
+    // a line on the action a connected user least wants to hit. The footer
+    // instead carries what people reach for — the authorship toggle (which lost
+    // its ribbon icon in Stage 0), inviting someone, and the tutorial.
+    const overlayOn = this.options.authorOverlayProvider?.();
+    renderPaneFooter(content, {
+      ...(overlayOn !== undefined ? { authorOverlayOn: overlayOn } : {}),
+      ...(this.options.onToggleAuthorOverlay
+        ? { onToggleAuthorOverlay: this.options.onToggleAuthorOverlay }
+        : {}),
+      helpOpen: this.helpOpen,
+      onOpenHelp: () => {
+        this.helpOpen = !this.helpOpen;
+        this.render();
+      },
+    });
+
+    if (this.helpOpen) {
+      renderGettingStarted(content, buildGettingStartedViewModel());
+    }
+  }
+
+  /**
+   * What the header overflow menu holds. Only offered once connected: on the
+   * connect screen there is nothing to disconnect from, and Reset is already
+   * surfaced as its own affordance in the state that needs it.
+   */
+  private headerMenuItems(panel: ConnectionPanelView): PaneMenuItem[] {
+    if (panel.showForm) return [];
+
+    const items: PaneMenuItem[] = [];
+    if (panel.serverName !== undefined) {
+      items.push({
+        label: `Server: ${panel.serverName}`,
+        onSelect: () => {},
+        readOnly: true,
+      });
+    }
+    if (this.options.onDisconnect) {
+      items.push({
+        label: 'Disconnect',
+        onSelect: () => {
+          this.menuOpen = false;
+          this.options.onDisconnect?.();
+        },
+      });
+    }
+    if (this.options.onReset) {
+      items.push({
+        label: 'Reset connection',
+        onSelect: () => {
+          this.menuOpen = false;
+          this.options.onReset?.();
+        },
+      });
+    }
+    return items;
   }
 
   /**

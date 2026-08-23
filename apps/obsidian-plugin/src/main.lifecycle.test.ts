@@ -232,7 +232,9 @@ describe('plugin lifecycle', () => {
     await view?.onOpen();
     const container = view?.containerEl as unknown as MockElement;
     const kids = container.children[1]?.children ?? [];
-    expect(kids[0]?.text).toBe('Connect to Havemind');
+    // The header strip names the plugin, not one of its screens: the pane holds
+    // connecting, activity, people and conflicts (design 1a).
+    expect(flatten(container).some(({ text }) => text === 'Havemind')).toBe(true);
     expect(kids.some(({ tag }) => tag === 'textarea')).toBe(true);
     expect(kids.some(({ text }) => text === 'Connect')).toBe(true);
   });
@@ -968,10 +970,23 @@ describe('plugin lifecycle', () => {
     });
     await view.onOpen();
 
-    const kids =
-      (view.containerEl as unknown as MockElement).children[1]?.children ?? [];
-    expect(kids.some(({ tag }) => tag === 'textarea')).toBe(false);
-    const disconnect = kids.find(({ text }) => text === 'Disconnect');
+    const root = view.containerEl as unknown as MockElement;
+    expect((root.children[1]?.children ?? []).some(({ tag }) => tag === 'textarea')).toBe(
+      false,
+    );
+
+    // Disconnect moved into the header overflow menu (design 1a): a standing
+    // button spent a line on the action a connected user least wants to hit.
+    const more = flatten(root).find(
+      (el) => el.attrs['aria-label'] === 'More options',
+    );
+    expect(more).toBeDefined();
+    more?.triggerClick();
+    await view.onOpen();
+
+    const disconnect = flatten(view.containerEl as unknown as MockElement).find(
+      ({ text }) => text === 'Disconnect',
+    );
     expect(disconnect).toBeDefined();
     disconnect?.triggerClick();
     expect(disconnected).toBe(1);
