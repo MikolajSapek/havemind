@@ -456,7 +456,10 @@ describe('OutboxLocalChangeRepository', () => {
       expect(decoded.binaryContent).toEqual(bytes);
     });
 
-    it('does not throw RevisionPayloadTooLargeError for a large binary within the file cap (raised ceiling)', async () => {
+    // A 20MB base64 round-trip is fast uninstrumented but exceeds the default
+    // budget under V8 coverage. Given its own timeout rather than raising the
+    // global one, which stays a smoke alarm for accidental hangs.
+    it('does not throw RevisionPayloadTooLargeError for a large binary within the file cap (raised ceiling)', { timeout: 120_000 }, async () => {
       // A 20MB attachment (within MAX_BINARY_FILE_BYTES = 25MB, base64 ≈ 27MB)
       // would be rejected outright by the markdown default ceiling (512KB); a
       // binary change uses MAX_BINARY_PAYLOAD_BYTES (40MB) instead, so the
