@@ -21,6 +21,22 @@ import { DECORATIVE } from './primitives';
 export interface PaneTabsOptions {
   readonly view: PaneTabsView;
   readonly onSelect: (id: PaneTabId) => void;
+  /**
+   * Move focus onto the open tab as it renders. Set only on the render that a
+   * keyboard selection caused: the pane re-renders on every status change, and
+   * grabbing focus each time would pull the caret out of whatever the user was
+   * typing. Without it, an arrow key announces the new tab while the keyboard
+   * is still on the old one.
+   */
+  readonly focusActive?: boolean;
+}
+
+/** The id of the panel the strip drives, shared with the view that renders it. */
+export const PANE_TABPANEL_ID = 'havemind-tabpanel';
+
+/** DOM id for a tab, so the panel can name it through `aria-labelledby`. */
+export function paneTabDomId(id: PaneTabId): string {
+  return `havemind-tab-${id}`;
 }
 
 /** The accessible name: label, count, and whether it wants attention. */
@@ -39,17 +55,44 @@ export function renderPaneTabs(
   strip.addClass('havemind-tabs');
   strip.setAttribute('role', 'tablist');
 
-  for (const tab of options.view.tabs) {
+  const ids = options.view.tabs.map((tab) => tab.id);
+
+  for (const [index, tab] of options.view.tabs.entries()) {
     const active = tab.id === options.view.active;
     const button = strip.createEl('button', {
       attr: {
         role: 'tab',
+        id: paneTabDomId(tab.id),
+        'aria-controls': PANE_TABPANEL_ID,
         'aria-selected': active ? 'true' : 'false',
         'aria-label': tabLabel(tab),
         // Only the open tab is a tab stop; arrow keys move within the strip,
         // matching how a tablist is expected to behave.
         tabindex: active ? '0' : '-1',
       },
+    });
+
+    // The strip is a ring: Right from the last tab lands on the first. Stopping
+    // at the end would make the user reverse across the whole strip, which is
+    // the friction the roving tabindex exists to remove.
+    button.addEventListener('keydown', (event: unknown) => {
+      const key = (event as { key?: string }).key;
+      const step =
+        key === 'ArrowRight' ? 1 : key === 'ArrowLeft' ? -1 : undefined;
+
+      let next: PaneTabId | undefined;
+      if (step !== undefined) {
+        next = ids[(index + step + ids.length) % ids.length];
+      } else if (key === 'Home') {
+        next = ids[0];
+      } else if (key === 'End') {
+        next = ids[ids.length - 1];
+      }
+
+      if (next === undefined) return; // Tab, typing, everything else: not ours.
+      // Claim the key so the pane underneath does not also scroll on it.
+      (event as { preventDefault?: () => void }).preventDefault?.();
+      options.onSelect(next);
     });
     button.addClass('havemind-tab');
     if (active) button.addClass('is-active');
@@ -68,5 +111,10 @@ export function renderPaneTabs(
     }
 
     button.onClickEvent(() => options.onSelect(tab.id));
+
+    // Selecting re-renders the strip, so the element that takes focus is the
+    // one in the NEW tree — not the button that was pressed, which no longer
+    // exists by the time this runs.
+    if (active && options.focusActive === true) button.focus();
   }
 }

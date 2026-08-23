@@ -103,7 +103,7 @@ Recorded so they are decided rather than forgotten:
 - **Proof-of-life after a restart.** The calm pane says "Last change 4 min ago",
   but `ActivityLog` is in-memory and rebuilds on every start, so a reloaded pane
   reads "none yet". Either that is acceptable or the log needs a durable tail —
-  a product decision, still open (see `design/pane-redesign/IMPLEMENTATION-PLAN.md`).
+  a product decision, still open (see `plans/007-ui-rebuild.md`).
 
 ## Suggested order
 

@@ -9,6 +9,7 @@ havemind-alarm
 havemind-alarm-conflict
 havemind-alarm-rows
 havemind-alarm-send
+havemind-approve-
 havemind-author
 havemind-author-
 havemind-author-1
@@ -41,6 +42,8 @@ havemind-conflict-modal
 havemind-conflict-modal-meta
 havemind-conflict-note
 havemind-conflict-row
+havemind-connect-server
+havemind-connect-token
 havemind-divider
 havemind-empty
 havemind-entry-back
@@ -64,6 +67,9 @@ havemind-host-steps
 havemind-invite-copy-fallback
 havemind-invite-cta
 havemind-invite-envelope
+havemind-invite-envelope-text
+havemind-invite-name
+havemind-invite-role
 havemind-join
 havemind-nav-bar
 havemind-onboarding
@@ -109,10 +115,12 @@ havemind-step-number
 havemind-step-text
 havemind-sync
 havemind-tab
+havemind-tab-
 havemind-tab-body
 havemind-tab-count
 havemind-tab-icon
 havemind-tab-label
+havemind-tabpanel
 havemind-tabs
 havemind-title-icon
 havemind-verification-phrase

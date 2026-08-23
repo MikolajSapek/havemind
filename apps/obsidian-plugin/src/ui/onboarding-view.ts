@@ -45,9 +45,20 @@ import {
   renderHostPath,
 } from './entry-chooser-section';
 import { renderPaneHeader, type PaneMenuItem } from './pane-header';
-import { renderPaneTabs } from './pane-tabs-section';
+import {
+  PANE_TABPANEL_ID,
+  paneTabDomId,
+  renderPaneTabs,
+} from './pane-tabs-section';
 import { renderGettingStarted } from './getting-started-section';
-import { DECORATIVE, renderSection, renderViewTitle } from './primitives';
+import {
+  DECORATIVE,
+  labelledField,
+  renderFormStatus,
+  renderSection,
+  renderViewTitle,
+  safeRead,
+} from './primitives';
 import { renderRejoinRoster } from './roster-section';
 import {
   renderRecoveryNotice,
@@ -269,6 +280,12 @@ export class HavemindOnboardingView extends ItemView {
   /** Which tab the connected pane is showing. */
   private activeTab: PaneTabId = 'status';
   /**
+   * Set for exactly one render after a keyboard or click selection, so focus
+   * lands on the newly opened tab. Cleared as it is consumed: a status-driven
+   * re-render must not move focus.
+   */
+  private focusTabOnRender = false;
+  /**
    * Which entry path the user picked on the connect screen (design 1d).
    * `undecided` shows the chooser; a typed token or a `havemind-join` URI
    * counts as having chosen, so those users never see the question.
@@ -321,27 +338,48 @@ export class HavemindOnboardingView extends ItemView {
     content.addClass('havemind-view');
     this.liveInputs = {};
 
+    // Every read below happens BEFORE any `renderSection` boundary exists, and
+    // `content.empty()` has already run — so an unguarded throw here blanks the
+    // pane completely, leaving no header and no way back. Each one degrades to
+    // the value that keeps the most of the pane usable, and says so in the log.
+    //
+    // Read once, too: a provider called twice in one render can answer
+    // differently, and then the tab strip and the tab body describe different
+    // states of the same pane.
+
     // A server rejection/lockout takes precedence over the waiting screen: the
     // invitation is spent, so we never leave the guest waiting or offline.
-    if (this.options.guestInvalidProvider?.() === true) {
+    if (safeRead('guestInvalid', this.options.guestInvalidProvider, false)) {
       this.renderGuestInvalid(content);
       return;
     }
 
-    const waiting = this.options.guestWaitingProvider?.() ?? null;
+    const waiting = safeRead('guestWaiting', this.options.guestWaitingProvider, null);
     if (waiting) {
       this.renderGuestWaiting(content, waiting);
       return;
     }
 
-    const panel =
-      this.options.panelProvider?.() ??
-      buildConnectionPanel({ status: 'disconnected' });
+    // Disconnected is the safe default: it offers the connect form rather than
+    // claiming a health the plugin cannot currently verify.
+    const panel = safeRead(
+      'panel',
+      this.options.panelProvider,
+      buildConnectionPanel({ status: 'disconnected' }),
+    );
+
+    // Read once and threaded through: `paneTabs()` and `renderTabBody` both
+    // need to know whether a composer is open, and two reads could disagree.
+    const composer = safeRead('composer', this.options.composerProvider, null);
 
     // Header strip with the overflow menu (design 1a). Disconnect, Reset and
     // the server address live behind it rather than costing standing lines in
     // a 300px column.
-    const overlayOn = this.options.authorOverlayProvider?.();
+    const overlayOn = safeRead(
+      'authorOverlay',
+      this.options.authorOverlayProvider,
+      undefined,
+    );
     renderPaneHeader(content, {
       title: 'Havemind',
       menuOpen: this.menuOpen,
@@ -379,7 +417,7 @@ export class HavemindOnboardingView extends ItemView {
     //
     // An open composer is the exception: an owner minting an invitation has
     // something to do that is not "connect", and the connect form is not it.
-    const composerOpen = this.options.composerProvider?.() != null;
+    const composerOpen = composer != null;
     if (panel.showForm && !composerOpen) {
       renderSection(content, 'status', () =>
         this.renderIndicator(content, panel),
@@ -398,21 +436,35 @@ export class HavemindOnboardingView extends ItemView {
     renderSection(content, 'send queue', () => this.renderSendQueue(content));
     renderSection(content, 'conflicts', () => this.renderConflicts(content));
 
-    const tabs = this.paneTabs();
+    const tabs = this.paneTabs(composer != null);
+    // Focus follows a keyboard selection, and only that one: the pane
+    // re-renders on every status change, and taking focus each time would pull
+    // the caret out of whatever the user was mid-way through typing.
+    const focusActive = this.focusTabOnRender;
+    this.focusTabOnRender = false;
     renderSection(content, 'tabs', () => {
       renderPaneTabs(content, {
         view: tabs,
         onSelect: (id) => {
           this.activeTab = id;
+          this.focusTabOnRender = true;
           this.render();
         },
+        ...(focusActive ? { focusActive: true } : {}),
       });
     });
 
     const body = content.createDiv();
     body.addClass('havemind-tab-body');
+    // The panel names the tab that opened it, so a screen reader moving into
+    // the body knows which tab it belongs to rather than landing in unnamed
+    // content. `role="tabpanel"` completes the pairing the strip advertises
+    // through `aria-controls`.
+    body.setAttribute('role', 'tabpanel');
+    body.setAttribute('id', PANE_TABPANEL_ID);
+    body.setAttribute('aria-labelledby', paneTabDomId(tabs.active));
     renderSection(body, `tab:${tabs.active}`, () => {
-      this.renderTabBody(body, tabs.active, panel);
+      this.renderTabBody(body, tabs.active, panel, composer);
     });
   }
 
@@ -424,23 +476,10 @@ export class HavemindOnboardingView extends ItemView {
    * sections it wraps, but this runs before them — an unguarded throw here would
    * blank everything, which is the failure MAJOR 5 exists to prevent.
    */
-  private paneTabs(): PaneTabsView {
-    const count = (read: () => number): number => {
-      try {
-        return read();
-      } catch {
-        return 0;
-      }
-    };
-
-    // An open composer means the user is mid-invitation, so that is the tab
-    // they are on — not whichever one they last happened to leave selected.
-    // `!= null` is deliberate: an absent provider returns undefined, and
-    // `undefined === null` is false — reading it that way made every pane
-    // without a composer think one was open.
-    const composerOpen =
-      count(() => (this.options.composerProvider?.() != null ? 1 : 0)) > 0;
-
+  private paneTabs(composerOpen: boolean): PaneTabsView {
+    // `composerOpen` is passed in, not re-read: `render()` already asked the
+    // provider once, and a second call could answer differently — leaving the
+    // strip and the body describing different states of the same pane.
     return buildPaneTabs({
       // Inviting happens inside People now (round 2, Q3), so an open composer
       // selects that tab rather than a fourth one of its own.
@@ -453,6 +492,7 @@ export class HavemindOnboardingView extends ItemView {
     body: HTMLElement,
     tab: PaneTabId,
     panel: ConnectionPanelView,
+    composer: CreateConnectionViewModel | null,
   ): void {
     if (tab === 'status') {
       this.renderIndicator(body, panel);
@@ -474,10 +514,14 @@ export class HavemindOnboardingView extends ItemView {
     // People holds both who is here and how someone else gets here (round 2,
     // Q3): inviting is a momentary task, so it lives where "who is in this
     // vault" already lives rather than holding a permanent tab of its own.
-    const roster = this.options.rejoinRosterProvider?.();
-    if (roster !== undefined) this.renderRoster(body, roster);
+    // Read inside the boundary, not around it: a roster that cannot be built
+    // should show the section fallback where the list would have been, rather
+    // than vanishing silently and leaving the People tab looking empty.
+    renderSection(body, 'roster', () => {
+      const roster = this.options.rejoinRosterProvider?.();
+      if (roster !== undefined) this.renderRoster(body, roster);
+    });
 
-    const composer = this.options.composerProvider?.() ?? null;
     if (composer !== null) {
       this.renderCreateConnection(body, composer);
       return;
@@ -806,23 +850,27 @@ export class HavemindOnboardingView extends ItemView {
   }
 
   private renderForm(content: HTMLElement): void {
-    content.createEl('label', {
-      text: 'Invitation or owner pairing token',
-    });
-    const tokenInput = content.createEl('textarea', {
-      placeholder: 'v1.… or hm_pt_…',
-      value: this.draft.token,
-    });
-    content.createEl('label', { text: 'Server URL' });
-    const serverInput = content.createEl('input', {
-      type: 'text',
-      placeholder: 'https://your-server.example',
-      value: this.draft.server,
-    });
+    const tokenInput = labelledField(
+      content,
+      'havemind-connect-token',
+      'Invitation or owner pairing token',
+      'textarea',
+      { placeholder: 'v1.… or hm_pt_…', value: this.draft.token },
+    );
+    const serverInput = labelledField(
+      content,
+      'havemind-connect-server',
+      'Server URL',
+      'input',
+      {
+        type: 'text',
+        placeholder: 'https://your-server.example',
+        value: this.draft.server,
+      },
+    );
     this.liveInputs.token = tokenInput;
     this.liveInputs.server = serverInput;
-    const status = content.createDiv({ text: '' });
-    status.addClass('havemind-form-status');
+    const status = renderFormStatus(content);
     const connect = content.createEl('button', { text: 'Connect' });
     connect.addClass('mod-cta');
     connect.onClickEvent(() => {
@@ -891,24 +939,32 @@ export class HavemindOnboardingView extends ItemView {
     content: HTMLElement,
     model: CreateConnectionViewModel,
   ): void {
-    content.createEl('label', { text: 'Role' });
-    const roleSelect = content.createEl('select');
+    const roleSelect = labelledField(
+      content,
+      'havemind-invite-role',
+      'Role',
+      'select',
+    );
     for (const value of ['editor', 'owner'] as const) {
       roleSelect.createEl('option', { text: value, value });
     }
     roleSelect.value = this.draft.role || model.role;
 
-    content.createEl('label', { text: 'Name' });
-    const nameInput = content.createEl('input', {
-      type: 'text',
-      placeholder: 'e.g. Magda',
-      value: this.draft.name || model.name,
-    });
+    const nameInput = labelledField(
+      content,
+      'havemind-invite-name',
+      'Name',
+      'input',
+      {
+        type: 'text',
+        placeholder: 'e.g. Magda',
+        value: this.draft.name || model.name,
+      },
+    );
     this.liveInputs.role = roleSelect;
     this.liveInputs.name = nameInput;
 
-    const status = content.createDiv({ text: '' });
-    status.addClass('havemind-form-status');
+    const status = renderFormStatus(content);
     const create = content.createEl('button', { text: 'Create invitation' });
     create.addClass('mod-cta');
     create.onClickEvent(() => {
@@ -943,12 +999,21 @@ export class HavemindOnboardingView extends ItemView {
       .addClass('havemind-hint');
     const code = content.createEl('code', { text: envelope });
     code.addClass('havemind-invite-envelope');
-    // Readonly field so the owner can select the envelope by hand if the
-    // clipboard copy is unavailable or denied.
-    content.createEl('textarea', {
+    // A hand-selectable copy for when the clipboard is unavailable or denied.
+    // Genuinely readonly, not merely described as such: Copy sends the ORIGINAL
+    // envelope, so an edited field would hand the owner something other than
+    // what they can see — a silent mismatch in the one string that must be
+    // exact. Readonly still allows selecting and copying by hand.
+    const fallback = content.createEl('textarea', {
       value: envelope,
       cls: 'havemind-invite-copy-fallback',
+      attr: {
+        id: 'havemind-invite-envelope-text',
+        readonly: 'true',
+        'aria-label': 'Invitation to copy',
+      },
     });
+    fallback.setAttribute('readonly', 'true');
     const copyStatus = content.createDiv({ text: '' });
     copyStatus.addClass('havemind-form-status');
     const copy = content.createEl('button', { text: 'Copy' });
@@ -1003,16 +1068,24 @@ export class HavemindOnboardingView extends ItemView {
     // The owner never sees the code: they type in what the joining device
     // reads aloud, so the human read-aloud check is meaningful (rule: the code
     // travels only over the out-of-band voice channel).
+    // The id carries the invitation, because several devices can wait at once
+    // and a shared id would leave every field after the first unnamed.
+    const phraseId = `havemind-approve-${entry.invitationId}`;
     row.createEl('label', {
       text: 'Enter the 6-digit code your peer reads to you',
+      attr: { for: phraseId },
     });
     const phraseInput = row.createEl('input', {
       type: 'text',
       placeholder: '123456',
-      attr: { inputmode: 'numeric', maxlength: '6', pattern: '[0-9]*' },
+      attr: {
+        id: phraseId,
+        inputmode: 'numeric',
+        maxlength: '6',
+        pattern: '[0-9]*',
+      },
     });
-    const status = row.createDiv({ text: '' });
-    status.addClass('havemind-form-status');
+    const status = renderFormStatus(row);
     const approve = row.createEl('button', { text: 'Approve' });
     approve.addClass('mod-cta');
     approve.onClickEvent(() => {
