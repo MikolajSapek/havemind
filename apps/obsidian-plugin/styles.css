@@ -256,11 +256,18 @@
   font-weight: var(--font-medium);
 }
 
+/* Shared: the quiet voice both use. The status detail's SIZE is not set here —
+   it is design geometry (`--havemind-status-detail-size`) and lives with the
+   rest of the status block. Setting it in both places left two sources of
+   truth for one number, decided by specificity rather than by intent. */
 .havemind-hint,
 .havemind-status-detail {
   color: var(--havemind-quiet);
-  font-size: var(--font-ui-smaller);
   line-height: 1.6;
+}
+
+.havemind-hint {
+  font-size: var(--font-ui-smaller);
 }
 
 /* The indent that lines detail text up under the status word (rather than
@@ -332,7 +339,8 @@
 .havemind-status {
   display: flex;
   align-items: center;
-  gap: var(--size-4-2);
+  gap: var(--havemind-status-gap);
+  font-size: var(--havemind-status-size);
   font-weight: var(--font-medium);
 }
 
@@ -1027,12 +1035,9 @@
   overflow-wrap: anywhere;
 }
 
-/* The status word sits above its detail line, which indents to align under the
-   word rather than under the dot. */
-.havemind-view .havemind-status {
-  gap: var(--havemind-status-gap);
-  font-size: var(--havemind-status-size);
-}
+/* The status word's own size and gap are set once, on `.havemind-status` in
+   section 4. They were re-stated here at higher specificity, which meant the
+   sheet carried two answers for one number. */
 .havemind-view .havemind-status-detail {
   padding-left: var(--havemind-status-detail-indent);
   margin-top: var(--havemind-status-detail-gap);

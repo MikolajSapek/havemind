@@ -111,6 +111,52 @@ describe('stylesheet — no selector contradicts itself', () => {
   });
 });
 
+describe('stylesheet — design geometry has one source of truth', () => {
+  it('never sets a tokenised property from a non-token value as well', () => {
+    // The narrower trap behind the same bug. `.havemind-status-detail` had its
+    // font-size set twice: once as `var(--font-ui-smaller)` in a rule shared
+    // with `.havemind-hint`, and once as the design token in the status block.
+    // Both applied; specificity picked the winner. That is not a contradiction
+    // the test above can see — the selectors differ — but it is still two
+    // sources of truth for one number, and the design token is the one that is
+    // checked against the handoff.
+    //
+    // Rule: if a class's property is set from a `--havemind-*` design token
+    // anywhere, no other rule may set that same property on that same class
+    // from a different source.
+    const declarations = topLevelDeclarations().filter((d) =>
+      /^\.havemind-[a-z-]+$/.test(d.selector.replace(/^\.havemind-view\s+/, '')),
+    );
+
+    const byClassProperty = new Map<string, Declaration[]>();
+    for (const declaration of declarations) {
+      const cls = declaration.selector.replace(/^\.havemind-view\s+/, '');
+      byClassProperty.set(
+        `${cls}||${declaration.property}`,
+        [...(byClassProperty.get(`${cls}||${declaration.property}`) ?? []), declaration],
+      );
+    }
+
+    const split = [...byClassProperty.entries()]
+      .filter(([, group]) => {
+        const tokened = group.filter((d) => d.value.includes('--havemind-'));
+        return tokened.length > 0 && tokened.length < group.length;
+      })
+      .map(
+        ([key, group]) =>
+          `${key.split('||')[0]} sets ${key.split('||')[1]} from a design token ` +
+          `and from something else: ${group.map((d) => `"${d.value}" (line ${d.line})`).join(', ')}`,
+      );
+
+    expect(
+      split,
+      'Design geometry is checked against the handoff only where it comes from ' +
+        'a token. A second, untokenised source for the same property escapes ' +
+        `that check:\n  ${split.join('\n  ')}`,
+    ).toEqual([]);
+  });
+});
+
 describe('stylesheet — every class it styles is one the code renders', () => {
   it('has no rules for elements that no longer exist', () => {
     // `.havemind-comb` styled a `renderCombGlyph()` that was never written, and
