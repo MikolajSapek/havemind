@@ -92,9 +92,27 @@
   font-size: var(--font-ui-small);
 }
 
-/* Air between the top-level blocks of a view — the main lever of the redesign. */
-.havemind-view > * + * {
+/* Obsidian pads the view content, which left the header and the tab strip
+   floating inside a margin instead of spanning the pane the way the design
+   draws them. The container drops its padding and each block sets its own, so
+   chrome reaches the edges and body text keeps its inset. */
+.workspace-leaf-content[data-type='havemind-onboarding'] .view-content {
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Air between the top-level blocks of a view — the main lever of the redesign.
+   The pane chrome opts out: the header, the alarm block and the tab strip are
+   drawn flush against each other by design, and a blanket 16px between every
+   pair of siblings was pulling them apart into a loose stack. */
+.havemind-view > * + *:not(.havemind-pane-header):not(.havemind-tabs):not(.havemind-tab-body):not(.havemind-pane-menu) {
   margin-top: var(--havemind-gap);
+}
+.havemind-view > .havemind-pane-header + *,
+.havemind-view > .havemind-tabs + *,
+.havemind-view > .havemind-pane-menu + * {
+  margin-top: 0;
 }
 
 /* A label sits tight against the control it introduces. */
@@ -874,15 +892,23 @@
 .havemind-pane-header {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 4px;
   height: 34px;
-  padding: 0 6px 0 0;
+  padding: 0 4px 0 12px;
   flex: none;
   border-bottom: 1px solid var(--havemind-hairline);
 }
 
-.havemind-pane-mark { display: flex; color: var(--havemind-accent); }
-.havemind-pane-title { font-weight: 500; font-size: 13px; }
+.havemind-pane-title {
+  flex: 1;
+  min-width: 0;
+  margin-left: 3px;
+  font-weight: 500;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 .havemind-pane-more,
 .havemind-view button.havemind-pane-more {
@@ -905,6 +931,7 @@
 }
 
 .havemind-pane-menu {
+  margin: 4px 8px;
   display: flex;
   flex-direction: column;
   border: 1px solid var(--havemind-hairline);
@@ -1022,6 +1049,26 @@
 
 .havemind-tab-body { padding: 14px 12px 0; }
 
+/* The view container lost its padding so chrome can span the pane; anything
+   that is not chrome sets its own inset back. */
+.havemind-view > .havemind-status,
+.havemind-view > .havemind-status-detail,
+.havemind-view > .havemind-hint,
+.havemind-view > .havemind-empty,
+.havemind-view > .havemind-send-failed,
+.havemind-view > .havemind-send-waiting,
+.havemind-view > .havemind-conflict-header,
+.havemind-view > .havemind-conflict-row,
+.havemind-view > label,
+.havemind-view > input,
+.havemind-view > textarea,
+.havemind-view > select,
+.havemind-view > button,
+.havemind-view > h4,
+.havemind-view > hr { margin-left: 12px; margin-right: 12px; }
+/* The first block under the header needs air the padding used to give it. */
+.havemind-view > .havemind-pane-header + * { margin-top: 12px; }
+
 /* View actions live in the header (round 2, Q1). Two rows of icons was one row
    too many; Obsidian already has a place for view actions, and moving them here
    costs no new chrome. 26px targets, 4px apart. */
@@ -1054,7 +1101,12 @@
 /* A dot on the mark itself, so a collapsed or backgrounded pane still signals.
    Paired with the alarm block below and a title attribute — never colour
    alone. */
-.havemind-pane-mark { position: relative; display: flex; flex: none; }
+.havemind-pane-mark {
+  position: relative;
+  display: flex;
+  flex: none;
+  color: var(--havemind-accent);
+}
 .havemind-pane-mark-dot {
   position: absolute;
   top: -2px;
