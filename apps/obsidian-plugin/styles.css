@@ -175,14 +175,9 @@
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  /* The pane is the frame the overflow menu positions against, and the box the
-     resize ladder measures. `container-type` sat on the tab strip once, which
-     made the strip both declare the container and be sized by it — and
-     `inline-size` implies `contain: inline-size`, so its three-column grid lost
-     the intrinsic width it needed. The ladder is about how wide the *pane* is. */
+  /* The frame the overflow menu positions against. The container query lives
+     one level up, on `.workspace-leaf-content` — see the note there. */
   position: relative;
-  container-type: inline-size;
-  container-name: havemind-pane;
 }
 .havemind-view > .havemind-tab-body {
   flex: 1;
@@ -193,11 +188,31 @@
 /* Obsidian pads the view content, which left the header and the tab strip
    floating inside a margin instead of spanning the pane the way the design
    draws them. The container drops its padding and each block sets its own, so
-   chrome reaches the edges and body text keeps its inset. */
+   chrome reaches the edges and body text keeps its inset.
+ *
+ * `.view-content` and `.havemind-view` are the SAME element: the view adds its
+ * class to `containerEl.children[1]`, which is what Obsidian calls
+ * `.view-content`. Anything set on one is set on the other — which is why the
+ * container query has to be declared on the leaf ABOVE this one (see the
+ * `.workspace-leaf-content` rule below). An element cannot be both the
+ * container being measured and the box the measurement sizes. */
 .workspace-leaf-content[data-type='havemind-onboarding'] .view-content {
   padding: 0;
   display: flex;
   flex-direction: column;
+}
+
+/* The container the resize ladder measures.
+ *
+ * It has to live here, on the leaf, rather than on `.havemind-view`. Declaring
+ * `container-type: inline-size` on the view meant the view was both the
+ * container and the thing inside it, and a container never matches a query
+ * against its own contents — so every width fell through to the widest rung of
+ * the ladder and the tabs stacked icon-over-label in a 300px sidebar, which is
+ * the opposite of what the ladder is for. */
+.workspace-leaf-content[data-type='havemind-onboarding'] {
+  container-type: inline-size;
+  container-name: havemind-pane;
 }
 
 /* Air between the top-level blocks of a view — the main lever of the redesign.
@@ -1009,8 +1024,8 @@
   background: var(--background-secondary);
   box-shadow: var(--shadow-s, 0 2px 8px rgba(0, 0, 0, 0.25));
 }
-/* `position`, `container-type` and `container-name` are declared once, on the
-   `.havemind-view` rule in section 3 — see the note there. */
+/* `position` is declared once on `.havemind-view` in section 3; the container
+   query lives on `.workspace-leaf-content` above it. */
 .havemind-pane-menu-item,
 .havemind-view button.havemind-pane-menu-item {
   text-align: left;

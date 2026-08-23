@@ -157,6 +157,41 @@ describe('stylesheet — design geometry has one source of truth', () => {
   });
 });
 
+describe('stylesheet — the resize ladder measures something other than itself', () => {
+  it('declares the container above .havemind-view, never on it', () => {
+    // This one bug survived four rounds of fixes, so it gets a test.
+    //
+    // `.havemind-view` and `.view-content` are the SAME element: the view adds
+    // its class to `containerEl.children[1]`, which is what Obsidian calls
+    // `.view-content`. Putting `container-type: inline-size` there made the
+    // element both the container and the content being measured — and a
+    // container never matches a query against its own contents. Every width
+    // fell through to the widest rung, so the tabs stacked icon-over-label in a
+    // 300px sidebar: the exact opposite of what the ladder exists to do.
+    //
+    // Nothing about that is visible in the CSS, the DOM or the file on disk.
+    // All three were correct the whole time, which is why it took so long.
+    const containerRules = [...css.matchAll(/([^{}]*)\{[^}]*container-type[^}]*\}/g)]
+      .map((m) => (m[1] ?? '').replace(/\/\*[\s\S]*?\*\//g, '').trim());
+
+    expect(containerRules.length).toBeGreaterThan(0);
+    for (const selector of containerRules) {
+      expect(
+        selector,
+        'container-type must sit on the leaf, not on .havemind-view — the view ' +
+          'is the same element as .view-content, so it cannot measure itself',
+      ).not.toMatch(/\.havemind-view\s*$/);
+    }
+
+    // And the name the queries use must be the one that gets declared.
+    const declared = [...css.matchAll(/container-name:\s*([a-z-]+)/g)].map((m) => m[1]);
+    const queried = [...css.matchAll(/@container\s+([a-z-]+)/g)].map((m) => m[1]);
+    for (const name of new Set(queried)) {
+      expect(declared, `@container ${name} has no matching container-name`).toContain(name);
+    }
+  });
+});
+
 describe('stylesheet — every class it styles is one the code renders', () => {
   it('has no rules for elements that no longer exist', () => {
     // `.havemind-comb` styled a `renderCombGlyph()` that was never written, and
