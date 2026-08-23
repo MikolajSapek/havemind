@@ -87,9 +87,22 @@
 /* =========================================================================
    3. View shell and shared primitives
    ========================================================================= */
+/* The pane is a column: header and tab strip hold their height at the top, the
+   body takes what is left and scrolls on its own. Without this the view was a
+   plain block, so `flex: none` on the chrome meant nothing and the body could
+   not be the only thing that scrolls. */
 .havemind-view {
   color: var(--text-normal);
   font-size: var(--font-ui-small);
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.havemind-view > .havemind-tab-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 /* Obsidian pads the view content, which left the header and the tab strip
