@@ -11,7 +11,7 @@ import { setIcon } from 'obsidian';
 
 import type { ConflictCopy } from '../runtime/conflict-resolution';
 
-import { DECORATIVE } from './primitives';
+import { DECORATIVE, renderAlarmBlock } from './primitives';
 
 /** Actions attached to each conflict-copy row in the panel section. */
 export interface ConflictSectionActions {
@@ -33,17 +33,28 @@ export function renderConflictSection(
 ): void {
   if (copies.length === 0) return;
 
-  const header = content.createDiv({ text: '' });
+  // One block around the heading and every row: the border, the tint and the
+  // left rule belong to the alarm as a whole, and drawn as siblings they each
+  // enclosed only a fragment of it.
+  const block = renderAlarmBlock(content, 'havemind-alarm-conflict');
+
+  const header = block.createDiv({ text: '' });
   header.addClass('havemind-conflict-header');
   const icon = header.createEl('span', { attr: DECORATIVE });
   icon.addClass('havemind-conflict-icon');
   setIcon(icon, 'git-merge');
-  header.createEl('span', { text: ' Conflicts' });
-  const badge = header.createEl('span', { text: `${copies.length}` });
-  badge.addClass('havemind-conflict-count');
+  // The design states the count in the heading — "2 conflicts" — rather than
+  // parking a bare numeral at the far edge, where it read as a badge for
+  // something else on the row.
+  header.createEl('span', {
+    text: copies.length === 1 ? ' 1 conflict' : ` ${copies.length} conflicts`,
+  });
+
+  const rows = block.createDiv();
+  rows.addClass('havemind-alarm-rows');
 
   for (const copy of copies) {
-    const row = content.createDiv({ text: '' });
+    const row = rows.createDiv({ text: '' });
     row.addClass('havemind-conflict-row');
 
     const name = copy.noteName ?? copy.copyName;

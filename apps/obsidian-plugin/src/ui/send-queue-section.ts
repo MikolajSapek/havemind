@@ -9,7 +9,7 @@
 
 import type { SendQueueStatusView } from '../runtime/send-queue-status';
 
-import { armedButton } from './primitives';
+import { armedButton, renderAlarmBlock } from './primitives';
 
 /** Actions wired to each failed-send row in the send-queue section (SND-01). */
 export interface SendQueueSectionActions {
@@ -20,9 +20,9 @@ export interface SendQueueSectionActions {
 }
 
 /**
- * Renders the SND-01 send-queue visibility section: a muted "N change(s)
+ * Renders the SND-01 send-queue visibility section: a muted "N changes
  * waiting to send" line when items have been queued too long, and — when the
- * quarantine is non-empty — a distinct "N change(s) failed to send" warning with
+ * quarantine is non-empty — a distinct "N changes couldn't be sent" warning with
  * one row per failed item (path + reason) offering Retry and a two-step Discard.
  * Draws nothing when both signals are absent, so a healthy queue stays silent.
  */
@@ -33,24 +33,37 @@ export function renderSendQueueSection(
 ): void {
   if (view.waitingCount > 0) {
     const waiting = content.createDiv({
-      text: `${view.waitingCount} change(s) waiting to send`,
+      text:
+        view.waitingCount === 1
+          ? '1 change waiting to send'
+          : `${view.waitingCount} changes waiting to send`,
     });
     waiting.addClass('havemind-send-waiting');
   }
 
   if (view.failed.length === 0) return;
 
-  const header = content.createDiv({
-    text: `${view.failed.length} change(s) failed to send`,
+  // Same block as a conflict uses: a user who has learned to read one alarm
+  // should not have to learn a second shape for the other.
+  const block = renderAlarmBlock(content, 'havemind-alarm-send');
+
+  const header = block.createDiv({
+    text:
+      view.failed.length === 1
+        ? "1 change couldn't be sent"
+        : `${view.failed.length} changes couldn't be sent`,
   });
   header.addClass('havemind-send-failed');
 
+  const rows = block.createDiv();
+  rows.addClass('havemind-alarm-rows');
+
   for (const row of view.failed) {
-    const item = content.createDiv({ text: '' });
+    const item = rows.createDiv({ text: '' });
     item.addClass('havemind-send-failed-row');
     item.createEl('span', { text: row.label }).addClass('havemind-send-file');
     item
-      .createEl('span', { text: ` · ${row.reason}` })
+      .createEl('div', { text: row.reason })
       .addClass('havemind-send-reason');
     const retry = item.createEl('button', { text: 'Retry' });
     retry.addClass('havemind-send-action');

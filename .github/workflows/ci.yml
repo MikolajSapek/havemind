@@ -49,6 +49,15 @@ jobs:
       - name: Coverage
         run: npm run test:coverage
 
+      # The pane's geometry is transcribed from a design that uses no classes
+      # and no stylesheet — 350 elements styled inline — so every value in
+      # styles.css was once copied across by hand, and hand-copying drifted.
+      # `design-tokens.test.ts` holds the stylesheet to tokens.json; this step
+      # holds tokens.json to the design itself, so neither half can go stale
+      # without the build saying so.
+      - name: Design tokens match the handoff
+        run: node scripts/extract-design-tokens.mjs --check
+
       # --- Acceptance tests AT1–AT4 (plan 003); AT5–AT6 run in release.yml ---
 
       - name: AT1 — three-file artifact present

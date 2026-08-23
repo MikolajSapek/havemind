@@ -44,6 +44,76 @@
   --havemind-ok: var(--text-success);
   --havemind-bad: var(--text-error);
   --havemind-quiet: var(--text-muted);
+
+  /* ---------------------------------------------------------------------
+     Geometry, transcribed from the round-2 design handoff.
+
+     These are not free choices. The design uses no classes and no
+     stylesheet — 350 elements styled inline — so every number here was once
+     copied across by hand, and hand-copying drifted: the header, the tab
+     strip and the alarm blocks each ended up with values the design never
+     specified. `scripts/extract-design-tokens.mjs` now reads them out of the
+     handoff into tokens.json, and `design-tokens.test.ts` fails the build if
+     this block stops agreeing with it.
+
+     Change a value here and the test tells you it disagrees with the design.
+     If the design is what changed, re-run the extractor. Do not "fix" the
+     test — it is the only thing standing between this file and another
+     silent round of drift.
+
+     Colour is deliberately absent: the design hardcodes a light palette so it
+     can render standalone, while the plugin inherits Obsidian's theme
+     variables. Pinning colour here would assert the wrong thing in both
+     themes.
+     --------------------------------------------------------------------- */
+
+  /* Header strip */
+  --havemind-header-height: 34px;
+  --havemind-header-pad: 0 4px 0 12px;
+  --havemind-header-gap: 4px;
+  --havemind-action-size: 26px;
+  --havemind-action-radius: 4px;
+  --havemind-title-size: 13px;
+  --havemind-title-weight: 500;
+  --havemind-title-offset: 3px;
+
+  /* Alarm dot riding the hexagon mark */
+  --havemind-mark-dot-size: 6px;
+  --havemind-mark-dot-ring: 1.5px solid var(--background-primary);
+
+  /* Tab strip */
+  --havemind-tab-height: 30px;
+  --havemind-tab-label-size: 10.5px;
+  --havemind-tab-stack-pad: 6px 2px 5px;
+  --havemind-tab-active-rule: 2px solid var(--interactive-accent);
+
+  /* Status block */
+  --havemind-status-size: 14px;
+  --havemind-status-gap: 9px;
+  --havemind-status-dot-size: 8px;
+  --havemind-status-detail-indent: 17px;
+  --havemind-status-detail-size: 11.5px;
+  --havemind-status-detail-gap: 3px;
+
+  /* Tab body inset */
+  --havemind-body-pad: 16px 14px 0;
+
+  /* Alarm block (conflicts, failed sends) */
+  --havemind-alarm-rule: 2px solid var(--text-error);
+  --havemind-alarm-head-gap: 7px;
+  --havemind-alarm-label-size: 12px;
+  --havemind-alarm-label-weight: 600;
+
+  /* Roster rows.
+     The design draws 38px. This deviates on purpose: CLAUDE.md requires a
+     44px minimum touch target, and the design targets a pointer-only
+     sidebar. `design-tokens.test.ts` pins both numbers so the deviation
+     reads as a decision rather than as more drift. */
+  --havemind-roster-row-height: 44px;
+  --havemind-roster-gap: 10px;
+  --havemind-roster-name-size: 12.5px;
+  --havemind-roster-meta-size: 11px;
+  --havemind-roster-row-pad: 4px 0;
 }
 
 /* =========================================================================
@@ -119,7 +189,7 @@
    The pane chrome opts out: the header, the alarm block and the tab strip are
    drawn flush against each other by design, and a blanket 16px between every
    pair of siblings was pulling them apart into a loose stack. */
-.havemind-view > * + *:not(.havemind-pane-header):not(.havemind-tabs):not(.havemind-tab-body):not(.havemind-pane-menu) {
+.havemind-view > * + *:not(.havemind-pane-header):not(.havemind-tabs):not(.havemind-tab-body):not(.havemind-pane-menu):not(.havemind-alarm) {
   margin-top: var(--havemind-gap);
 }
 .havemind-view > .havemind-pane-header + *,
@@ -260,8 +330,8 @@
 /* Synced / conflict read as a small dot rather than a glyph: the icon box is
    shrunk and filled. The label beside it still names the state. */
 .havemind-status-dot .svg-icon {
-  width: 8px;
-  height: 8px;
+  width: var(--havemind-status-dot-size);
+  height: var(--havemind-status-dot-size);
   fill: currentColor;
   stroke: currentColor;
 }
@@ -282,62 +352,8 @@
   }
 }
 
-/* Optional richer form: six edges that scatter and merge into one hexagon.
-   Rendered by `renderCombGlyph()` (render-tweaks.md) as six <line> children;
-   degrades to the plain spinning hexagon above when absent. */
-.havemind-comb {
-  width: 17px;
-  height: 17px;
-  flex: none;
-  color: var(--havemind-accent);
-  animation: havemind-comb 1.3s linear infinite;
-}
-
-.havemind-comb line {
-  stroke: currentColor;
-  stroke-width: 2;
-  stroke-linecap: round;
-  animation-duration: 1.3s;
-  animation-timing-function: cubic-bezier(0.45, 0, 0.25, 1);
-  animation-iteration-count: infinite;
-}
-
-.havemind-comb line:nth-child(1) { animation-name: havemind-edge-1; }
-.havemind-comb line:nth-child(2) { animation-name: havemind-edge-2; }
-.havemind-comb line:nth-child(3) { animation-name: havemind-edge-3; }
-.havemind-comb line:nth-child(4) { animation-name: havemind-edge-4; }
-.havemind-comb line:nth-child(5) { animation-name: havemind-edge-5; }
-.havemind-comb line:nth-child(6) { animation-name: havemind-edge-6; }
-
-@keyframes havemind-edge-1 {
-  0%, 100% { transform: translate(1.8px, -3.1px); opacity: 0.4; }
-  44%, 76% { transform: translate(0, 0); opacity: 1; }
-}
-@keyframes havemind-edge-2 {
-  0%, 100% { transform: translate(3.6px, 0); opacity: 0.4; }
-  44%, 76% { transform: translate(0, 0); opacity: 1; }
-}
-@keyframes havemind-edge-3 {
-  0%, 100% { transform: translate(1.8px, 3.1px); opacity: 0.4; }
-  44%, 76% { transform: translate(0, 0); opacity: 1; }
-}
-@keyframes havemind-edge-4 {
-  0%, 100% { transform: translate(-1.8px, 3.1px); opacity: 0.4; }
-  44%, 76% { transform: translate(0, 0); opacity: 1; }
-}
-@keyframes havemind-edge-5 {
-  0%, 100% { transform: translate(-3.6px, 0); opacity: 0.4; }
-  44%, 76% { transform: translate(0, 0); opacity: 1; }
-}
-@keyframes havemind-edge-6 {
-  0%, 100% { transform: translate(-1.8px, -3.1px); opacity: 0.4; }
-  44%, 76% { transform: translate(0, 0); opacity: 1; }
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .havemind-status-spin .svg-icon,
-  .havemind-comb,
-  .havemind-comb line {
+  .havemind-status-spin .svg-icon {
     animation: none;
   }
 }
@@ -353,16 +369,21 @@
 
 /* =========================================================================
    5. Presence roster rows
-   Hairline-separated list rows; 44px hit target; the trailing actions are
-   quiet text buttons, only Rejoin takes the accent.
+   Hairline-separated list rows; the trailing actions are quiet text buttons,
+   and only Rejoin takes the accent.
+
+   The rule sits at the bottom, as the design draws it: with `border-top` the
+   first row carried a line separating it from the tab strip's own bottom
+   border, which read as a doubled hairline under the strip.
    ========================================================================= */
 .havemind-roster-row {
   display: flex;
   align-items: center;
-  gap: var(--size-4-3);
-  min-height: 44px;
-  padding: var(--size-4-2) 0;
-  border-top: 1px solid var(--havemind-hairline);
+  gap: var(--havemind-roster-gap);
+  min-height: var(--havemind-roster-row-height);
+  padding: var(--havemind-roster-row-pad);
+  border-bottom: 1px solid var(--havemind-hairline);
+  font-size: var(--havemind-roster-name-size);
 }
 
 .havemind-roster-dot {
@@ -372,8 +393,8 @@
 }
 
 .havemind-roster-dot .svg-icon {
-  width: 8px;
-  height: 8px;
+  width: var(--havemind-status-dot-size);
+  height: var(--havemind-status-dot-size);
   fill: currentColor;
   stroke: currentColor;
 }
@@ -398,12 +419,12 @@
 .havemind-view button.havemind-roster-action {
   margin-left: auto;
   flex: none;
-  padding: var(--size-4-1) var(--size-4-1);
+  padding: 2px 4px;
   border: none;
   box-shadow: none;
   background: transparent;
   color: var(--havemind-quiet);
-  font-size: var(--font-ui-smaller);
+  font-size: var(--havemind-roster-meta-size);
   cursor: pointer;
 }
 
@@ -665,14 +686,16 @@
   font-size: var(--font-ui-small);
 }
 
-.havemind-send-failed {
-  margin-top: var(--havemind-gap);
-  color: var(--text-normal);
-  font-weight: var(--font-medium);
-  font-size: var(--font-ui-small);
+/* A row inside the alarm block. The rule and the wash belong to the block, so a
+   row carries neither — it is a line of text, not a warning of its own. */
+.havemind-send-failed-row {
+  padding: 3px 0;
+  font-size: var(--havemind-alarm-label-size);
+  line-height: 1.55;
 }
 
-.havemind-send-failed-row,
+/* The recovery notice stands alone (it has no rows and no heading), so it keeps
+   the self-contained treatment the alarm block gives everything else. */
 .havemind-send-recovery {
   display: flex;
   flex-wrap: wrap;
@@ -680,19 +703,30 @@
   gap: var(--size-4-2);
   margin-top: var(--size-4-2);
   padding: var(--size-4-2) var(--size-4-3);
-  border-left: 2px solid var(--havemind-bad);
-  background: hsla(var(--color-red-hsl), 0.07);
+  border-left: var(--havemind-alarm-rule);
+  background: rgba(var(--color-red-rgb), 0.07);
   font-size: var(--font-ui-smaller);
   line-height: 1.55;
 }
+.theme-dark .havemind-send-recovery {
+  background: rgba(var(--color-red-rgb), 0.12);
+}
 
+/* A path truncates from the LEFT: the filename at the tail is what identifies
+   it, and "Attachments/very/long/pa…" hides exactly the part that matters. */
 .havemind-send-file {
-  font-weight: var(--font-medium);
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl;
+  text-align: left;
 }
 
 .havemind-send-reason {
+  margin-top: 2px;
   color: var(--havemind-quiet);
-  font-size: var(--font-ui-smaller);
+  font-size: var(--havemind-roster-meta-size);
 }
 
 .havemind-send-action,
@@ -708,51 +742,40 @@
 }
 
 /* --- conflicts ---------------------------------------------------------- */
-.havemind-conflict-header {
-  display: flex;
-  align-items: center;
-  gap: var(--size-4-2);
-  margin-top: var(--havemind-gap);
-  font-weight: var(--font-medium);
-}
+/* The heading's own treatment lives in the urgency block: it is part of the
+   alarm, and splitting its colour from its ground across two places is how the
+   two stopped agreeing. */
 
 .havemind-conflict-icon {
   display: inline-flex;
   color: var(--havemind-bad);
 }
 
-/* The count is a quiet mono numeral at the trailing edge, not a filled pill. */
-.havemind-conflict-count {
-  margin-left: auto;
-  padding: 0;
-  border-radius: 0;
-  background: transparent;
-  color: var(--text-faint);
-  font-family: var(--font-monospace);
-  font-size: var(--font-ui-smaller);
-  font-variant-numeric: tabular-nums;
-}
-
-/* Layout only. The urgency treatment — left rule, wash, radius — is set once
-   in the urgency block near the end of this file; declaring `background`,
-   `border` or `border-radius` here as well would mean the later block wins by
-   source order rather than by intent, and reordering the file would silently
-   change the design. */
+/* A row inside the alarm block: a path and its Resolve, on one baseline. The
+   rule and the wash belong to the block, so a row declares neither. */
 .havemind-conflict-row {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: var(--size-4-1) var(--size-4-2);
-  margin-top: 0;
+  gap: var(--size-4-2);
+  padding: 3px 0;
 }
 
+/* Truncates from the left — see `.havemind-send-file` for why. */
 .havemind-conflict-note {
-  font-weight: var(--font-medium);
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl;
+  text-align: left;
+  font-size: var(--havemind-alarm-label-size);
 }
 
 .havemind-conflict-meta {
   color: var(--text-faint);
-  font-size: var(--font-ui-smaller);
+  font-size: var(--havemind-roster-meta-size);
 }
 
 .havemind-conflict-hint {
@@ -897,17 +920,17 @@
 
 /* =========================================================================
    The priority column (design 1a)
-   Values transcribed from the Claude Design source, not approximated: 34px
-   header strip, 16px/14px body inset, 22px before the first summary row, 9px
-   row padding, 11.5px meta text, 8px status dot.
+   Geometry comes from the token block in section 1, which the design-token
+   test holds to the handoff. Values are never written inline here: an inline
+   number is one the test cannot see, and unseen numbers are what drifted.
    ========================================================================= */
 
 .havemind-pane-header {
   display: flex;
   align-items: center;
-  gap: 4px;
-  height: 34px;
-  padding: 0 4px 0 12px;
+  gap: var(--havemind-header-gap);
+  height: var(--havemind-header-height);
+  padding: var(--havemind-header-pad);
   flex: none;
   border-bottom: 1px solid var(--havemind-hairline);
 }
@@ -915,9 +938,9 @@
 .havemind-pane-title {
   flex: 1;
   min-width: 0;
-  margin-left: 3px;
-  font-weight: 500;
-  font-size: 13px;
+  margin-left: var(--havemind-title-offset);
+  font-weight: var(--havemind-title-weight);
+  font-size: var(--havemind-title-size);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -996,13 +1019,16 @@
   overflow-wrap: anywhere;
 }
 
-/* The status word sits at 14px with a 9px gap to its dot; the detail line
-   indents 17px so it aligns under the word, not under the dot. */
-.havemind-view .havemind-status { gap: 9px; font-size: 14px; }
+/* The status word sits above its detail line, which indents to align under the
+   word rather than under the dot. */
+.havemind-view .havemind-status {
+  gap: var(--havemind-status-gap);
+  font-size: var(--havemind-status-size);
+}
 .havemind-view .havemind-status-detail {
-  padding-left: 17px;
-  margin-top: 3px;
-  font-size: 11.5px;
+  padding-left: var(--havemind-status-detail-indent);
+  margin-top: var(--havemind-status-detail-gap);
+  font-size: var(--havemind-status-detail-size);
 }
 
 /* =========================================================================
@@ -1019,6 +1045,9 @@
   border-bottom: 1px solid var(--havemind-hairline);
 }
 
+/* The design sizes a tab by height, not by padding. Padding was the drift:
+   `7px 4px` against Obsidian's own line-height produced a strip several pixels
+   taller than the handoff, which is why the chrome never matched. */
 .havemind-tab,
 .havemind-view button.havemind-tab {
   min-width: 0;
@@ -1026,14 +1055,15 @@
   align-items: center;
   justify-content: center;
   gap: 5px;
-  padding: 7px 4px;
+  height: var(--havemind-tab-height);
+  padding: 0 4px;
   border: none;
   box-shadow: none;
   border-radius: 0;
   background: none;
   color: var(--text-muted);
   font: inherit;
-  font-size: var(--font-ui-smaller);
+  font-size: var(--havemind-tab-label-size);
   cursor: pointer;
 }
 .havemind-view button.havemind-tab:hover {
@@ -1041,11 +1071,20 @@
   color: var(--text-normal);
 }
 /* The open tab is marked by an underline AND weight AND aria-selected — never
-   by colour alone. */
+   by colour alone.
+
+   A real border, not an inset shadow. The design draws the underline as
+   `border-bottom`, and every tab carries a transparent one so switching tabs
+   never changes their height — with a shadow the accent sat 1px off the strip's
+   own bottom rule. */
+.havemind-tab,
+.havemind-view button.havemind-tab {
+  border-bottom: 2px solid transparent;
+}
 .havemind-view button.havemind-tab.is-active {
   color: var(--text-normal);
   font-weight: var(--font-medium);
-  box-shadow: inset 0 -2px 0 var(--interactive-accent);
+  border-bottom: var(--havemind-tab-active-rule);
 }
 
 /* The resize ladder (round 2, Q2). Three steps, because each fails for a
@@ -1082,7 +1121,10 @@
   .havemind-view button.havemind-tab {
     flex-direction: column;
     gap: 2px;
-    padding: 6px 2px 5px;
+    /* The stacked step is the one rung sized by padding rather than height:
+       icon over label has no single line to set a height from. */
+    height: auto;
+    padding: var(--havemind-tab-stack-pad);
   }
   .havemind-tab-icon { display: flex; }
   .havemind-tab-icon .svg-icon { width: 16px; height: 16px; }
@@ -1094,7 +1136,7 @@
   .havemind-tab-icon .svg-icon { width: 16px; height: 16px; }
 }
 
-.havemind-tab-body { padding: 14px 12px 0; }
+.havemind-tab-body { padding: var(--havemind-body-pad); }
 
 /* The view container lost its padding so chrome can span the pane; anything
    that is not chrome sets its own inset back. */
@@ -1102,10 +1144,7 @@
 .havemind-view > .havemind-status-detail,
 .havemind-view > .havemind-hint,
 .havemind-view > .havemind-empty,
-.havemind-view > .havemind-send-failed,
 .havemind-view > .havemind-send-waiting,
-.havemind-view > .havemind-conflict-header,
-.havemind-view > .havemind-conflict-row,
 .havemind-view > label,
 .havemind-view > input,
 .havemind-view > textarea,
@@ -1125,12 +1164,12 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
+  width: var(--havemind-action-size);
+  height: var(--havemind-action-size);
   padding: 0;
   border: none;
   box-shadow: none;
-  border-radius: 4px;
+  border-radius: var(--havemind-action-radius);
   background: none;
   color: var(--text-muted);
   cursor: pointer;
@@ -1158,11 +1197,11 @@
   position: absolute;
   top: -2px;
   right: -2px;
-  width: 6px;
-  height: 6px;
+  width: var(--havemind-mark-dot-size);
+  height: var(--havemind-mark-dot-size);
   border-radius: 50%;
   background: var(--text-error);
-  border: 1.5px solid var(--background-primary);
+  border: var(--havemind-mark-dot-ring);
 }
 
 /* Invite lives at the foot of People, not in a tab of its own. */
@@ -1196,9 +1235,10 @@
    and against the pane edge. Only the body carries the blanket 16px rhythm. */
 .havemind-view > .havemind-pane-header + *,
 .havemind-view > .havemind-tabs + * { margin-top: 0; }
-/* An alarm lifted above the strip still needs air from the header above it. */
-.havemind-view > .havemind-pane-header + .havemind-send-failed,
-.havemind-view > .havemind-pane-header + .havemind-conflict-row { margin-top: 10px; }
+/* The alarm block is chrome too: it spans the pane edge to edge and sits flush
+   between the header and the strip, carrying its own hairline underneath. It
+   used to need a 10px gap because it was a bare row floating in the column. */
+.havemind-view > .havemind-alarm { margin: 0; }
 
 
 /* =========================================================================
@@ -1289,19 +1329,41 @@
    Urgency (design 1a / 1g)
    The calm pane carries no fill anywhere, so the first tinted block a user
    ever sees IS the thing that needs them — no badge grammar to learn.
+
+   The treatment belongs to the BLOCK, not to the rows inside it. Applied per
+   row (which is how this started) each row grew its own left rule and its own
+   tint, so two conflicts read as two separate warnings stacked up, and the
+   heading that named them sat outside the tint entirely. One alarm is one
+   object; `renderAlarmBlock` gives it the single parent that makes that
+   possible.
    ========================================================================= */
 
-.havemind-send-failed,
-.havemind-conflict-row {
-  border-left: 2px solid var(--havemind-bad);
+.havemind-alarm {
+  flex: none;
+  border-left: var(--havemind-alarm-rule);
+  border-bottom: 1px solid var(--havemind-hairline);
   background: rgba(var(--color-red-rgb), 0.07);
-  padding: 8px 10px;
-  border-radius: 0 4px 4px 0;
 }
 
 /* Dark surfaces swallow a 7% tint, so the wash goes to 12% to hold the same
    apparent weight (design 1g). */
-.theme-dark .havemind-send-failed,
-.theme-dark .havemind-conflict-row {
+.theme-dark .havemind-alarm {
   background: rgba(var(--color-red-rgb), 0.12);
+}
+
+/* The heading names the alarm and states its count: "2 conflicts". */
+.havemind-alarm .havemind-conflict-header,
+.havemind-alarm .havemind-send-failed {
+  display: flex;
+  align-items: center;
+  gap: var(--havemind-alarm-head-gap);
+  margin: 0;
+  padding: 8px 11px 4px;
+  color: var(--havemind-bad);
+  font-weight: var(--havemind-alarm-label-weight);
+  font-size: var(--havemind-alarm-label-size);
+}
+
+.havemind-alarm-rows {
+  padding: 0 11px 8px;
 }

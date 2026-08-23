@@ -51,6 +51,31 @@ export function renderViewTitle(content: HTMLElement, text: string): void {
 }
 
 /**
+ * Wraps an alarm — a conflict list, a failed send — in the single bordered
+ * region the design draws it as: accent rule down the left edge, tinted ground,
+ * hairline closing it underneath.
+ *
+ * It exists because containment is load-bearing here rather than cosmetic.
+ * Drawn as loose siblings (which is how this started) the tint stops short of
+ * the heading, nothing closes the block off at the bottom, and the left rule
+ * runs beside the rows only — three fragments where the design has one object.
+ * No amount of correct spacing fixes that; the elements have to share a parent.
+ *
+ * Returns the block so the caller renders its contents inside, and takes the
+ * caller's own class so conflicts and failed sends can still be told apart
+ * while sharing one shape.
+ */
+export function renderAlarmBlock(
+  content: HTMLElement,
+  variant: string,
+): HTMLElement {
+  const block = content.createDiv();
+  block.addClass('havemind-alarm');
+  block.addClass(variant);
+  return block;
+}
+
+/**
  * MAJOR 5: render one panel section inside an error boundary. A synchronous
  * throw from a section's provider or render body is logged and degraded to a
  * small inline "Section unavailable" fallback so the failure is contained to
