@@ -41,6 +41,14 @@ jobs:
       - name: Test
         run: npm test
 
+      # The phase Definition of Done in plan/11-BACKLOG.md requires "80%+
+      # coverage threshold maintained", but until now that number was produced
+      # by hand at report time and nothing enforced it in between. The threshold
+      # lives in vitest.config.ts; this step is what makes falling below it fail
+      # the build rather than go unnoticed.
+      - name: Coverage
+        run: npm run test:coverage
+
       # --- Acceptance tests AT1–AT4 (plan 003); AT5–AT6 run in release.yml ---
 
       - name: AT1 — three-file artifact present

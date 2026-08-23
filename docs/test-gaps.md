@@ -9,42 +9,41 @@ nobody is checking that they stay that way.
 
 ---
 
-## 1. The coverage gate measures a third of the plugin
+## 1. Two coverage configs, and the narrow one is not the gate
 
-`apps/obsidian-plugin/vitest.config.ts` scopes coverage to:
+The plugin's own `apps/obsidian-plugin/vitest.config.ts` scoped coverage to
+`main.ts`, `runtime/` and `storage/` — a list dating from the initial commit
+(`1d97013`), never widened as `ui/`, `sync/`, `onboarding/`, `attribution/`,
+`obsidian/` and `activity/` grew to 7515 lines around it.
 
-```
-include: ['src/main.ts', 'src/runtime/**', 'src/storage/**']
-```
+**But that config is not what `npm run test:coverage` uses.** The root
+`vitest.config.ts` runs the whole workspace and already includes
+`apps/**/src/**/*.ts` at an 80% threshold. The narrow list only applies when
+someone runs coverage inside the plugin workspace directly — which is how the
+gap was first (mis)read during this audit.
 
-Everything else is invisible to the 80% threshold. Measured directly, those
-directories hold:
+So the gate was never as blind as it looked. The plugin config has been widened
+to `src/**/*.ts` anyway, so the two agree and a per-workspace run reports the
+same picture as CI.
 
-| Directory | Lines | Measured by the gate? |
-|---|---:|---|
-| `src/ui/` | 2167 | no |
-| `src/sync/` | 1989 | no |
-| `src/onboarding/` | 1445 | no |
-| `src/attribution/` | 821 | no |
-| `src/obsidian/` | 748 | no |
-| `src/activity/` | 345 | no |
+Measured either way, the code clears the threshold:
 
-That is **7515 lines outside the gate** — including the whole pane redesign.
+- whole workspace → 86.9% statements, 80.9% branches
+- `src/ui/**` alone → 88.1% statements
 
-The `include` list dates from the initial commit (`1d97013`), when those
-directories did not exist. It was never widened as the plugin grew.
+**Resolved while wiring this up:** the two configs disagreed about
+`runtime/adapters/**`. The plugin excluded it deliberately — platform glue
+binding real Obsidian APIs, exercised in the pilot rather than headless — while
+the root counted it, dragging the workspace branch figure to 80.88% against an
+80% threshold. Under a point of headroom means the next edit to that layer fails
+CI and reads as an accidental regression rather than known debt. The root now
+carries the same exclusion, and the numbers moved to 90.4% statements / 83.3%
+branches.
 
-**The code is not untested.** Measured on demand:
-
-- `src/ui/**` → 88.1% statements, 84.9% branches
-- `src/onboarding|sync|attribution|activity|obsidian` → 90.9% statements
-
-Both clear the 80% threshold today. The risk is that nothing would notice if
-they stopped.
-
-**Fix:** widen `include` to `src/**` with explicit exclusions for the platform
-glue already excluded (`runtime/obsidian-adapters.ts`, `runtime/adapters/**`,
-`src/test/**`). Do it as its own change, so a threshold failure is attributable.
+The debt itself is unchanged and still real: `sync-loop.ts` (3.2%),
+`push-producer.ts`, `owner-actions.ts` and `tokens.ts` are effectively untested
+outside the pilot. Excluding them makes that visible as a decision instead of
+silently eroding a threshold meant to protect everything else.
 
 ## 2. CI never runs the coverage gate
 
