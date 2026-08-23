@@ -947,8 +947,18 @@
   background: var(--background-secondary);
   box-shadow: var(--shadow-s, 0 2px 8px rgba(0, 0, 0, 0.25));
 }
-/* The menu is positioned against the pane, so the pane is the frame. */
-.havemind-view { position: relative; }
+/* The menu is positioned against the pane, so the pane is the frame — and the
+   pane is also what the resize ladder measures. The container-type used to sit
+   on the tab strip itself, which meant the strip both declared the container
+   and was the thing being sized by it: `container-type: inline-size` implies
+   `contain: inline-size`, so its three-column grid lost the intrinsic width it
+   needed and the columns stopped landing where the design puts them. The pane
+   is the honest frame: the ladder is about how wide the *pane* is. */
+.havemind-view {
+  position: relative;
+  container-type: inline-size;
+  container-name: havemind-pane;
+}
 .havemind-pane-menu-item,
 .havemind-view button.havemind-pane-menu-item {
   text-align: left;
@@ -994,7 +1004,6 @@
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   border-bottom: 1px solid var(--havemind-hairline);
-  container-type: inline-size;
 }
 
 .havemind-tab,
@@ -1055,7 +1064,7 @@
   font-weight: var(--font-medium);
 }
 
-@container (min-width: 330px) {
+@container havemind-pane (min-width: 330px) {
   .havemind-tab,
   .havemind-view button.havemind-tab {
     flex-direction: column;
@@ -1066,7 +1075,7 @@
   .havemind-tab-icon .svg-icon { width: 16px; height: 16px; }
 }
 
-@container (max-width: 249px) {
+@container havemind-pane (max-width: 249px) {
   .havemind-tab-label { display: none; }
   .havemind-tab-icon { display: flex; }
   .havemind-tab-icon .svg-icon { width: 16px; height: 16px; }
