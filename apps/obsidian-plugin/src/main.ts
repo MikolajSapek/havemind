@@ -1698,6 +1698,11 @@ export default class HavemindPlugin extends Plugin {
     item.empty();
     const glyph = item.createEl('span', { attr: DECORATIVE });
     setIcon(glyph, 'hexagon');
+    // Design 1a proposes cutting this label as a duplicate of the pane. Kept
+    // deliberately: with the pane closed the status bar is the ONLY surface
+    // showing sync state, and a bare mark plus a colour dot is unreadable to
+    // anyone who cannot see the colour. The pane is where words are optional;
+    // here they are the whole accessible signal.
     item.createEl('span', { text: view.text });
   }
 

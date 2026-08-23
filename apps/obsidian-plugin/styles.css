@@ -1061,3 +1061,53 @@
   overflow-wrap: anywhere;
 }
 .havemind-entry-primary { margin-top: var(--havemind-gap); }
+
+/* =========================================================================
+   The handshake (design 1e)
+   The one moment two people coordinate out loud in real time. The digits are
+   the only large type in the product; everything else on the screen is there
+   to tell you what to do with them.
+   ========================================================================= */
+
+.havemind-handshake-lead { margin-bottom: var(--havemind-gap); }
+
+.havemind-handshake-code {
+  display: flex;
+  gap: 14px;
+  justify-content: center;
+  margin: 6px 0 var(--havemind-gap);
+  font-family: var(--font-monospace);
+  font-size: 34px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--text-normal);
+}
+
+/* The failure mode is stated where it is actionable — mid-handshake, with
+   another person waiting — not in documentation nobody opens just then. */
+.havemind-handshake-warning {
+  color: var(--havemind-quiet);
+  font-size: 0.9em;
+  margin-bottom: var(--havemind-gap);
+}
+
+/* =========================================================================
+   Urgency (design 1a / 1g)
+   The calm pane carries no fill anywhere, so the first tinted block a user
+   ever sees IS the thing that needs them — no badge grammar to learn.
+   ========================================================================= */
+
+.havemind-send-failed,
+.havemind-conflict-row {
+  border-left: 2px solid var(--havemind-bad);
+  background: rgba(var(--color-red-rgb), 0.07);
+  padding: 8px 10px;
+  border-radius: 0 4px 4px 0;
+}
+
+/* Dark surfaces swallow a 7% tint, so the wash goes to 12% to hold the same
+   apparent weight (design 1g). */
+.theme-dark .havemind-send-failed,
+.theme-dark .havemind-conflict-row {
+  background: rgba(var(--color-red-rgb), 0.12);
+}

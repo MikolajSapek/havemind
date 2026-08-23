@@ -604,18 +604,22 @@ describe('plugin lifecycle', () => {
     await view.onOpen();
 
     const all = flatten(view.containerEl as unknown as MockElement);
-    // The code is shown prominently to the joining device only…
-    expect(
-      all.some(
-        ({ text, classes }) =>
-          text === '123456' &&
-          classes.includes('havemind-verification-phrase'),
-      ),
-    ).toBe(true);
-    // …with guidance to read it to the vault owner.
-    expect(
-      all.some(({ text }) => text === 'Read this 6-digit code to the vault owner.'),
-    ).toBe(true);
+    // The digits are grouped 3+3 to be spoken (design 1e), so assert on the
+    // block that carries them rather than on one undivided string.
+    const code = all.find(({ classes }) =>
+      classes.includes('havemind-handshake-code'),
+    );
+    expect(code).toBeDefined();
+    // Grouped for the eye, announced whole for a screen reader.
+    expect(code?.attrs['aria-label']).toBe('123456');
+    expect(flatten(code as MockElement).map(({ text }) => text)).toContain('123');
+
+    // The instruction is an imperative naming the other person…
+    expect(all.some(({ text }) => /read these six digits out loud/i.test(text))).toBe(
+      true,
+    );
+    // …and the failure mode is stated where it is actionable.
+    expect(all.some(({ text }) => /don't match/i.test(text))).toBe(true);
   });
 
   it('shows the invitee a terminal "invitation invalid" screen with a paste form', async () => {
@@ -628,9 +632,12 @@ describe('plugin lifecycle', () => {
     await view.onOpen();
 
     const all = flatten(view.containerEl as unknown as MockElement);
+    // Names the cause rather than reporting a failure (design 1e).
     expect(
-      all.some(({ text }) => text === ' This invitation is no longer valid'),
+      all.some(({ text }) => /invitation has been used/i.test(text)),
     ).toBe(true);
+    // Prices the fix in the other person's time, so asking feels cheap.
+    expect(all.some(({ text }) => /ten seconds/i.test(text))).toBe(true);
     // …it never shows the waiting spinner or the code, and it never goes blank:
     // the paste form is present so the guest can try a fresh invite.
     expect(
@@ -910,19 +917,17 @@ describe('plugin lifecycle', () => {
     // First open renders the waiting screen.
     await view.onOpen();
     let all = flatten(view.containerEl as unknown as MockElement);
-    expect(all.some(({ text }) => text === '7 tiger lamp')).toBe(true);
-    expect(
-      all.some(({ text }) =>
-        text.includes('Waiting for the other device to approve'),
-      ),
-    ).toBe(true);
+    expect(all.some(({ text }) => text.includes('7 tiger lamp'))).toBe(true);
+    // The screen states what to do with the code, in the imperative: the
+    // spinner it replaced described the system's state, not the user's job.
+    expect(all.some(({ text }) => /read these six digits/i.test(text))).toBe(true);
     // No paste form is drawn (re-pasting would re-redeem a single-use invite).
     expect(all.some(({ tag }) => tag === 'textarea')).toBe(false);
 
     // Reopening the pane keeps the phrase — the wait resumes, not a blank form.
     await view.onOpen();
     all = flatten(view.containerEl as unknown as MockElement);
-    expect(all.some(({ text }) => text === '7 tiger lamp')).toBe(true);
+    expect(all.some(({ text }) => text.includes('7 tiger lamp'))).toBe(true);
     expect(all.some(({ tag }) => tag === 'textarea')).toBe(false);
   });
 

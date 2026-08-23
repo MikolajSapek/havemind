@@ -28,6 +28,10 @@ import {
   buildHostView,
   type EntryChoice,
 } from '../runtime/entry-choice';
+import {
+  buildGuestHandshake,
+  buildSpentInvitation,
+} from '../runtime/handshake';
 
 import { renderActivityRows } from './activity-section';
 import { renderConflictSection } from './conflict-section';
@@ -99,6 +103,12 @@ export interface CreateConnectionViewModel {
 export interface GuestWaitingViewModel {
   /** The phrase this device must read aloud to the owner. */
   readonly verificationPhrase: string;
+  /**
+   * Who invited them, when known. Naming the other person turns an instruction
+   * into a conversation — "read these to Mira" beats "read these to the vault
+   * owner" (design 1e). An unnamed owner is still a valid state.
+   */
+  readonly ownerName?: string;
 }
 
 /** Injected data + actions for the onboarding surface. */
@@ -640,25 +650,39 @@ export class HavemindOnboardingView extends ItemView {
     content: HTMLElement,
     model: GuestWaitingViewModel,
   ): void {
-    renderViewTitle(content, 'Connecting to Havemind');
-    // Icon + label + colour (never colour alone), matching the panel convention.
-    const row = content.createDiv({ text: '' });
-    row.addClass('havemind-status');
-    row.style.setProperty('color', 'var(--text-accent)');
-    setIcon(row.createEl('span', { attr: DECORATIVE }), 'loader');
-    row.createEl('span', { text: ' Waiting for the other device to approve…' });
+    // The code is the only thing at full size (design 1e): this screen exists
+    // for one job, and everything competing with the digits makes that job
+    // harder while another person waits on the phone.
+    const view = buildGuestHandshake({
+      code: model.verificationPhrase,
+      ...(model.ownerName !== undefined ? { ownerName: model.ownerName } : {}),
+    });
+
+    content.createDiv({ text: view.instruction }).addClass('havemind-handshake-lead');
+
+    const digits = content.createDiv();
+    digits.addClass('havemind-handshake-code');
+    // Announced as one string so a screen reader reads "482917", not two
+    // unrelated numbers; sighted users get the 3+3 grouping that makes it
+    // speakable.
+    digits.setAttribute('aria-label', view.code.join(''));
+    for (const group of view.code) {
+      digits.createEl('span', { text: group });
+    }
+
     content
-      .createDiv({ text: 'Read this 6-digit code to the vault owner.' })
-      .addClass('havemind-hint');
-    const phrase = content.createDiv({ text: model.verificationPhrase });
-    phrase.addClass('havemind-verification-phrase');
-    content
-      .createDiv({
-        text: 'Keep Obsidian open — this resumes automatically once approved.',
-      })
-      .addClass('havemind-hint');
-    const disconnect = content.createEl('button', { text: 'Cancel' });
-    disconnect.onClickEvent(() => this.options.onDisconnect?.());
+      .createDiv({ text: view.mismatchWarning })
+      .addClass('havemind-handshake-warning');
+
+    if (view.expiryLabel !== null) {
+      content
+        .createDiv({ text: `Expires in ${view.expiryLabel}` })
+        .addClass('havemind-hint');
+    }
+    content.createDiv({ text: view.liveNote }).addClass('havemind-hint');
+
+    const cancel = content.createEl('button', { text: 'Cancel' });
+    cancel.onClickEvent(() => this.options.onDisconnect?.());
   }
 
   /**
@@ -667,17 +691,19 @@ export class HavemindOnboardingView extends ItemView {
    * the paste form to try a fresh invite — never offline, never a blank form.
    */
   private renderGuestInvalid(content: HTMLElement): void {
-    renderViewTitle(content, 'Connect to Havemind');
+    // Never a blank screen (design 1e): name the cause, price the fix in the
+    // other person's time so asking feels cheap, and offer both ways forward.
+    const view = buildSpentInvitation(
+      this.options.guestWaitingProvider?.()?.ownerName,
+    );
+
     const row = content.createDiv({ text: '' });
     row.addClass('havemind-status');
     row.style.setProperty('color', 'var(--text-error)');
     setIcon(row.createEl('span', { attr: DECORATIVE }), 'alert-triangle');
-    row.createEl('span', { text: ' This invitation is no longer valid' });
-    content
-      .createDiv({
-        text: 'Ask the vault owner for a new invitation, then paste it below.',
-      })
-      .addClass('havemind-hint');
+    row.createEl('span', { text: ` ${view.heading}` });
+
+    content.createDiv({ text: view.explanation }).addClass('havemind-hint');
     this.renderForm(content);
   }
 
