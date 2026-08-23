@@ -858,15 +858,9 @@ export class HavemindOnboardingView extends ItemView {
       this.renderCreateSection(content, model),
     );
 
-    renderSection(content, 'roster', () => {
-      // The persistent "Connected" roster — who is already a member of this vault.
-      const roster = this.options.rejoinRosterProvider?.();
-      if (roster !== undefined && !roster.empty) {
-        const rosterDivider = content.createEl('hr');
-        rosterDivider.addClass('havemind-divider');
-        this.renderRoster(content, roster);
-      }
-    });
+    // No roster here. The composer carried its own back when it was a separate
+    // screen; it now renders inside the People tab, which draws the roster
+    // above it — so keeping this drew "Connected / You" twice in one pane.
 
     renderSection(content, 'waiting devices', () => {
       // Four lines explaining that nothing has happened is the pane talking

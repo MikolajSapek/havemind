@@ -930,14 +930,25 @@
   color: var(--text-normal);
 }
 
+/* The overflow menu floats over the pane instead of pushing it down. Rendered
+   in flow it added its own height to the column, so opening it shoved the tabs
+   and the content out of view — a menu is a temporary layer, not a section. */
 .havemind-pane-menu {
-  margin: 4px 8px;
+  position: absolute;
+  top: 34px;
+  right: 8px;
+  z-index: var(--layer-popover, 30);
+  min-width: 180px;
   display: flex;
   flex-direction: column;
   border: 1px solid var(--havemind-hairline);
   border-radius: 6px;
   padding: 4px;
+  background: var(--background-secondary);
+  box-shadow: var(--shadow-s, 0 2px 8px rgba(0, 0, 0, 0.25));
 }
+/* The menu is positioned against the pane, so the pane is the frame. */
+.havemind-view { position: relative; }
 .havemind-pane-menu-item,
 .havemind-view button.havemind-pane-menu-item {
   text-align: left;

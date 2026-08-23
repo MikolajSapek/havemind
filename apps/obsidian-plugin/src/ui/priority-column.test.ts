@@ -14,6 +14,7 @@
 
 import { describe, expect, it } from 'vitest';
 
+import { buildRejoinRosterView } from '../runtime/rejoin-roster';
 import { buildConnectionPanel } from '../runtime/status';
 import {
   WorkspaceLeaf,
@@ -31,7 +32,9 @@ function pane(options: OnboardingViewOptions = {}): MockElement {
     panelProvider: () => buildConnectionPanel({ status: 'synced' }),
     ...options,
   });
-  void view.onOpen();
+  // The mock renders synchronously, but read the container *after* the call so
+  // the tree is the rendered one rather than an empty shell.
+  view.onOpen();
   return view.containerEl as unknown as MockElement;
 }
 
@@ -107,6 +110,43 @@ describe('entry chooser', () => {
 
     expect(texts(root).some((t) => /sent me an invitation/i.test(t))).toBe(false);
     expect(flatten(root).some((el) => el.tag === 'textarea')).toBe(true);
+  });
+});
+
+describe('priority column — no duplicated sections', () => {
+  it('draws the roster once when the composer is open', () => {
+    // The composer carried its own roster from when it was a separate screen.
+    // Once it moved inside the People tab — which already draws the roster —
+    // that left "Connected / You" rendered twice in one pane.
+    //
+    // An open composer selects People on its own, so no click is needed here:
+    // that selection is exactly what put the two rosters on the same tab.
+    const root = pane({
+      rejoinRosterProvider: () =>
+        buildRejoinRosterView(
+          [
+            {
+              membershipId: 'm1',
+              displayName: 'You',
+              role: 'owner',
+              self: true,
+            },
+          ],
+          [],
+        ),
+      rejoinWaitingProvider: () => new Set<string>(),
+      composerProvider: () => ({
+        role: 'editor',
+        name: '',
+        invitation: null,
+        pending: [],
+      }),
+    });
+
+    const rosterRows = flatten(root).filter((el) =>
+      el.classes.includes('havemind-roster-row'),
+    );
+    expect(rosterRows).toHaveLength(1);
   });
 });
 
