@@ -479,6 +479,17 @@ The plugin is public, so this interface is now the first thing every new user
 meets. E2EE deliberately deferred in favour of this (owner decision). Stages
 are sequential; each is independently releasable.
 
+- [ ] **UI-00** `plugin,user-decision` One hexagon, one pane (plans/007 Stage 0)
+  - Collapse three doors (ribbon hexagon → activity, ribbon `users` → overlay
+    toggle, command palette → connect panel) into a single ribbon icon opening
+    a single registered view. Connect, activity, authorship, roster and
+    conflicts become sections inside it.
+  - AC: AT0-1…AT0-4 from `plans/007-ui-rebuild.md` green.
+  - AC negative: no command is removed — the palette and hotkeys remain a full
+    keyboard/screen-reader path (regression on F8-02d).
+  - ⏳ BLOCKED on the visual design of the pane (Claude Design). This issue
+    fixes the structure; the layout of the single pane is designed first.
+
 - [ ] **UI-01** `plugin` Split the two entry paths (plans/007 Stage 1)
   - A chooser replaces the unconditional five-step tutorial: "I have an
     invitation" goes straight to the paste form, "I'll host the server" gets
