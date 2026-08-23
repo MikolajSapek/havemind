@@ -328,9 +328,12 @@ describe('plugin lifecycle', () => {
     const all = flatten(view?.containerEl as unknown as MockElement);
     expect(all.some(({ text }) => text === 'Creating connection')).toBe(true);
     expect(all.some(({ text }) => text === 'Create invitation')).toBe(true);
+    // Before an invitation exists there is nothing to wait for, so the waiting
+    // section stays silent rather than spending four lines saying so
+    // (round 2, Q4). It speaks once a device is actually on its way.
     expect(
-      all.some(({ text }) => text === 'Waiting for the other device'),
-    ).toBe(true);
+      all.some(({ text }) => /waiting for the other device/i.test(text)),
+    ).toBe(false);
   });
 
   it('renders the create and waiting sections together in one panel', async () => {

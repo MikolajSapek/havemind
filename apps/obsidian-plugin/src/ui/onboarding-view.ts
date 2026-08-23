@@ -44,7 +44,6 @@ import {
   renderEntryChooser,
   renderHostPath,
 } from './entry-chooser-section';
-import { renderPaneFooter } from './pane-footer';
 import { renderPaneHeader, type PaneMenuItem } from './pane-header';
 import { renderPaneTabs } from './pane-tabs-section';
 import { renderGettingStarted } from './getting-started-section';
@@ -342,6 +341,7 @@ export class HavemindOnboardingView extends ItemView {
     // Header strip with the overflow menu (design 1a). Disconnect, Reset and
     // the server address live behind it rather than costing standing lines in
     // a 300px column.
+    const overlayOn = this.options.authorOverlayProvider?.();
     renderPaneHeader(content, {
       title: 'Havemind',
       menuOpen: this.menuOpen,
@@ -350,11 +350,20 @@ export class HavemindOnboardingView extends ItemView {
         this.render();
       },
       items: this.headerMenuItems(panel),
+      alarmed: this.attentionCount() > 0,
+      // View actions live in the header, not in a second row (round 2, Q1).
+      // Only once connected: before that there is nothing to colour and nobody
+      // to invite.
+      ...(panel.showForm || overlayOn === undefined
+        ? {}
+        : { authorOverlayOn: overlayOn }),
+      ...(panel.showForm || this.options.onToggleAuthorOverlay === undefined
+        ? {}
+        : { onToggleAuthorOverlay: this.options.onToggleAuthorOverlay }),
+      ...(panel.showForm || this.options.onOpenComposer === undefined
+        ? {}
+        : { onInvite: this.options.onOpenComposer }),
     });
-
-    // The action bar belongs to the connected pane: before connecting there is
-    // nothing to sync, nobody to invite and no authorship to colour.
-    if (!panel.showForm) this.renderNavBar(content);
 
     // The invite composer is the Invite tab (see renderTabBody), not a block
     // above the strip: rendering it here as well pushed the tabs and the status
@@ -428,12 +437,14 @@ export class HavemindOnboardingView extends ItemView {
     // they are on — not whichever one they last happened to leave selected.
     // `!= null` is deliberate: an absent provider returns undefined, and
     // `undefined === null` is false — reading it that way made every pane
-    // without a composer think one was open, and forced the Invite tab.
+    // without a composer think one was open.
     const composerOpen =
       count(() => (this.options.composerProvider?.() != null ? 1 : 0)) > 0;
 
     return buildPaneTabs({
-      active: composerOpen ? 'invite' : this.activeTab,
+      // Inviting happens inside People now (round 2, Q3), so an open composer
+      // selects that tab rather than a fourth one of its own.
+      active: composerOpen ? 'people' : this.activeTab,
       activityCount: count(
         () => this.options.activityFeedProvider?.().length ?? 0,
       ),
@@ -443,10 +454,6 @@ export class HavemindOnboardingView extends ItemView {
       attentionCount:
         count(() => this.options.conflictsProvider?.().length ?? 0) +
         count(() => this.options.sendQueueProvider?.()?.failed.length ?? 0),
-      // Either route counts as "this user can invite": the action-bar icon that
-      // opens a composer, or a composer already open. Keying only on the icon
-      // meant an owner mid-invitation had no tab to hold it.
-      canInvite: this.options.onOpenComposer !== undefined || composerOpen,
     });
   }
 
@@ -472,22 +479,23 @@ export class HavemindOnboardingView extends ItemView {
       return;
     }
 
-    if (tab === 'people') {
-      const roster = this.options.rejoinRosterProvider?.();
-      if (roster !== undefined) this.renderRoster(body, roster);
-      return;
-    }
+    // People holds both who is here and how someone else gets here (round 2,
+    // Q3): inviting is a momentary task, so it lives where "who is in this
+    // vault" already lives rather than holding a permanent tab of its own.
+    const roster = this.options.rejoinRosterProvider?.();
+    if (roster !== undefined) this.renderRoster(body, roster);
 
     const composer = this.options.composerProvider?.() ?? null;
     if (composer !== null) {
       this.renderCreateConnection(body, composer);
       return;
     }
-    // The tab exists because this user can invite, but the composer has not
-    // been opened yet — say so rather than showing an empty panel.
-    const open = body.createEl('button', { text: 'Create an invitation' });
-    open.addClass('mod-cta');
-    open.onClickEvent(() => this.options.onOpenComposer?.());
+
+    if (this.options.onOpenComposer !== undefined) {
+      const open = body.createEl('button', { text: 'Invite someone' });
+      open.addClass('havemind-invite-cta');
+      open.onClickEvent(() => this.options.onOpenComposer?.());
+    }
   }
 
   /** Reads live input values into `draft` so the next render can restore them. */
@@ -644,48 +652,55 @@ export class HavemindOnboardingView extends ItemView {
     this.renderForm(content);
   }
 
-  /**
-   * The action bar under the header (design 2a), mirroring Obsidian's own
-   * `nav-buttons-container`. Design 1a parked these at the foot of the pane;
-   * 2a moves them into native chrome so the plugin reads as part of the app
-   * rather than a panel wearing its own furniture.
-   */
-  private renderNavBar(content: HTMLElement): void {
-    const overlayOn = this.options.authorOverlayProvider?.();
-    renderPaneFooter(content, {
-      ...(overlayOn !== undefined ? { authorOverlayOn: overlayOn } : {}),
-      ...(this.options.onToggleAuthorOverlay
-        ? { onToggleAuthorOverlay: this.options.onToggleAuthorOverlay }
-        : {}),
-      // Selects the Invite tab rather than opening a separate surface: one
-      // sidebar, and the icon is a shortcut to a tab that already exists.
-      ...(this.options.onOpenComposer
-        ? {
-            onCreateInvitation: () => {
-              this.activeTab = 'invite';
-              this.options.onOpenComposer?.();
-              this.render();
-            },
-          }
-        : {}),
-      ...(this.options.onSyncNow ? { onSyncNow: this.options.onSyncNow } : {}),
-      helpOpen: this.helpOpen,
-      onOpenHelp: () => {
-        this.helpOpen = !this.helpOpen;
-        this.render();
-      },
-    });
-  }
 
   /**
    * What the header overflow menu holds. Only offered once connected: on the
    * connect screen there is nothing to disconnect from, and Reset is already
    * surfaced as its own affordance in the state that needs it.
    */
+  /** How many things need the user right now, across every guarded provider. */
+  private attentionCount(): number {
+    const count = (read: () => number): number => {
+      try {
+        return read();
+      } catch {
+        return 0;
+      }
+    };
+    return (
+      count(() => this.options.conflictsProvider?.().length ?? 0) +
+      count(() => this.options.sendQueueProvider?.()?.failed.length ?? 0)
+    );
+  }
+
   private headerMenuItems(panel: ConnectionPanelView): PaneMenuItem[] {
     if (panel.showForm) return [];
 
     const items: PaneMenuItem[] = [];
+
+    // Sync is automatic; a standing button implies it might not be. It lives
+    // here for the rare case where forcing a cycle actually helps (round 2, Q5).
+    if (this.options.onSyncNow) {
+      items.push({
+        label: 'Sync now',
+        onSelect: () => {
+          this.menuOpen = false;
+          this.options.onSyncNow?.();
+        },
+      });
+    }
+
+    // Getting started lost its icon with the action row. It is read once and
+    // then never again, which is exactly what the overflow menu is for — but it
+    // must stay reachable, so it moves here rather than disappearing.
+    items.push({
+      label: this.helpOpen ? 'Hide getting started' : 'Show getting started',
+      onSelect: () => {
+        this.helpOpen = !this.helpOpen;
+        this.menuOpen = false;
+        this.render();
+      },
+    });
     if (panel.serverName !== undefined) {
       items.push({
         label: `Server: ${panel.serverName}`,
@@ -862,18 +877,24 @@ export class HavemindOnboardingView extends ItemView {
     });
 
     renderSection(content, 'waiting devices', () => {
-      const divider = content.createEl('hr');
-      divider.addClass('havemind-divider');
-
-      content.createEl('h4', { text: 'Waiting for the other device' });
+      // Four lines explaining that nothing has happened is the pane talking
+      // about itself (round 2, Q4). One quiet line says the same and leaves the
+      // space for the device that is about to arrive — which is when this
+      // section has something to say.
       if (model.pending.length === 0) {
-        content
-          .createDiv({
-            text: 'No device is waiting yet. When the other device redeems the invite, it appears here to approve.',
-          })
-          .addClass('havemind-empty');
+        // Only meaningful once an invitation exists: before that there is
+        // nothing to wait for.
+        if (model.invitation !== null) {
+          content
+            .createDiv({ text: 'Waiting for the other device…' })
+            .addClass('havemind-hint');
+        }
         return;
       }
+
+      const divider = content.createEl('hr');
+      divider.addClass('havemind-divider');
+      content.createEl('h4', { text: 'Waiting for the other device' });
       for (const entry of model.pending) {
         this.renderPendingRow(content, entry);
       }

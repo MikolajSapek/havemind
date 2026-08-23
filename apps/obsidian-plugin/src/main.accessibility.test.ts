@@ -256,14 +256,20 @@ describe('panel glyph accessibility', () => {
 
     const content = (view.containerEl as unknown as MockElement)
       .children[1] as MockElement;
-    // The help toggle moved into the pane footer (design 1a) but keeps its
-    // contract: an icon-only control states what pressing it will do, and
-    // reports whether the panel it controls is currently open.
-    const toggle = flatten(content).find(
-      (element) => element.attrs['aria-label'] === 'Show getting started',
+    // Getting started moved into the header overflow menu (round 2): read once
+    // and then never again is exactly what an overflow menu is for. It must
+    // still be reachable, and its label must state what pressing it will do.
+    const more = flatten(content).find(
+      (element) => element.attrs['aria-label'] === 'More options',
     );
-    expect(toggle).toBeDefined();
-    expect(toggle?.attrs['aria-expanded']).toBe('false');
+    expect(more).toBeDefined();
+    more?.triggerClick();
+    await view.onOpen();
+
+    const entry = flatten(
+      view.containerEl as unknown as MockElement,
+    ).find(({ text }) => /show getting started/i.test(text));
+    expect(entry).toBeDefined();
   });
 
   it('hides the conflicts header glyph, whose meaning is already in the text', () => {

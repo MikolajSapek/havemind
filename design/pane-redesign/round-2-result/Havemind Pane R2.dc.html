@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics><meta name="design_doc_mode" content="canvas"><style>
+body{margin:0;background:#eceae5;font-family:-apple-system,"Segoe UI",system-ui,sans-serif}
+.dv-turn{padding:40px 44px 32px;border-bottom:1px solid rgba(0,0,0,.08);scroll-margin-top:16px}
+.dv-thd{display:flex;align-items:baseline;gap:10px;margin:0 0 20px}
+.dv-tid{font:600 10px ui-monospace,Menlo,monospace;padding:3px 7px;background:#1a1a1a;color:#fff;border-radius:4px;text-decoration:none}
+.dv-tname{font:600 13px/1.2 system-ui,sans-serif;color:#1a1a1a}
+.dv-opts{display:flex;flex-wrap:wrap;gap:34px;align-items:flex-start}
+.dv-opt{flex:none;display:flex;flex-direction:column;gap:9px;scroll-margin-top:16px;max-width:100%}
+.dv-oid{font:600 10.5px ui-monospace,Menlo,monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px;text-decoration:none}
+.dv-olabel{display:flex;align-items:baseline;gap:8px;font:400 11.5px/1.3 system-ui,sans-serif;color:rgba(0,0,0,.55)}
+.dv-card{max-width:100%;background:#fff;border:1px solid rgba(0,0,0,.08);border-radius:10px;box-shadow:0 1px 3px rgba(0,0,0,.06);overflow:hidden;padding:22px}
+.dv-opt:target .dv-oid{background:#2a78d6;color:#fff}
+.dv-next{margin:22px 0 0;font:12px/1.6 system-ui,sans-serif;color:rgba(0,0,0,.5)}
+.dv-cap{font:10.5px/1.5 ui-monospace,Menlo,monospace;color:rgba(0,0,0,.45);letter-spacing:.01em;max-width:300px;margin:0}
+.dv-note{max-width:300px;font:12.5px/1.65 system-ui,sans-serif;color:rgba(0,0,0,.6)}
+.dv-note p{margin:0 0 10px}
+.dv-note p:last-child{margin:0}
+a{color:#2a78d6}a:hover{color:#1a5aa8}
+code{font:11.5px ui-monospace,Menlo,monospace;background:rgba(0,0,0,.06);padding:1px 4px;border-radius:3px}
+@keyframes hm-spin{to{transform:rotate(360deg)}}
+</style></helmet>
+
+<header style="padding:44px 44px 30px;max-width:780px">
+<div style="display:flex;align-items:center;gap:12px;margin:0 0 22px">
+<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="#7159d1" stroke-width="1.5" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
+<h1 style="margin:0;font:600 22px/1.2 system-ui,sans-serif;color:#1a1a1a">Round 2 — the tabbed pane, tightened</h1>
+</div>
+<p style="margin:0 0 14px;font:14px/1.65 system-ui,sans-serif;color:#3a3a3a;text-wrap:pretty">Your mitigation is the right one: an alarm outranks the strip, so the strip is free to be a signpost. Everything below accepts tabs as settled and only argues about the chrome above the content. <a href="#2a">2a</a> is what shipped, redrawn honestly at 300px and 250px so the rest has a baseline to beat.</p>
+<p style="margin:0 0 18px;font:14px/1.65 system-ui,sans-serif;color:#3a3a3a;text-wrap:pretty">One number to hold onto: at 300px the shipped chrome is <strong>34px header + 40px action bar + 44px tab strip = 118px</strong> before a single word of content. That is a quarter of a typical pane's height spent on navigation for a four-destination product.</p>
+
+<h2 style="margin:26px 0 10px;font:600 13px/1.2 system-ui,sans-serif;color:#1a1a1a;letter-spacing:.04em;text-transform:uppercase">Answers</h2>
+<ol style="margin:0;padding-left:20px;font:13.5px/1.7 system-ui,sans-serif;color:#3a3a3a">
+<li style="margin-bottom:10px"><strong>Fold the action bar into the header.</strong> Two rows of icons is one row too many, and Obsidian already has a place for view actions: the view header. Moving them there costs 0px of new chrome, leaves the tab strip as the only row of targets, and removes the read of "eight equal buttons" — header icons are visibly chrome, tabs are visibly navigation. That is <a href="#2b">2b</a>, and it is what I would ship. <a href="#2c">2c</a> goes further and deletes the row entirely by pushing each action into the tab that owns it; sparer, but two of the four actions get harder to find.</li>
+<li style="margin-bottom:10px"><strong>Labels, one line, no icons — and let the pane pick below 250px.</strong> Icon-over-label spends 44px to say what 26px of text says better, and it is the layout that truncates <em>first</em>, because the label gets the narrowest box in the strip. Single-line labels fit four tabs down to ~250px. Below that, icon-only with <code>title</code> + <code>aria-label</code>. It is a container width rule, not a taste call — see the ladder in <a href="#2d">2d</a>, and drag <em>Pane width</em> in Tweaks on <a href="#2g">2g</a> to watch it switch.</li>
+<li style="margin-bottom:10px"><strong>Modal, launched from People.</strong> Invite-as-tab has a defect the round-1 objection did not cover: <em>the strip changes shape by role</em>. Owners get four tabs, guests get three, and the pane becomes two structurally different products to describe, screenshot and support. A momentary task is also holding a permanent slot in the most valuable strip of pixels in the plugin. Put it where "who is in this vault" already lives — a row at the foot of People — and let the pending device announce itself above the strip like any other alarm. <a href="#2e">2e</a>.</li>
+<li style="margin-bottom:10px"><strong>One line.</strong> Four lines explaining that nothing has happened is the pane talking about itself. <code>Waiting for the other device · 4:52</code> with the spinner says the same thing and leaves the space for the device that is about to arrive — which is when the screen has something to say. <a href="#2f">2f</a> has both, and the one case where I would keep prose: the very first invitation a user ever sends.</li>
+<li style="margin-bottom:10px"><strong>Cut list below.</strong> Net effect: chrome drops from 118px to 60px, targets on first paint from eight to four, and the strip stops carrying numbers nobody can act on. <a href="#2g">2g</a> is the pane with every cut applied, light and dark, live-resizable.</li>
+</ol>
+
+<h2 style="margin:26px 0 10px;font:600 13px/1.2 system-ui,sans-serif;color:#1a1a1a;letter-spacing:.04em;text-transform:uppercase">What I would cut</h2>
+<ul style="margin:0;padding-left:20px;font:13.5px/1.7 system-ui,sans-serif;color:#3a3a3a">
+<li><strong>The action bar as a row.</strong> Four icons into the header (<a href="#2b">2b</a>).</li>
+<li><strong>The Invite tab.</strong> Modal from People, so the strip is the same three tabs for everyone (<a href="#2e">2e</a>).</li>
+<li><strong>Sync now.</strong> Sync is automatic; a manual button implies it might not be. It belongs in the overflow menu, and <code>Retry now</code> already appears on the status line in the states where pushing something actually helps.</li>
+<li><strong>Icons in the tab strip.</strong> They cost a line of height and are not distinctive at 15px — an activity squiggle and a users glyph do not read differently at a glance.</li>
+<li><strong>Counts on Activity and People.</strong> "12 today" and "2" are numbers you cannot act on, and they train the eye to skip the one count that matters. Keep the red conflict count; drop the rest.</li>
+<li><strong>"Show all 12" inside the Activity tab.</strong> The tab <em>is</em> the full list now — it scrolls. That button is a leftover from a collapsed section.</li>
+<li><strong>The waiting paragraph</strong> (<a href="#2f">2f</a>), and the help icon in the connected state — a person who has a working vault is not looking for a tutorial. Keep help in the pre-connect screens and in overflow.</li>
+</ul>
+
+<h2 style="margin:26px 0 10px;font:600 13px/1.2 system-ui,sans-serif;color:#1a1a1a;letter-spacing:.04em;text-transform:uppercase">Assumptions</h2>
+<ul style="margin:0 0 4px;padding-left:20px;font:13.5px/1.7 system-ui,sans-serif;color:#3a3a3a">
+<li>The alarm zone above the strip is never collapsible and never scrolls away — it is the one thing in the pane with a fixed position.</li>
+<li>Header action icons keep <code>aria-label</code> and Obsidian tooltips; the authorship toggle keeps <code>aria-pressed</code> and shows state by fill, not by colour alone.</li>
+<li>Roving tabindex stays as built; the alarm zone sits <em>before</em> the tablist in DOM order, so a screen reader meets the conflict before the navigation.</li>
+<li>250px is the practical floor, not a hard one — the ladder degrades below it rather than breaking.</li>
+</ul>
+</header>
+
+<section class="dv-turn" id="t2">
+<div class="dv-thd"><a class="dv-tid" href="#t2">2</a><span class="dv-tname">Refining what shipped</span></div>
+<div class="dv-opts">
+
+<div class="dv-opt" id="2a">
+<div class="dv-olabel"><a class="dv-oid" href="#2a">2a</a>As shipped — the baseline, not a proposal</div>
+<div class="dv-card">
+<div style="display:flex;gap:26px;flex-wrap:wrap;align-items:flex-start">
+
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="width:300px;height:430px;flex:none;display:flex;flex-direction:column;border:1px solid var(--background-modifier-border);border-radius:8px;overflow:hidden;background:var(--background-primary);color:var(--text-normal);font-size:13px;line-height:1.5;--background-primary:#ffffff;--background-secondary:#f2f3f5;--background-modifier-border:#e3e3e5;--background-modifier-hover:#eceef1;--text-normal:#2e3338;--text-muted:#5c6169;--text-faint:#9aa0a6;--interactive-accent:#7159d1;--text-success:#0d8a63;--text-error:#c0392b;--color-red-rgb:192,57,43;--havemind-author-2:#7c3fc0;--havemind-author-3:#0f8a6a">
+<div style="display:flex;align-items:center;gap:7px;padding:0 6px 0 12px;height:34px;flex:none;border-bottom:1px solid var(--background-modifier-border)">
+<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="var(--interactive-accent)" stroke-width="1.6" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
+<span style="font-weight:500;font-size:13px">Havemind</span>
+<button aria-label="More options" style="margin-left:auto;display:flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border:none;background:none;color:var(--text-faint);cursor:pointer"><svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" stroke="none"><circle cx="12" cy="12" r="1.4"></circle><circle cx="18.5" cy="12" r="1.4"></circle><circle cx="5.5" cy="12" r="1.4"></circle></svg></button>
+</div>
+<div style="flex:none;display:flex;align-items:center;justify-content:space-around;height:40px;padding:0 8px;border-bottom:1px solid var(--background-modifier-border);background:var(--background-secondary)">
+<button aria-label="Authorship colours" aria-pressed="true" style="display:flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:none;border-radius:4px;background:var(--background-modifier-hover);color:var(--interactive-accent);cursor:pointer"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
+<button aria-label="Create invitation" style="display:flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:none;border-radius:4px;background:none;color:var(--text-muted);cursor:pointer"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M19 8v6"></path><path d="M22 11h-6"></path></svg></button>
+<button aria-label="Sync now" style="display:flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:none;border-radius:4px;background:none;color:var(--text-muted);cursor:pointer"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"></path><path d="M8 16H3v5"></path></svg></button>
+<button aria-label="Help" style="display:flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:none;border-radius:4px;background:none;color:var(--text-muted);cursor:pointer"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="4"></circle><path d="m4.93 4.93 4.24 4.24"></path><path d="m14.83 9.17 4.24-4.24"></path><path d="m14.83 14.83 4.24 4.24"></path><path d="m9.17 14.83-4.24 4.24"></path></svg></button>
+</div>
+<div role="tablist" style="flex:none;display:grid;grid-template-columns:repeat(4,1fr);border-bottom:1px solid var(--background-modifier-border)">
+<button role="tab" aria-selected="true" style="display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 2px 5px;border:none;border-bottom:2px solid var(--interactive-accent);background:none;color:var(--text-normal);font:inherit;cursor:pointer"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg><span style="font-size:10.5px;display:flex;align-items:center;gap:3px">Status<span style="color:var(--text-error);font-weight:600">2</span></span></button>
+<button role="tab" aria-selected="false" tabindex="-1" style="display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 2px 5px;border:none;border-bottom:2px solid transparent;background:none;color:var(--text-muted);font:inherit;cursor:pointer"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg><span style="font-size:10.5px">Activity</span></button>
+<button role="tab" aria-selected="false" tabindex="-1" style="display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 2px 5px;border:none;border-bottom:2px solid transparent;background:none;color:var(--text-muted);font:inherit;cursor:pointer"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg><span style="font-size:10.5px">People</span></button>
+<button role="tab" aria-selected="false" tabindex="-1" style="display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 2px 5px;border:none;border-bottom:2px solid transparent;background:none;color:var(--text-muted);font:inherit;cursor:pointer"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"></rect><path d="m2 7 10 6 10-6"></path></svg><span style="font-size:10.5px">Invite</span></button>
+</div>
+<div style="flex:1;padding:14px 14px 0;display:flex;flex-direction:column;min-height:0">
+<div style="display:flex;align-items:center;gap:9px;font-weight:500;font-size:14px"><span title="Synced" style="width:8px;height:8px;border-radius:50%;background:var(--text-success);flex:none"></span><span>Synced</span></div>
+<div style="padding-left:17px;margin-top:3px;color:var(--text-muted);font-size:11.5px">Last change 4 min ago · nothing queued</div>
+</div>
+</div>
+<p class="dv-cap">SHIPPED, 300px. 118px of chrome, eight targets stacked in two rows, four counts competing. The pane is legible — it is just paying for navigation twice.</p>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="width:250px;height:430px;flex:none;display:flex;flex-direction:column;border:1px solid var(--background-modifier-border);border-radius:8px;overflow:hidden;background:var(--background-primary);color:var(--text-normal);font-size:13px;line-height:1.5;--background-primary:#ffffff;--background-secondary:#f2f3f5;--background-modifier-border:#e3e3e5;--background-modifier-hover:#eceef1;--text-normal:#2e3338;--text-muted:#5c6169;--text-faint:#9aa0a6;--interactive-accent:#7159d1;--text-success:#0d8a63;--text-error:#c0392b;--color-red-rgb:192,57,43">
+<div style="display:flex;align-items:center;gap:7px;padding:0 6px 0 12px;height:34px;flex:none;border-bottom:1px solid var(--background-modifier-border)">
+<span style="position:relative;display:flex"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="var(--interactive-accent)" stroke-width="1.6" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg><span title="Needs attention" style="position:absolute;top:-2px;right:-2px;width:6px;height:6px;border-radius:50%;background:var(--text-error);border:1.5px solid var(--background-primary)"></span></span>
+<span style="font-weight:500;font-size:13px">Havemind</span>
+<button aria-label="More options" style="margin-left:auto;display:flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border:none;background:none;color:var(--text-faint);cursor:pointer"><svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" stroke="none"><circle cx="12" cy="12" r="1.4"></circle><circle cx="18.5" cy="12" r="1.4"></circle><circle cx="5.5" cy="12" r="1.4"></circle></svg></button>
+</div>
+<div style="flex:none;display:flex;align-items:center;justify-content:space-around;height:40px;padding:0 6px;border-bottom:1px solid var(--background-modifier-border);background:var(--background-secondary)">
+<button aria-label="Authorship colours" aria-pressed="true" style="display:flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:none;border-radius:4px;background:var(--background-modifier-hover);color:var(--interactive-accent);cursor:pointer"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
+<button aria-label="Create invitation" style="display:flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:none;border-radius:4px;background:none;color:var(--text-muted);cursor:pointer"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M19 8v6"></path><path d="M22 11h-6"></path></svg></button>
+<button aria-label="Sync now" style="display:flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:none;border-radius:4px;background:none;color:var(--text-muted);cursor:pointer"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"></path><path d="M8 16H3v5"></path></svg></button>
+<button aria-label="Help" style="display:flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:none;border-radius:4px;background:none;color:var(--text-muted);cursor:pointer"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="4"></circle><path d="m4.93 4.93 4.24 4.24"></path><path d="m14.83 9.17 4.24-4.24"></path><path d="m14.83 14.83 4.24 4.24"></path><path d="m9.17 14.83-4.24 4.24"></path></svg></button>
+</div>
+<div role="tablist" style="flex:none;display:grid;grid-template-columns:repeat(4,1fr);border-bottom:1px solid var(--background-modifier-border)">
+<button role="tab" aria-selected="true" style="display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 2px 5px;border:none;border-bottom:2px solid var(--interactive-accent);background:none;color:var(--text-normal);font:inherit;cursor:pointer;min-width:0"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg><span style="font-size:10.5px;display:flex;align-items:center;gap:3px;max-width:100%;overflow:hidden">Stat…<span style="color:var(--text-error);font-weight:600">2</span></span></button>
+<button role="tab" aria-selected="false" tabindex="-1" style="display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 2px 5px;border:none;border-bottom:2px solid transparent;background:none;color:var(--text-muted);font:inherit;cursor:pointer;min-width:0"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg><span style="font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%">Activi…</span></button>
+<button role="tab" aria-selected="false" tabindex="-1" style="display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 2px 5px;border:none;border-bottom:2px solid transparent;background:none;color:var(--text-muted);font:inherit;cursor:pointer;min-width:0"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg><span style="font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%">Peop…</span></button>
+<button role="tab" aria-selected="false" tabindex="-1" style="display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 2px 5px;border:none;border-bottom:2px solid transparent;background:none;color:var(--text-muted);font:inherit;cursor:pointer;min-width:0"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"></rect><path d="m2 7 10 6 10-6"></path></svg><span style="font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%">Invite</span></button>
+</div>
+<div style="flex:1;padding:14px 12px 0;display:flex;flex-direction:column;min-height:0">
+<div style="display:flex;align-items:center;gap:9px;font-weight:500;font-size:14px;color:var(--text-error)"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg><span>2 conflicts</span></div>
+<div style="padding-left:24px;margin-top:3px;color:var(--text-muted);font-size:11.5px">Both versions are kept.</div>
+</div>
+</div>
+<p class="dv-cap">SHIPPED, 250px. Every label truncates — including the one carrying the red count, which is now "Stat… 2". The icon row is untouched because icons do not truncate; only the words do.</p>
+</div>
+
+<div class="dv-note">
+<p><strong>What the two drawings say.</strong> The failure at 250px is not that tabs are wrong — it is that the strip is carrying an icon, a word and a number in a 62px box. Remove the icon and the same strip fits with room to spare.</p>
+<p>And the eight-target read in <a href="#2a">2a</a> comes from the shaded action bar sitting flush against the strip: same width, same rhythm, same target size. It looks like row one of two.</p>
+</div>
+
+</div>
+</div>
+</div>
+
+<div class="dv-opt" id="2b">
+<div class="dv-olabel"><a class="dv-oid" href="#2b">2b</a>Q1 — actions into the header (recommended)</div>
+<div class="dv-card">
+<div style="display:flex;gap:26px;flex-wrap:wrap;align-items:flex-start">
+
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="width:300px;height:430px;flex:none;display:flex;flex-direction:column;border:1px solid var(--background-modifier-border);border-radius:8px;overflow:hidden;background:var(--background-primary);color:var(--text-normal);font-size:13px;line-height:1.5;--background-primary:#ffffff;--background-secondary:#f2f3f5;--background-modifier-border:#e3e3e5;--background-modifier-hover:#eceef1;--text-normal:#2e3338;--text-muted:#5c6169;--text-faint:#9aa0a6;--interactive-accent:#7159d1;--text-success:#0d8a63;--text-error:#c0392b;--color-red-rgb:192,57,43;--havemind-author-2:#7c3fc0;--havemind-author-3:#0f8a6a">
+<div style="display:flex;align-items:center;gap:4px;padding:0 4px 0 12px;height:34px;flex:none;border-bottom:1px solid var(--background-modifier-border)">
+<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="var(--interactive-accent)" stroke-width="1.6" stroke-linejoin="round" style="flex:none"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
+<span style="flex:1;min-width:0;margin-left:3px;font-weight:500;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Havemind</span>
+<button aria-label="Authorship colours" aria-pressed="true" style="flex:none;display:flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border:none;border-radius:4px;background:var(--background-modifier-hover);color:var(--interactive-accent);cursor:pointer"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
+<button aria-label="Invite someone" style="flex:none;display:flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border:none;border-radius:4px;background:none;color:var(--text-muted);cursor:pointer"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M19 8v6"></path><path d="M22 11h-6"></path></svg></button>
+<button aria-label="More options" style="flex:none;display:flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border:none;border-radius:4px;background:none;color:var(--text-faint);cursor:pointer"><svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" stroke="none"><circle cx="12" cy="12" r="1.4"></circle><circle cx="18.5" cy="12" r="1.4"></circle><circle cx="5.5" cy="12" r="1.4"></circle></svg></button>
+</div>
+<div role="tablist" style="flex:none;display:grid;grid-template-columns:repeat(3,1fr);border-bottom:1px solid var(--background-modifier-border)">
+<button role="tab" aria-selected="true" style="display:flex;align-items:center;justify-content:center;gap:5px;height:30px;padding:0 4px;border:none;border-bottom:2px solid var(--interactive-accent);background:none;color:var(--text-normal);font:inherit;font-size:12px;cursor:pointer">Status</button>
+<button role="tab" aria-selected="false" tabindex="-1" style="display:flex;align-items:center;justify-content:center;gap:5px;height:30px;padding:0 4px;border:none;border-bottom:2px solid transparent;background:none;color:var(--text-muted);font:inherit;font-size:12px;cursor:pointer">Activity</button>
+<button role="tab" aria-selected="false" tabindex="-1" style="display:flex;align-items:center;justify-content:center;gap:5px;height:30px;padding:0 4px;border:none;border-bottom:2px solid transparent;background:none;color:var(--text-muted);font:inherit;font-size:12px;cursor:pointer">People</button>
+</div>
+<div style="flex:1;padding:16px 14px 0;display:flex;flex-direction:column;min-height:0">
+<div style="display:flex;align-items:center;gap:9px;font-weight:500;font-size:14px"><span title="Synced" style="width:8px;height:8px;border-radius:50%;background:var(--text-success);flex:none"></span><span>Synced</span></div>
+<div style="padding-left:17px;margin-top:3px;color:var(--text-muted);font-size:11.5px">Last change 4 min ago · nothing queued</div>
+<div style="margin-top:auto;margin-bottom:14px;padding:8px 10px;border-radius:4px;background:var(--background-secondary);color:var(--text-muted);font-size:11px;line-height:1.6">Chrome: 34 + 30 = <strong style="color:var(--text-normal)">64px</strong>. Four targets, one row of navigation.</div>
+</div>
+</div>
+<p class="dv-cap">HEALTHY — the two icon rows became header icons. Authorship keeps its pressed fill, invite keeps its glyph, sync-now and help went to the overflow menu.</p>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="width:300px;height:430px;flex:none;display:flex;flex-direction:column;border:1px solid var(--background-modifier-border);border-radius:8px;overflow:hidden;background:var(--background-primary);color:var(--text-normal);font-size:13px;line-height:1.5;--background-primary:#ffffff;--background-secondary:#f2f3f5;--background-modifier-border:#e3e3e5;--background-modifier-hover:#eceef1;--text-normal:#2e3338;--text-muted:#5c6169;--text-faint:#9aa0a6;--interactive-accent:#7159d1;--text-success:#0d8a63;--text-error:#c0392b;--color-red-rgb:192,57,43;--havemind-author-2:#7c3fc0;--havemind-author-3:#0f8a6a">
+<div style="display:flex;align-items:center;gap:4px;padding:0 4px 0 12px;height:34px;flex:none;border-bottom:1px solid var(--background-modifier-border)">
+<span style="position:relative;display:flex;flex:none"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="var(--interactive-accent)" stroke-width="1.6" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg><span title="Needs attention" style="position:absolute;top:-2px;right:-2px;width:6px;height:6px;border-radius:50%;background:var(--text-error);border:1.5px solid var(--background-primary)"></span></span>
+<span style="flex:1;min-width:0;margin-left:3px;font-weight:500;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Havemind</span>
+<button aria-label="Authorship colours" aria-pressed="true" style="flex:none;display:flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border:none;border-radius:4px;background:var(--background-modifier-hover);color:var(--interactive-accent);cursor:pointer"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
+<button aria-label="Invite someone" style="flex:none;display:flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border:none;border-radius:4px;background:none;color:var(--text-muted);cursor:pointer"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M19 8v6"></path><path d="M22 11h-6"></path></svg></button>
+<button aria-label="More options" style="flex:none;display:flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border:none;border-radius:4px;background:none;color:var(--text-faint);cursor:pointer"><svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" stroke="none"><circle cx="12" cy="12" r="1.4"></circle><circle cx="18.5" cy="12" r="1.4"></circle><circle cx="5.5" cy="12" r="1.4"></circle></svg></button>
+</div>
+<div style="flex:none;border-left:2px solid var(--text-error);background:rgba(var(--color-red-rgb),.07);border-bottom:1px solid var(--background-modifier-border)">
+<div style="display:flex;align-items:center;gap:7px;padding:8px 11px 5px;color:var(--text-error);font-weight:600;font-size:12px"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg>2 conflicts</div>
+<div style="padding:0 11px 8px"><div style="display:flex;align-items:baseline;gap:8px;padding:3px 0"><span style="flex:1;min-width:0;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left">Projects/Kiln notes.md</span><button style="flex:none;padding:0;border:none;background:none;color:var(--interactive-accent);font:inherit;font-size:11.5px;font-weight:500;cursor:pointer">Resolve</button></div><div style="display:flex;align-items:baseline;gap:8px;padding:3px 0"><span style="flex:1;min-width:0;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left">Meetings/Weekly.md</span><button style="flex:none;padding:0;border:none;background:none;color:var(--interactive-accent);font:inherit;font-size:11.5px;font-weight:500;cursor:pointer">Resolve</button></div></div>
+</div>
+<div role="tablist" style="flex:none;display:grid;grid-template-columns:repeat(3,1fr);border-bottom:1px solid var(--background-modifier-border)">
+<button role="tab" aria-selected="false" tabindex="-1" style="display:flex;align-items:center;justify-content:center;gap:5px;height:30px;padding:0 4px;border:none;border-bottom:2px solid transparent;background:none;color:var(--text-muted);font:inherit;font-size:12px;cursor:pointer">Status<span style="color:var(--text-error);font-weight:600">2</span></button>
+<button role="tab" aria-selected="true" style="display:flex;align-items:center;justify-content:center;gap:5px;height:30px;padding:0 4px;border:none;border-bottom:2px solid var(--interactive-accent);background:none;color:var(--text-normal);font:inherit;font-size:12px;cursor:pointer">Activity</button>
+<button role="tab" aria-selected="false" tabindex="-1" style="display:flex;align-items:center;justify-content:center;gap:5px;height:30px;padding:0 4px;border:none;border-bottom:2px solid transparent;background:none;color:var(--text-muted);font:inherit;font-size:12px;cursor:pointer">People</button>
+</div>
+<div style="flex:1;padding:4px 14px 0;display:flex;flex-direction:column;min-height:0;overflow:hidden">
+<div style="display:flex;align-items:flex-start;gap:9px;padding:8px 0;border-bottom:1px solid var(--background-modifier-border)"><span title="Mira" aria-label="Mira" style="flex:none;width:8px;height:8px;margin-top:5px;border-radius:50%;background:var(--havemind-author-2)"></span><span style="flex:1;min-width:0"><span style="font-size:12.5px"><span style="font-weight:500">Mira</span> edited</span><span style="display:block;color:var(--text-muted);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left">Projects/Kiln notes.md</span></span><span style="display:flex;flex-direction:column;align-items:flex-end;gap:2px"><span style="color:var(--text-faint);font-size:11px;font-variant-numeric:tabular-nums">2m</span><button style="padding:0;border:none;background:none;color:var(--interactive-accent);font:inherit;font-size:11px;cursor:pointer">Restore</button></span></div>
+<div style="display:flex;align-items:flex-start;gap:9px;padding:8px 0;border-bottom:1px solid var(--background-modifier-border)"><span title="You (local edit)" aria-label="You, local edit" style="flex:none;width:8px;height:8px;margin-top:5px;border-radius:50%;border:1.5px solid var(--text-faint);box-sizing:border-box"></span><span style="flex:1;min-width:0"><span style="font-size:12.5px"><span style="font-weight:500">You</span> edited</span><span style="display:block;color:var(--text-muted);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left">Daily/2026-08-23.md</span></span><span style="display:flex;flex-direction:column;align-items:flex-end;gap:2px"><span style="color:var(--text-faint);font-size:11px;font-variant-numeric:tabular-nums">6m</span><button style="padding:0;border:none;background:none;color:var(--interactive-accent);font:inherit;font-size:11px;cursor:pointer">Restore</button></span></div>
+<div style="display:flex;align-items:flex-start;gap:9px;padding:8px 0;border-bottom:1px solid var(--background-modifier-border)"><span title="Tomas" aria-label="Tomas" style="flex:none;width:8px;height:8px;margin-top:5px;border-radius:50%;background:var(--havemind-author-3)"></span><span style="flex:1;min-width:0"><span style="font-size:12.5px"><span style="font-weight:500">Tomas</span> created</span><span style="display:block;color:var(--text-muted);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left">Reading/Ostrom.md</span></span><span style="display:flex;flex-direction:column;align-items:flex-end;gap:2px"><span style="color:var(--text-faint);font-size:11px;font-variant-numeric:tabular-nums">18m</span><button style="padding:0;border:none;background:none;color:var(--interactive-accent);font:inherit;font-size:11px;cursor:pointer">Restore</button></span></div>
+</div>
+</div>
+<p class="dv-cap">ALARM ON A NON-STATUS TAB — the conflict block sits between header and strip, so it is present on Activity too, and it precedes the tablist in DOM order.</p>
+</div>
+
+<div class="dv-note">
+<p><strong>Why the header and not the tabs.</strong> An action and a destination are different verbs. Tabs answer "where am I looking", actions answer "do a thing now" — merging them means a click either navigates or fires a side effect depending on which cell you hit, which is the one thing a tab strip must never do.</p>
+<p>The header is also where Obsidian users already look for view actions, and it has spare width: "Havemind" plus three 26px buttons fits to 214px before the title starts eliding.</p>
+<p><strong>Cost:</strong> sync-now and help lose their one-click access. I think that is correct — see the cut list — but if help must stay visible, it is the fourth header icon and still costs nothing.</p>
+</div>
+
+</div>
+</div>
+</div>
+
+<div class="dv-opt" id="2c">
+<div class="dv-olabel"><a class="dv-oid" href="#2c">2c</a>Q1 alternative — no action row at all</div>
+<div class="dv-card">
+<div style="display:flex;gap:26px;flex-wrap:wrap;align-items:flex-start">
+
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="width:300px;height:430px;flex:none;display:flex;flex-direction:column;border:1px solid var(--background-modifier-border);border-radius:8px;overflow:hidden;background:var(--background-primary);color:var(--text-normal);font-size:13px;line-height:1.5;--background-primary:#ffffff;--background-secondary:#f2f3f5;--background-modifier-border:#e3e3e5;--background-modifier-hover:#eceef1;--text-normal:#2e3338;--text-muted:#5c6169;--text-faint:#9aa0a6;--interactive-accent:#7159d1;--text-success:#0d8a63;--havemind-author-2:#7c3fc0;--havemind-author-3:#0f8a6a">
+<div style="display:flex;align-items:center;gap:7px;padding:0 4px 0 12px;height:34px;flex:none;border-bottom:1px solid var(--background-modifier-border)">
+<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="var(--interactive-accent)" stroke-width="1.6" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
+<span style="flex:1;font-weight:500;font-size:13px">Havemind</span>
+<button aria-label="More options" style="flex:none;display:flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border:none;border-radius:4px;background:none;color:var(--text-faint);cursor:pointer"><svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" stroke="none"><circle cx="12" cy="12" r="1.4"></circle><circle cx="18.5" cy="12" r="1.4"></circle><circle cx="5.5" cy="12" r="1.4"></circle></svg></button>
+</div>
+<div role="tablist" style="flex:none;display:grid;grid-template-columns:repeat(3,1fr);border-bottom:1px solid var(--background-modifier-border)">
+<button role="tab" aria-selected="false" tabindex="-1" style="display:flex;align-items:center;justify-content:center;height:30px;border:none;border-bottom:2px solid transparent;background:none;color:var(--text-muted);font:inherit;font-size:12px;cursor:pointer">Status</button>
+<button role="tab" aria-selected="false" tabindex="-1" style="display:flex;align-items:center;justify-content:center;height:30px;border:none;border-bottom:2px solid transparent;background:none;color:var(--text-muted);font:inherit;font-size:12px;cursor:pointer">Activity</button>
+<button role="tab" aria-selected="true" style="display:flex;align-items:center;justify-content:center;height:30px;border:none;border-bottom:2px solid var(--interactive-accent);background:none;color:var(--text-normal);font:inherit;font-size:12px;cursor:pointer">People</button>
+</div>
+<div style="flex:1;padding:10px 14px 0;display:flex;flex-direction:column;min-height:0">
+<div style="display:flex;align-items:center;gap:10px;min-height:38px;padding:5px 0;border-bottom:1px solid var(--background-modifier-border)"><span title="Mira — connected" aria-label="Mira, connected" style="flex:none;width:8px;height:8px;border-radius:50%;background:var(--havemind-author-2)"></span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12.5px">Mira <span style="color:var(--text-faint);font-size:11px">· owner</span></span></div>
+<div style="display:flex;align-items:center;gap:10px;min-height:38px;padding:5px 0;border-bottom:1px solid var(--background-modifier-border)"><span title="Tomas — connected" aria-label="Tomas, connected" style="flex:none;width:8px;height:8px;border-radius:50%;background:var(--havemind-author-3)"></span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12.5px">Tomas</span><button style="flex:none;padding:2px 4px;border:none;background:none;color:var(--text-muted);font:inherit;font-size:11px;cursor:pointer">Remove</button></div>
+<button style="display:flex;align-items:center;gap:8px;min-height:38px;padding:5px 0;border:none;border-bottom:1px solid var(--background-modifier-border);background:none;color:var(--interactive-accent);font:inherit;font-size:12.5px;font-weight:500;text-align:left;cursor:pointer"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M19 8v6"></path><path d="M22 11h-6"></path></svg>Invite someone</button>
+<div style="margin-top:auto;border-top:1px solid var(--background-modifier-border);margin-left:-14px;margin-right:-14px;padding:7px 12px;display:flex;align-items:center;gap:8px">
+<button aria-pressed="true" style="display:flex;align-items:center;gap:6px;padding:4px 6px;border:none;border-radius:4px;background:none;color:var(--text-muted);font:inherit;font-size:11.5px;cursor:pointer"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"></path><circle cx="12" cy="12" r="3"></circle></svg><span>Authorship</span><span style="position:relative;display:inline-block;width:21px;height:12px;border-radius:6px;background:var(--interactive-accent);margin-left:1px"><span style="position:absolute;top:2px;right:2px;width:8px;height:8px;border-radius:50%;background:#fff"></span></span></button>
+</div>
+</div>
+</div>
+<p class="dv-cap">SPAREST — 64px of chrome and zero icon buttons above the content. Invite is a row in the roster; authorship is a labelled footer toggle; sync-now and help are in overflow.</p>
+</div>
+
+<div class="dv-note">
+<p><strong>The case for it.</strong> Every action ends up next to the thing it acts on, and the pane's top is nothing but a title and three words. It is the version I would want to use.</p>
+<p><strong>The case against.</strong> Authorship is the plugin's signature feature and a footer toggle at the bottom of a scrolling tab is easy to lose — and in <a href="#2c">2c</a> it only appears on People, so it moves depending on where you are unless you pin the footer globally (which is another permanent strip, so you have bought back what you cut). Invite also becomes invisible to an owner sitting on Status.</p>
+<p>Ship <a href="#2b">2b</a>; keep this as the direction to move toward if the header ever gets crowded.</p>
+</div>
+
+</div>
+</div>
+</div>
+
+<div class="dv-opt" id="2d">
+<div class="dv-olabel"><a class="dv-oid" href="#2d">2d</a>Q2 — the resize ladder</div>
+<div class="dv-card">
+<div style="display:flex;flex-direction:column;gap:20px">
+<div style="display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start">
+
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="width:340px;flex:none;display:flex;flex-direction:column;border:1px solid var(--background-modifier-border);border-radius:8px;overflow:hidden;background:var(--background-primary);color:var(--text-normal);font-size:13px;--background-primary:#ffffff;--background-secondary:#f2f3f5;--background-modifier-border:#e3e3e5;--text-normal:#2e3338;--text-muted:#5c6169;--text-faint:#9aa0a6;--interactive-accent:#7159d1;--text-success:#0d8a63;--text-error:#c0392b">
+<div style="display:flex;align-items:center;gap:7px;padding:0 8px 0 12px;height:34px;flex:none;border-bottom:1px solid var(--background-modifier-border)"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="var(--interactive-accent)" stroke-width="1.6" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg><span style="font-weight:500;font-size:13px">Havemind</span></div>
+<div role="tablist" style="flex:none;display:grid;grid-template-columns:repeat(3,1fr);border-bottom:1px solid var(--background-modifier-border)">
+<button role="tab" aria-selected="true" style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 2px 5px;border:none;border-bottom:2px solid var(--interactive-accent);background:none;color:var(--text-normal);font:inherit;cursor:pointer"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg><span style="font-size:10.5px">Status</span></button>
+<button role="tab" aria-selected="false" tabindex="-1" style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 2px 5px;border:none;border-bottom:2px solid transparent;background:none;color:var(--text-muted);font:inherit;cursor:pointer"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg><span style="font-size:10.5px">Activity</span></button>
+<button role="tab" aria-selected="false" tabindex="-1" style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 2px 5px;border:none;border-bottom:2px solid transparent;background:none;color:var(--text-muted);font:inherit;cursor:pointer"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg><span style="font-size:10.5px">People</span></button>
+</div>
+<div style="padding:12px 14px 14px;display:flex;align-items:center;gap:9px;font-weight:500;font-size:14px"><span title="Synced" style="width:8px;height:8px;border-radius:50%;background:var(--text-success);flex:none"></span><span>Synced</span></div>
+</div>
+<p class="dv-cap" style="max-width:340px">≥330px — icon over label. Fits, but 44px tall and the icons still are not doing any work.</p>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="width:300px;flex:none;display:flex;flex-direction:column;border:1px solid var(--background-modifier-border);border-radius:8px;overflow:hidden;background:var(--background-primary);color:var(--text-normal);font-size:13px;--background-primary:#ffffff;--background-modifier-border:#e3e3e5;--text-normal:#2e3338;--text-muted:#5c6169;--text-faint:#9aa0a6;--interactive-accent:#7159d1;--text-success:#0d8a63">
+<div style="display:flex;align-items:center;gap:7px;padding:0 8px 0 12px;height:34px;flex:none;border-bottom:1px solid var(--background-modifier-border)"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="var(--interactive-accent)" stroke-width="1.6" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg><span style="font-weight:500;font-size:13px">Havemind</span></div>
+<div role="tablist" style="flex:none;display:grid;grid-template-columns:repeat(3,1fr);border-bottom:1px solid var(--background-modifier-border)">
+<button role="tab" aria-selected="true" style="display:flex;align-items:center;justify-content:center;height:30px;border:none;border-bottom:2px solid var(--interactive-accent);background:none;color:var(--text-normal);font:inherit;font-size:12px;cursor:pointer">Status</button>
+<button role="tab" aria-selected="false" tabindex="-1" style="display:flex;align-items:center;justify-content:center;height:30px;border:none;border-bottom:2px solid transparent;background:none;color:var(--text-muted);font:inherit;font-size:12px;cursor:pointer">Activity</button>
+<button role="tab" aria-selected="false" tabindex="-1" style="display:flex;align-items:center;justify-content:center;height:30px;border:none;border-bottom:2px solid transparent;background:none;color:var(--text-muted);font:inherit;font-size:12px;cursor:pointer">People</button>
+</div>
+<div style="padding:12px 14px 14px;display:flex;align-items:center;gap:9px;font-weight:500;font-size:14px"><span title="Synced" style="width:8px;height:8px;border-radius:50%;background:var(--text-success);flex:none"></span><span>Synced</span></div>
+</div>
+<p class="dv-cap">250–329px — labels only, 30px tall. The default. Longest label is 46px in a 100px cell.</p>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="width:236px;flex:none;display:flex;flex-direction:column;border:1px solid var(--background-modifier-border);border-radius:8px;overflow:hidden;background:var(--background-primary);color:var(--text-normal);font-size:13px;--background-primary:#ffffff;--background-modifier-border:#e3e3e5;--text-normal:#2e3338;--text-muted:#5c6169;--text-faint:#9aa0a6;--interactive-accent:#7159d1;--text-success:#0d8a63">
+<div style="display:flex;align-items:center;gap:7px;padding:0 8px 0 12px;height:34px;flex:none;border-bottom:1px solid var(--background-modifier-border)"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="var(--interactive-accent)" stroke-width="1.6" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg><span style="font-weight:500;font-size:13px">Havemind</span></div>
+<div role="tablist" style="flex:none;display:grid;grid-template-columns:repeat(3,1fr);border-bottom:1px solid var(--background-modifier-border)">
+<button role="tab" aria-selected="true" title="Status" aria-label="Status" style="display:flex;align-items:center;justify-content:center;height:30px;border:none;border-bottom:2px solid var(--interactive-accent);background:none;color:var(--text-normal);cursor:pointer"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg></button>
+<button role="tab" aria-selected="false" tabindex="-1" title="Activity" aria-label="Activity" style="display:flex;align-items:center;justify-content:center;height:30px;border:none;border-bottom:2px solid transparent;background:none;color:var(--text-muted);cursor:pointer"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg></button>
+<button role="tab" aria-selected="false" tabindex="-1" title="People" aria-label="People" style="display:flex;align-items:center;justify-content:center;height:30px;border:none;border-bottom:2px solid transparent;background:none;color:var(--text-muted);cursor:pointer"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg></button>
+</div>
+<div style="padding:12px 12px 14px;display:flex;align-items:center;gap:9px;font-weight:500;font-size:14px"><span title="Synced" style="width:8px;height:8px;border-radius:50%;background:var(--text-success);flex:none"></span><span>Synced</span></div>
+</div>
+<p class="dv-cap" style="max-width:236px">&lt;250px — icon only, tooltip + aria-label. A word truncated to "Activi…" is worse than a glyph you can hover.</p>
+</div>
+
+</div>
+<div style="display:flex;gap:26px;flex-wrap:wrap;align-items:flex-start">
+<div class="dv-note" style="max-width:380px">
+<p><strong>The rule.</strong> One <code>ResizeObserver</code> on the pane, three classes: <code>≥330 → icon+label</code>, <code>250–329 → label</code>, <code>&lt;250 → icon</code>. Nothing else in the pane responds to width, and the labels never truncate at any size, because the layout changes before they have to.</p>
+<p><strong>Why not always icon-only.</strong> Three tabs is inside the range where words are cheap and a glyph vocabulary has to be learned. Icon-only is a fallback, not a target.</p>
+<p><strong>Why the count survives every step.</strong> The red conflict number is not a label, it renders next to the icon in icon-only mode, and the alarm above the strip is doing the real work regardless.</p>
+</div>
+<div class="dv-note" style="max-width:280px">
+<p><strong>If you only take one thing from Q2:</strong> the shipped icon-over-label layout is the <em>only</em> one of the three that breaks, because it gives the words the narrowest possible box and then centres them. Dropping to labels at 300px is a one-line change and buys 14px of height back.</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+
+<div class="dv-opt" id="2e">
+<div class="dv-olabel"><a class="dv-oid" href="#2e">2e</a>Q3 — invite as a modal from People</div>
+<div class="dv-card">
+<div style="display:flex;gap:26px;flex-wrap:wrap;align-items:flex-start">
+
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="width:300px;height:400px;flex:none;position:relative;display:flex;flex-direction:column;border:1px solid var(--background-modifier-border);border-radius:8px;overflow:hidden;background:var(--background-primary);color:var(--text-normal);font-size:13px;line-height:1.5;--background-primary:#ffffff;--background-secondary:#f2f3f5;--background-modifier-border:#e3e3e5;--background-modifier-hover:#eceef1;--text-normal:#2e3338;--text-muted:#5c6169;--text-faint:#9aa0a6;--interactive-accent:#7159d1;--text-success:#0d8a63;--havemind-author-2:#7c3fc0;--havemind-author-3:#0f8a6a">
+<div style="display:flex;align-items:center;gap:4px;padding:0 4px 0 12px;height:34px;flex:none;border-bottom:1px solid var(--background-modifier-border);opacity:.45"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="var(--interactive-accent)" stroke-width="1.6" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg><span style="flex:1;margin-left:3px;font-weight:500;font-size:13px">Havemind</span></div>
+<div role="tablist" style="flex:none;display:grid;grid-template-columns:repeat(3,1fr);border-bottom:1px solid var(--background-modifier-border);opacity:.45">
+<div role="tab" style="display:flex;align-items:center;justify-content:center;height:30px;color:var(--text-muted);font-size:12px">Status</div>
+<div role="tab" style="display:flex;align-items:center;justify-content:center;height:30px;color:var(--text-muted);font-size:12px">Activity</div>
+<div role="tab" aria-selected="true" style="display:flex;align-items:center;justify-content:center;height:30px;border-bottom:2px solid var(--interactive-accent);color:var(--text-normal);font-size:12px">People</div>
+</div>
+<div style="flex:1;padding:10px 14px;opacity:.45">
+<div style="display:flex;align-items:center;gap:10px;min-height:38px;border-bottom:1px solid var(--background-modifier-border)"><span style="flex:none;width:8px;height:8px;border-radius:50%;background:var(--havemind-author-2)"></span><span style="font-size:12.5px">Mira <span style="color:var(--text-faint);font-size:11px">· owner</span></span></div>
+<div style="display:flex;align-items:center;gap:10px;min-height:38px;border-bottom:1px solid var(--background-modifier-border)"><span style="flex:none;width:8px;height:8px;border-radius:50%;background:var(--havemind-author-3)"></span><span style="font-size:12.5px">Tomas</span></div>
+</div>
+<div style="position:absolute;inset:0;background:rgba(0,0,0,.28);display:flex;align-items:center;justify-content:center;padding:12px">
+<div style="width:100%;border:1px solid var(--background-modifier-border);border-radius:8px;background:var(--background-primary);box-shadow:0 8px 28px rgba(0,0,0,.24);overflow:hidden">
+<div style="display:flex;align-items:center;padding:11px 12px 0"><span style="flex:1;font-size:13px;font-weight:600">Invite someone</span><button aria-label="Close" style="display:flex;padding:2px;border:none;background:none;color:var(--text-faint);cursor:pointer"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button></div>
+<div style="padding:8px 12px 14px">
+<div style="color:var(--text-muted);font-size:11.5px;line-height:1.55">Send this to them however you would send a password. It works once.</div>
+<div style="margin-top:10px;padding:8px;border:1px solid var(--background-modifier-border);border-radius:4px;background:var(--background-secondary);font-family:ui-monospace,Menlo,monospace;font-size:10.5px;line-height:1.6;color:var(--text-muted);word-break:break-all;max-height:58px;overflow:hidden">hm_pt_2f9c41ab7e0d3c81f0a6b45d9e27… <span style="color:var(--text-faint)">(truncated)</span></div>
+<button style="margin-top:8px;width:100%;display:flex;align-items:center;justify-content:center;gap:7px;padding:7px;border:none;border-radius:4px;background:var(--interactive-accent);color:#fff;font:inherit;font-size:12.5px;font-weight:500;cursor:pointer"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg>Copy invitation</button>
+<div style="display:flex;align-items:center;gap:7px;margin-top:12px;padding-top:11px;border-top:1px solid var(--background-modifier-border);color:var(--text-muted);font-size:11.5px"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="var(--interactive-accent)" stroke-width="1.8" stroke-linejoin="round" style="flex:none;animation:hm-spin 1.3s linear infinite;transform-origin:50% 50%"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg><span style="flex:1">Waiting for the other device</span><span style="color:var(--text-faint);font-variant-numeric:tabular-nums">4:52</span></div>
+</div>
+</div>
+</div>
+</div>
+<p class="dv-cap">MODAL — opened from the header icon or the "Invite someone" row. One line of waiting, in the window the owner is already looking at.</p>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="width:300px;height:400px;flex:none;display:flex;flex-direction:column;border:1px solid var(--background-modifier-border);border-radius:8px;overflow:hidden;background:var(--background-primary);color:var(--text-normal);font-size:13px;line-height:1.5;--background-primary:#ffffff;--background-secondary:#f2f3f5;--background-modifier-border:#e3e3e5;--background-modifier-hover:#eceef1;--text-normal:#2e3338;--text-muted:#5c6169;--text-faint:#9aa0a6;--interactive-accent:#7159d1;--text-success:#0d8a63;--color-accent-rgb:113,89,209">
+<div style="display:flex;align-items:center;gap:4px;padding:0 4px 0 12px;height:34px;flex:none;border-bottom:1px solid var(--background-modifier-border)">
+<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="var(--interactive-accent)" stroke-width="1.6" stroke-linejoin="round" style="flex:none"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
+<span style="flex:1;min-width:0;margin-left:3px;font-weight:500;font-size:13px">Havemind</span>
+<button aria-label="Authorship colours" aria-pressed="true" style="flex:none;display:flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border:none;border-radius:4px;background:var(--background-modifier-hover);color:var(--interactive-accent);cursor:pointer"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
+<button aria-label="Invite someone" style="flex:none;display:flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border:none;border-radius:4px;background:none;color:var(--text-muted);cursor:pointer"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M19 8v6"></path><path d="M22 11h-6"></path></svg></button>
+<button aria-label="More options" style="flex:none;display:flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border:none;border-radius:4px;background:none;color:var(--text-faint);cursor:pointer"><svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" stroke="none"><circle cx="12" cy="12" r="1.4"></circle><circle cx="18.5" cy="12" r="1.4"></circle><circle cx="5.5" cy="12" r="1.4"></circle></svg></button>
+</div>
+<div style="flex:none;border-left:2px solid var(--interactive-accent);background:rgba(var(--color-accent-rgb),.08);border-bottom:1px solid var(--background-modifier-border);padding:9px 11px">
+<div style="display:flex;align-items:center;gap:7px;font-weight:600;font-size:12px"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="var(--interactive-accent)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M19 8v6"></path><path d="M22 11h-6"></path></svg><span style="flex:1">A device wants to join</span></div>
+<div style="margin-top:4px;color:var(--text-muted);font-size:11.5px;line-height:1.5">Ask them to read out their six digits.</div>
+<button style="margin-top:7px;padding:5px 9px;border:none;border-radius:4px;background:var(--interactive-accent);color:#fff;font:inherit;font-size:11.5px;font-weight:500;cursor:pointer">Check the digits</button>
+</div>
+<div role="tablist" style="flex:none;display:grid;grid-template-columns:repeat(3,1fr);border-bottom:1px solid var(--background-modifier-border)">
+<button role="tab" aria-selected="true" style="display:flex;align-items:center;justify-content:center;height:30px;border:none;border-bottom:2px solid var(--interactive-accent);background:none;color:var(--text-normal);font:inherit;font-size:12px;cursor:pointer">Status</button>
+<button role="tab" aria-selected="false" tabindex="-1" style="display:flex;align-items:center;justify-content:center;height:30px;border:none;border-bottom:2px solid transparent;background:none;color:var(--text-muted);font:inherit;font-size:12px;cursor:pointer">Activity</button>
+<button role="tab" aria-selected="false" tabindex="-1" style="display:flex;align-items:center;justify-content:center;height:30px;border:none;border-bottom:2px solid transparent;background:none;color:var(--text-muted);font:inherit;font-size:12px;cursor:pointer">People</button>
+</div>
+<div style="flex:1;padding:16px 14px 0;display:flex;flex-direction:column;min-height:0">
+<div style="display:flex;align-items:center;gap:9px;font-weight:500;font-size:14px"><span title="Synced" style="width:8px;height:8px;border-radius:50%;background:var(--text-success);flex:none"></span><span>Synced</span></div>
+<div style="padding-left:17px;margin-top:3px;color:var(--text-muted);font-size:11.5px">Last change 4 min ago · nothing queued</div>
+</div>
+</div>
+<p class="dv-cap">PENDING DEVICE — the one invitation state that outranks a tab. Accent, not red: it is expected and good, but it is time-boxed and needs a human. Same slot as a conflict, never both invented twice.</p>
+</div>
+
+<div class="dv-note">
+<p><strong>The argument you did not make in round 1.</strong> Invite-as-tab means the strip has four cells for owners and three for guests. Two shapes of the same pane is a documentation, screenshot and support cost forever, and a guest who reads about "the Invite tab" cannot find it.</p>
+<p><strong>Where it goes instead.</strong> Header icon (always reachable, owner-only, no layout change when absent) plus a row at the foot of People. Two doors, both where a person already is when they think "add someone".</p>
+<p><strong>What stays in the pane.</strong> Only the approval — because it is time-limited and interactive. It renders in the alarm slot above the strip, in accent rather than red, so the vocabulary is "something needs you" without claiming something is wrong.</p>
+</div>
+
+</div>
+</div>
+</div>
+
+<div class="dv-opt" id="2f">
+<div class="dv-olabel"><a class="dv-oid" href="#2f">2f</a>Q4 — the waiting state, both ways</div>
+<div class="dv-card">
+<div style="display:flex;gap:26px;flex-wrap:wrap;align-items:flex-start">
+
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="width:300px;flex:none;display:flex;flex-direction:column;border:1px solid var(--background-modifier-border);border-radius:8px;overflow:hidden;background:var(--background-primary);color:var(--text-normal);font-size:13px;line-height:1.5;--background-primary:#ffffff;--background-secondary:#f2f3f5;--background-modifier-border:#e3e3e5;--text-normal:#2e3338;--text-muted:#5c6169;--text-faint:#9aa0a6;--interactive-accent:#7159d1">
+<div style="display:flex;align-items:center;gap:7px;padding:0 8px 0 12px;height:34px;flex:none;border-bottom:1px solid var(--background-modifier-border)"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="var(--interactive-accent)" stroke-width="1.6" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg><span style="font-weight:500;font-size:13px">Havemind</span></div>
+<div style="padding:16px 14px 18px;display:flex;flex-direction:column;align-items:center;text-align:center">
+<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="var(--text-faint)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect width="16" height="20" x="4" y="2" rx="2"></rect><path d="M12 18h.01"></path></svg>
+<div style="margin-top:10px;font-size:13px;font-weight:600">Waiting for the other device</div>
+<div style="margin-top:6px;color:var(--text-muted);font-size:11.5px;line-height:1.6">Nothing has happened yet. Once the person you invited pastes the invitation, their device will appear here and show you six digits to check.</div>
+<div style="margin-top:8px;color:var(--text-faint);font-size:11px;line-height:1.6">This can take a few minutes. You can close this pane — it will keep waiting.</div>
+<div style="margin-top:10px;color:var(--text-faint);font-size:11px">Invitation expires in 4:52</div>
+</div>
+</div>
+<p class="dv-cap">TODAY — five lines and an icon to say "not yet". Every sentence is true and none of it changes what the user does next.</p>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="width:300px;flex:none;display:flex;flex-direction:column;border:1px solid var(--background-modifier-border);border-radius:8px;overflow:hidden;background:var(--background-primary);color:var(--text-normal);font-size:13px;line-height:1.5;--background-primary:#ffffff;--background-secondary:#f2f3f5;--background-modifier-border:#e3e3e5;--text-normal:#2e3338;--text-muted:#5c6169;--text-faint:#9aa0a6;--interactive-accent:#7159d1;--text-success:#0d8a63">
+<div style="display:flex;align-items:center;gap:7px;padding:0 8px 0 12px;height:34px;flex:none;border-bottom:1px solid var(--background-modifier-border)"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="var(--interactive-accent)" stroke-width="1.6" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg><span style="font-weight:500;font-size:13px">Havemind</span></div>
+<div role="tablist" style="flex:none;display:grid;grid-template-columns:repeat(3,1fr);border-bottom:1px solid var(--background-modifier-border)">
+<button role="tab" aria-selected="false" tabindex="-1" style="display:flex;align-items:center;justify-content:center;height:30px;border:none;border-bottom:2px solid transparent;background:none;color:var(--text-muted);font:inherit;font-size:12px;cursor:pointer">Status</button>
+<button role="tab" aria-selected="false" tabindex="-1" style="display:flex;align-items:center;justify-content:center;height:30px;border:none;border-bottom:2px solid transparent;background:none;color:var(--text-muted);font:inherit;font-size:12px;cursor:pointer">Activity</button>
+<button role="tab" aria-selected="true" style="display:flex;align-items:center;justify-content:center;height:30px;border:none;border-bottom:2px solid var(--interactive-accent);background:none;color:var(--text-normal);font:inherit;font-size:12px;cursor:pointer">People</button>
+</div>
+<div style="padding:10px 14px 14px;display:flex;flex-direction:column">
+<div style="display:flex;align-items:center;gap:10px;min-height:38px;padding:4px 0;border-bottom:1px solid var(--background-modifier-border)"><span title="Mira — connected" aria-label="Mira, connected" style="flex:none;width:8px;height:8px;border-radius:50%;background:#7c3fc0"></span><span style="flex:1;font-size:12.5px">Mira <span style="color:var(--text-faint);font-size:11px">· owner</span></span></div>
+<div style="display:flex;align-items:center;gap:9px;min-height:38px;padding:4px 0;border-bottom:1px solid var(--background-modifier-border);color:var(--text-muted)">
+<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="var(--interactive-accent)" stroke-width="1.8" stroke-linejoin="round" style="flex:none;animation:hm-spin 1.3s linear infinite;transform-origin:50% 50%"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
+<span style="flex:1;font-size:12px">Waiting for the other device</span>
+<span style="color:var(--text-faint);font-size:11px;font-variant-numeric:tabular-nums">4:52</span>
+</div>
+<button style="align-self:flex-start;margin-top:8px;padding:0;border:none;background:none;color:var(--text-muted);font:inherit;font-size:11.5px;cursor:pointer">Cancel invitation</button>
+</div>
+</div>
+<p class="dv-cap">PROPOSED — one row, in the roster, where the device will land. The spinner is the proof-of-life; the clock is the only fact that changes.</p>
+</div>
+
+<div class="dv-note">
+<p><strong>Collapse it.</strong> An empty state earns prose only when the user might be stuck. Here they are not stuck — they are waiting on another human, and they know it, because they just sent the invitation.</p>
+<p><strong>The one exception.</strong> On a vault's <em>first ever</em> invitation, keep two sentences: what to send and what will happen. After the first success, never again — a <code>hasInvitedBefore</code> flag is one line of settings and it is the difference between a tool that teaches and a tool that nags.</p>
+<p><strong>Related:</strong> if the invitation expires while nobody is watching, that row becomes a real notice with "Send a new one" — expiry is an event, waiting is not.</p>
+</div>
+
+</div>
+</div>
+</div>
+
+<div class="dv-opt" id="2g">
+<div class="dv-olabel"><a class="dv-oid" href="#2g">2g</a>Q5 — the pane with every cut applied (live: drag Pane width in Tweaks)</div>
+<div class="dv-card">
+<div style="display:flex;gap:26px;flex-wrap:wrap;align-items:flex-start">
+
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="width:{{ paneW }}px;max-width:100%">
+<div style="display:flex;flex-direction:column;height:430px;border:1px solid var(--background-modifier-border);border-radius:8px;overflow:hidden;background:var(--background-primary);color:var(--text-normal);font-size:13px;line-height:1.5;--background-primary:#ffffff;--background-secondary:#f2f3f5;--background-modifier-border:#e3e3e5;--background-modifier-hover:#eceef1;--text-normal:#2e3338;--text-muted:#5c6169;--text-faint:#9aa0a6;--interactive-accent:#7159d1;--text-success:#0d8a63;--text-error:#c0392b;--color-red-rgb:192,57,43;--havemind-author-2:#7c3fc0;--havemind-author-3:#0f8a6a">
+<div style="display:flex;align-items:center;gap:4px;padding:0 4px 0 12px;height:34px;flex:none;border-bottom:1px solid var(--background-modifier-border)">
+<span style="position:relative;display:flex;flex:none"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="var(--interactive-accent)" stroke-width="1.6" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg><sc-if value="{{ alarmed }}" hint-placeholder-val="{{ true }}"><span title="Needs attention" style="position:absolute;top:-2px;right:-2px;width:6px;height:6px;border-radius:50%;background:var(--text-error);border:1.5px solid var(--background-primary)"></span></sc-if></span>
+<span style="flex:1;min-width:0;margin-left:3px;font-weight:500;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Havemind</span>
+<button aria-label="Authorship colours" aria-pressed="true" style="flex:none;display:flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border:none;border-radius:4px;background:var(--background-modifier-hover);color:var(--interactive-accent);cursor:pointer"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
+<button aria-label="Invite someone" style="flex:none;display:flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border:none;border-radius:4px;background:none;color:var(--text-muted);cursor:pointer"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M19 8v6"></path><path d="M22 11h-6"></path></svg></button>
+<button aria-label="More options" style="flex:none;display:flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border:none;border-radius:4px;background:none;color:var(--text-faint);cursor:pointer"><svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" stroke="none"><circle cx="12" cy="12" r="1.4"></circle><circle cx="18.5" cy="12" r="1.4"></circle><circle cx="5.5" cy="12" r="1.4"></circle></svg></button>
+</div>
+<sc-if value="{{ alarmed }}" hint-placeholder-val="{{ true }}">
+<div style="flex:none;border-left:2px solid var(--text-error);background:rgba(var(--color-red-rgb),.07);border-bottom:1px solid var(--background-modifier-border)">
+<div style="display:flex;align-items:center;gap:7px;padding:8px 11px 4px;color:var(--text-error);font-weight:600;font-size:12px"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg><span style="flex:1">2 conflicts</span></div>
+<div style="padding:0 11px 8px"><div style="display:flex;align-items:baseline;gap:8px;padding:3px 0"><span style="flex:1;min-width:0;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left">Projects/Kiln notes.md</span><button style="flex:none;padding:0;border:none;background:none;color:var(--interactive-accent);font:inherit;font-size:11.5px;font-weight:500;cursor:pointer">Resolve</button></div><div style="display:flex;align-items:baseline;gap:8px;padding:3px 0"><span style="flex:1;min-width:0;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left">Meetings/Weekly.md</span><button style="flex:none;padding:0;border:none;background:none;color:var(--interactive-accent);font:inherit;font-size:11.5px;font-weight:500;cursor:pointer">Resolve</button></div></div>
+</div>
+</sc-if>
+<sc-if value="{{ modeIconLabel }}" hint-placeholder-val="{{ false }}">
+<div role="tablist" style="flex:none;display:grid;grid-template-columns:repeat(3,1fr);border-bottom:1px solid var(--background-modifier-border)">
+<button role="tab" aria-selected="true" style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 2px 5px;border:none;border-bottom:2px solid var(--interactive-accent);background:none;color:var(--text-normal);font:inherit;cursor:pointer"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg><span style="font-size:10.5px;display:flex;gap:4px">Status<sc-if value="{{ alarmed }}" hint-placeholder-val="{{ true }}"><span style="color:var(--text-error);font-weight:600">2</span></sc-if></span></button>
+<button role="tab" aria-selected="false" tabindex="-1" style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 2px 5px;border:none;border-bottom:2px solid transparent;background:none;color:var(--text-muted);font:inherit;cursor:pointer"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg><span style="font-size:10.5px">Activity</span></button>
+<button role="tab" aria-selected="false" tabindex="-1" style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 2px 5px;border:none;border-bottom:2px solid transparent;background:none;color:var(--text-muted);font:inherit;cursor:pointer"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg><span style="font-size:10.5px">People</span></button>
+</div>
+</sc-if>
+<sc-if value="{{ modeLabel }}" hint-placeholder-val="{{ true }}">
+<div role="tablist" style="flex:none;display:grid;grid-template-columns:repeat(3,1fr);border-bottom:1px solid var(--background-modifier-border)">
+<button role="tab" aria-selected="true" style="display:flex;align-items:center;justify-content:center;gap:5px;height:30px;border:none;border-bottom:2px solid var(--interactive-accent);background:none;color:var(--text-normal);font:inherit;font-size:12px;cursor:pointer">Status<sc-if value="{{ alarmed }}" hint-placeholder-val="{{ true }}"><span style="color:var(--text-error);font-weight:600">2</span></sc-if></button>
+<button role="tab" aria-selected="false" tabindex="-1" style="display:flex;align-items:center;justify-content:center;height:30px;border:none;border-bottom:2px solid transparent;background:none;color:var(--text-muted);font:inherit;font-size:12px;cursor:pointer">Activity</button>
+<button role="tab" aria-selected="false" tabindex="-1" style="display:flex;align-items:center;justify-content:center;height:30px;border:none;border-bottom:2px solid transparent;background:none;color:var(--text-muted);font:inherit;font-size:12px;cursor:pointer">People</button>
+</div>
+</sc-if>
+<sc-if value="{{ modeIcon }}" hint-placeholder-val="{{ false }}">
+<div role="tablist" style="flex:none;display:grid;grid-template-columns:repeat(3,1fr);border-bottom:1px solid var(--background-modifier-border)">
+<button role="tab" aria-selected="true" title="Status" aria-label="Status" style="display:flex;align-items:center;justify-content:center;gap:4px;height:30px;border:none;border-bottom:2px solid var(--interactive-accent);background:none;color:var(--text-normal);cursor:pointer"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg><sc-if value="{{ alarmed }}" hint-placeholder-val="{{ true }}"><span style="color:var(--text-error);font-weight:600;font-size:11px">2</span></sc-if></button>
+<button role="tab" aria-selected="false" tabindex="-1" title="Activity" aria-label="Activity" style="display:flex;align-items:center;justify-content:center;height:30px;border:none;border-bottom:2px solid transparent;background:none;color:var(--text-muted);cursor:pointer"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg></button>
+<button role="tab" aria-selected="false" tabindex="-1" title="People" aria-label="People" style="display:flex;align-items:center;justify-content:center;height:30px;border:none;border-bottom:2px solid transparent;background:none;color:var(--text-muted);cursor:pointer"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg></button>
+</div>
+</sc-if>
+<div style="flex:1;padding:16px 14px 0;display:flex;flex-direction:column;min-height:0">
+<div style="display:flex;align-items:center;gap:9px;font-weight:500;font-size:14px"><span title="Synced" aria-label="Synced" style="width:8px;height:8px;border-radius:50%;background:var(--text-success);flex:none"></span><span>Synced</span></div>
+<div style="padding-left:17px;margin-top:3px;color:var(--text-muted);font-size:11.5px">Last change 4 min ago · nothing queued</div>
+<div style="margin-top:auto;margin-bottom:14px;padding:8px 10px;border-radius:4px;background:var(--background-secondary);color:var(--text-muted);font-size:11px;line-height:1.6">Pane <strong style="color:var(--text-normal)">{{ paneW }}px</strong> · strip <strong style="color:var(--text-normal)">{{ modeName }}</strong></div>
+</div>
+</div>
+</div>
+<p class="dv-cap">AFTER THE CUTS — three tabs, one row of navigation, one count. Drag Pane width in Tweaks to cross 330 and 250; toggle the alarm to see the strip stay a signpost.</p>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="width:300px;height:430px;flex:none;display:flex;flex-direction:column;border:1px solid var(--background-modifier-border);border-radius:8px;overflow:hidden;background:var(--background-primary);color:var(--text-normal);font-size:13px;line-height:1.5;--background-primary:#1e1e1e;--background-secondary:#262626;--background-modifier-border:#3a3a3a;--background-modifier-hover:#333333;--text-normal:#dcddde;--text-muted:#9a9b9e;--text-faint:#6c6e73;--interactive-accent:#8b6cef;--text-success:#5fd3ac;--text-error:#ef7a70;--color-red-rgb:239,122,112;--havemind-author-2:#c99bf0;--havemind-author-3:#5fd3ac">
+<div style="display:flex;align-items:center;gap:4px;padding:0 4px 0 12px;height:34px;flex:none;border-bottom:1px solid var(--background-modifier-border)">
+<span style="position:relative;display:flex;flex:none"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="var(--interactive-accent)" stroke-width="1.6" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg><span title="Needs attention" style="position:absolute;top:-2px;right:-2px;width:6px;height:6px;border-radius:50%;background:var(--text-error);border:1.5px solid var(--background-primary)"></span></span>
+<span style="flex:1;min-width:0;margin-left:3px;font-weight:500;font-size:13px">Havemind</span>
+<button aria-label="Authorship colours" aria-pressed="true" style="flex:none;display:flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border:none;border-radius:4px;background:var(--background-modifier-hover);color:var(--interactive-accent);cursor:pointer"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
+<button aria-label="Invite someone" style="flex:none;display:flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border:none;border-radius:4px;background:none;color:var(--text-muted);cursor:pointer"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M19 8v6"></path><path d="M22 11h-6"></path></svg></button>
+<button aria-label="More options" style="flex:none;display:flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border:none;border-radius:4px;background:none;color:var(--text-faint);cursor:pointer"><svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" stroke="none"><circle cx="12" cy="12" r="1.4"></circle><circle cx="18.5" cy="12" r="1.4"></circle><circle cx="5.5" cy="12" r="1.4"></circle></svg></button>
+</div>
+<div style="flex:none;border-left:2px solid var(--text-error);background:rgba(var(--color-red-rgb),.12);border-bottom:1px solid var(--background-modifier-border)">
+<div style="display:flex;align-items:center;gap:7px;padding:8px 11px 4px;color:var(--text-error);font-weight:600;font-size:12px"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg><span style="flex:1">1 change couldn't be sent</span></div>
+<div style="padding:0 11px 9px"><div style="font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left">Attachments/scan-04.png</div><div style="margin-top:2px;color:var(--text-muted);font-size:11px">Rejected by the server — too large</div><div style="display:flex;gap:14px;margin-top:6px"><button style="padding:0;border:none;background:none;color:var(--interactive-accent);font:inherit;font-size:11.5px;font-weight:500;cursor:pointer">Retry</button><button style="padding:0;border:none;background:none;color:var(--text-muted);font:inherit;font-size:11.5px;cursor:pointer">Discard</button></div></div>
+</div>
+<div role="tablist" style="flex:none;display:grid;grid-template-columns:repeat(3,1fr);border-bottom:1px solid var(--background-modifier-border)">
+<button role="tab" aria-selected="false" tabindex="-1" style="display:flex;align-items:center;justify-content:center;gap:5px;height:30px;border:none;border-bottom:2px solid transparent;background:none;color:var(--text-muted);font:inherit;font-size:12px;cursor:pointer">Status<span style="color:var(--text-error);font-weight:600">1</span></button>
+<button role="tab" aria-selected="false" tabindex="-1" style="display:flex;align-items:center;justify-content:center;height:30px;border:none;border-bottom:2px solid transparent;background:none;color:var(--text-muted);font:inherit;font-size:12px;cursor:pointer">Activity</button>
+<button role="tab" aria-selected="true" style="display:flex;align-items:center;justify-content:center;height:30px;border:none;border-bottom:2px solid var(--interactive-accent);background:none;color:var(--text-normal);font:inherit;font-size:12px;cursor:pointer">People</button>
+</div>
+<div style="flex:1;padding:10px 14px 0;display:flex;flex-direction:column;min-height:0">
+<div style="display:flex;align-items:center;gap:10px;min-height:38px;padding:4px 0;border-bottom:1px solid var(--background-modifier-border)"><span title="Mira — connected" aria-label="Mira, connected" style="flex:none;width:8px;height:8px;border-radius:50%;background:var(--havemind-author-2)"></span><span style="flex:1;min-width:0;font-size:12.5px">Mira <span style="color:var(--text-faint);font-size:11px">· owner</span></span></div>
+<div style="display:flex;align-items:center;gap:10px;min-height:38px;padding:4px 0;border-bottom:1px solid var(--background-modifier-border)"><span title="Tomas — connected" aria-label="Tomas, connected" style="flex:none;width:8px;height:8px;border-radius:50%;background:var(--havemind-author-3)"></span><span style="flex:1;min-width:0;font-size:12.5px">Tomas</span><button style="flex:none;padding:2px 4px;border:none;background:none;color:var(--text-muted);font:inherit;font-size:11px;cursor:pointer">Remove</button></div>
+<div style="display:flex;align-items:center;gap:10px;min-height:38px;padding:4px 0;border-bottom:1px solid var(--background-modifier-border)"><span title="Ines — disconnected" aria-label="Ines, disconnected" style="flex:none;width:9px;height:9px;border-radius:50%;border:1.5px solid var(--text-faint);box-sizing:border-box"></span><span style="flex:1;min-width:0;font-size:12.5px;color:var(--text-muted)">Ines <span style="color:var(--text-faint);font-size:11px">· 2 days</span></span><button style="flex:none;padding:2px 4px;border:none;background:none;color:var(--interactive-accent);font:inherit;font-size:11px;font-weight:500;cursor:pointer">Rejoin</button></div>
+<button style="display:flex;align-items:center;gap:8px;min-height:38px;padding:4px 0;border:none;background:none;color:var(--interactive-accent);font:inherit;font-size:12.5px;font-weight:500;text-align:left;cursor:pointer"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M19 8v6"></path><path d="M22 11h-6"></path></svg>Invite someone</button>
+</div>
+</div>
+<p class="dv-cap">DARK, People tab, failed send. Only the token values changed — and the alarm is present on a tab that has nothing to do with sending.</p>
+</div>
+
+<div class="dv-note">
+<p><strong>Before / after.</strong> Chrome 118px → 60px. Targets above the content 8 → 4. Tabs 4 → 3. Counts in the strip 3 → 1. Nothing was moved into a place a person cannot reach with the keyboard or the command palette.</p>
+<p><strong>What did not change.</strong> Your alarm rule, the entry chooser, the six-digit handshake, the spent-invitation screen, the author palette, and the tab semantics — <code>role="tablist"</code>, <code>aria-selected</code>, roving tabindex — all as built.</p>
+<p><strong>Sequencing, if you want the smallest useful step first:</strong> drop the icons from the strip and the counts from Activity and People. That is an hour of work, it buys 14px and removes the truncation failure at 250px, and it does not touch the action bar at all.</p>
+</div>
+
+</div>
+</div>
+</div>
+
+</div>
+<p class="dv-next">Try next: "build <a class="dv-oid" href="#2b">2b</a> as a clickable pane I can tab through" · "keep the action bar but make it one row with the tabs" · "show <a class="dv-oid" href="#2g">2g</a> at 400px with the Activity tab full of rows" · "what does the overflow menu contain now"</p>
+</section>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;paneWidth&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:300,&quot;min&quot;:230,&quot;max&quot;:400,&quot;step&quot;:2,&quot;unit&quot;:&quot;px&quot;,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Live pane (2g)&quot;},&quot;alarmed&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Live pane (2g)&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const w = this.props.paneWidth ?? 300;
+    const modeIconLabel = w >= 330;
+    const modeIcon = w < 250;
+    const modeLabel = !modeIconLabel && !modeIcon;
+    return {
+      paneW: w,
+      modeIconLabel, modeLabel, modeIcon,
+      modeName: modeIconLabel ? 'icon + label' : (modeIcon ? 'icon only' : 'labels'),
+      alarmed: this.props.alarmed ?? true
+    };
+  }
+}
+
+</script>
+</body>
+</html>

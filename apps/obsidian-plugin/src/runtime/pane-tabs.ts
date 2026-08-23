@@ -16,7 +16,7 @@
  * Pure: no DOM, no Obsidian import.
  */
 
-export type PaneTabId = 'status' | 'activity' | 'people' | 'invite';
+export type PaneTabId = 'status' | 'activity' | 'people';
 
 export interface PaneTab {
   readonly id: PaneTabId;
@@ -40,8 +40,6 @@ export interface PaneTabsInput {
   readonly peopleCount: number;
   /** Conflicts and failed sends live under Status and demand attention. */
   readonly attentionCount: number;
-  /** Owner-only: the invite tab is hidden for a member who cannot invite. */
-  readonly canInvite: boolean;
 }
 
 export interface PaneTabsView {
@@ -73,12 +71,11 @@ export function buildPaneTabs(input: PaneTabsInput): PaneTabsView {
     },
   ];
 
-  if (input.canInvite) {
-    tabs.push({ id: 'invite', label: 'Invite', icon: 'user-plus' });
-  }
-
-  // An active tab that no longer exists (the invite tab disappearing when a
-  // member loses owner rights) would leave the body blank, so fall back.
+  // Three tabs for everyone. Inviting used to be a fourth, owner-only tab —
+  // which made the strip change shape by role, so the pane became two
+  // structurally different products to describe, screenshot and support. It is
+  // a modal launched from People now: a momentary task should not hold a
+  // permanent slot in the most valuable strip of pixels in the plugin.
   const active = tabs.some((tab) => tab.id === input.active)
     ? input.active
     : 'status';

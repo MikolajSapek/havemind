@@ -26,6 +26,22 @@ export interface PaneHeaderOptions {
   /** Whether the menu is currently open; the caller owns the flag. */
   readonly menuOpen: boolean;
   readonly onToggleMenu: () => void;
+  /**
+   * View actions, rendered in the header itself rather than in a second row
+   * below it (round 2, Q1). Two rows of icons is one row too many, and Obsidian
+   * already has a place for view actions: the view header. Moving them costs no
+   * new chrome and removes the read of "eight equal buttons" — header icons are
+   * visibly chrome, tabs are visibly navigation.
+   */
+  readonly authorOverlayOn?: boolean;
+  readonly onToggleAuthorOverlay?: () => void;
+  readonly onInvite?: () => void;
+  /**
+   * True when something needs the user. Marks the pane's own hexagon, so a
+   * collapsed or background pane still signals it — the alarm block itself
+   * renders below regardless.
+   */
+  readonly alarmed?: boolean;
 }
 
 /**
@@ -40,11 +56,47 @@ export function renderPaneHeader(
   const strip = content.createDiv();
   strip.addClass('havemind-pane-header');
 
-  const mark = strip.createEl('span', { attr: DECORATIVE });
-  mark.addClass('havemind-pane-mark');
+  const markWrap = strip.createDiv();
+  markWrap.addClass('havemind-pane-mark');
+  const mark = markWrap.createEl('span', { attr: DECORATIVE });
   setIcon(mark, 'hexagon');
+  if (options.alarmed === true) {
+    // A dot on the mark itself, so a pane that is collapsed or behind another
+    // still signals. Paired with the alarm block below and a title attribute —
+    // never colour alone.
+    const dot = markWrap.createEl('span', {
+      attr: { title: 'Needs attention' },
+    });
+    dot.addClass('havemind-pane-mark-dot');
+  }
 
   strip.createEl('span', { text: options.title, cls: 'havemind-pane-title' });
+
+  if (
+    options.authorOverlayOn !== undefined &&
+    options.onToggleAuthorOverlay !== undefined
+  ) {
+    const on = options.authorOverlayOn;
+    const toggle = strip.createEl('button', {
+      attr: {
+        'aria-label': 'Authorship colours',
+        'aria-pressed': on ? 'true' : 'false',
+      },
+    });
+    toggle.addClass('havemind-header-action');
+    if (on) toggle.addClass('is-on');
+    setIcon(toggle, 'users');
+    toggle.onClickEvent(() => options.onToggleAuthorOverlay?.());
+  }
+
+  if (options.onInvite !== undefined) {
+    const invite = strip.createEl('button', {
+      attr: { 'aria-label': 'Invite someone' },
+    });
+    invite.addClass('havemind-header-action');
+    setIcon(invite, 'user-plus');
+    invite.onClickEvent(() => options.onInvite?.());
+  }
 
   const more = strip.createEl('button', {
     attr: {
@@ -52,6 +104,7 @@ export function renderPaneHeader(
       'aria-expanded': options.menuOpen ? 'true' : 'false',
     },
   });
+  more.addClass('havemind-header-action');
   more.addClass('havemind-pane-more');
   setIcon(more, 'more-horizontal');
   more.onClickEvent(() => options.onToggleMenu());
