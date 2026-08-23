@@ -58,6 +58,15 @@ jobs:
       - name: Design tokens match the handoff
         run: node scripts/extract-design-tokens.mjs --check
 
+      # `stylesheet-conflicts.test.ts` fails on a rule for a class nothing
+      # renders, which only works while the class list is current. Regenerate
+      # and diff: a stale list would quietly stop catching dead rules.
+      - name: Plugin class list is current
+        run: |
+          node scripts/list-plugin-classes.mjs
+          git diff --exit-code apps/obsidian-plugin/src/ui/known-classes.generated.txt \
+            || { echo "FAIL: run node scripts/list-plugin-classes.mjs and commit the result"; exit 1; }
+
       # --- Acceptance tests AT1–AT4 (plan 003); AT5–AT6 run in release.yml ---
 
       - name: AT1 — three-file artifact present

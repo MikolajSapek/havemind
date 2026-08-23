@@ -160,7 +160,14 @@
 /* The pane is a column: header and tab strip hold their height at the top, the
    body takes what is left and scrolls on its own. Without this the view was a
    plain block, so `flex: none` on the chrome meant nothing and the body could
-   not be the only thing that scrolls. */
+   not be the only thing that scrolls.
+ *
+ * EVERYTHING about the pane box lives here. This rule used to be split across
+ * four places in the file, each adding a property and none aware of the
+ * others: one set `height: 100%`, a later one set `min-height: 100%` without
+ * clearing it, and a third re-declared `display: flex` that was already set.
+ * Which value won came down to source order, so moving a block in the file
+ * could silently change the layout. One declaration, one place. */
 .havemind-view {
   color: var(--text-normal);
   font-size: var(--font-ui-small);
@@ -168,6 +175,14 @@
   flex-direction: column;
   height: 100%;
   min-height: 0;
+  /* The pane is the frame the overflow menu positions against, and the box the
+     resize ladder measures. `container-type` sat on the tab strip once, which
+     made the strip both declare the container and be sized by it — and
+     `inline-size` implies `contain: inline-size`, so its three-column grid lost
+     the intrinsic width it needed. The ladder is about how wide the *pane* is. */
+  position: relative;
+  container-type: inline-size;
+  container-name: havemind-pane;
 }
 .havemind-view > .havemind-tab-body {
   flex: 1;
@@ -248,10 +263,10 @@
   line-height: 1.6;
 }
 
-/* Detail text lines up under the status label, not under its glyph. */
-.havemind-status-detail {
-  padding-left: var(--havemind-inset);
-}
+/* The indent that lines detail text up under the status word (rather than
+   under its dot) is set with the rest of the status geometry further down —
+   `--havemind-status-detail-indent`. It was declared here too, with a
+   different variable, and the two disagreed. */
 
 /* "Retry now" is a text action in the accent, not a filled button. */
 .havemind-retry,
@@ -321,9 +336,12 @@
   font-weight: var(--font-medium);
 }
 
+/* The glyph takes the colour of the row it sits in, so semantic colour is set
+   once on the row rather than twice. `.havemind-pending-row .svg-icon` is not
+   listed: it sets its own muted colour further down, and naming it here as
+   well meant the sheet stated two different colours for one element. */
 .havemind-status .svg-icon,
-.havemind-roster-dot .svg-icon,
-.havemind-pending-row .svg-icon {
+.havemind-roster-dot .svg-icon {
   color: inherit;
 }
 
@@ -983,18 +1001,8 @@
   background: var(--background-secondary);
   box-shadow: var(--shadow-s, 0 2px 8px rgba(0, 0, 0, 0.25));
 }
-/* The menu is positioned against the pane, so the pane is the frame — and the
-   pane is also what the resize ladder measures. The container-type used to sit
-   on the tab strip itself, which meant the strip both declared the container
-   and was the thing being sized by it: `container-type: inline-size` implies
-   `contain: inline-size`, so its three-column grid lost the intrinsic width it
-   needed and the columns stopped landing where the design puts them. The pane
-   is the honest frame: the ladder is about how wide the *pane* is. */
-.havemind-view {
-  position: relative;
-  container-type: inline-size;
-  container-name: havemind-pane;
-}
+/* `position`, `container-type` and `container-name` are declared once, on the
+   `.havemind-view` rule in section 3 — see the note there. */
 .havemind-pane-menu-item,
 .havemind-view button.havemind-pane-menu-item {
   text-align: left;
@@ -1058,6 +1066,9 @@
   height: var(--havemind-tab-height);
   padding: 0 4px;
   border: none;
+  /* Every tab carries the underline in transparent, so selecting one changes
+     its colour and not its height. */
+  border-bottom: 2px solid transparent;
   box-shadow: none;
   border-radius: 0;
   background: none;
@@ -1071,16 +1082,8 @@
   color: var(--text-normal);
 }
 /* The open tab is marked by an underline AND weight AND aria-selected — never
-   by colour alone.
-
-   A real border, not an inset shadow. The design draws the underline as
-   `border-bottom`, and every tab carries a transparent one so switching tabs
-   never changes their height — with a shadow the accent sat 1px off the strip's
-   own bottom rule. */
-.havemind-tab,
-.havemind-view button.havemind-tab {
-  border-bottom: 2px solid transparent;
-}
+   by colour alone. A real border, not an inset shadow: the design draws it as
+   `border-bottom`, and a shadow sat 1px off the strip's own bottom rule. */
 .havemind-view button.havemind-tab.is-active {
   color: var(--text-normal);
   font-weight: var(--font-medium);
@@ -1152,8 +1155,10 @@
 .havemind-view > button,
 .havemind-view > h4,
 .havemind-view > hr { margin-left: 12px; margin-right: 12px; }
-/* The first block under the header needs air the padding used to give it. */
-.havemind-view > .havemind-pane-header + * { margin-top: 12px; }
+/* No margin under the header: the alarm block and the tab strip both sit flush
+   against it by design, and each sets its own inner padding. This rule once
+   said `12px` while two other rules in this file said `0` for the same
+   selector — the winner was whichever came last, which is not a decision. */
 
 /* View actions live in the header (round 2, Q1). Two rows of icons was one row
    too many; Obsidian already has a place for view actions, and moving them here
@@ -1223,18 +1228,9 @@
   text-decoration: underline;
 }
 
-/* The pane is a column: body scrolls, header and footer stay put. */
-.havemind-view {
-  display: flex;
-  flex-direction: column;
-  min-height: 100%;
-}
-/* The redesign owns its own vertical rhythm, so the blanket 16px gap between
-   top-level blocks would fight every value above. */
-/* Header, nav bar and tab strip are chrome: they sit flush against each other
-   and against the pane edge. Only the body carries the blanket 16px rhythm. */
-.havemind-view > .havemind-pane-header + *,
-.havemind-view > .havemind-tabs + * { margin-top: 0; }
+/* The column itself is declared once in section 3. This block used to
+   re-declare it with `min-height: 100%` while section 3 set `height: 100%`,
+   leaving both in force and the winner decided by source order. */
 /* The alarm block is chrome too: it spans the pane edge to edge and sits flush
    between the header and the strip, carrying its own hairline underneath. It
    used to need a 10px gap because it was a bare row floating in the column. */
