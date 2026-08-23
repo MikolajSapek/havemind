@@ -334,6 +334,12 @@ export default class HavemindPlugin extends Plugin {
         authorOverlayProvider: () => this.authorOverlayEnabled(),
         onToggleAuthorOverlay: () => this.toggleAuthorOverlay(),
         arrivedWithInvitationProvider: () => this.arrivedWithInvitation,
+        onOpenComposer: () => {
+          void this.openCreateConnectionView();
+        },
+        onSyncNow: () => {
+          void this.syncNow();
+        },
         composerProvider: () =>
           this.connectionActive ? this.composerModel() : null,
         guestWaitingProvider: () => this.awaitingApproval,

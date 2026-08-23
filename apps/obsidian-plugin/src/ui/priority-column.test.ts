@@ -64,12 +64,15 @@ describe('priority column — calm state', () => {
   it('keeps a proof-of-life line so a stalled pane is distinguishable', () => {
     // The designer pushed back on "nearly empty": a pane showing only "Synced"
     // reads the same as one that stopped updating three days ago. The calm
-    // state keeps a detail line carrying recency and the queue.
+    // state keeps a detail line under the status word — recency when there is
+    // any, and always the honest note about what the server can read.
     const root = pane();
-
-    expect(texts(root).some((t) => t.length > 0 && /queued|change/i.test(t))).toBe(
-      true,
+    const detail = flatten(root).find((el) =>
+      el.classes.includes('havemind-status-detail'),
     );
+
+    expect(detail).toBeDefined();
+    expect((detail?.text ?? '').length).toBeGreaterThan(0);
   });
 
   it('renders no uppercase section captions', () => {
@@ -117,12 +120,11 @@ describe('priority column — footer', () => {
       },
     });
 
-    // The label sits in a child span, so find the button that owns it rather
-    // than the span itself — a screen reader and a mouse both target the button.
-    const toggle = flatten(root).find(
-      (el) =>
-        el.tag === 'button' &&
-        flatten(el).some((child) => /authorship/i.test(child.text ?? '')),
+    // Icon-only in the action bar (design 2a), so its accessible name lives in
+    // aria-label rather than in visible text — which is precisely why the
+    // label has to exist.
+    const toggle = flatten(root).find((el) =>
+      /authorship/i.test(el.attrs['aria-label'] ?? ''),
     );
     expect(toggle).toBeDefined();
 

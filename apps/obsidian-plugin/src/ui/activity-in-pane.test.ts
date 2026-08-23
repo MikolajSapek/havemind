@@ -34,18 +34,41 @@ function connectedPane(options: OnboardingViewOptions = {}): MockElement {
   return view.containerEl as unknown as MockElement;
 }
 
-describe('activity section in the pane', () => {
-  it('names the Activity section even when the feed is empty', () => {
-    const root = connectedPane({ activityFeedProvider: () => [] });
-    const texts = flatten(root).map((el) => el.text);
+/** Clicks a tab by its accessible name. */
+function openTab(root: MockElement, label: RegExp): void {
+  const tab = flatten(root).find(
+    (el) => el.attrs['role'] === 'tab' && label.test(el.attrs['aria-label'] ?? ''),
+  );
+  if (tab === undefined) throw new Error(`tab ${label} not rendered`);
+  tab.triggerClick();
+}
 
-    expect(texts.some((t) => t.includes('Activity'))).toBe(true);
+describe('activity in the pane', () => {
+  it('offers an Activity tab', () => {
+    const root = connectedPane({ activityFeedProvider: () => [] });
+    const labels = flatten(root)
+      .filter((el) => el.attrs['role'] === 'tab')
+      .map((el) => el.attrs['aria-label'] ?? '');
+
+    expect(labels.some((l) => /activity/i.test(l))).toBe(true);
   });
 
-  it('says why it is empty rather than rendering a bare heading', () => {
-    const root = connectedPane({ activityFeedProvider: () => [] });
-    const texts = flatten(root).map((el) => el.text);
+  it('says why it is empty rather than showing a blank tab', () => {
+    // The log is in-memory and rebuilds on every start, so "empty" is the
+    // normal state right after a reload. A blank body would leave the user
+    // unable to tell whether the feed broke or simply has nothing to report.
+    const view = new HavemindOnboardingView(new WorkspaceLeaf(), {
+      panelProvider: () => buildConnectionPanel({ status: 'synced' }),
+      activityFeedProvider: () => [],
+    });
+    void view.onOpen();
+    const root = view.containerEl as unknown as MockElement;
 
+    openTab(root, /activity/i);
+
+    const texts = flatten(view.containerEl as unknown as MockElement).map(
+      (el) => el.text,
+    );
     expect(texts.some((t) => /no activity yet/i.test(t))).toBe(true);
   });
 });

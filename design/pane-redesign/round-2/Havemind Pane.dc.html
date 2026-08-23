@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics><meta name="design_doc_mode" content="canvas"><style>
+body{margin:0;background:#eceae5;font-family:-apple-system,"Segoe UI",system-ui,sans-serif}
+.dv-turn{padding:40px 44px 32px;border-bottom:1px solid rgba(0,0,0,.08);scroll-margin-top:16px}
+.dv-thd{display:flex;align-items:baseline;gap:10px;margin:0 0 20px}
+.dv-tid{font:600 10px ui-monospace,Menlo,monospace;padding:3px 7px;background:#1a1a1a;color:#fff;border-radius:4px;text-decoration:none}
+.dv-tname{font:600 13px/1.2 system-ui,sans-serif;color:#1a1a1a}
+.dv-opts{display:flex;flex-wrap:wrap;gap:34px;align-items:flex-start}
+.dv-opt{flex:none;display:flex;flex-direction:column;gap:9px;scroll-margin-top:16px;max-width:100%}
+.dv-oid{font:600 10.5px ui-monospace,Menlo,monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px;text-decoration:none}
+.dv-olabel{display:flex;align-items:baseline;gap:8px;font:400 11.5px/1.3 system-ui,sans-serif;color:rgba(0,0,0,.55)}
+.dv-card{max-width:100%;background:#fff;border:1px solid rgba(0,0,0,.08);border-radius:10px;box-shadow:0 1px 3px rgba(0,0,0,.06);overflow:hidden;padding:22px}
+.dv-opt:target .dv-oid{background:#2a78d6;color:#fff}
+.dv-next{margin:22px 0 0;font:12px/1.6 system-ui,sans-serif;color:rgba(0,0,0,.5)}
+.dv-cap{font:10.5px/1.5 ui-monospace,Menlo,monospace;color:rgba(0,0,0,.45);letter-spacing:.01em;max-width:300px}
+a{color:#2a78d6}a:hover{color:#1a5aa8}
+@keyframes hm-spin{to{transform:rotate(360deg)}}
+</style></helmet>
+
+<header style="padding:44px 44px 30px;max-width:760px">
+<div style="display:flex;align-items:center;gap:12px;margin:0 0 22px">
+<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="#7159d1" stroke-width="1.5" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
+<h1 style="margin:0;font:600 22px/1.2 system-ui,sans-serif;color:#1a1a1a">Havemind — one hexagon, one pane</h1>
+</div>
+<p style="margin:0 0 18px;font:14px/1.65 system-ui,sans-serif;color:#3a3a3a;text-wrap:pretty">Every state below is one Obsidian right-hand pane drawn at <strong>300px</strong> (one is drawn at 258px to prove the floor). Colours are Obsidian's own semantic variables, set as real CSS custom properties on each pane so the same markup renders in light and dark — see <a href="#1g">1g</a>. Author colours come straight from <code style="font:11.5px ui-monospace,Menlo,monospace;background:rgba(0,0,0,.06);padding:1px 4px;border-radius:3px">author-palette.css</code>.</p>
+
+<h2 style="margin:26px 0 10px;font:600 13px/1.2 system-ui,sans-serif;color:#1a1a1a;letter-spacing:.04em;text-transform:uppercase">My answers to your five</h2>
+<ol style="margin:0;padding-left:20px;font:13.5px/1.7 system-ui,sans-serif;color:#3a3a3a">
+<li style="margin-bottom:10px"><strong>Neither tabs nor a stack — a priority column.</strong> Tabs put a conflict behind a click and force you to invent a badge to undo the hiding you just did; five labels at 300px truncate to noise. So: one scrolling column where <em>status is always drawn</em>, <em>anything actionable injects itself directly under status</em>, and everything idle collapses to a single summary row. The pane's length becomes a readout of how much is wrong. See <a href="#1a">1a</a>; <a href="#1c">1c</a> is the tab version, built so you can see why not.</li>
+<li style="margin-bottom:10px"><strong>Nearly empty — with one amendment.</strong> I agree with your position and I'd push on one point: <em>empty</em> and <em>alive</em> are different. A pane showing only "Synced" is indistinguishable from a pane that stopped updating three days ago. So the calm state keeps one proof-of-life line ("Last change 4 min ago") and two summary rows that carry counts. Four lines total, no headings, no colour. <a href="#1b">1b</a> is the alternative if you'd rather the feed always be open.</li>
+<li style="margin-bottom:10px"><strong>Urgency = the only filled surface in the pane.</strong> The calm pane has no fill anywhere: hairlines, muted text, one 8px dot. So the first tinted block a user ever sees <em>is</em> the thing that needs them — no badge grammar to learn. Three tiers: status word changes (Conflict / Offline), a 2px rule + 7% wash block appears under it, and the ribbon hexagon takes a dot. Nothing animates, nothing is red-on-red. <a href="#1a">1a</a>, panes 3 and 4.</li>
+<li style="margin-bottom:10px"><strong>Two stacked rows, invitation first, each naming the thing the user is holding.</strong> Not side-by-side cards — at 300px that's 140px a card and both titles wrap. The discriminator is a possession, not an intention: "someone sent you a long code" vs "you'll run Docker on a machine". Each row states its cost on the second line, so the wrong pick is visibly expensive before it's made, and both branches keep a back arrow. <a href="#1d">1d</a>.</li>
+<li style="margin-bottom:10px"><strong>Make it a two-sided screen, not a display.</strong> The code is only meaningful because the other person is looking at the same six digits — so the guest pane says what to do with it in the imperative, and the owner's modal shows the digits it expects and asks "does the joining device show this?". Digits are 34px mono, grouped 3+3, with a live expiry. That's the whole screen; a cancel is the only other control. <a href="#1e">1e</a>.</li>
+</ol>
+
+<h2 style="margin:26px 0 10px;font:600 13px/1.2 system-ui,sans-serif;color:#1a1a1a;letter-spacing:.04em;text-transform:uppercase">What I would cut</h2>
+<ul style="margin:0;padding-left:20px;font:13.5px/1.7 system-ui,sans-serif;color:#3a3a3a">
+<li>The second ribbon icon. Authorship becomes a footer toggle in the pane plus its existing command.</li>
+<li>All seven uppercase section captions. In a 300px column a caption costs a line and says what the row below already says.</li>
+<li>The "Connection" block that echoes your own server URL. Nobody needs their own address daily — it moves to the header overflow menu with Disconnect and Reset.</li>
+<li>The idle send-queue section. When it's empty it's not a section; when it's non-empty it's one clause on the status detail line, and only a <em>failed</em> send earns a block.</li>
+<li>The waiting-devices section in the panel. A device only ever waits during an invitation, so it lives in the invitation modal where the owner already is.</li>
+<li>The always-on five-step tutorial. It's correct for half your users and fatal for the other half — behind the chooser, then behind the life-buoy.</li>
+<li>The status-bar text. "Havemind: Synced" duplicates the pane; the mark plus a state dot is enough, and it's the pane's job to use words.</li>
+<li>"Reconnect required" and "Reset required" as their own sections. They're status words with one action attached, same as Offline.</li>
+<li>Roster action rows in the calm state. Mark-offline / Remove / Rejoin live inside the expanded roster, not on first paint.</li>
+</ul>
+
+<h2 style="margin:26px 0 10px;font:600 13px/1.2 system-ui,sans-serif;color:#1a1a1a;letter-spacing:.04em;text-transform:uppercase">Assumptions I made</h2>
+<ul style="margin:0 0 4px;padding-left:20px;font:13.5px/1.7 system-ui,sans-serif;color:#3a3a3a">
+<li>The pane never horizontally scrolls: paths ellipsise from the left (<code style="font:11.5px ui-monospace,Menlo,monospace">…/Kiln notes.md</code>) so the filename always survives.</li>
+<li>Restore is a real button in every activity row rather than a hover affordance — hover-only actions are unreachable by keyboard and invisible on first paint. Toggleable in Tweaks if you disagree.</li>
+<li>Local vs remote is carried by the name ("You") and a hollow dot, so the author colour is never doing the work alone.</li>
+<li>Every dot in this design has a <code style="font:11.5px ui-monospace,Menlo,monospace">title</code> + <code style="font:11.5px ui-monospace,Menlo,monospace">aria-label</code> naming the person or the state; every collapsed row is a <code style="font:11.5px ui-monospace,Menlo,monospace">button</code> with <code style="font:11.5px ui-monospace,Menlo,monospace">aria-expanded</code>.</li>
+</ul>
+</header>
+
+<section class="dv-turn" id="t2">
+<div class="dv-thd"><a class="dv-tid" href="#t2">2</a><span class="dv-tname">What the best Obsidian plugins do — and the decisions that follow</span></div>
+<div class="dv-opts">
+
+<div class="dv-opt" id="2a">
+<div class="dv-olabel"><a class="dv-oid" href="#2a">2a</a>Native chrome — <a class="dv-oid" href="#1a">1a</a> rebuilt from Obsidian's own vocabulary (recommended over <a class="dv-oid" href="#1a">1a</a>)</div>
+<div class="dv-card">
+<div style="display:flex;gap:26px;flex-wrap:wrap;align-items:flex-start">
+
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="width:300px;height:440px;flex:none;display:flex;flex-direction:column;border:1px solid var(--background-modifier-border);border-radius:8px;overflow:hidden;background:var(--background-primary);color:var(--text-normal);font-size:13px;line-height:1.5;--background-primary:#ffffff;--background-secondary:#f2f3f5;--background-modifier-border:#e3e3e5;--background-modifier-hover:#eceef1;--text-normal:#2e3338;--text-muted:#5c6169;--text-faint:#9aa0a6;--interactive-accent:#7159d1;--text-success:#0d8a63;--havemind-author-2:#7c3fc0;--havemind-author-3:#0f8a6a">
+<div style="display:flex;align-items:center;gap:7px;padding:0 6px 0 12px;height:34px;flex:none;border-bottom:1px solid var(--background-modifier-border)">
+<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="var(--interactive-accent)" stroke-width="1.6" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
+<span style="font-weight:500;font-size:13px">Havemind</span>
+<button aria-label="More options" style="margin-left:auto;display:flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border:none;background:none;color:var(--text-faint);cursor:pointer"><svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" stroke="none"><circle cx="12" cy="12" r="1.4"></circle><circle cx="18.5" cy="12" r="1.4"></circle><circle cx="5.5" cy="12" r="1.4"></circle></svg></button>
+</div>
+<div style="flex:none;display:flex;align-items:center;gap:2px;padding:6px 8px;border-bottom:1px solid var(--background-modifier-border)">
+<button aria-label="Show authorship colours" aria-pressed="true" style="display:flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:none;border-radius:4px;background:var(--background-modifier-hover);color:var(--interactive-accent);cursor:pointer"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
+<button aria-label="Create invitation" style="display:flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:none;border-radius:4px;background:none;color:var(--text-muted);cursor:pointer"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M19 8v6"></path><path d="M22 11h-6"></path></svg></button>
+<button aria-label="Sync now" style="display:flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:none;border-radius:4px;background:none;color:var(--text-muted);cursor:pointer"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1.06 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path></svg></button>
+<button aria-label="Getting started" style="margin-left:auto;display:flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:none;border-radius:4px;background:none;color:var(--text-muted);cursor:pointer"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="4"></circle><path d="m4.93 4.93 4.24 4.24"></path><path d="m14.83 9.17 4.24-4.24"></path><path d="m14.83 14.83 4.24 4.24"></path><path d="m9.17 14.83-4.24 4.24"></path></svg></button>
+</div>
+<div style="flex:1;padding:14px 12px 0;display:flex;flex-direction:column;min-height:0">
+<div style="display:flex;align-items:center;gap:9px;padding:0 4px;font-weight:500;font-size:14px"><span title="Synced" aria-label="Synced" style="width:8px;height:8px;border-radius:50%;background:var(--text-success);flex:none"></span><span>Synced</span></div>
+<div style="padding-left:21px;margin-top:3px;color:var(--text-muted);font-size:11.5px">Last change 4 min ago · nothing queued</div>
+<div style="margin-top:18px;display:flex;flex-direction:column;gap:1px">
+<div aria-expanded="false" style="display:flex;align-items:center;gap:4px;padding:5px 6px;border-radius:4px;background:var(--background-modifier-hover);cursor:pointer"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="var(--text-faint)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="m9 18 6-6-6-6"></path></svg><span style="flex:1;font-size:13px">Activity</span><span style="color:var(--text-faint);font-size:11px;font-variant-numeric:tabular-nums">12</span></div>
+<div aria-expanded="false" style="display:flex;align-items:center;gap:4px;padding:5px 6px;border-radius:4px;cursor:pointer"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="var(--text-faint)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="m9 18 6-6-6-6"></path></svg><span style="flex:1;font-size:13px">People</span><span style="display:flex;gap:3px;align-items:center;margin-right:4px"><span title="Mira" style="width:7px;height:7px;border-radius:50%;background:var(--havemind-author-2)"></span><span title="Tomas" style="width:7px;height:7px;border-radius:50%;background:var(--havemind-author-3)"></span></span><span style="color:var(--text-faint);font-size:11px;font-variant-numeric:tabular-nums">2</span></div>
+</div>
+</div>
+</div>
+<p class="dv-cap">Same information as <a href="#1a">1a</a>. Different chrome: an Obsidian <span style="font-family:ui-monospace,Menlo,monospace">nav-buttons-container</span> under the header, and disclosure rows built as <span style="font-family:ui-monospace,Menlo,monospace">tree-item</span> with a <span style="font-family:ui-monospace,Menlo,monospace">tree-item-flair</span> count.</p>
+</div>
+
+<div style="max-width:330px;font:12.5px/1.7 system-ui,sans-serif;color:rgba(0,0,0,.62)">
+<p style="margin:0 0 12px"><strong style="color:#1a1a1a">What changed and why.</strong> The single most repeated lesson from mature Obsidian plugins is: <em>don't invent chrome — borrow Obsidian's.</em> When the Obsidian Git author rebuilt his sidebar, he aligned it to Obsidian's own file view and reused their CSS classes, and the result reads as part of the app in every community theme.</p>
+<p style="margin:0 0 12px">So the footer rail from <a href="#1a">1a</a> becomes a toolbar under the header — the same row the File Explorer uses for "new note / new folder / sort". Users already know that row is where a pane's verbs live, and it puts the authorship toggle somewhere findable, which was the whole point of killing the second ribbon icon.</p>
+<p style="margin:0 0 12px">Rows become <span style="font-family:ui-monospace,Menlo,monospace;font-size:11.5px">tree-item</span> + <span style="font-family:ui-monospace,Menlo,monospace;font-size:11.5px">tree-item-flair</span> — Obsidian's own collapsible-list grammar, with the twisty on the left where the file explorer puts it, and the count in the flair slot where backlink counts live.</p>
+<p style="margin:0"><strong style="color:#1a1a1a">Cost:</strong> class names are undocumented and can shift between releases. Mitigation used by the good plugins: reuse the classes for <em>layout and theming</em>, but never depend on them for behaviour, and keep every Havemind-specific rule under <span style="font-family:ui-monospace,Menlo,monospace;font-size:11.5px">.havemind-view</span> as you already do.</p>
+</div>
+
+<div style="max-width:340px;font:12.5px/1.7 system-ui,sans-serif;color:rgba(0,0,0,.62)">
+<p style="margin:0 0 6px;color:#1a1a1a;font-weight:600;font-size:13px">Five findings, five decisions</p>
+<p style="margin:0 0 11px"><strong style="color:#1a1a1a">1. One view type, revealed not re-created.</strong> Obsidian's own docs show the canonical pattern: look for an existing leaf of your view type, reuse it, and only then create one — then reveal it in case the sidebar is collapsed. That is exactly your AT0-2, and it is three lines of the documented example. <em>Decision: one registered view, hexagon reveals it, commands focus the same leaf.</em></p>
+<p style="margin:0 0 11px"><strong style="color:#1a1a1a">2. Tabs appear at two, not five.</strong> Sidebar plugins that do use tabs use exactly two peer lists (a Git sidebar plugin ships "Changes" and "History"). Nobody ships five in a 300px pane. <em>Decision: no tabs. Two collapsible groups, everything urgent above them — <a href="#2a">2a</a>.</em></p>
+<p style="margin:0 0 11px"><strong style="color:#1a1a1a">3. The two-path chooser is the established answer.</strong> Self-hosted LiveSync — the closest thing to a direct competitor — opens onboarding by asking whether this device owns the files or should receive an existing remote state, and only then shows the matching setup. Your joiner/host split is the same fork, phrased better. <em>Decision: ship the chooser as designed in <a href="#1d">1d</a>.</em></p>
+<p style="margin:0 0 11px"><strong style="color:#1a1a1a">4. The status bar is for the glance, the pane is for the words.</strong> LiveSync puts sync state in the status bar as icons and keeps the detail elsewhere. <em>Decision: status bar = hexagon + state dot, no text; the pane owns every sentence. (Also: a plugin that never opens should still be reachable — keep a one-time persistent notice offering setup, the way LiveSync does, instead of hoping the user finds the ribbon.)</em></p>
+<p style="margin:0"><strong style="color:#1a1a1a">5. Register the hexagon as a real icon.</strong> Obsidian lets a plugin add a custom icon and then use it anywhere <span style="font-family:ui-monospace,Menlo,monospace;font-size:11.5px">setIcon</span> works. <em>Decision: register the Havemind mark once and use it for the ribbon, the view icon (so the sidebar tab shows your mark, not a generic hexagon) and the status bar — one glyph, three places, no image files.</em></p>
+</div>
+
+</div>
+</div>
+</div>
+
+</div>
+<p class="dv-next">Try next: "merge <a class="dv-oid" href="#2a">2a</a>'s toolbar into every state and drop the footer rail" · "show the toolbar in the disconnected states too" · "what does the status bar item look like in all seven states"</p>
+</section>
+
+<section class="dv-turn" id="t1">
+<div class="dv-thd"><a class="dv-tid" href="#t1">1</a><span class="dv-tname">The single pane — every state</span></div>
+<div class="dv-opts">
+
+<div class="dv-opt" id="1a">
+<div class="dv-olabel"><a class="dv-oid" href="#1a">1a</a>Connected — the priority column (recommended)</div>
+<div class="dv-card">
+<div style="display:flex;gap:26px;flex-wrap:wrap;align-items:flex-start">
+
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="width:300px;height:440px;flex:none;display:flex;flex-direction:column;border:1px solid var(--background-modifier-border);border-radius:8px;overflow:hidden;background:var(--background-primary);color:var(--text-normal);font-size:13px;line-height:1.5;--background-primary:#ffffff;--background-secondary:#f2f3f5;--background-modifier-border:#e3e3e5;--background-modifier-hover:#eceef1;--text-normal:#2e3338;--text-muted:#5c6169;--text-faint:#9aa0a6;--interactive-accent:#7159d1;--text-success:#0d8a63;--text-error:#c0392b;--color-red-rgb:192,57,43;--havemind-author-1:#1a73c2;--havemind-author-2:#7c3fc0;--havemind-author-3:#0f8a6a">
+<div style="display:flex;align-items:center;gap:7px;padding:0 6px 0 12px;height:34px;flex:none;border-bottom:1px solid var(--background-modifier-border)">
+<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="var(--interactive-accent)" stroke-width="1.6" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
+<span style="font-weight:500;font-size:13px">Havemind</span>
+<button aria-label="More options" style="margin-left:auto;display:flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border:none;background:none;color:var(--text-faint);cursor:pointer"><svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" stroke="none"><circle cx="12" cy="12" r="1.4"></circle><circle cx="18.5" cy="12" r="1.4"></circle><circle cx="5.5" cy="12" r="1.4"></circle></svg></button>
+</div>
+<div style="flex:1;padding:16px 14px 0;display:flex;flex-direction:column;min-height:0">
+<div style="display:flex;align-items:center;gap:9px;font-weight:500;font-size:14px"><span title="Synced" aria-label="Synced" style="width:8px;height:8px;border-radius:50%;background:var(--text-success);flex:none"></span><span>Synced</span></div>
+<div style="padding-left:17px;margin-top:3px;color:var(--text-muted);font-size:11.5px">Last change 4 min ago · nothing queued</div>
+<div style="margin-top:22px;display:flex;flex-direction:column">
+<button aria-expanded="false" style="display:flex;align-items:center;gap:8px;width:100%;padding:9px 0;background:none;border:none;border-top:1px solid var(--background-modifier-border);color:var(--text-normal);font:inherit;font-size:13px;text-align:left;cursor:pointer"><span style="flex:1">Activity</span><span style="color:var(--text-faint);font-size:11.5px">12 today</span><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="var(--text-faint)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"></path></svg></button>
+<button aria-expanded="false" style="display:flex;align-items:center;gap:8px;width:100%;padding:9px 0;background:none;border:none;border-top:1px solid var(--background-modifier-border);color:var(--text-normal);font:inherit;font-size:13px;text-align:left;cursor:pointer"><span style="flex:1">People</span><span style="display:flex;gap:3px;align-items:center;margin-right:2px"><span title="Mira" style="width:7px;height:7px;border-radius:50%;background:var(--havemind-author-2)"></span><span title="Tomas" style="width:7px;height:7px;border-radius:50%;background:var(--havemind-author-3)"></span></span><span style="color:var(--text-faint);font-size:11.5px">2 connected</span><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="var(--text-faint)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"></path></svg></button>
+</div>
+</div>
+<div style="flex:none;border-top:1px solid var(--background-modifier-border);padding:7px 10px;display:flex;align-items:center;gap:8px">
+<button aria-pressed="true" style="display:flex;align-items:center;gap:6px;padding:4px 6px;border:none;border-radius:4px;background:none;color:var(--text-muted);font:inherit;font-size:11.5px;cursor:pointer"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"></path><circle cx="12" cy="12" r="3"></circle></svg><span>Authorship</span><span style="position:relative;display:inline-block;width:21px;height:12px;border-radius:6px;background:var(--interactive-accent);margin-left:1px"><span style="position:absolute;top:2px;right:2px;width:8px;height:8px;border-radius:50%;background:#fff"></span></span></button>
+<div style="margin-left:auto;display:flex;gap:2px">
+<button aria-label="Create invitation" style="display:flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border:none;border-radius:4px;background:none;color:var(--text-muted);cursor:pointer"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M19 8v6"></path><path d="M22 11h-6"></path></svg></button>
+<button aria-label="Getting started" style="display:flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border:none;border-radius:4px;background:none;color:var(--text-muted);cursor:pointer"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="4"></circle><path d="m4.93 4.93 4.24 4.24"></path><path d="m14.83 9.17 4.24-4.24"></path><path d="m14.83 14.83 4.24 4.24"></path><path d="m9.17 14.83-4.24 4.24"></path></svg></button>
+</div>
+</div>
+</div>
+<p class="dv-cap">HEALTHY — four lines, no colour, no headings. The two rows carry counts so the pane proves it is awake.</p>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="width:300px;height:440px;flex:none;display:flex;flex-direction:column;border:1px solid var(--background-modifier-border);border-radius:8px;overflow:hidden;background:var(--background-primary);color:var(--text-normal);font-size:13px;line-height:1.5;--background-primary:#ffffff;--background-secondary:#f2f3f5;--background-modifier-border:#e3e3e5;--text-normal:#2e3338;--text-muted:#5c6169;--text-faint:#9aa0a6;--interactive-accent:#7159d1;--text-success:#0d8a63;--text-error:#c0392b;--color-red-rgb:192,57,43;--havemind-author-1:#1a73c2;--havemind-author-2:#7c3fc0;--havemind-author-3:#0f8a6a">
+<div style="display:flex;align-items:center;gap:7px;padding:0 6px 0 12px;height:34px;flex:none;border-bottom:1px solid var(--background-modifier-border)">
+<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="var(--interactive-accent)" stroke-width="1.6" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
+<span style="font-weight:500;font-size:13px">Havemind</span>
+<button aria-label="More options" style="margin-left:auto;display:flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border:none;background:none;color:var(--text-faint);cursor:pointer"><svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" stroke="none"><circle cx="12" cy="12" r="1.4"></circle><circle cx="18.5" cy="12" r="1.4"></circle><circle cx="5.5" cy="12" r="1.4"></circle></svg></button>
+</div>
+<div style="flex:1;padding:16px 14px 0;display:flex;flex-direction:column;min-height:0">
+<div style="display:flex;align-items:center;gap:9px;font-weight:500;font-size:14px"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="var(--interactive-accent)" stroke-width="2" stroke-linejoin="round" style="animation:hm-spin 1.3s linear infinite;transform-origin:50% 50%"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg><span>Syncing</span></div>
+<div style="padding-left:24px;margin-top:3px;color:var(--text-muted);font-size:11.5px">3 changes from Mira · 2 waiting to send</div>
+<div style="margin-top:22px;display:flex;flex-direction:column">
+<button aria-expanded="true" style="display:flex;align-items:center;gap:8px;width:100%;padding:9px 0;background:none;border:none;border-top:1px solid var(--background-modifier-border);color:var(--text-normal);font:inherit;font-size:13px;text-align:left;cursor:pointer"><span style="flex:1">Activity</span><span style="color:var(--text-faint);font-size:11.5px">12 today</span><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="var(--text-faint)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg></button>
+<div style="display:flex;align-items:flex-start;gap:9px;padding:8px 0;border-top:1px solid var(--background-modifier-border)"><span title="Mira" aria-label="Mira" style="flex:none;width:8px;height:8px;margin-top:5px;border-radius:50%;background:var(--havemind-author-2)"></span><span style="flex:1;min-width:0"><span style="font-size:12.5px"><span style="font-weight:500">Mira</span> edited</span><span style="display:block;color:var(--text-muted);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left">Projects/Kiln notes.md</span></span><span style="display:flex;flex-direction:column;align-items:flex-end;gap:2px"><span style="color:var(--text-faint);font-size:11px;font-variant-numeric:tabular-nums">2m</span><button style="padding:0;border:none;background:none;color:var(--interactive-accent);font:inherit;font-size:11px;cursor:pointer">Restore</button></span></div>
+<div style="display:flex;align-items:flex-start;gap:9px;padding:8px 0;border-top:1px solid var(--background-modifier-border)"><span title="You (local edit)" aria-label="You, local edit" style="flex:none;width:8px;height:8px;margin-top:5px;border-radius:50%;border:1.5px solid var(--text-faint);box-sizing:border-box"></span><span style="flex:1;min-width:0"><span style="font-size:12.5px"><span style="font-weight:500">You</span> edited</span><span style="display:block;color:var(--text-muted);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left">Daily/2026-08-23.md</span></span><span style="display:flex;flex-direction:column;align-items:flex-end;gap:2px"><span style="color:var(--text-faint);font-size:11px;font-variant-numeric:tabular-nums">6m</span><button style="padding:0;border:none;background:none;color:var(--interactive-accent);font:inherit;font-size:11px;cursor:pointer">Restore</button></span></div>
+<div style="display:flex;align-items:flex-start;gap:9px;padding:8px 0;border-top:1px solid var(--background-modifier-border)"><span title="Tomas" aria-label="Tomas" style="flex:none;width:8px;height:8px;margin-top:5px;border-radius:50%;background:var(--havemind-author-3)"></span><span style="flex:1;min-width:0"><span style="font-size:12.5px"><span style="font-weight:500">Tomas</span> created</span><span style="display:block;color:var(--text-muted);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left">Reading/Ostrom.md</span></span><span style="display:flex;flex-direction:column;align-items:flex-end;gap:2px"><span style="color:var(--text-faint);font-size:11px;font-variant-numeric:tabular-nums">18m</span><button style="padding:0;border:none;background:none;color:var(--interactive-accent);font:inherit;font-size:11px;cursor:pointer">Restore</button></span></div>
+<button style="align-self:flex-start;margin-top:8px;padding:0;border:none;background:none;color:var(--interactive-accent);font:inherit;font-size:11.5px;cursor:pointer">Show all 12</button>
+</div>
+</div>
+<div style="flex:none;border-top:1px solid var(--background-modifier-border);padding:7px 10px;display:flex;align-items:center;gap:8px">
+<button aria-pressed="true" style="display:flex;align-items:center;gap:6px;padding:4px 6px;border:none;border-radius:4px;background:none;color:var(--text-muted);font:inherit;font-size:11.5px;cursor:pointer"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"></path><circle cx="12" cy="12" r="3"></circle></svg><span>Authorship</span><span style="position:relative;display:inline-block;width:21px;height:12px;border-radius:6px;background:var(--interactive-accent);margin-left:1px"><span style="position:absolute;top:2px;right:2px;width:8px;height:8px;border-radius:50%;background:#fff"></span></span></button>
+<div style="margin-left:auto;display:flex;gap:2px">
+<button aria-label="Create invitation" style="display:flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border:none;border-radius:4px;background:none;color:var(--text-muted);cursor:pointer"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M19 8v6"></path><path d="M22 11h-6"></path></svg></button>
+<button aria-label="Getting started" style="display:flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border:none;border-radius:4px;background:none;color:var(--text-muted);cursor:pointer"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="4"></circle><path d="m4.93 4.93 4.24 4.24"></path><path d="m14.83 9.17 4.24-4.24"></path><path d="m14.83 14.83 4.24 4.24"></path><path d="m9.17 14.83-4.24 4.24"></path></svg></button>
+</div>
+</div>
+</div>
+<p class="dv-cap">SYNCING + ACTIVITY OPEN — the hexagon spins. Local rows are a hollow dot and the word "You"; peers get their author colour. Paths ellipsise from the left.</p>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="width:300px;height:440px;flex:none;display:flex;flex-direction:column;border:1px solid var(--background-modifier-border);border-radius:8px;overflow:hidden;background:var(--background-primary);color:var(--text-normal);font-size:13px;line-height:1.5;--background-primary:#ffffff;--background-secondary:#f2f3f5;--background-modifier-border:#e3e3e5;--text-normal:#2e3338;--text-muted:#5c6169;--text-faint:#9aa0a6;--interactive-accent:#7159d1;--text-success:#0d8a63;--text-error:#c0392b;--color-red-rgb:192,57,43;--havemind-author-2:#7c3fc0;--havemind-author-3:#0f8a6a">
+<div style="display:flex;align-items:center;gap:7px;padding:0 6px 0 12px;height:34px;flex:none;border-bottom:1px solid var(--background-modifier-border)">
+<span style="position:relative;display:flex"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="var(--interactive-accent)" stroke-width="1.6" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg><span title="Needs attention" style="position:absolute;top:-2px;right:-2px;width:6px;height:6px;border-radius:50%;background:var(--text-error);border:1.5px solid var(--background-primary)"></span></span>
+<span style="font-weight:500;font-size:13px">Havemind</span>
+<button aria-label="More options" style="margin-left:auto;display:flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border:none;background:none;color:var(--text-faint);cursor:pointer"><svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" stroke="none"><circle cx="12" cy="12" r="1.4"></circle><circle cx="18.5" cy="12" r="1.4"></circle><circle cx="5.5" cy="12" r="1.4"></circle></svg></button>
+</div>
+<div style="flex:1;padding:16px 14px 0;display:flex;flex-direction:column;min-height:0">
+<div style="display:flex;align-items:center;gap:9px;font-weight:500;font-size:14px;color:var(--text-error)"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg><span>2 conflicts</span></div>
+<div style="padding-left:24px;margin-top:3px;color:var(--text-muted);font-size:11.5px">Both versions are kept. Nothing was overwritten.</div>
+<div style="margin-top:12px;border-left:2px solid var(--text-error);background:rgba(var(--color-red-rgb),.07);border-radius:0 4px 4px 0">
+<div style="padding:9px 11px"><div style="display:flex;align-items:baseline;gap:8px"><span style="flex:1;min-width:0;font-weight:500;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left">Projects/Kiln notes.md</span><button style="flex:none;padding:0;border:none;background:none;color:var(--interactive-accent);font:inherit;font-size:11.5px;font-weight:500;cursor:pointer">Resolve</button></div><div style="margin-top:2px;color:var(--text-muted);font-size:11px">You and Mira · 2 min ago</div></div>
+<div style="padding:9px 11px;border-top:1px solid rgba(var(--color-red-rgb),.16)"><div style="display:flex;align-items:baseline;gap:8px"><span style="flex:1;min-width:0;font-weight:500;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left">Meetings/Weekly.md</span><button style="flex:none;padding:0;border:none;background:none;color:var(--interactive-accent);font:inherit;font-size:11.5px;font-weight:500;cursor:pointer">Resolve</button></div><div style="margin-top:2px;color:var(--text-muted);font-size:11px">You and Tomas · 26 min ago</div></div>
+</div>
+<div style="margin-top:22px;display:flex;flex-direction:column">
+<button aria-expanded="false" style="display:flex;align-items:center;gap:8px;width:100%;padding:9px 0;background:none;border:none;border-top:1px solid var(--background-modifier-border);color:var(--text-normal);font:inherit;font-size:13px;text-align:left;cursor:pointer"><span style="flex:1">Activity</span><span style="color:var(--text-faint);font-size:11.5px">12 today</span><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="var(--text-faint)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"></path></svg></button>
+<button aria-expanded="false" style="display:flex;align-items:center;gap:8px;width:100%;padding:9px 0;background:none;border:none;border-top:1px solid var(--background-modifier-border);color:var(--text-normal);font:inherit;font-size:13px;text-align:left;cursor:pointer"><span style="flex:1">People</span><span style="color:var(--text-faint);font-size:11.5px">2 connected</span><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="var(--text-faint)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"></path></svg></button>
+</div>
+</div>
+<div style="flex:none;border-top:1px solid var(--background-modifier-border);padding:7px 10px;display:flex;align-items:center;gap:8px">
+<button aria-pressed="true" style="display:flex;align-items:center;gap:6px;padding:4px 6px;border:none;border-radius:4px;background:none;color:var(--text-muted);font:inherit;font-size:11.5px;cursor:pointer"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"></path><circle cx="12" cy="12" r="3"></circle></svg><span>Authorship</span><span style="position:relative;display:inline-block;width:21px;height:12px;border-radius:6px;background:var(--interactive-accent);margin-left:1px"><span style="position:absolute;top:2px;right:2px;width:8px;height:8px;border-radius:50%;background:#fff"></span></span></button>
+<div style="margin-left:auto;display:flex;gap:2px">
+<button aria-label="Create invitation" style="display:flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border:none;border-radius:4px;background:none;color:var(--text-muted);cursor:pointer"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M19 8v6"></path><path d="M22 11h-6"></path></svg></button>
+<button aria-label="Getting started" style="display:flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border:none;border-radius:4px;background:none;color:var(--text-muted);cursor:pointer"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="4"></circle><path d="m4.93 4.93 4.24 4.24"></path><path d="m14.83 9.17 4.24-4.24"></path><path d="m14.83 14.83 4.24 4.24"></path><path d="m9.17 14.83-4.24 4.24"></path></svg></button>
+</div>
+</div>
+</div>
+<p class="dv-cap">CONFLICT — the only filled surface in the whole design. Status word changes, the block injects under it, the ribbon hexagon takes a dot. Idle rows stay collapsed underneath.</p>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="width:258px;height:440px;flex:none;display:flex;flex-direction:column;border:1px solid var(--background-modifier-border);border-radius:8px;overflow:hidden;background:var(--background-primary);color:var(--text-normal);font-size:13px;line-height:1.5;--background-primary:#ffffff;--background-secondary:#f2f3f5;--background-modifier-border:#e3e3e5;--text-normal:#2e3338;--text-muted:#5c6169;--text-faint:#9aa0a6;--interactive-accent:#7159d1;--text-success:#0d8a63;--text-error:#c0392b;--color-red-rgb:192,57,43">
+<div style="display:flex;align-items:center;gap:7px;padding:0 6px 0 12px;height:34px;flex:none;border-bottom:1px solid var(--background-modifier-border)">
+<span style="position:relative;display:flex"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="var(--interactive-accent)" stroke-width="1.6" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg><span title="Needs attention" style="position:absolute;top:-2px;right:-2px;width:6px;height:6px;border-radius:50%;background:var(--text-error);border:1.5px solid var(--background-primary)"></span></span>
+<span style="font-weight:500;font-size:13px">Havemind</span>
+<button aria-label="More options" style="margin-left:auto;display:flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border:none;background:none;color:var(--text-faint);cursor:pointer"><svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" stroke="none"><circle cx="12" cy="12" r="1.4"></circle><circle cx="18.5" cy="12" r="1.4"></circle><circle cx="5.5" cy="12" r="1.4"></circle></svg></button>
+</div>
+<div style="flex:1;padding:16px 12px 0;display:flex;flex-direction:column;min-height:0">
+<div style="display:flex;align-items:center;gap:9px;font-weight:500;font-size:14px;color:var(--text-muted)"><span title="Offline" style="width:8px;height:8px;border-radius:50%;border:1.5px solid currentColor;box-sizing:border-box;flex:none"></span><span>Offline</span></div>
+<div style="padding-left:17px;margin-top:3px;color:var(--text-muted);font-size:11.5px">Can't reach the server. Retrying in 12s.</div>
+<button style="margin:6px 0 0 17px;padding:0;border:none;background:none;color:var(--interactive-accent);font:inherit;font-size:11.5px;font-weight:500;cursor:pointer;align-self:flex-start">Retry now</button>
+<div style="margin-top:12px;padding-left:17px;color:var(--text-muted);font-size:11.5px">8 changes waiting to send. They are safe on disk.</div>
+<div style="margin-top:14px;border-left:2px solid var(--text-error);background:rgba(var(--color-red-rgb),.07);border-radius:0 4px 4px 0;padding:9px 11px">
+<div style="font-weight:500;font-size:12.5px">1 change couldn't be sent</div>
+<div style="margin-top:5px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left">Attachments/scan-04.png</div>
+<div style="margin-top:2px;color:var(--text-muted);font-size:11px">Rejected by the server — too large</div>
+<div style="display:flex;gap:14px;margin-top:7px"><button style="padding:0;border:none;background:none;color:var(--interactive-accent);font:inherit;font-size:11.5px;font-weight:500;cursor:pointer">Retry</button><button style="padding:0;border:none;background:none;color:var(--text-muted);font:inherit;font-size:11.5px;cursor:pointer">Discard</button></div>
+</div>
+</div>
+<div style="flex:none;border-top:1px solid var(--background-modifier-border);padding:7px 8px;display:flex;align-items:center;gap:8px">
+<button aria-pressed="false" style="display:flex;align-items:center;gap:6px;padding:4px 6px;border:none;border-radius:4px;background:none;color:var(--text-muted);font:inherit;font-size:11.5px;cursor:pointer"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"></path><circle cx="12" cy="12" r="3"></circle></svg><span>Authorship</span><span style="position:relative;display:inline-block;width:21px;height:12px;border-radius:6px;background:var(--background-modifier-border);margin-left:1px"><span style="position:absolute;top:2px;left:2px;width:8px;height:8px;border-radius:50%;background:var(--text-faint)"></span></span></button>
+<div style="margin-left:auto;display:flex;gap:2px">
+<button aria-label="Getting started" style="display:flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border:none;border-radius:4px;background:none;color:var(--text-muted);cursor:pointer"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="4"></circle><path d="m4.93 4.93 4.24 4.24"></path><path d="m14.83 9.17 4.24-4.24"></path><path d="m14.83 14.83 4.24 4.24"></path><path d="m9.17 14.83-4.24 4.24"></path></svg></button>
+</div>
+</div>
+</div>
+<p class="dv-cap">OFFLINE + QUARANTINE, drawn at 258px — Obsidian's practical floor. Queue is one sentence; only the failed send earns a block. Invite is hidden while offline.</p>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="width:300px;height:440px;flex:none;display:flex;flex-direction:column;border:1px solid var(--background-modifier-border);border-radius:8px;overflow:hidden;background:var(--background-primary);color:var(--text-normal);font-size:13px;line-height:1.5;--background-primary:#ffffff;--background-secondary:#f2f3f5;--background-modifier-border:#e3e3e5;--text-normal:#2e3338;--text-muted:#5c6169;--text-faint:#9aa0a6;--interactive-accent:#7159d1;--text-success:#0d8a63;--text-error:#c0392b;--havemind-author-2:#7c3fc0;--havemind-author-3:#0f8a6a;--havemind-author-1:#1a73c2">
+<div style="display:flex;align-items:center;gap:7px;padding:0 6px 0 12px;height:34px;flex:none;border-bottom:1px solid var(--background-modifier-border)">
+<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="var(--interactive-accent)" stroke-width="1.6" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
+<span style="font-weight:500;font-size:13px">Havemind</span>
+<button aria-label="More options" style="margin-left:auto;display:flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border:none;background:none;color:var(--text-faint);cursor:pointer"><svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" stroke="none"><circle cx="12" cy="12" r="1.4"></circle><circle cx="18.5" cy="12" r="1.4"></circle><circle cx="5.5" cy="12" r="1.4"></circle></svg></button>
+</div>
+<div style="flex:1;padding:16px 14px 0;display:flex;flex-direction:column;min-height:0">
+<div style="display:flex;align-items:center;gap:9px;font-weight:500;font-size:14px"><span title="Synced" style="width:8px;height:8px;border-radius:50%;background:var(--text-success);flex:none"></span><span>Synced</span></div>
+<div style="padding-left:17px;margin-top:3px;color:var(--text-muted);font-size:11.5px">Last change 4 min ago · nothing queued</div>
+<div style="margin-top:22px;display:flex;flex-direction:column">
+<button aria-expanded="false" style="display:flex;align-items:center;gap:8px;width:100%;padding:9px 0;background:none;border:none;border-top:1px solid var(--background-modifier-border);color:var(--text-normal);font:inherit;font-size:13px;text-align:left;cursor:pointer"><span style="flex:1">Activity</span><span style="color:var(--text-faint);font-size:11.5px">12 today</span><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="var(--text-faint)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"></path></svg></button>
+<button aria-expanded="true" style="display:flex;align-items:center;gap:8px;width:100%;padding:9px 0;background:none;border:none;border-top:1px solid var(--background-modifier-border);color:var(--text-normal);font:inherit;font-size:13px;text-align:left;cursor:pointer"><span style="flex:1">People</span><span style="color:var(--text-faint);font-size:11.5px">2 connected</span><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="var(--text-faint)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg></button>
+<div style="display:flex;align-items:center;gap:10px;min-height:40px;padding:6px 0;border-top:1px solid var(--background-modifier-border)"><span title="Mira — connected" aria-label="Mira, connected" style="flex:none;width:8px;height:8px;border-radius:50%;background:var(--havemind-author-2)"></span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12.5px">Mira <span style="color:var(--text-faint);font-size:11px">· owner</span></span></div>
+<div style="display:flex;align-items:center;gap:10px;min-height:40px;padding:6px 0;border-top:1px solid var(--background-modifier-border)"><span title="Tomas — connected" aria-label="Tomas, connected" style="flex:none;width:8px;height:8px;border-radius:50%;background:var(--havemind-author-3)"></span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12.5px">Tomas</span><button style="flex:none;padding:2px 4px;border:none;background:none;color:var(--text-muted);font:inherit;font-size:11px;cursor:pointer">Remove</button></div>
+<div style="display:flex;align-items:center;gap:10px;min-height:40px;padding:6px 0;border-top:1px solid var(--background-modifier-border)"><span title="Ines — disconnected" aria-label="Ines, disconnected" style="flex:none;width:9px;height:9px;border-radius:50%;border:1.5px solid var(--text-faint);box-sizing:border-box"></span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12.5px;color:var(--text-muted)">Ines <span style="color:var(--text-faint);font-size:11px">· 2 days</span></span><button style="flex:none;padding:2px 4px;border:none;background:none;color:var(--interactive-accent);font:inherit;font-size:11px;font-weight:500;cursor:pointer">Rejoin</button></div>
+</div>
+</div>
+<div style="flex:none;border-top:1px solid var(--background-modifier-border);padding:7px 10px;display:flex;align-items:center;gap:8px">
+<button aria-pressed="true" style="display:flex;align-items:center;gap:6px;padding:4px 6px;border:none;border-radius:4px;background:none;color:var(--text-muted);font:inherit;font-size:11.5px;cursor:pointer"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"></path><circle cx="12" cy="12" r="3"></circle></svg><span>Authorship</span><span style="position:relative;display:inline-block;width:21px;height:12px;border-radius:6px;background:var(--interactive-accent);margin-left:1px"><span style="position:absolute;top:2px;right:2px;width:8px;height:8px;border-radius:50%;background:#fff"></span></span></button>
+<div style="margin-left:auto;display:flex;gap:2px">
+<button aria-label="Create invitation" style="display:flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border:none;border-radius:4px;background:var(--background-secondary);color:var(--text-muted);cursor:pointer"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M19 8v6"></path><path d="M22 11h-6"></path></svg></button>
+<button aria-label="Getting started" style="display:flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border:none;border-radius:4px;background:none;color:var(--text-muted);cursor:pointer"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="4"></circle><path d="m4.93 4.93 4.24 4.24"></path><path d="m14.83 9.17 4.24-4.24"></path><path d="m14.83 14.83 4.24 4.24"></path><path d="m9.17 14.83-4.24 4.24"></path></svg></button>
+</div>
+</div>
+</div>
+<p class="dv-cap">PEOPLE EXPANDED — 40px rows, actions only inside the expansion. Colour is never alone: dot + name + tooltip, disconnected is a hollow ring plus a duration.</p>
+</div>
+
+<sc-if value="{{ showFocus }}" hint-placeholder-val="{{ true }}">
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="width:300px;height:440px;flex:none;display:flex;flex-direction:column;border:1px solid var(--background-modifier-border);border-radius:8px;overflow:hidden;background:var(--background-primary);color:var(--text-normal);font-size:13px;line-height:1.5;--background-primary:#ffffff;--background-secondary:#f2f3f5;--background-modifier-border:#e3e3e5;--text-normal:#2e3338;--text-muted:#5c6169;--text-faint:#9aa0a6;--interactive-accent:#7159d1;--text-success:#0d8a63">
+<div style="display:flex;align-items:center;gap:7px;padding:0 6px 0 12px;height:34px;flex:none;border-bottom:1px solid var(--background-modifier-border)">
+<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="var(--interactive-accent)" stroke-width="1.6" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
+<span style="font-weight:500;font-size:13px">Havemind</span>
+</div>
+<div style="flex:1;padding:16px 14px 0;display:flex;flex-direction:column;min-height:0">
+<div style="display:flex;align-items:center;gap:9px;font-weight:500;font-size:14px"><span title="Synced" style="width:8px;height:8px;border-radius:50%;background:var(--text-success);flex:none"></span><span>Synced</span></div>
+<div style="padding-left:17px;margin-top:3px;color:var(--text-muted);font-size:11.5px">Last change 4 min ago · nothing queued</div>
+<div style="margin-top:22px;display:flex;flex-direction:column">
+<div style="display:flex;align-items:center;gap:8px;width:100%;padding:9px 6px;background:none;border-top:1px solid var(--background-modifier-border);outline:2px solid var(--interactive-accent);outline-offset:2px;border-radius:4px;font-size:13px"><span style="flex:1">Activity</span><span style="color:var(--text-faint);font-size:11.5px">12 today</span><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="var(--text-faint)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"></path></svg></div>
+<div style="display:flex;align-items:center;gap:8px;width:100%;padding:9px 0;border-top:1px solid var(--background-modifier-border);font-size:13px;margin-top:4px"><span style="flex:1">People</span><span style="color:var(--text-faint);font-size:11.5px">2 connected</span><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="var(--text-faint)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"></path></svg></div>
+</div>
+<div style="margin-top:26px;padding:9px 11px;border-radius:4px;background:var(--background-secondary);color:var(--text-muted);font-size:11px;line-height:1.6">Tab order: header ▸ status action ▸ attention blocks ▸ Activity ▸ People ▸ footer. Every row is a <span style="font-family:ui-monospace,Menlo,monospace">button</span> with <span style="font-family:ui-monospace,Menlo,monospace">aria-expanded</span>; the ring is Obsidian's <span style="font-family:ui-monospace,Menlo,monospace">--interactive-accent</span> at 2px, <span style="font-family:ui-monospace,Menlo,monospace">:focus-visible</span> only.</div>
+</div>
+</div>
+<p class="dv-cap">KEYBOARD FOCUS — the ring is drawn by the plugin because nothing else draws one for created elements. Toggle in Tweaks.</p>
+</div>
+</sc-if>
+
+</div>
+</div>
+</div>
+
+<div class="dv-opt" id="1b">
+<div class="dv-olabel"><a class="dv-oid" href="#1b">1b</a>Connected — activity-first (the alternative to <a class="dv-oid" href="#1a">1a</a>)</div>
+<div class="dv-card">
+<div style="display:flex;gap:26px;flex-wrap:wrap;align-items:flex-start">
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="width:300px;height:440px;flex:none;display:flex;flex-direction:column;border:1px solid var(--background-modifier-border);border-radius:8px;overflow:hidden;background:var(--background-primary);color:var(--text-normal);font-size:13px;line-height:1.5;--background-primary:#ffffff;--background-secondary:#f2f3f5;--background-modifier-border:#e3e3e5;--text-normal:#2e3338;--text-muted:#5c6169;--text-faint:#9aa0a6;--interactive-accent:#7159d1;--text-success:#0d8a63;--havemind-author-1:#1a73c2;--havemind-author-2:#7c3fc0;--havemind-author-3:#0f8a6a">
+<div style="display:flex;align-items:center;gap:7px;padding:0 6px 0 12px;height:34px;flex:none;border-bottom:1px solid var(--background-modifier-border)">
+<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="var(--interactive-accent)" stroke-width="1.6" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
+<span style="font-weight:500;font-size:13px">Havemind</span>
+<span style="margin-left:auto;display:flex;align-items:center;gap:5px;color:var(--text-muted);font-size:11px"><span title="Synced" style="width:7px;height:7px;border-radius:50%;background:var(--text-success)"></span>Synced</span>
+<button aria-label="More options" style="display:flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border:none;background:none;color:var(--text-faint);cursor:pointer"><svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" stroke="none"><circle cx="12" cy="12" r="1.4"></circle><circle cx="18.5" cy="12" r="1.4"></circle><circle cx="5.5" cy="12" r="1.4"></circle></svg></button>
+</div>
+<div style="flex:1;padding:6px 14px 0;display:flex;flex-direction:column;min-height:0;overflow:hidden">
+<sc-for list="{{ activity }}" as="row" hint-placeholder-count="4">
+<div style="display:flex;align-items:flex-start;gap:9px;padding:8px 0;border-top:1px solid var(--background-modifier-border)">
+<span title="{{ row.who }}" aria-label="{{ row.who }}" style="flex:none;width:8px;height:8px;margin-top:5px;border-radius:50%;background:{{ row.dot }};border:{{ row.ring }};box-sizing:border-box"></span>
+<span style="flex:1;min-width:0"><span style="font-size:12.5px"><span style="font-weight:500">{{ row.who }}</span> {{ row.verb }}</span><span style="display:block;color:var(--text-muted);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left">{{ row.file }}</span></span>
+<span style="display:flex;flex-direction:column;align-items:flex-end;gap:2px"><span style="color:var(--text-faint);font-size:11px;font-variant-numeric:tabular-nums">{{ row.time }}</span>
+<sc-if value="{{ restoreAlways }}" hint-placeholder-val="{{ true }}"><button style="padding:0;border:none;background:none;color:var(--interactive-accent);font:inherit;font-size:11px;cursor:pointer">Restore</button></sc-if>
+</span>
+</div>
+</sc-for>
+</div>
+<div style="flex:none;border-top:1px solid var(--background-modifier-border);padding:7px 10px;display:flex;align-items:center;gap:8px">
+<button aria-pressed="true" style="display:flex;align-items:center;gap:6px;padding:4px 6px;border:none;border-radius:4px;background:none;color:var(--text-muted);font:inherit;font-size:11.5px;cursor:pointer"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"></path><circle cx="12" cy="12" r="3"></circle></svg><span>Authorship</span></button>
+<span style="margin-left:auto;display:flex;align-items:center;gap:5px;color:var(--text-faint);font-size:11px"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>2</span>
+</div>
+</div>
+<p class="dv-cap">Status demotes to the header strip; the feed owns the pane. Honest trade: recency is always there, but the pane is never quiet, and an incident has to fight the feed for the top.</p>
+</div>
+<div style="max-width:300px;font:12.5px/1.65 system-ui,sans-serif;color:rgba(0,0,0,.6)">
+<p style="margin:0 0 10px"><strong>Why I don't recommend it.</strong> A feed is the one section that always has content, so this design can never reach the calm state you asked for — the pane looks identical whether the vault is healthy or on fire, which is problem two again in a nicer typeface.</p>
+<p style="margin:0">It is the right choice only if you believe people open the pane <em>to read history</em> rather than <em>to check things are fine</em>. Your call — Tweaks has row count and per-row Restore so you can feel the density.</p>
+</div>
+</div>
+</div>
+</div>
+
+<div class="dv-opt" id="1c">
+<div class="dv-olabel"><a class="dv-oid" href="#1c">1c</a>Connected — tabs (built to be rejected)</div>
+<div class="dv-card">
+<div style="display:flex;gap:26px;flex-wrap:wrap;align-items:flex-start">
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="width:300px;height:440px;flex:none;display:flex;flex-direction:column;border:1px solid var(--background-modifier-border);border-radius:8px;overflow:hidden;background:var(--background-primary);color:var(--text-normal);font-size:13px;line-height:1.5;--background-primary:#ffffff;--background-secondary:#f2f3f5;--background-modifier-border:#e3e3e5;--text-normal:#2e3338;--text-muted:#5c6169;--text-faint:#9aa0a6;--interactive-accent:#7159d1;--text-success:#0d8a63;--text-error:#c0392b">
+<div style="display:flex;align-items:center;gap:7px;padding:0 6px 0 12px;height:34px;flex:none;border-bottom:1px solid var(--background-modifier-border)">
+<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="var(--interactive-accent)" stroke-width="1.6" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
+<span style="font-weight:500;font-size:13px">Havemind</span>
+</div>
+<div role="tablist" style="display:flex;align-items:stretch;flex:none;border-bottom:1px solid var(--background-modifier-border);overflow:hidden">
+<div role="tab" aria-selected="true" style="padding:8px 9px;font-size:11.5px;white-space:nowrap;border-bottom:2px solid var(--interactive-accent);color:var(--text-normal)">Status</div>
+<div role="tab" style="padding:8px 9px;font-size:11.5px;white-space:nowrap;border-bottom:2px solid transparent;color:var(--text-muted)">Activity</div>
+<div role="tab" style="padding:8px 9px;font-size:11.5px;white-space:nowrap;border-bottom:2px solid transparent;color:var(--text-muted)">People</div>
+<div role="tab" style="padding:8px 9px;font-size:11.5px;white-space:nowrap;border-bottom:2px solid transparent;color:var(--text-muted);display:flex;align-items:center;gap:4px">Confl…<span style="width:6px;height:6px;border-radius:50%;background:var(--text-error)"></span></div>
+<div style="padding:8px 4px;color:var(--text-faint);font-size:11.5px;border-bottom:2px solid transparent">›</div>
+</div>
+<div style="flex:1;padding:16px 14px 0;display:flex;flex-direction:column;min-height:0">
+<div style="display:flex;align-items:center;gap:9px;font-weight:500;font-size:14px"><span style="width:8px;height:8px;border-radius:50%;background:var(--text-success);flex:none"></span><span>Synced</span></div>
+<div style="padding-left:17px;margin-top:3px;color:var(--text-muted);font-size:11.5px">Last change 4 min ago</div>
+<div style="margin-top:auto;margin-bottom:16px;padding:9px 11px;border-left:2px solid var(--text-error);background:rgba(192,57,43,.07);font-size:11.5px;line-height:1.6;color:var(--text-muted)">This pane says <strong style="color:var(--text-normal)">Synced</strong> while two files are in conflict one tab away. The dot is the only thing arguing otherwise — and it is 6px wide, on a truncated label, in a strip most people read once.</div>
+</div>
+</div>
+<p class="dv-cap">Five destinations do not fit: "Conflicts" truncates at 300px, the fifth tab overflows, and the state that matters is hidden behind a click by construction.</p>
+</div>
+<div style="max-width:300px;font:12.5px/1.65 system-ui,sans-serif;color:rgba(0,0,0,.6)">
+<p style="margin:0 0 10px"><strong>The structural objection.</strong> Tabs are for content of equal weight that the user chooses between. Here the weights are wildly unequal and change by the second — conflicts matter infinitely more than the roster, but only sometimes.</p>
+<p style="margin:0">Once you add badges to fix that, you've rebuilt <a href="#1a">1a</a> badly: a summary of the thing, instead of the thing.</p>
+</div>
+</div>
+</div>
+</div>
+
+<div class="dv-opt" id="1d">
+<div class="dv-olabel"><a class="dv-oid" href="#1d">1d</a>Before connecting — chooser, join, host</div>
+<div class="dv-card">
+<div style="display:flex;gap:26px;flex-wrap:wrap;align-items:flex-start">
+
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="width:300px;height:470px;flex:none;display:flex;flex-direction:column;border:1px solid var(--background-modifier-border);border-radius:8px;overflow:hidden;background:var(--background-primary);color:var(--text-normal);font-size:13px;line-height:1.5;--background-primary:#ffffff;--background-secondary:#f2f3f5;--background-modifier-border:#e3e3e5;--text-normal:#2e3338;--text-muted:#5c6169;--text-faint:#9aa0a6;--interactive-accent:#7159d1">
+<div style="display:flex;align-items:center;gap:7px;padding:0 6px 0 12px;height:34px;flex:none;border-bottom:1px solid var(--background-modifier-border)">
+<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="var(--interactive-accent)" stroke-width="1.6" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
+<span style="font-weight:500;font-size:13px">Havemind</span>
+</div>
+<div style="flex:1;padding:20px 14px 0;display:flex;flex-direction:column;min-height:0">
+<div style="font-size:15px;font-weight:600">One shared vault, on your hardware.</div>
+<div style="margin-top:5px;color:var(--text-muted);font-size:12px">Two or three people, one server you run. Which are you?</div>
+<button style="flex:none;box-sizing:border-box;margin-top:18px;display:flex;align-items:flex-start;gap:10px;width:100%;padding:12px;border:1px solid var(--background-modifier-border);border-radius:6px;background:var(--background-secondary);color:var(--text-normal);font:inherit;text-align:left;cursor:pointer">
+<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="var(--interactive-accent)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="flex:none;margin-top:1px"><rect width="20" height="16" x="2" y="4" rx="2"></rect><path d="m2 7 10 6 10-6"></path></svg>
+<span style="flex:1;min-width:0"><span style="display:block;font-weight:600;font-size:13px">Someone sent me an invitation</span><span style="display:block;margin-top:3px;color:var(--text-muted);font-size:11.5px;line-height:1.5">Paste it, read out six digits, done. About a minute.</span></span>
+<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="var(--text-faint)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none;margin-top:2px"><path d="m9 18 6-6-6-6"></path></svg>
+</button>
+<button style="flex:none;box-sizing:border-box;margin-top:10px;display:flex;align-items:flex-start;gap:10px;width:100%;padding:12px;border:1px solid var(--background-modifier-border);border-radius:6px;background:none;color:var(--text-normal);font:inherit;text-align:left;cursor:pointer">
+<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="var(--text-muted)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="flex:none;margin-top:1px"><rect width="20" height="8" x="2" y="2" rx="2"></rect><rect width="20" height="8" x="2" y="14" rx="2"></rect><path d="M6 6h.01"></path><path d="M6 18h.01"></path></svg>
+<span style="flex:1;min-width:0"><span style="display:block;font-weight:600;font-size:13px">I'll run the server</span><span style="display:block;margin-top:3px;color:var(--text-muted);font-size:11.5px;line-height:1.5">Docker and Tailscale on a machine that stays on. Fifteen minutes, a terminal.</span></span>
+<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="var(--text-faint)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none;margin-top:2px"><path d="m9 18 6-6-6-6"></path></svg>
+</button>
+<div style="margin-top:auto;margin-bottom:14px;color:var(--text-faint);font-size:11px;line-height:1.6">Not sure? If a friend sent you a long block of text, it's the first one.</div>
+</div>
+</div>
+<p class="dv-cap">CHOOSER — stacked, invitation first, discriminated by what you're holding. Each row prices itself in time and tools; the last line rescues anyone still unsure.</p>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="width:300px;height:470px;flex:none;display:flex;flex-direction:column;border:1px solid var(--background-modifier-border);border-radius:8px;overflow:hidden;background:var(--background-primary);color:var(--text-normal);font-size:13px;line-height:1.5;--background-primary:#ffffff;--background-secondary:#f2f3f5;--background-modifier-border:#e3e3e5;--text-normal:#2e3338;--text-muted:#5c6169;--text-faint:#9aa0a6;--interactive-accent:#7159d1">
+<div style="display:flex;align-items:center;gap:7px;padding:0 6px 0 12px;height:34px;flex:none;border-bottom:1px solid var(--background-modifier-border)">
+<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="var(--interactive-accent)" stroke-width="1.6" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
+<span style="font-weight:500;font-size:13px">Havemind</span>
+</div>
+<div style="flex:1;padding:12px 14px 0;display:flex;flex-direction:column;min-height:0">
+<button style="align-self:flex-start;display:flex;align-items:center;gap:6px;padding:2px 0;border:none;background:none;color:var(--text-muted);font:inherit;font-size:11.5px;cursor:pointer"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"></path><path d="M19 12H5"></path></svg>Back</button>
+<div style="margin-top:12px;font-size:14px;font-weight:600">Paste your invitation</div>
+<label style="display:block;margin-top:14px;color:var(--text-muted);font-size:11px">Invitation</label>
+<div style="flex:none;box-sizing:border-box;margin-top:4px;min-height:64px;padding:7px 8px;border:1px solid var(--background-modifier-border);border-radius:4px;background:var(--background-secondary);font-family:ui-monospace,Menlo,monospace;font-size:11px;line-height:1.55;color:var(--text-muted);word-break:break-all">hm_pt_2f9c41ab7e0d…<span style="display:inline-block;width:1px;height:12px;background:var(--interactive-accent);vertical-align:-2px;margin-left:1px"></span></div>
+<label style="display:block;margin-top:12px;color:var(--text-muted);font-size:11px">Server URL</label>
+<div style="flex:none;box-sizing:border-box;margin-top:4px;padding:6px 8px;border:1px solid var(--background-modifier-border);border-radius:4px;background:var(--background-secondary);font-family:ui-monospace,Menlo,monospace;font-size:11px;line-height:1.5;color:var(--text-normal);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">http://vault.tail9c2e.ts.net:8787</div>
+<div style="margin-top:4px;color:var(--text-faint);font-size:11px">Filled in from your invitation.</div>
+<div style="flex:none;box-sizing:border-box;margin-top:10px;display:flex;gap:8px;padding:9px 10px;border-radius:4px;background:var(--background-secondary)">
+<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="var(--text-muted)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="flex:none;margin-top:1px"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67 0C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"></path><path d="M12 8v4"></path><path d="M12 16h.01"></path></svg>
+<div style="color:var(--text-muted);font-size:11px;line-height:1.55"><strong style="color:var(--text-normal)">Not end-to-end encrypted.</strong> The connection uses TLS, but whoever runs the server can read every note in this vault. Only join a vault you'd hand the files to directly.</div>
+</div>
+<button style="flex:none;box-sizing:border-box;margin-top:12px;width:100%;padding:8px;border:none;border-radius:4px;background:var(--interactive-accent);color:#fff;font:inherit;font-size:13px;font-weight:500;cursor:pointer">Connect</button>
+<div style="margin-top:8px;color:var(--text-faint);font-size:11px">Tailscale must be running first.</div>
+</div>
+</div>
+<p class="dv-cap">JOIN — three fields, one button. The encryption note sits between the last field and Connect, so it is physically in the path of the decision.</p>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="width:300px;height:470px;flex:none;display:flex;flex-direction:column;border:1px solid var(--background-modifier-border);border-radius:8px;overflow:hidden;background:var(--background-primary);color:var(--text-normal);font-size:13px;line-height:1.5;--background-primary:#ffffff;--background-secondary:#f2f3f5;--background-modifier-border:#e3e3e5;--text-normal:#2e3338;--text-muted:#5c6169;--text-faint:#9aa0a6;--interactive-accent:#7159d1">
+<div style="display:flex;align-items:center;gap:7px;padding:0 6px 0 12px;height:34px;flex:none;border-bottom:1px solid var(--background-modifier-border)">
+<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="var(--interactive-accent)" stroke-width="1.6" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
+<span style="font-weight:500;font-size:13px">Havemind</span>
+</div>
+<div style="flex:1;padding:12px 14px 0;display:flex;flex-direction:column;min-height:0">
+<button style="align-self:flex-start;display:flex;align-items:center;gap:6px;padding:2px 0;border:none;background:none;color:var(--text-muted);font:inherit;font-size:11.5px;cursor:pointer"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"></path><path d="M19 12H5"></path></svg>Back</button>
+<div style="margin-top:12px;font-size:14px;font-weight:600">Run the server</div>
+<div style="margin-top:4px;color:var(--text-muted);font-size:11.5px">On a machine that stays awake. A Pi is enough.</div>
+<div style="flex:none;margin-top:16px;display:flex;flex-direction:column;gap:11px">
+<div style="display:flex;gap:9px;align-items:baseline"><span style="flex:none;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border:1px solid var(--interactive-accent);border-radius:50%;color:var(--interactive-accent);font-size:10.5px;font-weight:500">1</span><span style="font-size:12.5px;line-height:1.5">Install Docker and Tailscale on that machine.</span></div>
+<div style="display:flex;gap:9px;align-items:baseline"><span style="flex:none;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border:1px solid var(--interactive-accent);border-radius:50%;color:var(--interactive-accent);font-size:10.5px;font-weight:500">2</span><span style="font-size:12.5px;line-height:1.5">Sign both machines into the same tailnet.</span></div>
+<div style="display:flex;gap:9px;align-items:baseline"><span style="flex:none;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border:1px solid var(--interactive-accent);border-radius:50%;color:var(--interactive-accent);font-size:10.5px;font-weight:500">3</span><span style="flex:1;min-width:0;font-size:12.5px;line-height:1.5">Run the stack:<span style="display:flex;align-items:center;gap:6px;margin-top:5px;padding:6px 8px;border-radius:4px;background:var(--background-secondary);font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:var(--text-normal)"><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">docker compose up -d</span><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="var(--text-faint)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect width="14" height="14" x="8" y="8" rx="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></span></span></div>
+<div style="display:flex;gap:9px;align-items:baseline"><span style="flex:none;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border:1px solid var(--interactive-accent);border-radius:50%;color:var(--interactive-accent);font-size:10.5px;font-weight:500">4</span><span style="font-size:12.5px;line-height:1.5">Copy its Tailscale address — that's your server URL.</span></div>
+<div style="display:flex;gap:9px;align-items:baseline"><span style="flex:none;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border:1px solid var(--interactive-accent);border-radius:50%;color:var(--interactive-accent);font-size:10.5px;font-weight:500">5</span><span style="font-size:12.5px;line-height:1.5">Connect below, then invite the others.</span></div>
+</div>
+<a href="#1d" style="margin-top:12px;color:var(--interactive-accent);font-size:11.5px;text-decoration:none">Full self-hosting guide ↗</a>
+<button style="margin-top:auto;margin-bottom:14px;width:100%;padding:8px;border:none;border-radius:4px;background:var(--interactive-accent);color:#fff;font:inherit;font-size:13px;font-weight:500;cursor:pointer">I've done this — connect</button>
+</div>
+</div>
+<p class="dv-cap">HOST — the existing five steps, unchanged in substance, now shown only to the person they're written for. Step 3 is copyable; the primary button parks at the bottom.</p>
+</div>
+
+</div>
+</div>
+</div>
+
+<div class="dv-opt" id="1e">
+<div class="dv-olabel"><a class="dv-oid" href="#1e">1e</a>The handshake — two people, six digits</div>
+<div class="dv-card">
+<div style="display:flex;gap:26px;flex-wrap:wrap;align-items:flex-start">
+
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="width:300px;height:470px;flex:none;display:flex;flex-direction:column;border:1px solid var(--background-modifier-border);border-radius:8px;overflow:hidden;background:var(--background-primary);color:var(--text-normal);font-size:13px;line-height:1.5;--background-primary:#ffffff;--background-secondary:#f2f3f5;--background-modifier-border:#e3e3e5;--text-normal:#2e3338;--text-muted:#5c6169;--text-faint:#9aa0a6;--interactive-accent:#7159d1">
+<div style="display:flex;align-items:center;gap:7px;padding:0 6px 0 12px;height:34px;flex:none;border-bottom:1px solid var(--background-modifier-border)">
+<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="var(--interactive-accent)" stroke-width="1.6" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
+<span style="font-weight:500;font-size:13px">Havemind</span>
+</div>
+<div style="flex:1;padding:24px 18px 0;display:flex;flex-direction:column;align-items:center;text-align:center;min-height:0">
+<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="var(--interactive-accent)" stroke-width="1.8" stroke-linejoin="round" style="animation:hm-spin 1.3s linear infinite;transform-origin:50% 50%"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
+<div style="margin-top:14px;font-size:12.5px;color:var(--text-muted);line-height:1.55">Read these six digits out loud to<br><strong style="color:var(--text-normal);font-weight:600">Mira</strong>, who invited you.</div>
+<div style="margin-top:20px;display:flex;align-items:center;gap:16px;font-family:ui-monospace,Menlo,monospace;font-size:34px;font-weight:500;letter-spacing:.14em;font-variant-numeric:tabular-nums;color:var(--text-normal)"><span>482</span><span>917</span></div>
+<div style="margin-top:18px;padding:9px 11px;border-radius:4px;background:var(--background-secondary);color:var(--text-muted);font-size:11.5px;line-height:1.6;text-align:left">She'll see the same six digits in her Havemind pane and confirm they match. If they don't match, <strong style="color:var(--text-normal)">stop</strong> — someone else is trying to join.</div>
+<div style="margin-top:16px;display:flex;align-items:center;gap:6px;color:var(--text-faint);font-size:11px;font-variant-numeric:tabular-nums"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M12 7v5l3 2"></path></svg>Expires in 4:52</div>
+<div style="margin-top:auto;margin-bottom:16px;width:100%;display:flex;flex-direction:column;gap:8px;align-items:center"><div style="color:var(--text-faint);font-size:11px">This screen updates itself.</div><button style="padding:4px 0;border:none;background:none;color:var(--text-muted);font:inherit;font-size:11.5px;cursor:pointer">Cancel</button></div>
+</div>
+</div>
+<p class="dv-cap">GUEST — the code is the only thing at full size. The instruction is an imperative, and the failure mode ("if they don't match, stop") is stated where it is actionable.</p>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="width:300px;height:470px;flex:none;position:relative;display:flex;flex-direction:column;border:1px solid var(--background-modifier-border);border-radius:8px;overflow:hidden;background:var(--background-primary);color:var(--text-normal);font-size:13px;line-height:1.5;--background-primary:#ffffff;--background-secondary:#f2f3f5;--background-modifier-border:#e3e3e5;--text-normal:#2e3338;--text-muted:#5c6169;--text-faint:#9aa0a6;--interactive-accent:#7159d1;--text-success:#0d8a63">
+<div style="display:flex;align-items:center;gap:7px;padding:0 6px 0 12px;height:34px;flex:none;border-bottom:1px solid var(--background-modifier-border);opacity:.4">
+<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="var(--interactive-accent)" stroke-width="1.6" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
+<span style="font-weight:500;font-size:13px">Havemind</span>
+</div>
+<div style="flex:1;padding:16px 14px;opacity:.4"><div style="display:flex;align-items:center;gap:9px;font-weight:500;font-size:14px"><span style="width:8px;height:8px;border-radius:50%;background:var(--text-success)"></span><span>Synced</span></div></div>
+<div style="position:absolute;inset:0;background:rgba(0,0,0,.28);display:flex;align-items:center;justify-content:center;padding:12px">
+<div style="width:100%;border:1px solid var(--background-modifier-border);border-radius:8px;background:var(--background-primary);box-shadow:0 8px 28px rgba(0,0,0,.24);overflow:hidden">
+<div style="display:flex;align-items:center;padding:11px 12px 0"><span style="flex:1;font-size:13px;font-weight:600">A device wants to join</span><button aria-label="Close" style="display:flex;padding:2px;border:none;background:none;color:var(--text-faint);cursor:pointer"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button></div>
+<div style="padding:10px 12px 14px">
+<div style="color:var(--text-muted);font-size:11.5px;line-height:1.55">Ask them to read out the six digits on their screen. They must match:</div>
+<div style="margin:14px 0;display:flex;align-items:center;justify-content:center;gap:14px;font-family:ui-monospace,Menlo,monospace;font-size:30px;font-weight:500;letter-spacing:.12em;font-variant-numeric:tabular-nums"><span>482</span><span>917</span></div>
+<div style="display:flex;align-items:center;gap:6px;justify-content:center;color:var(--text-faint);font-size:11px;font-variant-numeric:tabular-nums"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M12 7v5l3 2"></path></svg>4:52 left</div>
+<div style="display:flex;gap:8px;margin-top:16px"><button style="flex:1;padding:8px;border:none;border-radius:4px;background:var(--interactive-accent);color:#fff;font:inherit;font-size:12.5px;font-weight:500;cursor:pointer">They match — approve</button><button style="flex:none;padding:8px 12px;border:1px solid var(--background-modifier-border);border-radius:4px;background:none;color:var(--text-muted);font:inherit;font-size:12.5px;cursor:pointer">Reject</button></div>
+<div style="margin-top:10px;color:var(--text-faint);font-size:11px;line-height:1.55">Approving gives this device full read and write access to the vault.</div>
+</div>
+</div>
+</div>
+</div>
+<p class="dv-cap">OWNER — a modal over a pane that keeps rendering its status. The primary button states the precondition instead of just saying "Approve".</p>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="width:300px;height:470px;flex:none;display:flex;flex-direction:column;border:1px solid var(--background-modifier-border);border-radius:8px;overflow:hidden;background:var(--background-primary);color:var(--text-normal);font-size:13px;line-height:1.5;--background-primary:#ffffff;--background-secondary:#f2f3f5;--background-modifier-border:#e3e3e5;--text-normal:#2e3338;--text-muted:#5c6169;--text-faint:#9aa0a6;--interactive-accent:#7159d1">
+<div style="display:flex;align-items:center;gap:7px;padding:0 6px 0 12px;height:34px;flex:none;border-bottom:1px solid var(--background-modifier-border)">
+<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="var(--interactive-accent)" stroke-width="1.6" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
+<span style="font-weight:500;font-size:13px">Havemind</span>
+</div>
+<div style="flex:1;padding:24px 18px 0;display:flex;flex-direction:column;min-height:0">
+<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="var(--text-muted)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M12 8v4"></path><path d="M12 16h.01"></path></svg>
+<div style="margin-top:12px;font-size:14px;font-weight:600">This invitation has been used</div>
+<div style="margin-top:6px;color:var(--text-muted);font-size:12px;line-height:1.6">Each invitation works once, for one device. If this is your second machine, ask Mira for a fresh one — it takes her about ten seconds.</div>
+<button style="margin-top:18px;width:100%;padding:8px;border:none;border-radius:4px;background:var(--interactive-accent);color:#fff;font:inherit;font-size:13px;font-weight:500;cursor:pointer">Paste a different invitation</button>
+<button style="margin-top:8px;width:100%;padding:8px;border:1px solid var(--background-modifier-border);border-radius:4px;background:none;color:var(--text-muted);font:inherit;font-size:12.5px;cursor:pointer">Start over</button>
+</div>
+</div>
+<p class="dv-cap">DEAD END — never a blank screen. It names the cause, says whose ten seconds it costs, and offers the two ways forward.</p>
+</div>
+
+</div>
+</div>
+</div>
+
+<div class="dv-opt" id="1f">
+<div class="dv-olabel"><a class="dv-oid" href="#1f">1f</a>Modals — invite, resolve</div>
+<div class="dv-card">
+<div style="display:flex;gap:26px;flex-wrap:wrap;align-items:flex-start">
+
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="width:300px;height:440px;flex:none;position:relative;display:flex;flex-direction:column;border:1px solid var(--background-modifier-border);border-radius:8px;overflow:hidden;background:var(--background-primary);color:var(--text-normal);font-size:13px;line-height:1.5;--background-primary:#ffffff;--background-secondary:#f2f3f5;--background-modifier-border:#e3e3e5;--text-normal:#2e3338;--text-muted:#5c6169;--text-faint:#9aa0a6;--interactive-accent:#7159d1;--text-success:#0d8a63">
+<div style="display:flex;align-items:center;gap:7px;padding:0 6px 0 12px;height:34px;flex:none;border-bottom:1px solid var(--background-modifier-border);opacity:.4"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="var(--interactive-accent)" stroke-width="1.6" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg><span style="font-weight:500;font-size:13px">Havemind</span></div>
+<div style="flex:1;padding:16px 14px;opacity:.4"><div style="display:flex;align-items:center;gap:9px;font-weight:500;font-size:14px"><span style="width:8px;height:8px;border-radius:50%;background:var(--text-success)"></span><span>Synced</span></div></div>
+<div style="position:absolute;inset:0;background:rgba(0,0,0,.28);display:flex;align-items:center;justify-content:center;padding:12px">
+<div style="width:100%;border:1px solid var(--background-modifier-border);border-radius:8px;background:var(--background-primary);box-shadow:0 8px 28px rgba(0,0,0,.24);overflow:hidden">
+<div style="display:flex;align-items:center;padding:11px 12px 0"><span style="flex:1;font-size:13px;font-weight:600">Invite someone</span><button aria-label="Close" style="display:flex;padding:2px;border:none;background:none;color:var(--text-faint);cursor:pointer"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button></div>
+<div style="padding:10px 12px 14px">
+<div style="color:var(--text-muted);font-size:11.5px;line-height:1.55">Send this to them however you'd send a password. It works once.</div>
+<div style="margin-top:10px;padding:8px;border:1px solid var(--background-modifier-border);border-radius:4px;background:var(--background-secondary);font-family:ui-monospace,Menlo,monospace;font-size:10.5px;line-height:1.6;color:var(--text-muted);word-break:break-all;max-height:74px;overflow:hidden">hm_pt_2f9c41ab7e0d3c81f0a6b45d9e27… <span style="color:var(--text-faint)">(truncated)</span></div>
+<button style="margin-top:8px;width:100%;display:flex;align-items:center;justify-content:center;gap:7px;padding:7px;border:none;border-radius:4px;background:var(--interactive-accent);color:#fff;font:inherit;font-size:12.5px;font-weight:500;cursor:pointer"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg>Copy invitation</button>
+<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--background-modifier-border);display:flex;gap:8px;align-items:flex-start"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="var(--text-faint)" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="flex:none;margin-top:1px"><circle cx="12" cy="12" r="10"></circle><path d="M12 7v5l3 2"></path></svg><div style="color:var(--text-muted);font-size:11.5px;line-height:1.55"><strong style="color:var(--text-normal);font-weight:600">Next:</strong> they paste it and read you six digits. Keep this window open — the approval appears right here.</div></div>
+</div>
+</div>
+</div>
+</div>
+<p class="dv-cap">INVITE — a modal, never a screen. The envelope exists only in its own copy field, and the approval step arrives in the same window so the owner never has to find it.</p>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="width:300px;height:440px;flex:none;position:relative;display:flex;flex-direction:column;border:1px solid var(--background-modifier-border);border-radius:8px;overflow:hidden;background:var(--background-primary);color:var(--text-normal);font-size:13px;line-height:1.5;--background-primary:#ffffff;--background-secondary:#f2f3f5;--background-modifier-border:#e3e3e5;--text-normal:#2e3338;--text-muted:#5c6169;--text-faint:#9aa0a6;--interactive-accent:#7159d1;--text-success:#0d8a63;--text-error:#c0392b">
+<div style="display:flex;align-items:center;gap:7px;padding:0 6px 0 12px;height:34px;flex:none;border-bottom:1px solid var(--background-modifier-border);opacity:.4"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="var(--interactive-accent)" stroke-width="1.6" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg><span style="font-weight:500;font-size:13px">Havemind</span></div>
+<div style="flex:1;padding:16px 14px;opacity:.4"></div>
+<div style="position:absolute;inset:0;background:rgba(0,0,0,.28);display:flex;align-items:center;justify-content:center;padding:10px">
+<div style="width:100%;border:1px solid var(--background-modifier-border);border-radius:8px;background:var(--background-primary);box-shadow:0 8px 28px rgba(0,0,0,.24);overflow:hidden">
+<div style="display:flex;align-items:baseline;gap:8px;padding:11px 12px 0"><span style="flex:1;min-width:0;font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left">Projects/Kiln notes.md</span><button aria-label="Close" style="display:flex;padding:2px;border:none;background:none;color:var(--text-faint);cursor:pointer"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button></div>
+<div style="padding:4px 12px 14px">
+<div style="color:var(--text-muted);font-size:11px">You and Mira edited the same lines · 2 min ago</div>
+<div style="margin-top:10px;border:1px solid var(--background-modifier-border);border-radius:4px;background:var(--background-secondary);font-family:ui-monospace,Menlo,monospace;font-size:10.5px;line-height:1.7;overflow:hidden">
+<div style="padding:2px 8px;color:var(--text-muted)">## Firing schedule</div>
+<div style="padding:2px 8px;background:rgba(192,57,43,.12);color:var(--text-error)">- bisque at 950°C</div>
+<div style="padding:2px 8px;background:rgba(13,138,99,.14);color:var(--text-success)">+ bisque at 1000°C</div>
+<div style="padding:2px 8px;color:var(--text-muted)">- hold 20 min</div>
+</div>
+<div style="margin-top:6px;color:var(--text-faint);font-size:11px">Both versions are on disk. Nothing is lost either way.</div>
+<div style="display:flex;flex-wrap:wrap;gap:7px;margin-top:12px"><button style="flex:1;min-width:88px;padding:7px;border:none;border-radius:4px;background:var(--interactive-accent);color:#fff;font:inherit;font-size:12px;font-weight:500;cursor:pointer">Keep mine</button><button style="flex:1;min-width:88px;padding:7px;border:1px solid var(--background-modifier-border);border-radius:4px;background:none;color:var(--text-normal);font:inherit;font-size:12px;cursor:pointer">Keep Mira's</button><button style="flex:1;min-width:100%;padding:7px;border:1px solid var(--background-modifier-border);border-radius:4px;background:none;color:var(--text-muted);font:inherit;font-size:12px;cursor:pointer">Keep both as separate notes</button></div>
+</div>
+</div>
+</div>
+</div>
+<p class="dv-cap">RESOLVE — the diff is the content; three verbs, each naming what survives. "Keep Mira's" beats "Keep theirs" in a two-person vault.</p>
+</div>
+
+</div>
+</div>
+</div>
+
+<div class="dv-opt" id="1g">
+<div class="dv-olabel"><a class="dv-oid" href="#1g">1g</a>Dark — same markup, Obsidian's own variables</div>
+<div class="dv-card" style="background:#141414;border-color:rgba(255,255,255,.09)">
+<div style="display:flex;gap:26px;flex-wrap:wrap;align-items:flex-start">
+
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="width:300px;height:420px;flex:none;display:flex;flex-direction:column;border:1px solid var(--background-modifier-border);border-radius:8px;overflow:hidden;background:var(--background-primary);color:var(--text-normal);font-size:13px;line-height:1.5;--background-primary:#1e1e1e;--background-secondary:#262626;--background-modifier-border:#3a3a3a;--text-normal:#dcddde;--text-muted:#9a9b9e;--text-faint:#6c6e73;--interactive-accent:#8b6cef;--text-success:#5fd3ac;--text-error:#ef7a70;--havemind-author-2:#c99bf0;--havemind-author-3:#5fd3ac">
+<div style="display:flex;align-items:center;gap:7px;padding:0 6px 0 12px;height:34px;flex:none;border-bottom:1px solid var(--background-modifier-border)"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="var(--interactive-accent)" stroke-width="1.6" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg><span style="font-weight:500;font-size:13px">Havemind</span><button aria-label="More options" style="margin-left:auto;display:flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border:none;background:none;color:var(--text-faint);cursor:pointer"><svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" stroke="none"><circle cx="12" cy="12" r="1.4"></circle><circle cx="18.5" cy="12" r="1.4"></circle><circle cx="5.5" cy="12" r="1.4"></circle></svg></button></div>
+<div style="flex:1;padding:16px 14px 0;display:flex;flex-direction:column;min-height:0">
+<div style="display:flex;align-items:center;gap:9px;font-weight:500;font-size:14px"><span title="Synced" style="width:8px;height:8px;border-radius:50%;background:var(--text-success);flex:none"></span><span>Synced</span></div>
+<div style="padding-left:17px;margin-top:3px;color:var(--text-muted);font-size:11.5px">Last change 4 min ago · nothing queued</div>
+<div style="margin-top:22px;display:flex;flex-direction:column">
+<button aria-expanded="false" style="display:flex;align-items:center;gap:8px;width:100%;padding:9px 0;background:none;border:none;border-top:1px solid var(--background-modifier-border);color:var(--text-normal);font:inherit;font-size:13px;text-align:left;cursor:pointer"><span style="flex:1">Activity</span><span style="color:var(--text-faint);font-size:11.5px">12 today</span><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="var(--text-faint)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"></path></svg></button>
+<button aria-expanded="false" style="display:flex;align-items:center;gap:8px;width:100%;padding:9px 0;background:none;border:none;border-top:1px solid var(--background-modifier-border);color:var(--text-normal);font:inherit;font-size:13px;text-align:left;cursor:pointer"><span style="flex:1">People</span><span style="display:flex;gap:3px;align-items:center;margin-right:2px"><span title="Mira" style="width:7px;height:7px;border-radius:50%;background:var(--havemind-author-2)"></span><span title="Tomas" style="width:7px;height:7px;border-radius:50%;background:var(--havemind-author-3)"></span></span><span style="color:var(--text-faint);font-size:11.5px">2 connected</span><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="var(--text-faint)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"></path></svg></button>
+</div>
+</div>
+<div style="flex:none;border-top:1px solid var(--background-modifier-border);padding:7px 10px;display:flex;align-items:center;gap:8px"><button aria-pressed="true" style="display:flex;align-items:center;gap:6px;padding:4px 6px;border:none;border-radius:4px;background:none;color:var(--text-muted);font:inherit;font-size:11.5px;cursor:pointer"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"></path><circle cx="12" cy="12" r="3"></circle></svg><span>Authorship</span><span style="position:relative;display:inline-block;width:21px;height:12px;border-radius:6px;background:var(--interactive-accent);margin-left:1px"><span style="position:absolute;top:2px;right:2px;width:8px;height:8px;border-radius:50%;background:#fff"></span></span></button><div style="margin-left:auto;display:flex;gap:2px"><button aria-label="Create invitation" style="display:flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border:none;border-radius:4px;background:none;color:var(--text-muted);cursor:pointer"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M19 8v6"></path><path d="M22 11h-6"></path></svg></button><button aria-label="Getting started" style="display:flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border:none;border-radius:4px;background:none;color:var(--text-muted);cursor:pointer"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="4"></circle><path d="m4.93 4.93 4.24 4.24"></path><path d="m14.83 9.17 4.24-4.24"></path><path d="m14.83 14.83 4.24 4.24"></path><path d="m9.17 14.83-4.24 4.24"></path></svg></button></div></div>
+</div>
+<p class="dv-cap" style="color:rgba(255,255,255,.45)">HEALTHY, dark. Only the token values changed.</p>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="width:300px;height:420px;flex:none;display:flex;flex-direction:column;border:1px solid var(--background-modifier-border);border-radius:8px;overflow:hidden;background:var(--background-primary);color:var(--text-normal);font-size:13px;line-height:1.5;--background-primary:#1e1e1e;--background-secondary:#262626;--background-modifier-border:#3a3a3a;--text-normal:#dcddde;--text-muted:#9a9b9e;--text-faint:#6c6e73;--interactive-accent:#8b6cef;--text-success:#5fd3ac;--text-error:#ef7a70;--color-red-rgb:239,122,112">
+<div style="display:flex;align-items:center;gap:7px;padding:0 6px 0 12px;height:34px;flex:none;border-bottom:1px solid var(--background-modifier-border)"><span style="position:relative;display:flex"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="var(--interactive-accent)" stroke-width="1.6" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg><span title="Needs attention" style="position:absolute;top:-2px;right:-2px;width:6px;height:6px;border-radius:50%;background:var(--text-error);border:1.5px solid var(--background-primary)"></span></span><span style="font-weight:500;font-size:13px">Havemind</span></div>
+<div style="flex:1;padding:16px 14px 0;display:flex;flex-direction:column;min-height:0">
+<div style="display:flex;align-items:center;gap:9px;font-weight:500;font-size:14px;color:var(--text-error)"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg><span>2 conflicts</span></div>
+<div style="padding-left:24px;margin-top:3px;color:var(--text-muted);font-size:11.5px">Both versions are kept. Nothing was overwritten.</div>
+<div style="margin-top:12px;border-left:2px solid var(--text-error);background:rgba(var(--color-red-rgb),.12);border-radius:0 4px 4px 0">
+<div style="padding:9px 11px"><div style="display:flex;align-items:baseline;gap:8px"><span style="flex:1;min-width:0;font-weight:500;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left">Projects/Kiln notes.md</span><button style="flex:none;padding:0;border:none;background:none;color:var(--interactive-accent);font:inherit;font-size:11.5px;font-weight:500;cursor:pointer">Resolve</button></div><div style="margin-top:2px;color:var(--text-muted);font-size:11px">You and Mira · 2 min ago</div></div>
+<div style="padding:9px 11px;border-top:1px solid rgba(var(--color-red-rgb),.2)"><div style="display:flex;align-items:baseline;gap:8px"><span style="flex:1;min-width:0;font-weight:500;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left">Meetings/Weekly.md</span><button style="flex:none;padding:0;border:none;background:none;color:var(--interactive-accent);font:inherit;font-size:11.5px;font-weight:500;cursor:pointer">Resolve</button></div><div style="margin-top:2px;color:var(--text-muted);font-size:11px">You and Tomas · 26 min ago</div></div>
+</div>
+<div style="margin-top:22px;display:flex;flex-direction:column">
+<button aria-expanded="false" style="display:flex;align-items:center;gap:8px;width:100%;padding:9px 0;background:none;border:none;border-top:1px solid var(--background-modifier-border);color:var(--text-normal);font:inherit;font-size:13px;text-align:left;cursor:pointer"><span style="flex:1">Activity</span><span style="color:var(--text-faint);font-size:11.5px">12 today</span><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="var(--text-faint)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"></path></svg></button>
+</div>
+</div>
+</div>
+<p class="dv-cap" style="color:rgba(255,255,255,.45)">CONFLICT, dark. The wash goes to 12% because dark surfaces swallow a 7% tint.</p>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="width:300px;height:420px;flex:none;display:flex;flex-direction:column;border:1px solid var(--background-modifier-border);border-radius:8px;overflow:hidden;background:var(--background-primary);color:var(--text-normal);font-size:13px;line-height:1.5;--background-primary:#1e1e1e;--background-secondary:#262626;--background-modifier-border:#3a3a3a;--text-normal:#dcddde;--text-muted:#9a9b9e;--text-faint:#6c6e73;--interactive-accent:#8b6cef">
+<div style="display:flex;align-items:center;gap:7px;padding:0 6px 0 12px;height:34px;flex:none;border-bottom:1px solid var(--background-modifier-border)"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="var(--interactive-accent)" stroke-width="1.6" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg><span style="font-weight:500;font-size:13px">Havemind</span></div>
+<div style="flex:1;padding:24px 18px 0;display:flex;flex-direction:column;align-items:center;text-align:center;min-height:0">
+<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="var(--interactive-accent)" stroke-width="1.8" stroke-linejoin="round" style="animation:hm-spin 1.3s linear infinite;transform-origin:50% 50%"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
+<div style="margin-top:14px;font-size:12.5px;color:var(--text-muted);line-height:1.55">Read these six digits out loud to<br><strong style="color:var(--text-normal);font-weight:600">Mira</strong>, who invited you.</div>
+<div style="margin-top:20px;display:flex;align-items:center;gap:16px;font-family:ui-monospace,Menlo,monospace;font-size:34px;font-weight:500;letter-spacing:.14em;font-variant-numeric:tabular-nums;color:var(--text-normal)"><span>482</span><span>917</span></div>
+<div style="margin-top:18px;padding:9px 11px;border-radius:4px;background:var(--background-secondary);color:var(--text-muted);font-size:11.5px;line-height:1.6;text-align:left">She'll see the same six digits in her Havemind pane and confirm they match. If they don't match, <strong style="color:var(--text-normal)">stop</strong> — someone else is trying to join.</div>
+<div style="margin-top:16px;display:flex;align-items:center;gap:6px;color:var(--text-faint);font-size:11px;font-variant-numeric:tabular-nums"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M12 7v5l3 2"></path></svg>Expires in 4:52</div>
+</div>
+</div>
+<p class="dv-cap" style="color:rgba(255,255,255,.45)">HANDSHAKE, dark. The digits are the only large type in the product.</p>
+</div>
+
+</div>
+</div>
+</div>
+
+</div>
+<p class="dv-next">Try next: "build <a class="dv-oid" href="#1a">1a</a> as a clickable prototype I can tab through" · "show the reconnect-required and reset-required states" · "<a class="dv-oid" href="#1d">1d</a> but the chooser is skipped when a havemind-join URI was handled" · "give me the ribbon + status-bar treatments"</p>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;activityCount&quot;:{&quot;editor&quot;:&quot;int&quot;,&quot;default&quot;:4,&quot;min&quot;:1,&quot;max&quot;:8,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Activity-first variant (1b)&quot;},&quot;restoreAlways&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Activity-first variant (1b)&quot;},&quot;showFocus&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Accessibility&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const rows = [
+      { who: 'Mira',  verb: 'edited',  file: 'Projects/Kiln notes.md',    time: '2m',  dot: 'var(--havemind-author-2)', ring: 'none' },
+      { who: 'You',   verb: 'edited',  file: 'Daily/2026-08-23.md',       time: '6m',  dot: 'transparent', ring: '1.5px solid var(--text-faint)' },
+      { who: 'Tomas', verb: 'created', file: 'Reading/Ostrom.md',         time: '18m', dot: 'var(--havemind-author-3)', ring: 'none' },
+      { who: 'Mira',  verb: 'renamed', file: 'Inbox/Server move.md',      time: '41m', dot: 'var(--havemind-author-2)', ring: 'none' },
+      { who: 'You',   verb: 'deleted', file: 'Scratch/tmp.md',            time: '1h',  dot: 'transparent', ring: '1.5px solid var(--text-faint)' },
+      { who: 'Tomas', verb: 'edited',  file: 'Projects/Kiln notes.md',    time: '2h',  dot: 'var(--havemind-author-3)', ring: 'none' },
+      { who: 'Mira',  verb: 'edited',  file: 'Meetings/Weekly.md',        time: '3h',  dot: 'var(--havemind-author-2)', ring: 'none' },
+      { who: 'You',   verb: 'created', file: 'Reading/Queue.md',          time: '5h',  dot: 'transparent', ring: '1.5px solid var(--text-faint)' }
+    ];
+    const n = this.props.activityCount ?? 4;
+    return {
+      activity: rows.slice(0, n),
+      restoreAlways: this.props.restoreAlways ?? true,
+      showFocus: this.props.showFocus ?? true
+    };
+  }
+}
+</script>
+</body>
+</html>

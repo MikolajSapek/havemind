@@ -55,6 +55,16 @@ function asEl(element: MockElement): HTMLElement {
 }
 
 /** Every element carrying a Lucide glyph, anywhere under `root`. */
+/** Opens a tab in the connected pane (one sidebar, tabs to switch). */
+function openTab(view: { containerEl: unknown }, label: RegExp): void {
+  const root = view.containerEl as unknown as MockElement;
+  const tab = flatten(root).find(
+    (el) => el.attrs['role'] === 'tab' && label.test(el.attrs['aria-label'] ?? ''),
+  );
+  if (tab === undefined) throw new Error(`tab ${label} not rendered`);
+  tab.triggerClick();
+}
+
 function glyphs(root: MockElement): MockElement[] {
   return [root, ...flatten(root)].filter(({ iconName }) => iconName !== '');
 }
@@ -223,6 +233,7 @@ describe('panel glyph accessibility', () => {
       onDisconnect: () => undefined,
     });
     await view.onOpen();
+    openTab(view, /People/);
 
     const content = (view.containerEl as unknown as MockElement)
       .children[1] as MockElement;

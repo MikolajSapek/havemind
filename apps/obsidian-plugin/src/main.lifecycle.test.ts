@@ -48,6 +48,21 @@ function chooseInvitationPath(view: { containerEl: unknown }): void {
   option.triggerClick();
 }
 
+/**
+ * Clicks a tab in the connected pane. Roster, activity and invite each live
+ * behind one now (a single sidebar, tabs to switch), so a test that inspects
+ * their content reaches it the way a user does.
+ */
+function openTab(view: { containerEl: unknown }, label: RegExp): void {
+  const root = view.containerEl as unknown as MockElement;
+  const tab = flatten(root).find(
+    (el) =>
+      el.attrs['role'] === 'tab' && label.test(el.attrs['aria-label'] ?? ''),
+  );
+  if (tab === undefined) throw new Error(`tab ${label} not rendered`);
+  tab.triggerClick();
+}
+
 describe('plugin lifecycle', () => {
   beforeEach(() => {
     resetObsidianMock();
@@ -865,8 +880,7 @@ describe('plugin lifecycle', () => {
     await view.onOpen();
     chooseInvitationPath(view);
 
-    const kids =
-      (view.containerEl as unknown as MockElement).children[1]?.children ?? [];
+    const kids = flatten(view.containerEl as unknown as MockElement);
     const textarea = kids.find(({ tag }) => tag === 'textarea');
     const server = kids.find(({ tag }) => tag === 'input');
     const button = kids.find(({ text }) => text === 'Connect');
@@ -1106,8 +1120,7 @@ describe('plugin lifecycle', () => {
     await view.onOpen();
     chooseInvitationPath(view);
 
-    const kids =
-      (view.containerEl as unknown as MockElement).children[1]?.children ?? [];
+    const kids = flatten(view.containerEl as unknown as MockElement);
     kids.find(({ text }) => text === 'Connect')?.triggerClick();
 
     expect(captured).toEqual([]);
@@ -1133,6 +1146,7 @@ describe('plugin lifecycle', () => {
       onMarkDisconnected: () => undefined,
     });
     await view.onOpen();
+    openTab(view, /People/);
 
     const content = (view.containerEl as unknown as MockElement).children[1];
     const all = flatten(content as MockElement);
@@ -1161,6 +1175,7 @@ describe('plugin lifecycle', () => {
       onRejoin: (membershipId) => rejoined.push(membershipId),
     });
     await view.onOpen();
+    openTab(view, /People/);
 
     const content = (view.containerEl as unknown as MockElement).children[1];
     flatten(content as MockElement)
@@ -1183,6 +1198,7 @@ describe('plugin lifecycle', () => {
       onRejoin: () => undefined,
     });
     await view.onOpen();
+    openTab(view, /People/);
 
     const content = (view.containerEl as unknown as MockElement).children[1];
     const all = flatten(content as MockElement);
@@ -1207,6 +1223,7 @@ describe('plugin lifecycle', () => {
       onMarkDisconnected: (membershipId) => marked.push(membershipId),
     });
     await view.onOpen();
+    openTab(view, /People/);
 
     const content = (view.containerEl as unknown as MockElement).children[1];
     const all = flatten(content as MockElement);
@@ -1229,6 +1246,7 @@ describe('plugin lifecycle', () => {
       onRemove: () => undefined,
     });
     await view.onOpen();
+    openTab(view, /People/);
 
     const content = (view.containerEl as unknown as MockElement).children[1];
     const all = flatten(content as MockElement);
@@ -1254,6 +1272,7 @@ describe('plugin lifecycle', () => {
       onRemove: (membershipId) => removed.push(membershipId),
     });
     await view.onOpen();
+    openTab(view, /People/);
 
     const content = (view.containerEl as unknown as MockElement).children[1];
     const remove = flatten(content as MockElement).find(

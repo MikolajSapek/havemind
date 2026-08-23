@@ -32,6 +32,11 @@ import {
   buildGuestHandshake,
   buildSpentInvitation,
 } from '../runtime/handshake';
+import {
+  buildPaneTabs,
+  type PaneTabId,
+  type PaneTabsView,
+} from '../runtime/pane-tabs';
 
 import { renderActivityRows } from './activity-section';
 import { renderConflictSection } from './conflict-section';
@@ -41,6 +46,7 @@ import {
 } from './entry-chooser-section';
 import { renderPaneFooter } from './pane-footer';
 import { renderPaneHeader, type PaneMenuItem } from './pane-header';
+import { renderPaneTabs } from './pane-tabs-section';
 import { renderGettingStarted } from './getting-started-section';
 import { DECORATIVE, renderSection, renderViewTitle } from './primitives';
 import { renderRejoinRoster } from './roster-section';
@@ -123,6 +129,10 @@ export interface OnboardingViewOptions {
   readonly authorOverlayProvider?: () => boolean;
   /** Flips the author overlay from the footer (the toggle lost its ribbon icon). */
   readonly onToggleAuthorOverlay?: () => void;
+  /** Opens the owner's invite composer from the action bar. */
+  readonly onOpenComposer?: () => void;
+  /** Forces a sync cycle from the action bar, matching the `sync-now` command. */
+  readonly onSyncNow?: () => void;
   /**
    * True when the user reached the pane through an `obsidian://havemind-join`
    * link. That click already answers the entry chooser — they hold an
@@ -255,13 +265,10 @@ export class HavemindOnboardingView extends ItemView {
    * behind a small help button so it is discoverable without nagging.
    */
   private helpOpen = false;
-  /**
-   * Whether the activity section is expanded. Collapsed by default: the calm
-   * pane spends its lines on what needs attention, not on history (plans/007).
-   */
-  private activityOpen = false;
   /** Whether the header overflow menu is open. */
   private menuOpen = false;
+  /** Which tab the connected pane is showing. */
+  private activeTab: PaneTabId = 'status';
   /**
    * Which entry path the user picked on the connect screen (design 1d).
    * `undecided` shows the chooser; a typed token or a `havemind-join` URI
@@ -315,12 +322,6 @@ export class HavemindOnboardingView extends ItemView {
     content.addClass('havemind-view');
     this.liveInputs = {};
 
-    const composer = this.options.composerProvider?.() ?? null;
-    if (composer) {
-      this.renderCreateConnection(content, composer);
-      return;
-    }
-
     // A server rejection/lockout takes precedence over the waiting screen: the
     // invitation is spent, so we never leave the guest waiting or offline.
     if (this.options.guestInvalidProvider?.() === true) {
@@ -350,19 +351,143 @@ export class HavemindOnboardingView extends ItemView {
       },
       items: this.headerMenuItems(panel),
     });
+
+    // The action bar belongs to the connected pane: before connecting there is
+    // nothing to sync, nobody to invite and no authorship to colour.
+    if (!panel.showForm) this.renderNavBar(content);
+
+    // The invite composer is the Invite tab (see renderTabBody), not a block
+    // above the strip: rendering it here as well pushed the tabs and the status
+    // to the bottom of the pane, which is what the owner saw. It is reachable
+    // from the action-bar icon, which selects that tab.
     // MAJOR 5: each section renders inside its own guard so a synchronous
     // provider throw degrades that one section to an inline fallback rather than
     // blanking the whole panel (content.empty() has already run above).
-    renderSection(content, 'status', () => this.renderIndicator(content, panel));
+
+    // Not yet connected: no tabs, because there is only one thing to do. The
+    // alarms still render — a conflict left over from a previous session does
+    // not stop mattering because the vault is currently disconnected.
+    //
+    // An open composer is the exception: an owner minting an invitation has
+    // something to do that is not "connect", and the connect form is not it.
+    const composerOpen = this.options.composerProvider?.() != null;
+    if (panel.showForm && !composerOpen) {
+      renderSection(content, 'status', () =>
+        this.renderIndicator(content, panel),
+      );
+      renderSection(content, 'send queue', () => this.renderSendQueue(content));
+      renderSection(content, 'conflicts', () => this.renderConflicts(content));
+      renderSection(content, 'connection', () => this.renderEntryPath(content));
+      return;
+    }
+
+    // Anything that needs the user renders ABOVE the strip, on every tab. A tab
+    // may hide content; it must never hide an alarm. This is the specific
+    // failure the designer warned about — a pane reading "Synced" while two
+    // files sit in conflict one click away — and lifting it out of the tabs is
+    // what makes a tabbed pane safe rather than merely tidy.
     renderSection(content, 'send queue', () => this.renderSendQueue(content));
     renderSection(content, 'conflicts', () => this.renderConflicts(content));
-    renderSection(content, 'connection', () => {
-      if (panel.showForm) {
-        this.renderEntryPath(content);
-      } else {
-        this.renderConnected(content);
-      }
+
+    const tabs = this.paneTabs();
+    renderSection(content, 'tabs', () => {
+      renderPaneTabs(content, {
+        view: tabs,
+        onSelect: (id) => {
+          this.activeTab = id;
+          this.render();
+        },
+      });
     });
+
+    const body = content.createDiv();
+    body.addClass('havemind-tab-body');
+    renderSection(body, `tab:${tabs.active}`, () => {
+      this.renderTabBody(body, tabs.active, panel);
+    });
+  }
+
+  /**
+   * The tab model, derived from the same providers the body reads.
+   *
+   * Every read is guarded: the strip is chrome, and a provider that throws must
+   * cost the user its count, not their whole pane. `renderSection` protects the
+   * sections it wraps, but this runs before them — an unguarded throw here would
+   * blank everything, which is the failure MAJOR 5 exists to prevent.
+   */
+  private paneTabs(): PaneTabsView {
+    const count = (read: () => number): number => {
+      try {
+        return read();
+      } catch {
+        return 0;
+      }
+    };
+
+    // An open composer means the user is mid-invitation, so that is the tab
+    // they are on — not whichever one they last happened to leave selected.
+    // `!= null` is deliberate: an absent provider returns undefined, and
+    // `undefined === null` is false — reading it that way made every pane
+    // without a composer think one was open, and forced the Invite tab.
+    const composerOpen =
+      count(() => (this.options.composerProvider?.() != null ? 1 : 0)) > 0;
+
+    return buildPaneTabs({
+      active: composerOpen ? 'invite' : this.activeTab,
+      activityCount: count(
+        () => this.options.activityFeedProvider?.().length ?? 0,
+      ),
+      peopleCount: count(
+        () => this.options.rejoinRosterProvider?.()?.rows.length ?? 0,
+      ),
+      attentionCount:
+        count(() => this.options.conflictsProvider?.().length ?? 0) +
+        count(() => this.options.sendQueueProvider?.()?.failed.length ?? 0),
+      // Either route counts as "this user can invite": the action-bar icon that
+      // opens a composer, or a composer already open. Keying only on the icon
+      // meant an owner mid-invitation had no tab to hold it.
+      canInvite: this.options.onOpenComposer !== undefined || composerOpen,
+    });
+  }
+
+  private renderTabBody(
+    body: HTMLElement,
+    tab: PaneTabId,
+    panel: ConnectionPanelView,
+  ): void {
+    if (tab === 'status') {
+      this.renderIndicator(body, panel);
+      if (this.helpOpen) {
+        renderGettingStarted(body, buildGettingStartedViewModel());
+      }
+      return;
+    }
+
+    if (tab === 'activity') {
+      const feed = this.options.activityFeedProvider?.() ?? [];
+      renderActivityRows(body, {
+        feed,
+        ...(this.options.onRestore ? { onRestore: this.options.onRestore } : {}),
+      });
+      return;
+    }
+
+    if (tab === 'people') {
+      const roster = this.options.rejoinRosterProvider?.();
+      if (roster !== undefined) this.renderRoster(body, roster);
+      return;
+    }
+
+    const composer = this.options.composerProvider?.() ?? null;
+    if (composer !== null) {
+      this.renderCreateConnection(body, composer);
+      return;
+    }
+    // The tab exists because this user can invite, but the composer has not
+    // been opened yet — say so rather than showing an empty panel.
+    const open = body.createEl('button', { text: 'Create an invitation' });
+    open.addClass('mod-cta');
+    open.onClickEvent(() => this.options.onOpenComposer?.());
   }
 
   /** Reads live input values into `draft` so the next render can restore them. */
@@ -473,7 +598,12 @@ export class HavemindOnboardingView extends ItemView {
     const decided =
       this.entryChoice !== 'undecided' ||
       this.draft.token.length > 0 ||
-      this.options.arrivedWithInvitationProvider?.() === true;
+      this.options.arrivedWithInvitationProvider?.() === true ||
+      // An owner minting an invitation has already answered the question by
+      // opening the composer; asking again would be asking twice. Note the
+      // `=== undefined` guard: an absent provider is not an open composer.
+      (this.options.composerProvider !== undefined &&
+        this.options.composerProvider() !== null);
 
     if (!decided) {
       renderEntryChooser(content, {
@@ -514,40 +644,37 @@ export class HavemindOnboardingView extends ItemView {
     this.renderForm(content);
   }
 
-  private renderConnected(content: HTMLElement): void {
-    // The revision feed lives here now rather than in a second pane
-    // (plans/007 Stage 0), collapsed by default: in the calm state it is one
-    // summary row carrying a count, so the pane proves it is awake without
-    // spending the whole column on history nobody asked for.
-    renderSection(content, 'activity', () => this.renderActivity(content));
-
-    // Presence roster makes "connected" unambiguous for the invitee (and owner):
-    // once approval succeeds the panel clearly lists who is connected.
-    const roster = this.options.rejoinRosterProvider?.();
-    if (roster !== undefined) {
-      this.renderRoster(content, roster);
-    }
-
-    // Disconnect moved into the header overflow menu: a standing button spends
-    // a line on the action a connected user least wants to hit. The footer
-    // instead carries what people reach for — the authorship toggle (which lost
-    // its ribbon icon in Stage 0), inviting someone, and the tutorial.
+  /**
+   * The action bar under the header (design 2a), mirroring Obsidian's own
+   * `nav-buttons-container`. Design 1a parked these at the foot of the pane;
+   * 2a moves them into native chrome so the plugin reads as part of the app
+   * rather than a panel wearing its own furniture.
+   */
+  private renderNavBar(content: HTMLElement): void {
     const overlayOn = this.options.authorOverlayProvider?.();
     renderPaneFooter(content, {
       ...(overlayOn !== undefined ? { authorOverlayOn: overlayOn } : {}),
       ...(this.options.onToggleAuthorOverlay
         ? { onToggleAuthorOverlay: this.options.onToggleAuthorOverlay }
         : {}),
+      // Selects the Invite tab rather than opening a separate surface: one
+      // sidebar, and the icon is a shortcut to a tab that already exists.
+      ...(this.options.onOpenComposer
+        ? {
+            onCreateInvitation: () => {
+              this.activeTab = 'invite';
+              this.options.onOpenComposer?.();
+              this.render();
+            },
+          }
+        : {}),
+      ...(this.options.onSyncNow ? { onSyncNow: this.options.onSyncNow } : {}),
       helpOpen: this.helpOpen,
       onOpenHelp: () => {
         this.helpOpen = !this.helpOpen;
         this.render();
       },
     });
-
-    if (this.helpOpen) {
-      renderGettingStarted(content, buildGettingStartedViewModel());
-    }
   }
 
   /**
@@ -587,42 +714,6 @@ export class HavemindOnboardingView extends ItemView {
     return items;
   }
 
-  /**
-   * The activity feed as a collapsible section. Collapsed it is a single row
-   * with a count; expanded it renders the same rows the standalone Activity
-   * view draws, through the same shared helper.
-   */
-  private renderActivity(content: HTMLElement): void {
-    const feed = this.options.activityFeedProvider?.() ?? [];
-
-    // The section renders even with an empty feed. The log is in-memory and
-    // rebuilds on every start, so "empty" is the normal state right after a
-    // reload — vanishing then would leave the user unable to tell whether the
-    // feed moved, broke, or simply has nothing to report yet.
-    const header = content.createEl('button');
-    header.addClass('havemind-collapse-header');
-    header.setAttribute('aria-expanded', this.activityOpen ? 'true' : 'false');
-    header.createEl('span', { text: 'Activity' });
-    header.createEl('span', {
-      text: feed.length === 0 ? 'none yet' : `${feed.length}`,
-      cls: 'havemind-collapse-count',
-    });
-    header.onClickEvent(() => {
-      this.activityOpen = !this.activityOpen;
-      this.render();
-    });
-
-    // An empty feed shows its one-line explanation without needing a click:
-    // collapsing "nothing to report" hides no noise, it only hides the reason.
-    if (!this.activityOpen && feed.length > 0) return;
-
-    const body = content.createDiv();
-    body.addClass('havemind-collapse-body');
-    renderActivityRows(body, {
-      feed,
-      ...(this.options.onRestore ? { onRestore: this.options.onRestore } : {}),
-    });
-  }
 
   /** Renders the rejoin-aware roster with its owner actions from the options. */
   private renderRoster(content: HTMLElement, roster: RejoinRosterView): void {

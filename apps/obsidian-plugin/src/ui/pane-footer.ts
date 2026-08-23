@@ -1,23 +1,30 @@
 /**
- * The pane footer: the authorship toggle and two icon actions (design 1a).
+ * The pane action bar (design 2a).
  *
- * Authorship lost its ribbon icon when the plugin collapsed to one hexagon
- * (plans/007 Stage 0). It belongs here — beside the vault it annotates —
- * rather than in a global strip shared with every other plugin.
+ * Sits directly under the header, mirroring Obsidian's own
+ * `nav-buttons-container`: a row of icon buttons for the things a connected
+ * user reaches for — authorship, invite, sync now, getting started.
  *
- * The toggle carries `aria-pressed` because its state must survive a user who
- * cannot see the accent fill: colour is never the only signal.
+ * Design 1a put these at the bottom of the pane. 2a moves them up into native
+ * chrome, so the plugin reads as part of Obsidian rather than a panel wearing
+ * its own furniture.
+ *
+ * Every button is icon-only, so each carries an `aria-label` naming the action.
+ * The authorship toggle additionally carries `aria-pressed`, because its state
+ * must survive a user who cannot see the accent fill: colour is never the only
+ * signal.
  */
 
 import { setIcon } from 'obsidian';
 
-import { DECORATIVE } from './primitives';
 
 export interface PaneFooterOptions {
   /** Current author-overlay state, or undefined to omit the toggle. */
   readonly authorOverlayOn?: boolean;
   readonly onToggleAuthorOverlay?: () => void;
   readonly onCreateInvitation?: () => void;
+  /** Forces an immediate sync cycle, matching the `sync-now` command. */
+  readonly onSyncNow?: () => void;
   readonly onOpenHelp?: () => void;
   /** Whether the getting-started panel is currently open, for `aria-expanded`. */
   readonly helpOpen?: boolean;
@@ -32,37 +39,44 @@ export function renderPaneFooter(
     options.onToggleAuthorOverlay !== undefined;
   if (!hasToggle && !options.onCreateInvitation && !options.onOpenHelp) return;
 
-  const footer = content.createDiv();
-  footer.addClass('havemind-pane-footer');
+  const bar = content.createDiv();
+  bar.addClass('havemind-nav-bar');
 
   if (hasToggle) {
     const on = options.authorOverlayOn === true;
-    const toggle = footer.createEl('button', {
-      attr: { 'aria-pressed': on ? 'true' : 'false' },
+    const toggle = bar.createEl('button', {
+      attr: {
+        'aria-label': 'Show authorship colours',
+        'aria-pressed': on ? 'true' : 'false',
+      },
     });
-    toggle.addClass('havemind-footer-toggle');
+    toggle.addClass('havemind-nav-action');
     if (on) toggle.addClass('is-on');
-    const icon = toggle.createEl('span', { attr: DECORATIVE });
-    setIcon(icon, 'users');
-    toggle.createEl('span', { text: 'Authorship' });
+    setIcon(toggle, 'users');
     toggle.onClickEvent(() => options.onToggleAuthorOverlay?.());
   }
 
-  const actions = footer.createDiv();
-  actions.addClass('havemind-footer-actions');
-
   if (options.onCreateInvitation) {
-    const invite = actions.createEl('button', {
+    const invite = bar.createEl('button', {
       attr: { 'aria-label': 'Create invitation' },
     });
-    invite.addClass('havemind-footer-action');
+    invite.addClass('havemind-nav-action');
     setIcon(invite, 'user-plus');
     invite.onClickEvent(() => options.onCreateInvitation?.());
   }
 
+  if (options.onSyncNow) {
+    const sync = bar.createEl('button', {
+      attr: { 'aria-label': 'Sync now' },
+    });
+    sync.addClass('havemind-nav-action');
+    setIcon(sync, 'refresh-cw');
+    sync.onClickEvent(() => options.onSyncNow?.());
+  }
+
   if (options.onOpenHelp) {
     const open = options.helpOpen === true;
-    const help = actions.createEl('button', {
+    const help = bar.createEl('button', {
       attr: {
         // The label states the action, not the object, so a screen reader
         // announces what the press will do rather than where it lands.
@@ -70,7 +84,9 @@ export function renderPaneFooter(
         'aria-expanded': open ? 'true' : 'false',
       },
     });
-    help.addClass('havemind-footer-action');
+    // Help parks at the far end, away from the actions that change the vault.
+    help.addClass('havemind-nav-action');
+    help.addClass('havemind-nav-end');
     setIcon(help, 'life-buoy');
     help.onClickEvent(() => options.onOpenHelp?.());
   }

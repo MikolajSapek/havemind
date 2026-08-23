@@ -456,10 +456,7 @@ describe('OutboxLocalChangeRepository', () => {
       expect(decoded.binaryContent).toEqual(bytes);
     });
 
-    // A 20MB base64 round-trip is fast uninstrumented but exceeds the default
-    // budget under V8 coverage. Given its own timeout rather than raising the
-    // global one, which stays a smoke alarm for accidental hangs.
-    it('does not throw RevisionPayloadTooLargeError for a large binary within the file cap (raised ceiling)', { timeout: 120_000 }, async () => {
+    it('does not throw RevisionPayloadTooLargeError for a large binary within the file cap (raised ceiling)', async () => {
       // A 20MB attachment (within MAX_BINARY_FILE_BYTES = 25MB, base64 ≈ 27MB)
       // would be rejected outright by the markdown default ceiling (512KB); a
       // binary change uses MAX_BINARY_PAYLOAD_BYTES (40MB) instead, so the
@@ -491,6 +488,9 @@ describe('OutboxLocalChangeRepository', () => {
       expect(enqueued).toHaveLength(1);
       // Encoding a 20MB attachment takes ~8s under machine load; the default
       // 5s vitest timeout makes this test flaky. Perf headroom, not logic.
-    }, 20_000);
+      // 20s was enough on an idle machine but not under parallel load or V8
+      // coverage instrumentation, where this same encode takes ~26s. Generous
+      // here rather than globally: the default stays a smoke alarm for hangs.
+    }, 120_000);
   });
 });
