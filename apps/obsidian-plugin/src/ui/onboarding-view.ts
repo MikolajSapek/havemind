@@ -469,14 +469,17 @@ export class HavemindOnboardingView extends ItemView {
    */
   private renderActivity(content: HTMLElement): void {
     const feed = this.options.activityFeedProvider?.() ?? [];
-    if (feed.length === 0) return;
 
+    // The section renders even with an empty feed. The log is in-memory and
+    // rebuilds on every start, so "empty" is the normal state right after a
+    // reload — vanishing then would leave the user unable to tell whether the
+    // feed moved, broke, or simply has nothing to report yet.
     const header = content.createEl('button');
     header.addClass('havemind-collapse-header');
     header.setAttribute('aria-expanded', this.activityOpen ? 'true' : 'false');
     header.createEl('span', { text: 'Activity' });
     header.createEl('span', {
-      text: `${feed.length}`,
+      text: feed.length === 0 ? 'none yet' : `${feed.length}`,
       cls: 'havemind-collapse-count',
     });
     header.onClickEvent(() => {
@@ -484,7 +487,9 @@ export class HavemindOnboardingView extends ItemView {
       this.render();
     });
 
-    if (!this.activityOpen) return;
+    // An empty feed shows its one-line explanation without needing a click:
+    // collapsing "nothing to report" hides no noise, it only hides the reason.
+    if (!this.activityOpen && feed.length > 0) return;
 
     const body = content.createDiv();
     body.addClass('havemind-collapse-body');
