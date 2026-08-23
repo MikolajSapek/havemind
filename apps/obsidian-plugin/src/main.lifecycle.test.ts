@@ -43,8 +43,10 @@ describe('plugin lifecycle', () => {
     await plugin.onload();
 
     expect(registrationState.settingsTabs).toHaveLength(1);
-    // Two ribbon actions: open Activity, and the F6 "Show authors" toggle.
-    expect(registrationState.ribbons).toHaveLength(2);
+    // One ribbon action: the hexagon opens the single Havemind pane (plans/007
+    // Stage 0). "Show authors" lost its icon and became a control inside that
+    // pane; its `show-authors` command keeps the keyboard route.
+    expect(registrationState.ribbons).toHaveLength(1);
     expect(registrationState.statusItems).toHaveLength(1);
     expect(registrationState.views.has(HAVEMIND_ACTIVITY_VIEW)).toBe(true);
     expect(registrationState.views.has(HAVEMIND_ONBOARDING_VIEW)).toBe(true);
@@ -113,7 +115,9 @@ describe('plugin lifecycle', () => {
     expect(command?.name).toBe('Create connection (owner)');
   });
 
-  it('opens the registered Activity view from the command', async () => {
+  it('opens the single Havemind pane from the command', async () => {
+    // plans/007 Stage 0: every entry point resolves to one pane, so the user
+    // never has to know which of two views holds what they came for.
     const app = new App();
     const plugin = new HavemindPlugin(app, manifest);
     await plugin.onload();
@@ -123,15 +127,15 @@ describe('plugin lifecycle', () => {
     await command?.callback?.();
 
     expect(app.workspace.rightLeaf?.states).toEqual([
-      { active: true, type: HAVEMIND_ACTIVITY_VIEW },
+      { active: true, type: HAVEMIND_ONBOARDING_VIEW },
     ]);
     expect(app.workspace.revealedLeaves).toEqual([app.workspace.rightLeaf]);
   });
 
-  it('reuses an existing Activity leaf and handles an unavailable sidebar', async () => {
+  it('reuses an existing Havemind leaf and handles an unavailable sidebar', async () => {
     const app = new App();
     const existingLeaf = new WorkspaceLeaf();
-    app.workspace.leaves.set(HAVEMIND_ACTIVITY_VIEW, [existingLeaf]);
+    app.workspace.leaves.set(HAVEMIND_ONBOARDING_VIEW, [existingLeaf]);
     const plugin = new HavemindPlugin(app, manifest);
     await plugin.onload();
 

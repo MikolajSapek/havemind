@@ -11,6 +11,7 @@
 
 import { ItemView, setIcon, type WorkspaceLeaf } from 'obsidian';
 
+import type { RevisionRecord } from '../activity/activity';
 import type { ConflictCopy } from '../runtime/conflict-resolution';
 import type { CreatedInvitation } from '../runtime/create-invitation';
 import { buildGettingStartedViewModel } from '../runtime/getting-started-render';
@@ -22,6 +23,7 @@ import {
   type ConnectionPanelView,
 } from '../runtime/status';
 
+import { renderActivityRows } from './activity-section';
 import { renderConflictSection } from './conflict-section';
 import { renderGettingStarted } from './getting-started-section';
 import { DECORATIVE, renderSection, renderViewTitle } from './primitives';
@@ -89,6 +91,14 @@ export interface GuestWaitingViewModel {
 
 /** Injected data + actions for the onboarding surface. */
 export interface OnboardingViewOptions {
+  /**
+   * The revision feed, rendered as a collapsed section of this pane rather
+   * than a separate destination (plans/007 Stage 0). Reads the same provider
+   * the standalone Activity view uses, so the two cannot disagree.
+   */
+  readonly activityFeedProvider?: () => readonly RevisionRecord[];
+  /** Restores a revision from an activity row. */
+  readonly onRestore?: (revisionId: string) => void;
   /**
    * Owner "Create connection" composer model; when it returns non-null the
    * unified create + approve panel is shown instead of the guest connect
@@ -213,6 +223,11 @@ export class HavemindOnboardingView extends ItemView {
    * behind a small help button so it is discoverable without nagging.
    */
   private helpOpen = false;
+  /**
+   * Whether the activity section is expanded. Collapsed by default: the calm
+   * pane spends its lines on what needs attention, not on history (plans/007).
+   */
+  private activityOpen = false;
   /** Live input elements from the current render, read during the next one. */
   private liveInputs: {
     token?: HTMLElement;
@@ -431,6 +446,12 @@ export class HavemindOnboardingView extends ItemView {
     // steps in place, so the guidance stays discoverable without nagging.
     this.renderHelpAffordance(content);
 
+    // The revision feed lives here now rather than in a second pane
+    // (plans/007 Stage 0), collapsed by default: in the calm state it is one
+    // summary row carrying a count, so the pane proves it is awake without
+    // spending the whole column on history nobody asked for.
+    renderSection(content, 'activity', () => this.renderActivity(content));
+
     // Presence roster makes "connected" unambiguous for the invitee (and owner):
     // once approval succeeds the panel clearly lists who is connected.
     const roster = this.options.rejoinRosterProvider?.();
@@ -439,6 +460,38 @@ export class HavemindOnboardingView extends ItemView {
     }
     const disconnect = content.createEl('button', { text: 'Disconnect' });
     disconnect.onClickEvent(() => this.options.onDisconnect?.());
+  }
+
+  /**
+   * The activity feed as a collapsible section. Collapsed it is a single row
+   * with a count; expanded it renders the same rows the standalone Activity
+   * view draws, through the same shared helper.
+   */
+  private renderActivity(content: HTMLElement): void {
+    const feed = this.options.activityFeedProvider?.() ?? [];
+    if (feed.length === 0) return;
+
+    const header = content.createEl('button');
+    header.addClass('havemind-collapse-header');
+    header.setAttribute('aria-expanded', this.activityOpen ? 'true' : 'false');
+    header.createEl('span', { text: 'Activity' });
+    header.createEl('span', {
+      text: `${feed.length}`,
+      cls: 'havemind-collapse-count',
+    });
+    header.onClickEvent(() => {
+      this.activityOpen = !this.activityOpen;
+      this.render();
+    });
+
+    if (!this.activityOpen) return;
+
+    const body = content.createDiv();
+    body.addClass('havemind-collapse-body');
+    renderActivityRows(body, {
+      feed,
+      ...(this.options.onRestore ? { onRestore: this.options.onRestore } : {}),
+    });
   }
 
   /** Renders the rejoin-aware roster with its owner actions from the options. */

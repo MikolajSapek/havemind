@@ -303,9 +303,14 @@ export default class HavemindPlugin extends Plugin {
         activityEntriesToRecords(this.activityLog.snapshot(), this.rosterMembers),
       onRestore: (revisionId) => this.handleRestore(revisionId),
     };
-    this.activityLogUnsubscribe = this.activityLog.subscribe(() =>
-      this.activityView?.refresh(),
-    );
+    // Both surfaces read the same log, so both must repaint when it moves: the
+    // pane now carries the activity feed as a section (plans/007 Stage 0) while
+    // the standalone view stays registered for anyone who already has it open
+    // in a leaf.
+    this.activityLogUnsubscribe = this.activityLog.subscribe(() => {
+      this.activityView?.refresh();
+      this.onboardingView?.refresh();
+    });
 
     this.registerView(HAVEMIND_ACTIVITY_VIEW, (leaf: WorkspaceLeaf) => {
       const view = new HavemindActivityView(leaf, this.activityOptions);
@@ -314,6 +319,11 @@ export default class HavemindPlugin extends Plugin {
     });
     this.registerView(HAVEMIND_ONBOARDING_VIEW, (leaf: WorkspaceLeaf) => {
       const view = new HavemindOnboardingView(leaf, {
+        // The activity feed is a section of this pane now, not a separate
+        // destination (plans/007 Stage 0) — same providers the standalone
+        // Activity view reads, so the two can never disagree.
+        activityFeedProvider: () => this.activityOptions.feedProvider?.() ?? [],
+        onRestore: (revisionId) => this.handleRestore(revisionId),
         composerProvider: () =>
           this.connectionActive ? this.composerModel() : null,
         guestWaitingProvider: () => this.awaitingApproval,
@@ -428,11 +438,15 @@ export default class HavemindPlugin extends Plugin {
       callback: () => this.toggleAuthorOverlay(),
     });
 
-    this.addRibbonIcon('hexagon', 'Open Havemind activity', () => {
-      void this.openActivityView();
-    });
-    this.addRibbonIcon('users', 'Show authors', () => {
-      this.toggleAuthorOverlay();
+    // One hexagon, one pane (plans/007 Stage 0). The plugin used to offer three
+    // doors — this icon for the activity feed, a second icon for the author
+    // overlay, and the command palette for the panel that actually connects a
+    // vault. A new user found the hexagon, got an activity list, and had no
+    // route to connecting anything. The overlay toggle now lives inside the
+    // pane and keeps its `show-authors` command, so removing its icon costs no
+    // keyboard or screen-reader access (F8-02d).
+    this.addRibbonIcon('hexagon', 'Open Havemind', () => {
+      void this.openHavemindPane();
     });
 
     // FINDING 1: both author-overlay surfaces promised by `specs/001-mvp.md`.
@@ -1678,8 +1692,19 @@ export default class HavemindPlugin extends Plugin {
     this.activityOptions = options;
   }
 
+  /**
+   * The single door into the plugin (plans/007 Stage 0). Every entry point —
+   * the ribbon hexagon, `open-activity`, `connect` — resolves here, so the user
+   * never has to know which of two panes holds the thing they want. `openView`
+   * reuses an existing leaf, so asking twice focuses the pane rather than
+   * opening a second copy of it.
+   */
+  private openHavemindPane(): Promise<void> {
+    return this.openView(HAVEMIND_ONBOARDING_VIEW);
+  }
+
   private openActivityView(): Promise<void> {
-    return this.openView(HAVEMIND_ACTIVITY_VIEW);
+    return this.openHavemindPane();
   }
 
   private async openView(type: string): Promise<void> {
