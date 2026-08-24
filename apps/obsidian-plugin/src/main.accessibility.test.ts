@@ -150,6 +150,19 @@ describe('status bar item accessibility', () => {
     expect(event.prevented).toBe(false);
   });
 
+  it('removes its keyboard listener when the plugin unloads', async () => {
+    const app = new App();
+    const plugin = new HavemindPlugin(app, manifest);
+    await plugin.onload();
+
+    const status = registrationState.statusItems[0];
+    plugin.unload();
+    status?.triggerEvent('keydown', keydown('Enter'));
+    await flush();
+
+    expect(app.workspace.revealedLeaves).toEqual([]);
+  });
+
   it('hides the status-bar hexagon from assistive technology', async () => {
     const plugin = new HavemindPlugin(new App(), manifest);
     await plugin.onload();

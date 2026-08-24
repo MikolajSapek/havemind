@@ -520,10 +520,11 @@ export default class HavemindPlugin extends Plugin {
     this.statusItem.setAttribute('role', 'button');
     this.statusItem.setAttribute('tabindex', '0');
     this.statusItem.setAttribute('aria-label', 'Open Havemind panel');
-    this.statusItem.addEventListener('keydown', (event: KeyboardEvent) => {
-      if (event.key !== 'Enter' && event.key !== ' ') return;
+    this.registerDomEvent(this.statusItem, 'keydown', (event) => {
+      const keyboardEvent = event as KeyboardEvent;
+      if (keyboardEvent.key !== 'Enter' && keyboardEvent.key !== ' ') return;
       // Space would otherwise scroll the pane behind the status bar.
-      event.preventDefault();
+      keyboardEvent.preventDefault();
       void this.openView(HAVEMIND_ONBOARDING_VIEW);
     });
     this.setStatus(formatStatusBar({ status: 'disconnected' }));

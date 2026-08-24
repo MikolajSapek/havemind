@@ -207,9 +207,9 @@ declare module 'obsidian' {
     registerInterval(id: number): number;
     registerEvent(ref: EventRef): void;
     registerDomEvent(
-      target: Window,
+      target: Window | HTMLElement,
       type: string,
-      callback: () => unknown,
+      callback: (event: Event) => unknown,
     ): void;
     onload(): Promise<void> | void;
     onunload(): void;

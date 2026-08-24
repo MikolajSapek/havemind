@@ -18,7 +18,7 @@ every human and every agent works from one continuously-synced brain. You write,
 your Claude writes, their Claude writes — Havemind keeps it one coherent
 knowledge base, live, with full authorship and zero silent overwrites.
 
-**Version 1.2.0 — Panel Redesign & Connection Reliability.** The seven-day pilot closed on 2026-08-07 with zero
+**Version 1.2.1 — Reliable releases & connection reliability.** The seven-day pilot closed on 2026-08-07 with zero
 data loss across real two-device use. Note that content is stored on the server
 in plaintext and there is no end-to-end encryption, so the machine running the
 server is the trust boundary — see [Security model](#security-model) before
@@ -124,6 +124,35 @@ is deliberately out of scope — this is a small, self-hosted, trusted-circle to
 not a zero-trust service. Secrets never appear in the repository, logs or reports.
 See [docs/pilot/known-limitations.md](docs/pilot/known-limitations.md) for current
 operational caveats.
+
+## Privacy and permission disclosures
+
+Havemind is a sync plugin, so it needs access to the vault it connects and it
+makes network requests **only after the user explicitly connects that vault to a
+server**. It has no telemetry, analytics, ads, accounts operated by Havemind, or
+hard-coded remote service.
+
+- **Network use.** All requests go only to the HTTPS server URL the owner enters
+  while connecting. They create and approve invitations, authenticate a device,
+  send and receive encrypted-in-transit revisions and blobs, load membership
+  state, and hold a long-poll request for near-real-time updates. The configured
+  server stores synced vault content in plaintext; it is operated by the user,
+  not by Havemind. No request is made while the plugin is disconnected.
+- **Vault file enumeration.** On initial reconciliation and when resolving a
+  conflict, the plugin lists vault paths to detect creates, deletions, renames
+  and conflicts. It reads and syncs only supported vault content plus the
+  explicit `.obsidian/` appearance-settings allowlist described above. It never
+  syncs `.obsidian/plugins/`, plugin data or plugin secrets.
+- **Clipboard.** The plugin only *writes* a one-time invitation when the vault
+  owner presses **Copy invitation**. It never reads the system clipboard and
+  never logs the invitation.
+- **Base64 encoding.** Base64url is a transparent transport format for binary
+  revision envelopes and invitation data. It is not encryption, obfuscation or
+  a way to hide code, URLs or keys.
+
+This disclosure is intentionally explicit because the Community directory
+requires network use to be described in the README. See the
+[self-hosting guide](docs/self-hosting.md) for the server trust boundary.
 
 ## Documents
 

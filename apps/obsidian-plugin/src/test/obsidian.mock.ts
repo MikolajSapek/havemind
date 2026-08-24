@@ -20,6 +20,10 @@ export type MockElement = {
     type: string,
     handler: (event: unknown) => unknown,
   ) => void;
+  removeEventListener: (
+    type: string,
+    handler: (event: unknown) => unknown,
+  ) => void;
   createDiv: (options?: { text?: string }) => MockElement;
   createEl: (tag: string, options?: CreateElOptions) => MockElement;
   disabled: boolean;
@@ -206,6 +210,13 @@ export function createMockElement(): MockElement {
     removed: false,
     remove(): void {
       element.removed = true;
+    },
+    removeEventListener(type: string, handler: (event: unknown) => unknown): void {
+      const existing = listeners.get(type);
+      if (existing === undefined) return;
+      const remaining = existing.filter((candidate) => candidate !== handler);
+      if (remaining.length === 0) listeners.delete(type);
+      else listeners.set(type, remaining);
     },
     setAttribute(name: string, value: string): void {
       element.attrs[name] = value;
@@ -435,6 +446,16 @@ export class Plugin {
   registerInterval(id: number): number {
     this.cleanup.push(() => globalThis.clearInterval(id));
     return id;
+  }
+
+  /** Mirrors Obsidian's managed DOM listener lifecycle. */
+  registerDomEvent(
+    target: Pick<MockElement, 'addEventListener' | 'removeEventListener'>,
+    type: string,
+    callback: (event: unknown) => unknown,
+  ): void {
+    target.addEventListener(type, callback);
+    this.cleanup.push(() => target.removeEventListener(type, callback));
   }
 
   registerEditorExtension(extension: EditorExtension): void {
