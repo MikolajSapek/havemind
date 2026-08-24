@@ -34,7 +34,11 @@ describe('buildConnectionPanel', () => {
     expect(panel.icon).toBe('check-circle');
     expect(panel.label).toBe('Connected — synced');
     expect(panel.showForm).toBe(false);
-    expect(panel.detail).toContain('sap.ts.net');
+    // The address is carried on its own field now, not spliced into the detail
+    // line: the pane shows it in the overflow menu, so the status line keeps
+    // only what changes (design 1a).
+    expect(panel.serverName).toBe('sap.ts.net');
+    expect(panel.detail).not.toContain('sap.ts.net');
     expect(panel.detail).toContain('now');
   });
 

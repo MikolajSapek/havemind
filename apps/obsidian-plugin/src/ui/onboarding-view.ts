@@ -11,6 +11,7 @@
 
 import { ItemView, setIcon, type WorkspaceLeaf } from 'obsidian';
 
+import type { RevisionRecord } from '../activity/activity';
 import type { ConflictCopy } from '../runtime/conflict-resolution';
 import type { CreatedInvitation } from '../runtime/create-invitation';
 import { buildGettingStartedViewModel } from '../runtime/getting-started-render';
@@ -22,9 +23,42 @@ import {
   type ConnectionPanelView,
 } from '../runtime/status';
 
+import {
+  buildEntryChooser,
+  buildHostView,
+  type EntryChoice,
+} from '../runtime/entry-choice';
+import {
+  buildGuestHandshake,
+  buildSpentInvitation,
+} from '../runtime/handshake';
+import {
+  buildPaneTabs,
+  type PaneTabId,
+  type PaneTabsView,
+} from '../runtime/pane-tabs';
+
+import { renderActivityRows } from './activity-section';
 import { renderConflictSection } from './conflict-section';
+import {
+  renderEntryChooser,
+  renderHostPath,
+} from './entry-chooser-section';
+import { renderPaneHeader, type PaneMenuItem } from './pane-header';
+import {
+  PANE_TABPANEL_ID,
+  paneTabDomId,
+  renderPaneTabs,
+} from './pane-tabs-section';
 import { renderGettingStarted } from './getting-started-section';
-import { DECORATIVE, renderSection, renderViewTitle } from './primitives';
+import {
+  DECORATIVE,
+  labelledField,
+  renderFormStatus,
+  renderSection,
+  renderViewTitle,
+  safeRead,
+} from './primitives';
 import { renderRejoinRoster } from './roster-section';
 import {
   renderRecoveryNotice,
@@ -85,10 +119,40 @@ export interface CreateConnectionViewModel {
 export interface GuestWaitingViewModel {
   /** The phrase this device must read aloud to the owner. */
   readonly verificationPhrase: string;
+  /**
+   * Who invited them, when known. Naming the other person turns an instruction
+   * into a conversation — "read these to Mira" beats "read these to the vault
+   * owner" (design 1e). An unnamed owner is still a valid state.
+   */
+  readonly ownerName?: string;
 }
 
 /** Injected data + actions for the onboarding surface. */
 export interface OnboardingViewOptions {
+  /** Releases the plugin's active-view reference when Obsidian closes this leaf. */
+  readonly onClosed?: () => void;
+  /**
+   * The revision feed, rendered as a collapsed section of this pane rather
+   * than a separate destination (plans/007 Stage 0). Reads the same provider
+   * the standalone Activity view uses, so the two cannot disagree.
+   */
+  readonly activityFeedProvider?: () => readonly RevisionRecord[];
+  /** Current author-overlay state, for the footer toggle. */
+  readonly authorOverlayProvider?: () => boolean;
+  /** Flips the author overlay from the footer (the toggle lost its ribbon icon). */
+  readonly onToggleAuthorOverlay?: () => void;
+  /** Opens the owner's invite composer from the action bar. */
+  readonly onOpenComposer?: () => void;
+  /** Forces a sync cycle from the action bar, matching the `sync-now` command. */
+  readonly onSyncNow?: () => void;
+  /**
+   * True when the user reached the pane through an `obsidian://havemind-join`
+   * link. That click already answers the entry chooser — they hold an
+   * invitation — so the question is skipped (design 1d).
+   */
+  readonly arrivedWithInvitationProvider?: () => boolean;
+  /** Restores a revision from an activity row. */
+  readonly onRestore?: (revisionId: string) => void;
   /**
    * Owner "Create connection" composer model; when it returns non-null the
    * unified create + approve panel is shown instead of the guest connect
@@ -213,6 +277,28 @@ export class HavemindOnboardingView extends ItemView {
    * behind a small help button so it is discoverable without nagging.
    */
   private helpOpen = false;
+  /** Whether the header overflow menu is open. */
+  private menuOpen = false;
+  /** Which tab the connected pane is showing. */
+  private activeTab: PaneTabId = 'status';
+  /**
+   * Tracks the edge into the invite composer. It selects People once when the
+   * composer opens, then deliberately stops influencing navigation so a
+   * pending invitation cannot trap the user in that tab.
+   */
+  private composerWasOpen = false;
+  /**
+   * Set for exactly one render after a keyboard or click selection, so focus
+   * lands on the newly opened tab. Cleared as it is consumed: a status-driven
+   * re-render must not move focus.
+   */
+  private focusTabOnRender = false;
+  /**
+   * Which entry path the user picked on the connect screen (design 1d).
+   * `undecided` shows the chooser; a typed token or a `havemind-join` URI
+   * counts as having chosen, so those users never see the question.
+   */
+  private entryChoice: EntryChoice = 'undecided';
   /** Live input elements from the current render, read during the next one. */
   private liveInputs: {
     token?: HTMLElement;
@@ -227,11 +313,16 @@ export class HavemindOnboardingView extends ItemView {
   }
 
   override getDisplayText(): string {
-    return 'Connect to Havemind';
+    // The pane holds everything now — connecting, activity, people, conflicts —
+    // so naming it after one of those would misdescribe the other three.
+    return 'Havemind';
   }
 
   override getIcon(): string {
-    return 'link';
+    // This icon is rendered in Obsidian's view header/ribbon. `link` read as
+    // a generic chain and was easily confused with Obsidian's other sync and
+    // backlink controls; the hexagon is the established Havemind mark.
+    return 'hexagon';
   }
 
   override getViewType(): string {
@@ -240,6 +331,11 @@ export class HavemindOnboardingView extends ItemView {
 
   override onOpen(): void {
     this.render();
+  }
+
+  override onClose(): void {
+    this.liveInputs = {};
+    this.options.onClosed?.();
   }
 
   /** Re-renders from the current panel state — called on every status change. */
@@ -258,48 +354,208 @@ export class HavemindOnboardingView extends ItemView {
     content.addClass('havemind-view');
     this.liveInputs = {};
 
-    const composer = this.options.composerProvider?.() ?? null;
-    if (composer) {
-      this.renderCreateConnection(content, composer);
-      return;
-    }
+    // Every read below happens BEFORE any `renderSection` boundary exists, and
+    // `content.empty()` has already run — so an unguarded throw here blanks the
+    // pane completely, leaving no header and no way back. Each one degrades to
+    // the value that keeps the most of the pane usable, and says so in the log.
+    //
+    // Read once, too: a provider called twice in one render can answer
+    // differently, and then the tab strip and the tab body describe different
+    // states of the same pane.
 
     // A server rejection/lockout takes precedence over the waiting screen: the
     // invitation is spent, so we never leave the guest waiting or offline.
-    if (this.options.guestInvalidProvider?.() === true) {
+    if (safeRead('guestInvalid', this.options.guestInvalidProvider, false)) {
       this.renderGuestInvalid(content);
       return;
     }
 
-    const waiting = this.options.guestWaitingProvider?.() ?? null;
+    const waiting = safeRead('guestWaiting', this.options.guestWaitingProvider, null);
     if (waiting) {
       this.renderGuestWaiting(content, waiting);
       return;
     }
 
-    renderViewTitle(content, 'Connect to Havemind');
+    // Disconnected is the safe default: it offers the connect form rather than
+    // claiming a health the plugin cannot currently verify.
+    const panel = safeRead(
+      'panel',
+      this.options.panelProvider,
+      buildConnectionPanel({ status: 'disconnected' }),
+    );
 
-    const panel =
-      this.options.panelProvider?.() ??
-      buildConnectionPanel({ status: 'disconnected' });
+    // Read once and threaded through: `paneTabs()` and `renderTabBody` both
+    // need to know whether a composer is open, and two reads could disagree.
+    const composer = safeRead('composer', this.options.composerProvider, null);
+    const composerOpen = composer != null;
+    if (composerOpen && !this.composerWasOpen) this.activeTab = 'people';
+    this.composerWasOpen = composerOpen;
+
+    // Header strip with the overflow menu (design 1a). Disconnect, Reset and
+    // the server address live behind it rather than costing standing lines in
+    // a 300px column.
+    const overlayOn = safeRead(
+      'authorOverlay',
+      this.options.authorOverlayProvider,
+      undefined,
+    );
+    renderPaneHeader(content, {
+      title: 'Havemind',
+      menuOpen: this.menuOpen,
+      onToggleMenu: () => {
+        this.menuOpen = !this.menuOpen;
+        this.render();
+      },
+      items: this.headerMenuItems(panel),
+      alarmed: this.attentionCount() > 0,
+      // View actions live in the header, not in a second row (round 2, Q1).
+      // Only once connected: before that there is nothing to colour and nobody
+      // to invite.
+      ...(panel.showForm || overlayOn === undefined
+        ? {}
+        : { authorOverlayOn: overlayOn }),
+      ...(panel.showForm || this.options.onToggleAuthorOverlay === undefined
+        ? {}
+        : { onToggleAuthorOverlay: this.options.onToggleAuthorOverlay }),
+      ...(panel.showForm || this.options.onOpenComposer === undefined
+        ? {}
+        : {
+            onInvite: () => {
+              // Opening the composer belongs to People, but it must not pin
+              // the entire pane there afterwards. The owner can inspect Status
+              // or Activity while an invitation is waiting, then return here.
+              this.activeTab = 'people';
+              this.options.onOpenComposer?.();
+            },
+          }),
+    });
+
+    // The invite composer is the Invite tab (see renderTabBody), not a block
+    // above the strip: rendering it here as well pushed the tabs and the status
+    // to the bottom of the pane, which is what the owner saw. It is reachable
+    // from the action-bar icon, which selects that tab.
     // MAJOR 5: each section renders inside its own guard so a synchronous
     // provider throw degrades that one section to an inline fallback rather than
     // blanking the whole panel (content.empty() has already run above).
-    renderSection(content, 'status', () => this.renderIndicator(content, panel));
+
+    // Not yet connected: no tabs, because there is only one thing to do. The
+    // alarms still render — a conflict left over from a previous session does
+    // not stop mattering because the vault is currently disconnected.
+    //
+    // An open composer is the exception: an owner minting an invitation has
+    // something to do that is not "connect", and the connect form is not it.
+    if (panel.showForm && !composerOpen) {
+      renderSection(content, 'status', () =>
+        this.renderIndicator(content, panel),
+      );
+      renderSection(content, 'send queue', () => this.renderSendQueue(content));
+      renderSection(content, 'conflicts', () => this.renderConflicts(content));
+      renderSection(content, 'connection', () => this.renderEntryPath(content));
+      return;
+    }
+
+    // Anything that needs the user renders ABOVE the strip, on every tab. A tab
+    // may hide content; it must never hide an alarm. This is the specific
+    // failure the designer warned about — a pane reading "Synced" while two
+    // files sit in conflict one click away — and lifting it out of the tabs is
+    // what makes a tabbed pane safe rather than merely tidy.
     renderSection(content, 'send queue', () => this.renderSendQueue(content));
     renderSection(content, 'conflicts', () => this.renderConflicts(content));
-    renderSection(content, 'connection', () => {
-      if (panel.showForm) {
-        // Disconnected/empty state is the tutorial's natural home: show the
-        // numbered "Getting started" steps above the connect form so a fresh
-        // user knows exactly what to do before pasting anything.
-        renderGettingStarted(content, buildGettingStartedViewModel());
-        content.createEl('hr').addClass('havemind-divider');
-        this.renderForm(content);
-      } else {
-        this.renderConnected(content);
-      }
+
+    const tabs = this.paneTabs();
+    // Focus follows a keyboard selection, and only that one: the pane
+    // re-renders on every status change, and taking focus each time would pull
+    // the caret out of whatever the user was mid-way through typing.
+    const focusActive = this.focusTabOnRender;
+    this.focusTabOnRender = false;
+    renderSection(content, 'tabs', () => {
+      renderPaneTabs(content, {
+        view: tabs,
+        onSelect: (id) => {
+          this.activeTab = id;
+          this.focusTabOnRender = true;
+          this.render();
+        },
+        ...(focusActive ? { focusActive: true } : {}),
+      });
     });
+
+    const body = content.createDiv();
+    body.addClass('havemind-tab-body');
+    // The panel names the tab that opened it, so a screen reader moving into
+    // the body knows which tab it belongs to rather than landing in unnamed
+    // content. `role="tabpanel"` completes the pairing the strip advertises
+    // through `aria-controls`.
+    body.setAttribute('role', 'tabpanel');
+    body.setAttribute('id', PANE_TABPANEL_ID);
+    body.setAttribute('aria-labelledby', paneTabDomId(tabs.active));
+    renderSection(body, `tab:${tabs.active}`, () => {
+      this.renderTabBody(body, tabs.active, panel, composer);
+    });
+  }
+
+  /**
+   * The tab model, derived from the same providers the body reads.
+   *
+   * Every read is guarded: the strip is chrome, and a provider that throws must
+   * cost the user its count, not their whole pane. `renderSection` protects the
+   * sections it wraps, but this runs before them — an unguarded throw here would
+   * blank everything, which is the failure MAJOR 5 exists to prevent.
+   */
+  private paneTabs(): PaneTabsView {
+    return buildPaneTabs({
+      // Inviting lives inside People (round 2, Q3), but it is not a modal
+      // navigation lock: a pending composer must never prevent access to
+      // Status or Activity.
+      active: this.activeTab,
+      attentionCount: this.attentionCount(),
+    });
+  }
+
+  private renderTabBody(
+    body: HTMLElement,
+    tab: PaneTabId,
+    panel: ConnectionPanelView,
+    composer: CreateConnectionViewModel | null,
+  ): void {
+    if (tab === 'status') {
+      this.renderIndicator(body, panel);
+      if (this.helpOpen) {
+        renderGettingStarted(body, buildGettingStartedViewModel());
+      }
+      return;
+    }
+
+    if (tab === 'activity') {
+      const feed = this.options.activityFeedProvider?.() ?? [];
+      renderActivityRows(body, {
+        feed,
+        ...(this.options.onRestore ? { onRestore: this.options.onRestore } : {}),
+      });
+      return;
+    }
+
+    // People holds both who is here and how someone else gets here (round 2,
+    // Q3): inviting is a momentary task, so it lives where "who is in this
+    // vault" already lives rather than holding a permanent tab of its own.
+    // Read inside the boundary, not around it: a roster that cannot be built
+    // should show the section fallback where the list would have been, rather
+    // than vanishing silently and leaving the People tab looking empty.
+    renderSection(body, 'roster', () => {
+      const roster = this.options.rejoinRosterProvider?.();
+      if (roster !== undefined) this.renderRoster(body, roster);
+    });
+
+    if (composer !== null) {
+      this.renderCreateConnection(body, composer);
+      return;
+    }
+
+    if (this.options.onOpenComposer !== undefined) {
+      const open = body.createEl('button', { text: 'Invite someone' });
+      open.addClass('havemind-invite-cta');
+      open.onClickEvent(() => this.options.onOpenComposer?.());
+    }
   }
 
   /** Reads live input values into `draft` so the next render can restore them. */
@@ -396,50 +652,143 @@ export class HavemindOnboardingView extends ItemView {
     });
   }
 
+
   /**
-   * The collapsed help affordance for the connected panel: a small life-buoy
-   * icon button that toggles the "Getting started" steps in place. It never
-   * nags — the steps stay hidden until the user asks for them, and re-opening
-   * them touches no connection state.
+   * The disconnected pane: a chooser, then only the branch the user picked
+   * (design 1d). The five-step tutorial used to render unconditionally above
+   * the form — correct for the half of users who will host a server, and fatal
+   * for the half who only need to paste an invitation someone sent them.
+   *
+   * A user who arrived through `obsidian://havemind-join`, or who already has a
+   * token typed, has self-evidently chosen: skip the question.
    */
-  private renderHelpAffordance(content: HTMLElement): void {
-    const bar = content.createDiv();
-    bar.addClass('havemind-help-bar');
-    const toggle = bar.createEl('button', {
-      attr: {
-        'aria-label': this.helpOpen
-          ? 'Hide getting started'
-          : 'Show getting started',
-        'aria-expanded': this.helpOpen ? 'true' : 'false',
-      },
-    });
-    toggle.addClass('havemind-help-toggle');
-    setIcon(toggle.createEl('span', { attr: DECORATIVE }), 'life-buoy');
-    toggle.onClickEvent(() => {
-      this.helpOpen = !this.helpOpen;
+  private renderEntryPath(content: HTMLElement): void {
+    const decided =
+      this.entryChoice !== 'undecided' ||
+      this.draft.token.length > 0 ||
+      this.options.arrivedWithInvitationProvider?.() === true ||
+      // An owner minting an invitation has already answered the question by
+      // opening the composer; asking again would be asking twice. Note the
+      // `=== undefined` guard: an absent provider is not an open composer.
+      (this.options.composerProvider !== undefined &&
+        this.options.composerProvider() !== null);
+
+    if (!decided) {
+      renderEntryChooser(content, {
+        model: buildEntryChooser(),
+        onChoose: (choice) => {
+          this.entryChoice = choice;
+          this.render();
+        },
+      });
+      return;
+    }
+
+    if (this.entryChoice === 'hosting') {
+      renderHostPath(content, {
+        model: buildHostView(),
+        onBack: () => {
+          this.entryChoice = 'undecided';
+          this.render();
+        },
+        onContinue: () => {
+          this.entryChoice = 'joining';
+          this.render();
+        },
+        onOpenGuide: (url) => {
+          window.open(url, '_blank');
+        },
+      });
+      return;
+    }
+
+    // The joining path: three fields and one button, with no tutorial above it.
+    const back = content.createEl('button', { text: 'Back' });
+    back.addClass('havemind-entry-back');
+    back.onClickEvent(() => {
+      this.entryChoice = 'undecided';
       this.render();
     });
-    if (this.helpOpen) {
-      renderGettingStarted(content, buildGettingStartedViewModel());
-      content.createEl('hr').addClass('havemind-divider');
-    }
+    this.renderForm(content);
   }
 
-  private renderConnected(content: HTMLElement): void {
-    // Once connected the tutorial collapses to a small, unobtrusive help button
-    // near the panel title; clicking it re-opens the same "Getting started"
-    // steps in place, so the guidance stays discoverable without nagging.
-    this.renderHelpAffordance(content);
 
-    // Presence roster makes "connected" unambiguous for the invitee (and owner):
-    // once approval succeeds the panel clearly lists who is connected.
-    const roster = this.options.rejoinRosterProvider?.();
-    if (roster !== undefined) {
-      this.renderRoster(content, roster);
-    }
-    const disconnect = content.createEl('button', { text: 'Disconnect' });
-    disconnect.onClickEvent(() => this.options.onDisconnect?.());
+  /**
+   * What the header overflow menu holds. Only offered once connected: on the
+   * connect screen there is nothing to disconnect from, and Reset is already
+   * surfaced as its own affordance in the state that needs it.
+   */
+  /** How many things need the user right now, across every guarded provider. */
+  private attentionCount(): number {
+    const count = (read: () => number): number => {
+      try {
+        return read();
+      } catch {
+        return 0;
+      }
+    };
+    return (
+      count(() => this.options.conflictsProvider?.().length ?? 0) +
+      count(() => this.options.sendQueueProvider?.()?.failed.length ?? 0)
+    );
   }
+
+  private headerMenuItems(panel: ConnectionPanelView): PaneMenuItem[] {
+    if (panel.showForm) return [];
+
+    const items: PaneMenuItem[] = [];
+
+    // Sync is automatic; a standing button implies it might not be. It lives
+    // here for the rare case where forcing a cycle actually helps (round 2, Q5).
+    if (this.options.onSyncNow) {
+      items.push({
+        label: 'Sync now',
+        onSelect: () => {
+          this.menuOpen = false;
+          this.options.onSyncNow?.();
+        },
+      });
+    }
+
+    // Getting started lost its icon with the action row. It is read once and
+    // then never again, which is exactly what the overflow menu is for — but it
+    // must stay reachable, so it moves here rather than disappearing.
+    items.push({
+      label: this.helpOpen ? 'Hide getting started' : 'Show getting started',
+      onSelect: () => {
+        this.helpOpen = !this.helpOpen;
+        this.menuOpen = false;
+        this.render();
+      },
+    });
+    if (panel.serverName !== undefined) {
+      items.push({
+        label: `Server: ${panel.serverName}`,
+        onSelect: () => {},
+        readOnly: true,
+      });
+    }
+    if (this.options.onDisconnect) {
+      items.push({
+        label: 'Disconnect',
+        onSelect: () => {
+          this.menuOpen = false;
+          this.options.onDisconnect?.();
+        },
+      });
+    }
+    if (this.options.onReset) {
+      items.push({
+        label: 'Reset connection',
+        onSelect: () => {
+          this.menuOpen = false;
+          this.options.onReset?.();
+        },
+      });
+    }
+    return items;
+  }
+
 
   /** Renders the rejoin-aware roster with its owner actions from the options. */
   private renderRoster(content: HTMLElement, roster: RejoinRosterView): void {
@@ -467,25 +816,39 @@ export class HavemindOnboardingView extends ItemView {
     content: HTMLElement,
     model: GuestWaitingViewModel,
   ): void {
-    renderViewTitle(content, 'Connecting to Havemind');
-    // Icon + label + colour (never colour alone), matching the panel convention.
-    const row = content.createDiv({ text: '' });
-    row.addClass('havemind-status');
-    row.style.setProperty('color', 'var(--text-accent)');
-    setIcon(row.createEl('span', { attr: DECORATIVE }), 'loader');
-    row.createEl('span', { text: ' Waiting for the other device to approve…' });
+    // The code is the only thing at full size (design 1e): this screen exists
+    // for one job, and everything competing with the digits makes that job
+    // harder while another person waits on the phone.
+    const view = buildGuestHandshake({
+      code: model.verificationPhrase,
+      ...(model.ownerName !== undefined ? { ownerName: model.ownerName } : {}),
+    });
+
+    content.createDiv({ text: view.instruction }).addClass('havemind-handshake-lead');
+
+    const digits = content.createDiv();
+    digits.addClass('havemind-handshake-code');
+    // Announced as one string so a screen reader reads "482917", not two
+    // unrelated numbers; sighted users get the 3+3 grouping that makes it
+    // speakable.
+    digits.setAttribute('aria-label', view.code.join(''));
+    for (const group of view.code) {
+      digits.createEl('span', { text: group });
+    }
+
     content
-      .createDiv({ text: 'Read this 6-digit code to the vault owner.' })
-      .addClass('havemind-hint');
-    const phrase = content.createDiv({ text: model.verificationPhrase });
-    phrase.addClass('havemind-verification-phrase');
-    content
-      .createDiv({
-        text: 'Keep Obsidian open — this resumes automatically once approved.',
-      })
-      .addClass('havemind-hint');
-    const disconnect = content.createEl('button', { text: 'Cancel' });
-    disconnect.onClickEvent(() => this.options.onDisconnect?.());
+      .createDiv({ text: view.mismatchWarning })
+      .addClass('havemind-handshake-warning');
+
+    if (view.expiryLabel !== null) {
+      content
+        .createDiv({ text: `Expires in ${view.expiryLabel}` })
+        .addClass('havemind-hint');
+    }
+    content.createDiv({ text: view.liveNote }).addClass('havemind-hint');
+
+    const cancel = content.createEl('button', { text: 'Cancel' });
+    cancel.onClickEvent(() => this.options.onDisconnect?.());
   }
 
   /**
@@ -494,38 +857,44 @@ export class HavemindOnboardingView extends ItemView {
    * the paste form to try a fresh invite — never offline, never a blank form.
    */
   private renderGuestInvalid(content: HTMLElement): void {
-    renderViewTitle(content, 'Connect to Havemind');
+    // Never a blank screen (design 1e): name the cause, price the fix in the
+    // other person's time so asking feels cheap, and offer both ways forward.
+    const view = buildSpentInvitation(
+      this.options.guestWaitingProvider?.()?.ownerName,
+    );
+
     const row = content.createDiv({ text: '' });
     row.addClass('havemind-status');
     row.style.setProperty('color', 'var(--text-error)');
     setIcon(row.createEl('span', { attr: DECORATIVE }), 'alert-triangle');
-    row.createEl('span', { text: ' This invitation is no longer valid' });
-    content
-      .createDiv({
-        text: 'Ask the vault owner for a new invitation, then paste it below.',
-      })
-      .addClass('havemind-hint');
+    row.createEl('span', { text: ` ${view.heading}` });
+
+    content.createDiv({ text: view.explanation }).addClass('havemind-hint');
     this.renderForm(content);
   }
 
   private renderForm(content: HTMLElement): void {
-    content.createEl('label', {
-      text: 'Invitation or owner pairing token',
-    });
-    const tokenInput = content.createEl('textarea', {
-      placeholder: 'v1.… or hm_pt_…',
-      value: this.draft.token,
-    });
-    content.createEl('label', { text: 'Server URL' });
-    const serverInput = content.createEl('input', {
-      type: 'text',
-      placeholder: 'https://your-server.example',
-      value: this.draft.server,
-    });
+    const tokenInput = labelledField(
+      content,
+      'havemind-connect-token',
+      'Invitation or owner pairing token',
+      'textarea',
+      { placeholder: 'v1.… or hm_pt_…', value: this.draft.token },
+    );
+    const serverInput = labelledField(
+      content,
+      'havemind-connect-server',
+      'Server URL',
+      'input',
+      {
+        type: 'text',
+        placeholder: 'https://your-server.example',
+        value: this.draft.server,
+      },
+    );
     this.liveInputs.token = tokenInput;
     this.liveInputs.server = serverInput;
-    const status = content.createDiv({ text: '' });
-    status.addClass('havemind-form-status');
+    const status = renderFormStatus(content);
     const connect = content.createEl('button', { text: 'Connect' });
     connect.addClass('mod-cta');
     connect.onClickEvent(() => {
@@ -561,29 +930,29 @@ export class HavemindOnboardingView extends ItemView {
       this.renderCreateSection(content, model),
     );
 
-    renderSection(content, 'roster', () => {
-      // The persistent "Connected" roster — who is already a member of this vault.
-      const roster = this.options.rejoinRosterProvider?.();
-      if (roster !== undefined && !roster.empty) {
-        const rosterDivider = content.createEl('hr');
-        rosterDivider.addClass('havemind-divider');
-        this.renderRoster(content, roster);
-      }
-    });
+    // No roster here. The composer carried its own back when it was a separate
+    // screen; it now renders inside the People tab, which draws the roster
+    // above it — so keeping this drew "Connected / You" twice in one pane.
 
     renderSection(content, 'waiting devices', () => {
-      const divider = content.createEl('hr');
-      divider.addClass('havemind-divider');
-
-      content.createEl('h4', { text: 'Waiting for the other device' });
+      // Four lines explaining that nothing has happened is the pane talking
+      // about itself (round 2, Q4). One quiet line says the same and leaves the
+      // space for the device that is about to arrive — which is when this
+      // section has something to say.
       if (model.pending.length === 0) {
-        content
-          .createDiv({
-            text: 'No device is waiting yet. When the other device redeems the invite, it appears here to approve.',
-          })
-          .addClass('havemind-empty');
+        // Only meaningful once an invitation exists: before that there is
+        // nothing to wait for.
+        if (model.invitation !== null) {
+          content
+            .createDiv({ text: 'Waiting for the other device…' })
+            .addClass('havemind-hint');
+        }
         return;
       }
+
+      const divider = content.createEl('hr');
+      divider.addClass('havemind-divider');
+      content.createEl('h4', { text: 'Waiting for the other device' });
       for (const entry of model.pending) {
         this.renderPendingRow(content, entry);
       }
@@ -594,24 +963,32 @@ export class HavemindOnboardingView extends ItemView {
     content: HTMLElement,
     model: CreateConnectionViewModel,
   ): void {
-    content.createEl('label', { text: 'Role' });
-    const roleSelect = content.createEl('select');
+    const roleSelect = labelledField(
+      content,
+      'havemind-invite-role',
+      'Role',
+      'select',
+    );
     for (const value of ['editor', 'owner'] as const) {
       roleSelect.createEl('option', { text: value, value });
     }
     roleSelect.value = this.draft.role || model.role;
 
-    content.createEl('label', { text: 'Name' });
-    const nameInput = content.createEl('input', {
-      type: 'text',
-      placeholder: 'e.g. Magda',
-      value: this.draft.name || model.name,
-    });
+    const nameInput = labelledField(
+      content,
+      'havemind-invite-name',
+      'Name',
+      'input',
+      {
+        type: 'text',
+        placeholder: 'e.g. Magda',
+        value: this.draft.name || model.name,
+      },
+    );
     this.liveInputs.role = roleSelect;
     this.liveInputs.name = nameInput;
 
-    const status = content.createDiv({ text: '' });
-    status.addClass('havemind-form-status');
+    const status = renderFormStatus(content);
     const create = content.createEl('button', { text: 'Create invitation' });
     create.addClass('mod-cta');
     create.onClickEvent(() => {
@@ -646,12 +1023,21 @@ export class HavemindOnboardingView extends ItemView {
       .addClass('havemind-hint');
     const code = content.createEl('code', { text: envelope });
     code.addClass('havemind-invite-envelope');
-    // Readonly field so the owner can select the envelope by hand if the
-    // clipboard copy is unavailable or denied.
-    content.createEl('textarea', {
+    // A hand-selectable copy for when the clipboard is unavailable or denied.
+    // Genuinely readonly, not merely described as such: Copy sends the ORIGINAL
+    // envelope, so an edited field would hand the owner something other than
+    // what they can see — a silent mismatch in the one string that must be
+    // exact. Readonly still allows selecting and copying by hand.
+    const fallback = content.createEl('textarea', {
       value: envelope,
       cls: 'havemind-invite-copy-fallback',
+      attr: {
+        id: 'havemind-invite-envelope-text',
+        readonly: 'true',
+        'aria-label': 'Invitation to copy',
+      },
     });
+    fallback.setAttribute('readonly', 'true');
     const copyStatus = content.createDiv({ text: '' });
     copyStatus.addClass('havemind-form-status');
     const copy = content.createEl('button', { text: 'Copy' });
@@ -706,16 +1092,24 @@ export class HavemindOnboardingView extends ItemView {
     // The owner never sees the code: they type in what the joining device
     // reads aloud, so the human read-aloud check is meaningful (rule: the code
     // travels only over the out-of-band voice channel).
+    // The id carries the invitation, because several devices can wait at once
+    // and a shared id would leave every field after the first unnamed.
+    const phraseId = `havemind-approve-${entry.invitationId}`;
     row.createEl('label', {
       text: 'Enter the 6-digit code your peer reads to you',
+      attr: { for: phraseId },
     });
     const phraseInput = row.createEl('input', {
       type: 'text',
       placeholder: '123456',
-      attr: { inputmode: 'numeric', maxlength: '6', pattern: '[0-9]*' },
+      attr: {
+        id: phraseId,
+        inputmode: 'numeric',
+        maxlength: '6',
+        pattern: '[0-9]*',
+      },
     });
-    const status = row.createDiv({ text: '' });
-    status.addClass('havemind-form-status');
+    const status = renderFormStatus(row);
     const approve = row.createEl('button', { text: 'Approve' });
     approve.addClass('mod-cta');
     approve.onClickEvent(() => {

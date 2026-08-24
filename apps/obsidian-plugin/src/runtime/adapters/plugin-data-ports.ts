@@ -197,10 +197,9 @@ export function createOutboxPayloadStore(plugin: Plugin): OutboxPayloadStore {
           const store = new IndexedDbClientStore({ clientInstanceId });
           await store.open();
           return store;
-        } catch (error) {
+        } catch {
           console.warn(
             'Havemind: outbox payload store unavailable; payloads stay inline in data.json.',
-            error,
           );
           return null;
         }

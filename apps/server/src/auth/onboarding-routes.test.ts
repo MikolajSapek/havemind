@@ -1049,6 +1049,29 @@ describe('owner device pairing HTTP surface', () => {
     expect(body.deviceId).toMatch(/^[0-9a-f-]{36}$/u);
   });
 
+  it('returns the original pairing after a client retries with the same refresh hash', async () => {
+    const fixture = makeFixture();
+    const pairingToken = generatePairingToken();
+    const refreshToken = generateRefreshToken();
+    insertPairing(fixture.database, pairingToken);
+    const app = createApp(fixture);
+
+    const first = await app.inject({
+      body: pairBody(pairingToken, refreshToken),
+      method: 'POST',
+      url: '/owner/pair',
+    });
+    const retry = await app.inject({
+      body: pairBody(pairingToken, refreshToken),
+      method: 'POST',
+      url: '/owner/pair',
+    });
+
+    expect(first.statusCode).toBe(200);
+    expect(retry.statusCode).toBe(200);
+    expect(retry.json()).toEqual(first.json());
+  });
+
   it('returns the owner active membershipId that revisions authorises against', async () => {
     const fixture = makeFixture();
     const pairingToken = generatePairingToken();

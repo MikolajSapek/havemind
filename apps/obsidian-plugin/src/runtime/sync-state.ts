@@ -955,10 +955,9 @@ export class DurableSyncState implements SyncStatePort {
     try {
       await this.payloadStore.putPayload(revisionId, payloadBase64);
       return true;
-    } catch (error) {
+    } catch {
       console.warn(
         `Havemind: outbox payload for ${revisionId} could not be externalized; keeping it inline in data.json.`,
-        error,
       );
       return false;
     }

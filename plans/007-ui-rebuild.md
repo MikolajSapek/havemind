@@ -59,9 +59,61 @@ presentation changes).
 
 - No visual redesign for its own sake. Obsidian's own theme tokens stay; we
   are changing *what is shown when*, not the palette.
+- **This plan does not fix the pixels.** It fixes structure: how many doors the
+  plugin has, which state is shown when, and what is collapsed. The visual
+  design of the single pane (Stage 0) is a separate exercise in Claude Design,
+  to be done before Stage 0 is implemented.
 - No new dependency. No React (`plan/01` forbidden list).
 - No change to `HavemindOnboardingViewOptions` semantics. Every existing
   provider and callback keeps its meaning, so `main.ts` wiring survives.
+
+---
+
+## Stage 0 — one hexagon, one pane (owner decision 2026-08-23)
+
+**Everything the plugin offers lives behind a single ribbon hexagon, in one
+right-hand pane.**
+
+Today there are three separate doors into one plugin:
+
+| Surface | How it opens | View |
+|---|---|---|
+| Activity feed | ribbon `hexagon` | `HAVEMIND_ACTIVITY_VIEW` |
+| Author overlay | ribbon `users` | (toggle, no view) |
+| Connect / roster / conflicts | command palette only | `HAVEMIND_ONBOARDING_VIEW` |
+
+A new user finds the hexagon, sees an activity list, and has no way to reach
+the panel that actually connects the vault — that one is reachable only if they
+already know to search the command palette. Two registered views also mean two
+panes can sit open side by side showing halves of one plugin.
+
+Target: **one view, one ribbon icon.** The hexagon opens the Havemind pane; what
+it shows depends on state (Stage 3's `ViewState`). Connect, activity,
+authorship, roster and conflicts are sections or tabs inside that single pane,
+not separate destinations.
+
+- The author-overlay toggle stays a command and a control **inside** the pane;
+  the second ribbon icon goes away.
+- `HAVEMIND_ACTIVITY_VIEW` and `HAVEMIND_ONBOARDING_VIEW` collapse into one
+  registered view type. The commands stay registered (palette and hotkeys are
+  an accessibility surface, per F8-02d) but they all focus the same pane.
+
+**Acceptance**
+
+- AT0-1: exactly one ribbon icon is registered, and clicking it opens the
+  Havemind pane (functional).
+- AT0-2: one registered view type; opening Havemind twice focuses the existing
+  leaf rather than creating a second (functional).
+- AT0-3: from that single pane a user can reach connect, activity, roster and
+  conflicts without the command palette (functional).
+- AT0-4 negative: every command that exists today still resolves — removing a
+  ribbon icon must not remove a keyboard or screen-reader path (regression on
+  F8-02d / accessibility).
+
+**Visual design of the pane is deferred:** the layout, tabs-versus-sections
+question and the states are to be designed in Claude Design before this stage
+is implemented. This plan fixes the *structure* (one door, one pane); it does
+not fix the pixels.
 
 ---
 

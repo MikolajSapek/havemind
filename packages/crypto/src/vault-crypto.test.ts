@@ -218,7 +218,11 @@ describe('encryptPayload / decryptPayload', () => {
     ).toThrow(/ciphertext/i);
   });
 
-  it('round-trips a >1 MB payload (size/perf sanity)', () => {
+  // Runs in ~4s uninstrumented, but V8 coverage over libsodium's WASM pushes it
+  // past the 10s default and turns `npm run test:coverage` red. Given its own
+  // budget rather than raising the global default, which stays a useful smoke
+  // alarm for accidental hangs.
+  it('round-trips a >1 MB payload (size/perf sanity)', { timeout: 60_000 }, () => {
     const vaultKey = generateVaultKey(sodium);
     const big = sodium.randombytes_buf(1_500_000);
     const ciphertext = encryptPayload(sodium, big, vaultKey);

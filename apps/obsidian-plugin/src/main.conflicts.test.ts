@@ -57,7 +57,7 @@ describe('renderConflictSection', () => {
     expect(container.children).toHaveLength(0);
   });
 
-  it('renders a header, count badge and one Resolve button per copy', () => {
+  it('states the count in the heading, with one Resolve button per copy', () => {
     const container = createContent();
     const resolved: string[] = [];
     const copies = [newCopy(), newCopy({ copyPath: 'x', copyName: 'y', author: 'Ola' })];
@@ -67,8 +67,18 @@ describe('renderConflictSection', () => {
     });
 
     const all = flatten(container);
-    const badge = all.find((e) => e.classes.includes('havemind-conflict-count'));
-    expect(badge?.text).toContain('2');
+    // The count reads as a sentence ("2 conflicts"), not as a bare numeral
+    // parked at the far edge of the row — where the design found it looked like
+    // a badge belonging to whatever sat next to it.
+    const header = all.find((e) =>
+      e.classes.includes('havemind-conflict-header'),
+    );
+    // The mock keeps `text` per element rather than aggregating descendants, so
+    // the count is read from the heading's own label span.
+    expect(header).toBeDefined();
+    expect(
+      flatten(header ?? container).some((e) => e.text.includes('2 conflicts')),
+    ).toBe(true);
     const buttons = all.filter((e) => e.text === 'Resolve');
     expect(buttons).toHaveLength(2);
     buttons[0]?.triggerClick();
@@ -261,11 +271,11 @@ describe('HavemindOnboardingView per-section render isolation (MAJOR 5)', () => 
       .children[1] as MockElement;
     const all = flatten(content);
 
-    // Status indicator and roster still render despite the conflicts throw.
+    // Status and the tab strip still render despite the conflicts throw. The
+    // strip matters most here: it is built before the guarded sections, so an
+    // unguarded read inside it would blank the pane rather than one section.
     expect(all.some((e) => e.classes.includes('havemind-status'))).toBe(true);
-    expect(all.some((e) => e.classes.includes('havemind-roster-row'))).toBe(
-      true,
-    );
+    expect(all.some((e) => e.attrs['role'] === 'tab')).toBe(true);
     // The failed section degrades to an inline English fallback, not a blank pane.
     const fallback = all.find((e) =>
       e.classes.includes('havemind-section-error'),

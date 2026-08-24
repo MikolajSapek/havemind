@@ -28,6 +28,14 @@ export type MockElement = {
   onClickEvent: (callback: Callback) => void;
   remove: () => void;
   removed: boolean;
+  /**
+   * Records that focus was moved here. A tablist has to put focus on the tab
+   * it just selected — without that, arrow keys announce a new tab while the
+   * keyboard is still on the old one — so the tests need to observe it.
+   */
+  focus: () => void;
+  /** True once `focus()` has been called on this element. */
+  focused: boolean;
   /** Mirrors `HTMLElement.setAttribute`, writing into `attrs`. */
   setAttribute: (name: string, value: string) => void;
   setText: (value: string) => void;
@@ -158,6 +166,10 @@ export function createMockElement(): MockElement {
       listeners.set(type, [...existing, handler]);
     },
     disabled: false,
+    focused: false,
+    focus(): void {
+      element.focused = true;
+    },
     iconName: '',
     style: {
       setProperty(name: string, value: string): void {

@@ -24,11 +24,14 @@ export default defineConfig({
         'src/runtime/obsidian-adapters.ts',
         'src/runtime/adapters/**',
       ],
-      include: [
-        'src/main.ts',
-        'src/runtime/**/*.ts',
-        'src/storage/**/*.ts',
-      ],
+      // The whole plugin, minus the exclusions above. The previous list named
+      // main.ts, runtime/ and storage/ only — written when those were the whole
+      // plugin, and never widened as ui/, sync/, onboarding/, attribution/,
+      // obsidian/ and activity/ grew to 7515 lines around it. Those directories
+      // measured 88-91% when checked by hand, so this widening asserts what was
+      // already true; the point is that a regression now fails the gate instead
+      // of going unnoticed until someone runs coverage manually.
+      include: ['src/**/*.ts'],
       provider: 'v8',
       reporter: ['text'],
       thresholds: {

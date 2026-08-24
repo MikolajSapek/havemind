@@ -117,14 +117,17 @@ describe('author overlay wiring (FINDING 1)', () => {
     expect(registrationState.markdownPostProcessors).toHaveLength(1);
   });
 
-  it('registers a Show authors command and ribbon action', async () => {
+  it('keeps Show authors on the command palette after losing its ribbon icon', async () => {
+    // plans/007 Stage 0 collapsed the ribbon to one hexagon; the overlay toggle
+    // moved into the pane. The command is what keeps it reachable without a
+    // mouse, so dropping the icon must not drop the keyboard route (F8-02d).
     const { plugin } = newPlugin();
     await plugin.onload();
 
     expect(command('show-authors').name).toBe('Show authors');
     expect(
       registrationState.ribbons.some((r) => r.iconName === 'users'),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it('starts with the overlay off and flips it from the command', async () => {
@@ -140,17 +143,18 @@ describe('author overlay wiring (FINDING 1)', () => {
     expect(plugin.authorOverlayEnabled()).toBe(false);
   });
 
-  it('flips the same flag from the ribbon action', async () => {
+  it('flips the same flag however it is invoked', async () => {
+    // The overlay used to be toggled from a ribbon icon as well as the command.
+    // The icon is gone (plans/007 Stage 0); the flag it flipped must behave
+    // identically from the surviving route.
     const { plugin } = newPlugin();
     await plugin.onload();
 
-    const ribbon = registrationState.ribbons.find(
-      (r) => r.iconName === 'users',
-    );
-    if (ribbon === undefined) throw new Error('overlay ribbon not registered');
-
-    ribbon.triggerClick();
+    command('show-authors').callback?.();
     expect(plugin.authorOverlayEnabled()).toBe(true);
+
+    command('show-authors').callback?.();
+    expect(plugin.authorOverlayEnabled()).toBe(false);
   });
 
   it('tells the user which way the overlay just went', async () => {

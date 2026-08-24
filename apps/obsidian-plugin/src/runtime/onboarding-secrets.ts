@@ -16,6 +16,17 @@ export interface ObsidianOnboardingSecretsOptions {
   readonly secretStorage: SecretStoragePort;
 }
 
+/**
+ * Durable client-side intent for an owner pairing.  It lets a retry use the
+ * same refresh-token hash after the server has consumed a one-time code but
+ * before this device finished writing its connection record.
+ */
+export interface PendingOwnerPairing {
+  readonly apiBaseUrl: string;
+  readonly pairingToken: string;
+  readonly refreshToken: string;
+}
+
 export class ObsidianOnboardingSecrets implements OnboardingSecretsPort {
   private readonly secretStorage: SecretStoragePort;
   private readonly invitationKey: string;
@@ -23,6 +34,7 @@ export class ObsidianOnboardingSecrets implements OnboardingSecretsPort {
   private readonly refreshKey: string;
   private readonly rejoinKey: string;
   private readonly pendingRotationKey: string;
+  private readonly pendingOwnerPairingKey: string;
 
   constructor(options: ObsidianOnboardingSecretsOptions) {
     if (!isValidClientInstanceId(options.clientInstanceId)) {
@@ -45,6 +57,7 @@ export class ObsidianOnboardingSecrets implements OnboardingSecretsPort {
     // `-pending-rotation` suffix pushed the total to 66, silently disabling
     // GAP-5's durable in-flight rotation on every device).
     this.pendingRotationKey = `${prefix}-rotation`;
+    this.pendingOwnerPairingKey = `${prefix}-owner`;
   }
 
   async getInvitationEnvelope(): Promise<string | null> {
@@ -89,9 +102,9 @@ export class ObsidianOnboardingSecrets implements OnboardingSecretsPort {
 
   /**
    * The in-flight refresh rotation record (rule 6: secret material, so it lives
-   * in SecretStorage alongside the refresh token, never in `data.json`). Stored
-   * as JSON; a malformed or absent value reads back as null so a fresh rotation
-   * is minted.
+   * in SecretStorage alongside the refresh token, never in `data.json`). An
+   * invalid present record is unsafe: minting a fresh pair could burn the token
+   * family after a crash, so corruption must fail closed.
    */
   async getPendingRotation(): Promise<PendingRotation | null> {
     const raw = this.read(this.pendingRotationKey);
@@ -111,9 +124,9 @@ export class ObsidianOnboardingSecrets implements OnboardingSecretsPort {
         return parsed as PendingRotation;
       }
     } catch {
-      // Corrupt record: treat as absent so a fresh rotation is minted.
+      // Fall through to the same fail-closed error below.
     }
-    return null;
+    throw new Error('Stored refresh rotation record is corrupt.');
   }
 
   async savePendingRotation(record: PendingRotation): Promise<void> {
@@ -122,6 +135,34 @@ export class ObsidianOnboardingSecrets implements OnboardingSecretsPort {
 
   async clearPendingRotation(): Promise<void> {
     this.write(this.pendingRotationKey, '');
+  }
+
+  async getPendingOwnerPairing(): Promise<PendingOwnerPairing | null> {
+    const raw = this.read(this.pendingOwnerPairingKey);
+    if (raw === null) return null;
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      if (
+        typeof parsed === 'object' &&
+        parsed !== null &&
+        typeof (parsed as Record<string, unknown>).apiBaseUrl === 'string' &&
+        typeof (parsed as Record<string, unknown>).pairingToken === 'string' &&
+        typeof (parsed as Record<string, unknown>).refreshToken === 'string'
+      ) {
+        return parsed as PendingOwnerPairing;
+      }
+    } catch {
+      // Fall through to the safe recovery error below.
+    }
+    throw new Error('Stored owner pairing record is corrupt.');
+  }
+
+  async savePendingOwnerPairing(record: PendingOwnerPairing): Promise<void> {
+    this.write(this.pendingOwnerPairingKey, JSON.stringify(record));
+  }
+
+  async clearPendingOwnerPairing(): Promise<void> {
+    this.write(this.pendingOwnerPairingKey, '');
   }
 
   private read(key: string): string | null {

@@ -163,10 +163,9 @@ export async function evaluateOwnerConnection(
   let refreshTokenPresent: boolean;
   try {
     refreshTokenPresent = await hasStoredRefreshToken(plugin);
-  } catch (error) {
+  } catch {
     console.warn(
       'Havemind: could not read the stored refresh token; assuming the pairing is intact.',
-      error,
     );
     refreshTokenPresent = true;
   }
@@ -231,10 +230,10 @@ export async function resetHavemindConnectionState(
     await secrets.clearInvitationEnvelope();
     await secrets.clearPendingCredential();
     await secrets.clearPendingRotation();
-  } catch (error) {
+    await secrets.clearPendingOwnerPairing();
+  } catch {
     console.warn(
       'Havemind: could not clear the stored connection secrets during reset.',
-      error,
     );
   }
 

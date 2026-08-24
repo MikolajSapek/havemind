@@ -131,10 +131,9 @@ export function startPushProducer(
             Date.now(),
           );
         }
-      } catch (error) {
+      } catch {
         console.warn(
           'Havemind: failed to preserve corrupt producer state to a sidecar.',
-          error,
         );
       }
       return result.state;
@@ -345,9 +344,10 @@ export function startPushProducer(
         .quarantineSnapshot()
         .some((item) => item.revisionId === revisionId);
       if (!present) return;
-      void state.discardQuarantined(revisionId).then(() => {
-        hooks?.onSendQueueChanged?.();
-      });
+      void state.discardQuarantined(revisionId).then(
+        () => hooks?.onSendQueueChanged?.(),
+        () => console.warn('Havemind: failed to clear a recovered send-queue item.'),
+      );
     },
   });
   const observeSettledModify = (path: string): void => {
@@ -364,7 +364,11 @@ export function startPushProducer(
           new Notice(`Havemind: ${error.message}`);
           return;
         }
-        void commitPathRecovery.onCommitFailure(path);
+        void commitPathRecovery.onCommitFailure(path).catch(() => {
+          // The recovery record is best-effort, but its own storage failure must
+          // never become an unhandled rejection from a vault event handler.
+          console.warn('Havemind: failed to record an unqueued vault change.');
+        });
       },
     );
   };

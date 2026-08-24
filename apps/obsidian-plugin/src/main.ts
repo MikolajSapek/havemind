@@ -108,6 +108,7 @@ import {
   planRetryFromDisk,
 } from './ui/retry-plan';
 import { HavemindSettingTab, formatMemberCount } from './ui/setting-tab';
+import { PluginViewRegistry } from './ui/view-registry';
 import type {
   HavemindConnectionActions,
   HavemindSettingsInfo,
@@ -183,6 +184,11 @@ export default class HavemindPlugin extends Plugin {
   private pendingInvitation: CreatedInvitation | null = null;
   private pendingApprovals: PendingApprovalEntry[] = [];
   private connectionActive = false;
+  /**
+   * True once the user opened an `obsidian://havemind-join` link, which answers
+   * the entry chooser on their behalf: they hold an invitation (design 1d).
+   */
+  private arrivedWithInvitation = false;
   private connectionNotice: string | undefined;
   /** Visual treatment for `connectionNotice`; see CreateConnectionViewModel. */
   private connectionNoticeKind: 'info' | 'success' | undefined;
@@ -196,8 +202,8 @@ export default class HavemindPlugin extends Plugin {
   private connectionStatus: ConnectionStatus = 'disconnected';
   private lastSyncedAt: number | undefined;
   private connectionError: string | undefined;
-  private onboardingView: HavemindOnboardingView | null = null;
-  private activityView: HavemindActivityView | null = null;
+  /** Lifecycle-safe bridge between long-lived plugin state and short-lived leaves. */
+  private readonly views = new PluginViewRegistry();
   /** Live feed behind the Activity view (previously orphaned — now wired). */
   private readonly activityLog = new ActivityLog();
   /** Disposer for the activityLog subscription set up in onload(); torn down in onunload(). */
@@ -303,17 +309,41 @@ export default class HavemindPlugin extends Plugin {
         activityEntriesToRecords(this.activityLog.snapshot(), this.rosterMembers),
       onRestore: (revisionId) => this.handleRestore(revisionId),
     };
-    this.activityLogUnsubscribe = this.activityLog.subscribe(() =>
-      this.activityView?.refresh(),
-    );
+    // Both surfaces read the same log, so both must repaint when it moves: the
+    // pane now carries the activity feed as a section (plans/007 Stage 0) while
+    // the standalone view stays registered for anyone who already has it open
+    // in a leaf.
+    this.activityLogUnsubscribe = this.activityLog.subscribe(() => {
+      this.views.refreshActivity();
+      this.views.refreshOnboarding();
+    });
 
     this.registerView(HAVEMIND_ACTIVITY_VIEW, (leaf: WorkspaceLeaf) => {
-      const view = new HavemindActivityView(leaf, this.activityOptions);
-      this.activityView = view;
+      const view = new HavemindActivityView(leaf, {
+        ...this.activityOptions,
+        onClosed: () => this.views.unregisterActivity(view),
+      });
+      this.views.registerActivity(view);
       return view;
     });
     this.registerView(HAVEMIND_ONBOARDING_VIEW, (leaf: WorkspaceLeaf) => {
       const view = new HavemindOnboardingView(leaf, {
+        // The activity feed is a section of this pane now, not a separate
+        // destination (plans/007 Stage 0) — same providers the standalone
+        // Activity view reads, so the two can never disagree.
+        activityFeedProvider: () => this.activityOptions.feedProvider?.() ?? [],
+        onRestore: (revisionId) => this.handleRestore(revisionId),
+        // The overlay toggle lost its ribbon icon in Stage 0 and lives in the
+        // pane footer now, beside the vault it annotates.
+        authorOverlayProvider: () => this.authorOverlayEnabled(),
+        onToggleAuthorOverlay: () => this.toggleAuthorOverlay(),
+        arrivedWithInvitationProvider: () => this.arrivedWithInvitation,
+        onOpenComposer: () => {
+          void this.openCreateConnectionView();
+        },
+        onSyncNow: () => {
+          void this.syncNow();
+        },
         composerProvider: () =>
           this.connectionActive ? this.composerModel() : null,
         guestWaitingProvider: () => this.awaitingApproval,
@@ -363,8 +393,9 @@ export default class HavemindPlugin extends Plugin {
         onApprove: (invitationId, verificationPhrase, report) => {
           void this.approvePendingDevice(invitationId, verificationPhrase, report);
         },
+        onClosed: () => this.views.unregisterOnboarding(view),
       });
-      this.onboardingView = view;
+      this.views.registerOnboarding(view);
       return view;
     });
 
@@ -428,11 +459,15 @@ export default class HavemindPlugin extends Plugin {
       callback: () => this.toggleAuthorOverlay(),
     });
 
-    this.addRibbonIcon('hexagon', 'Open Havemind activity', () => {
-      void this.openActivityView();
-    });
-    this.addRibbonIcon('users', 'Show authors', () => {
-      this.toggleAuthorOverlay();
+    // One hexagon, one pane (plans/007 Stage 0). The plugin used to offer three
+    // doors — this icon for the activity feed, a second icon for the author
+    // overlay, and the command palette for the panel that actually connects a
+    // vault. A new user found the hexagon, got an activity list, and had no
+    // route to connecting anything. The overlay toggle now lives inside the
+    // pane and keeps its `show-authors` command, so removing its icon costs no
+    // keyboard or screen-reader access (F8-02d).
+    this.addRibbonIcon('hexagon', 'Open Havemind', () => {
+      void this.openHavemindPane();
     });
 
     // FINDING 1: both author-overlay surfaces promised by `specs/001-mvp.md`.
@@ -492,6 +527,10 @@ export default class HavemindPlugin extends Plugin {
       // A passive join URI belongs to the guest paste wizard, not the owner
       // composer.
       this.connectionActive = false;
+      // Arriving through havemind-join *is* the answer to the entry chooser:
+      // this user has an invitation. Asking them anyway would be asking a
+      // question they have already answered by clicking the link (design 1d).
+      this.arrivedWithInvitation = true;
       void this.openView(HAVEMIND_ONBOARDING_VIEW);
     });
 
@@ -523,7 +562,7 @@ export default class HavemindPlugin extends Plugin {
 
   private openConnectView(): Promise<void> {
     this.connectionActive = false;
-    this.onboardingView?.refresh();
+    this.views.refreshOnboarding();
     return this.openView(HAVEMIND_ONBOARDING_VIEW);
   }
 
@@ -535,7 +574,7 @@ export default class HavemindPlugin extends Plugin {
     this.connectionActive = true;
     this.connectionNotice = undefined;
     this.connectionNoticeKind = undefined;
-    this.onboardingView?.refresh();
+    this.views.refreshOnboarding();
     return this.openView(HAVEMIND_ONBOARDING_VIEW);
   }
 
@@ -606,7 +645,7 @@ export default class HavemindPlugin extends Plugin {
       report(connectedMessage);
       // Re-render to drop the approved row while keeping the create section
       // (invitation + role/name) fully alive.
-      this.onboardingView?.refresh();
+      this.views.refreshOnboarding();
     } catch (error) {
       if (error instanceof ApproveDeviceError && error.locked) {
         // The invitation is spent after too many wrong codes: drop its waiting
@@ -618,7 +657,7 @@ export default class HavemindPlugin extends Plugin {
           'This invitation is now invalid. Create a new one above to try again.';
         this.connectionNoticeKind = undefined;
         report(error.message);
-        this.onboardingView?.refresh();
+        this.views.refreshOnboarding();
         return;
       }
       if (error instanceof ApproveDeviceError) {
@@ -691,7 +730,7 @@ export default class HavemindPlugin extends Plugin {
       onConflictWritten: () => this.scheduleConflictSweep(),
       // MAJOR 1: a successful commit that cleared a stale failed-to-queue row
       // refreshes the panel at once, so the phantom failure disappears.
-      onSendQueueChanged: () => this.onboardingView?.refresh(),
+      onSendQueueChanged: () => this.views.refreshOnboarding(),
       // MINOR 7: commit-recovery already showed a Notice for this failed-to-queue
       // row, so record its id as notified — the panel's quarantine-notice check
       // then skips it, preventing a duplicate Notice for the same event.
@@ -772,16 +811,22 @@ export default class HavemindPlugin extends Plugin {
     }
     const resolver = this.conflictResolver;
     const run = (action: ResolveAction, modal: ConflictResolveModal): void => {
-      void resolver.resolve(copy, action).then((outcome) => {
-        // The auto-sweep may have resolved and deleted this copy while the modal
-        // was open. keepTheirs aborts as 'vanished' rather than blanking the
-        // already-merged note; tell the user and refresh the stale panel/modal.
-        if (outcome === 'vanished') {
-          new Notice('This conflict was already auto-resolved.');
-        }
-        modal.close();
-        this.onboardingView?.refresh();
-      });
+      void resolver.resolve(copy, action).then(
+        (outcome) => {
+          // The auto-sweep may have resolved and deleted this copy while the modal
+          // was open. keepTheirs aborts as 'vanished' rather than blanking the
+          // already-merged note; tell the user and refresh the stale panel/modal.
+          if (outcome === 'vanished') {
+            new Notice('This conflict was already auto-resolved.');
+          }
+          modal.close();
+          this.views.refreshOnboarding();
+        },
+        () => {
+          new Notice('Havemind: could not resolve this conflict. Try again.');
+          this.views.refreshOnboarding();
+        },
+      );
     };
 
     const modal: ConflictResolveModal = new ConflictResolveModal(
@@ -823,14 +868,14 @@ export default class HavemindPlugin extends Plugin {
 
   private async loadRoster(): Promise<void> {
     this.rosterMembers = await this.rosterStore().readMembers();
-    this.onboardingView?.refresh();
+    this.views.refreshOnboarding();
   }
 
   /** Upserts a member, persists the roster, and refreshes the live surfaces. */
   private async recordRosterMember(member: RosterMember): Promise<void> {
     this.rosterMembers = await this.rosterStore().recordMember(member);
-    this.onboardingView?.refresh();
-    this.activityView?.refresh();
+    this.views.refreshOnboarding();
+    this.views.refreshActivity();
   }
 
   /**
@@ -863,7 +908,7 @@ export default class HavemindPlugin extends Plugin {
       // screen (with the code) instead of a blank paste form.
       onPendingApproval: (verificationPhrase) => {
         this.awaitingApproval = { verificationPhrase };
-        this.onboardingView?.refresh();
+        this.views.refreshOnboarding();
       },
       // The owner rejected the device or the attempt cap was reached: leave the
       // waiting screen for the terminal "invitation invalid" screen. This is an
@@ -871,7 +916,7 @@ export default class HavemindPlugin extends Plugin {
       onInvitationRejected: () => {
         this.awaitingApproval = null;
         this.guestInvitationInvalid = true;
-        this.onboardingView?.refresh();
+        this.views.refreshOnboarding();
       },
     });
     if (handle !== null) {
@@ -941,7 +986,7 @@ export default class HavemindPlugin extends Plugin {
     this.awaitingApproval = null;
     this.guestInvitationInvalid = false;
     this.setStatus(formatStatusBar({ status: 'disconnected' }));
-    this.onboardingView?.refresh();
+    this.views.refreshOnboarding();
   }
 
   /** Updates the status bar and live Connect indicator from a cycle status. */
@@ -967,7 +1012,7 @@ export default class HavemindPlugin extends Plugin {
     // a retry). Runs on every status change — the point sends are dead-lettered.
     this.checkQuarantineNotices();
     this.setStatus(view);
-    this.onboardingView?.refresh();
+    this.views.refreshOnboarding();
   }
 
   /**
@@ -1031,7 +1076,7 @@ export default class HavemindPlugin extends Plugin {
       new Notice(fallback.notice);
       await this.syncState?.discardQuarantined(revisionId);
     }
-    this.onboardingView?.refresh();
+    this.views.refreshOnboarding();
   }
 
   /** The vault path a quarantine row's fileId resolves to, or null. */
@@ -1064,13 +1109,13 @@ export default class HavemindPlugin extends Plugin {
     const effect = planRetryFromDisk(outcome, path, options.discardOnRetrigger);
     if (effect.notice !== null) new Notice(effect.notice);
     if (effect.discard) await this.syncState?.discardQuarantined(revisionId);
-    this.onboardingView?.refresh();
+    this.views.refreshOnboarding();
   }
 
   /** Permanently discard a quarantined send (SND-01). */
   private async discardSend(revisionId: string): Promise<void> {
     await this.syncState?.discardQuarantined(revisionId);
-    this.onboardingView?.refresh();
+    this.views.refreshOnboarding();
   }
 
   /**
@@ -1116,7 +1161,10 @@ export default class HavemindPlugin extends Plugin {
     }
     this.conflictSweepTimer = globalThis.setTimeout(() => {
       this.conflictSweepTimer = null;
-      void this.runConflictSweep();
+      void this.runConflictSweep().catch(() => {
+        new Notice('Havemind: automatic conflict repair could not finish.');
+        this.views.refreshOnboarding();
+      });
     }, CONFLICT_SWEEP_DEBOUNCE_MS);
   }
 
@@ -1147,7 +1195,7 @@ export default class HavemindPlugin extends Plugin {
         new Notice(`Havemind: ${message}`);
       },
     });
-    this.onboardingView?.refresh();
+    this.views.refreshOnboarding();
   }
 
   /** The rejoin-aware roster projection over the persistent members. */
@@ -1164,7 +1212,7 @@ export default class HavemindPlugin extends Plugin {
     if (!this.deadMembershipIds.includes(membershipId)) {
       this.deadMembershipIds = [...this.deadMembershipIds, membershipId];
     }
-    this.onboardingView?.refresh();
+    this.views.refreshOnboarding();
   }
 
   /**
@@ -1180,7 +1228,7 @@ export default class HavemindPlugin extends Plugin {
         return;
       }
       this.rejoinWaiting = new Set([...this.rejoinWaiting, membershipId]);
-      this.onboardingView?.refresh();
+      this.views.refreshOnboarding();
     } catch (error) {
       new Notice(
         `Havemind: could not request rejoin — ${
@@ -1220,8 +1268,8 @@ export default class HavemindPlugin extends Plugin {
         [...this.rejoinWaiting].filter((id) => id !== membershipId),
       );
       new Notice(`Removed ${displayName} from the vault.`);
-      this.onboardingView?.refresh();
-      this.activityView?.refresh();
+      this.views.refreshOnboarding();
+      this.views.refreshActivity();
     } catch (error) {
       new Notice(
         `Havemind: could not remove member — ${
@@ -1327,7 +1375,7 @@ export default class HavemindPlugin extends Plugin {
     new Notice(
       'Havemind: rejoin failed. Reconnect manually to resume syncing.',
     );
-    this.onboardingView?.refresh();
+    this.views.refreshOnboarding();
   }
 
   /** Tears the invitee rejoin poll down (idempotent). */
@@ -1436,7 +1484,7 @@ export default class HavemindPlugin extends Plugin {
       );
     } finally {
       this.resetInFlight = false;
-      this.onboardingView?.refresh();
+      this.views.refreshOnboarding();
     }
   }
 
@@ -1630,7 +1678,7 @@ export default class HavemindPlugin extends Plugin {
       this.connectionNotice =
         'Invitation created. Copy it and send it to the other device.';
       this.connectionNoticeKind = undefined;
-      this.onboardingView?.refresh();
+      this.views.refreshOnboarding();
     } catch (error) {
       report(
         `Could not create invitation: ${
@@ -1653,7 +1701,7 @@ export default class HavemindPlugin extends Plugin {
     this.connectionActive = false;
     this.connectionNotice = undefined;
     this.connectionNoticeKind = undefined;
-    this.onboardingView?.refresh();
+    this.views.refreshOnboarding();
   }
 
   /** Stores the created invitation so the onboarding view can display it. */
@@ -1670,6 +1718,11 @@ export default class HavemindPlugin extends Plugin {
     item.empty();
     const glyph = item.createEl('span', { attr: DECORATIVE });
     setIcon(glyph, 'hexagon');
+    // Design 1a proposes cutting this label as a duplicate of the pane. Kept
+    // deliberately: with the pane closed the status bar is the ONLY surface
+    // showing sync state, and a bare mark plus a colour dot is unreadable to
+    // anyone who cannot see the colour. The pane is where words are optional;
+    // here they are the whole accessible signal.
     item.createEl('span', { text: view.text });
   }
 
@@ -1678,8 +1731,19 @@ export default class HavemindPlugin extends Plugin {
     this.activityOptions = options;
   }
 
+  /**
+   * The single door into the plugin (plans/007 Stage 0). Every entry point —
+   * the ribbon hexagon, `open-activity`, `connect` — resolves here, so the user
+   * never has to know which of two panes holds the thing they want. `openView`
+   * reuses an existing leaf, so asking twice focuses the pane rather than
+   * opening a second copy of it.
+   */
+  private openHavemindPane(): Promise<void> {
+    return this.openView(HAVEMIND_ONBOARDING_VIEW);
+  }
+
   private openActivityView(): Promise<void> {
-    return this.openView(HAVEMIND_ACTIVITY_VIEW);
+    return this.openHavemindPane();
   }
 
   private async openView(type: string): Promise<void> {

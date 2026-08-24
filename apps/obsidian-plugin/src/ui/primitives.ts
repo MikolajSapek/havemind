@@ -51,6 +51,115 @@ export function renderViewTitle(content: HTMLElement, text: string): void {
 }
 
 /**
+ * A form field joined to its label by `for`/`id`.
+ *
+ * A `<label>` next to an `<input>` looks labelled and is not: they are two
+ * unrelated elements, and a screen reader reaching the field announces "edit
+ * text, blank" while the word sits beside it in the DOM. The pairing is what
+ * gives the field a name, so it must never be left to visual proximity.
+ *
+ * `id` is passed in rather than generated: a stable id survives the pane's
+ * frequent re-renders, and a generated one would change under any assistive
+ * technology holding a reference to it.
+ */
+export function labelledField(
+  parent: HTMLElement,
+  id: string,
+  label: string,
+  tag: 'input' | 'textarea' | 'select',
+  options: {
+    readonly type?: string;
+    readonly placeholder?: string;
+    readonly value?: string;
+  } = {},
+): HTMLElement {
+  parent.createEl('label', { text: label, attr: { for: id } });
+  const field = parent.createEl(tag, {
+    attr: { id },
+    ...(options.type !== undefined ? { type: options.type } : {}),
+    ...(options.placeholder !== undefined
+      ? { placeholder: options.placeholder }
+      : {}),
+    ...(options.value !== undefined ? { value: options.value } : {}),
+  });
+  return field;
+}
+
+/**
+ * The form's status line, as a live region.
+ *
+ * "Connecting…", "That code did not match", "Copied" — every one of these is
+ * written into this element after the user acts. Without `role="status"` the
+ * change is silent to a screen reader: the sighted user sees the result and
+ * everyone else waits for nothing.
+ *
+ * `polite` rather than `assertive`, and never a focus move: the user is mid-form
+ * when these fire, so an interruption would cost them their place for a message
+ * that is only progress.
+ */
+export function renderFormStatus(parent: HTMLElement): HTMLElement {
+  const status = parent.createDiv({ text: '' });
+  status.addClass('havemind-form-status');
+  status.setAttribute('role', 'status');
+  status.setAttribute('aria-live', 'polite');
+  return status;
+}
+
+/**
+ * Wraps an alarm — a conflict list, a failed send — in the single bordered
+ * region the design draws it as: accent rule down the left edge, tinted ground,
+ * hairline closing it underneath.
+ *
+ * It exists because containment is load-bearing here rather than cosmetic.
+ * Drawn as loose siblings (which is how this started) the tint stops short of
+ * the heading, nothing closes the block off at the bottom, and the left rule
+ * runs beside the rows only — three fragments where the design has one object.
+ * No amount of correct spacing fixes that; the elements have to share a parent.
+ *
+ * Returns the block so the caller renders its contents inside, and takes the
+ * caller's own class so conflicts and failed sends can still be told apart
+ * while sharing one shape.
+ */
+export function renderAlarmBlock(
+  content: HTMLElement,
+  variant: string,
+): HTMLElement {
+  const block = content.createDiv();
+  block.addClass('havemind-alarm');
+  block.addClass(variant);
+  return block;
+}
+
+/**
+ * Read a provider without letting it take the pane down.
+ *
+ * `renderSection` guards the sections it wraps, but the view reads several
+ * providers BEFORE any section exists — to decide which surface to draw at all.
+ * `render()` has already called `content.empty()` by then, so a throw there left
+ * the user with a blank pane: no header, no tabs, no way back. That is the
+ * precise failure the boundaries exist to prevent, arriving by the one route
+ * nothing guarded.
+ *
+ * Returns `fallback` when the provider throws, and names the provider in the
+ * log so a silent degrade is still traceable.
+ */
+export function safeRead<T>(
+  name: string,
+  read: (() => T) | undefined,
+  fallback: T,
+): T {
+  if (read === undefined) return fallback;
+  try {
+    return read();
+  } catch {
+    // Provider errors may carry invitation, token, or note data. Keep console
+    // diagnostics useful without ever serialising an untrusted error payload.
+    console.error(`Havemind: provider "${name}" failed.`);
+    return fallback;
+  }
+}
+
+/**
  * MAJOR 5: render one panel section inside an error boundary. A synchronous
  * throw from a section's provider or render body is logged and degraded to a
  * small inline "Section unavailable" fallback so the failure is contained to
@@ -64,8 +173,10 @@ export function renderSection(
 ): void {
   try {
     render();
-  } catch (error) {
-    console.error(`Havemind: the "${name}" panel section failed to render`, error);
+  } catch {
+    // See safeRead: UI failures are intentionally logged without their Error
+    // object because that object can contain secrets from a provider.
+    console.error(`Havemind: panel section "${name}" failed to render.`);
     const fallback = content.createDiv({ text: 'Section unavailable' });
     fallback.addClass('havemind-section-error');
   }

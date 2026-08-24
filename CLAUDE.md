@@ -48,6 +48,27 @@ npm run test:e2e
    `git push` — always ask first.
 6. Zero home-grown cryptography, zero Kubernetes/Portainer/Watchtower/databases "just in case".
 7. All repository content (docs, comments, commit messages, plans) must be written in English.
+8. One selector, one declaration, one place in `styles.css`. Never append a second block for a
+   selector that already exists — edit the existing rule. A property set from a `--havemind-*`
+   design token must not also be set from a generic variable elsewhere.
+9. Never edit a plugin copy inside a vault. Edit the repository, build, then deploy to **every**
+   installed copy and verify by hash.
+
+## Pane styling
+
+The pane's geometry is transcribed from a Claude Design handoff that uses inline styles and no
+classes, so nothing but a test can keep the two in agreement:
+
+- `scripts/extract-design-tokens.mjs` reads the recurring values into `tokens.json`
+  (`--check` in CI fails when it goes stale).
+- `src/ui/design-tokens.test.ts` fails when `styles.css` disagrees with those tokens.
+- `src/ui/stylesheet-conflicts.test.ts` fails when a selector sets one property to two different
+  values, or styles a class nothing renders.
+
+When the pane "doesn't look like the design", check in this order: (1) does the stylesheet reach
+the screen at all — add a marker rule to the *installed* file and reload the plugin; (2) does the
+sheet contradict itself; (3) only then, are the values wrong. Rounds of value edits on a sheet
+that contradicts itself change nothing, because the winner is decided by source order.
 
 ## Ignore conflicting upstream context
 

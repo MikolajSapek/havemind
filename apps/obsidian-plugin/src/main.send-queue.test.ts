@@ -43,7 +43,7 @@ describe('renderSendQueueSection', () => {
     const waiting = flatten(container).find((e) =>
       e.classes.includes('havemind-send-waiting'),
     );
-    expect(waiting?.text).toBe('3 change(s) waiting to send');
+    expect(waiting?.text).toBe('3 changes waiting to send');
   });
 
   it('renders a failed header and one row per quarantined item', () => {
@@ -60,7 +60,9 @@ describe('renderSendQueueSection', () => {
     );
     const all = flatten(container);
     const header = all.find((e) => e.classes.includes('havemind-send-failed'));
-    expect(header?.text).toBe('2 change(s) failed to send');
+    // "change(s)" was placeholder grammar nobody speaks; the design writes the
+    // sentence out and picks the right form from the count.
+    expect(header?.text).toBe("2 changes couldn't be sent");
     const rows = all.filter((e) =>
       e.classes.includes('havemind-send-failed-row'),
     );

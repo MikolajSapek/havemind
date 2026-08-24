@@ -9,18 +9,17 @@
 import { ItemView, type WorkspaceLeaf } from 'obsidian';
 
 import type { RevisionRecord } from '../activity/activity';
-import { buildActivityViewModel } from '../runtime/activity-render';
 
-import { formatActivityTime, renderSection, renderViewTitle } from './primitives';
+import { renderActivityRows } from './activity-section';
+import { renderSection, renderViewTitle } from './primitives';
 import { HAVEMIND_ACTIVITY_VIEW } from './view-types';
-
-const EMPTY_ACTIVITY_TEXT =
-  'No activity yet. Connect to a vault to see changes as they happen.';
 
 /** Injected data + actions for the Activity surface (F5-01 feed + restore). */
 export interface ActivityViewOptions {
   readonly feedProvider?: () => readonly RevisionRecord[];
   readonly onRestore?: (revisionId: string) => void;
+  /** Releases the plugin's active-view reference when Obsidian closes this leaf. */
+  readonly onClosed?: () => void;
 }
 
 export class HavemindActivityView extends ItemView {
@@ -47,6 +46,10 @@ export class HavemindActivityView extends ItemView {
     this.render();
   }
 
+  override onClose(): void {
+    this.options.onClosed?.();
+  }
+
   /** Re-renders from the live feed — called when the activity log changes. */
   refresh(): void {
     this.render();
@@ -63,37 +66,10 @@ export class HavemindActivityView extends ItemView {
     // MAJOR 5: a throw building or rendering the feed degrades to an inline
     // fallback rather than blanking the activity view.
     renderSection(content, 'activity', () => {
-      const model = buildActivityViewModel(this.options.feedProvider?.() ?? [], {
-        formatTimestamp: formatActivityTime,
+      renderActivityRows(content, {
+        feed: this.options.feedProvider?.() ?? [],
+        ...(this.options.onRestore ? { onRestore: this.options.onRestore } : {}),
       });
-      if (model.empty) {
-        const empty = content.createDiv({ text: EMPTY_ACTIVITY_TEXT });
-        empty.addClass('havemind-empty');
-        return;
-      }
-
-      for (const row of model.rows) {
-        const entry = content.createDiv();
-        entry.addClass('havemind-activity-row');
-        // Two-line row: `author verb` headline over the vault path. The full
-        // `kind · path · actor` string still lives on `row.label` for anything
-        // that reads it; nothing about the data changes.
-        const text = entry.createDiv();
-        text.createDiv({ text: row.headline });
-        text.createDiv({ text: row.pathLabel }).addClass('havemind-hint');
-        // Author colour as a left accent, paired with the author name already in
-        // the headline — colour is never the only signal (accessibility rule).
-        entry.style.setProperty('--havemind-row-color', `var(${row.colorToken})`);
-        // The Restore button stays the first child so the F5 restore contract is
-        // unchanged; the time is appended after it.
-        if (row.canRestore && this.options.onRestore) {
-          const restore = entry.createEl('button', { text: 'Restore' });
-          restore.addClass('havemind-activity-action');
-          restore.onClickEvent(() => this.options.onRestore?.(row.revisionId));
-        }
-        const time = entry.createEl('span', { text: ` ${row.timeLabel}` });
-        time.addClass('havemind-activity-time');
-      }
     });
   }
 }

@@ -1220,7 +1220,10 @@ describe('createConfigApplyReloader', () => {
     expect(() => scheduler.flush()).not.toThrow();
     // The unrelated notice still lands even though the CSS reload failed.
     expect(notify).toHaveBeenCalledTimes(1);
-    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(
+      'Havemind: could not refresh the custom CSS after a synced settings change.',
+    );
+    expect(warn.mock.calls[0]).toHaveLength(1);
   });
 });
 

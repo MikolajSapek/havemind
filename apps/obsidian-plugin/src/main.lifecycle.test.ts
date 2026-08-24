@@ -31,6 +31,38 @@ function flatten(element: MockElement): MockElement[] {
   return element.children.flatMap((child) => [child, ...flatten(child)]);
 }
 
+/**
+ * Picks "Someone sent me an invitation" on the entry chooser (design 1d), which
+ * now stands between a fresh pane and the connect form. Tests that exercise the
+ * form itself go through it the way a user does.
+ */
+function chooseInvitationPath(view: { containerEl: unknown }): void {
+  const root = view.containerEl as unknown as MockElement;
+  const option = flatten(root).find(
+    (el) =>
+      el.tag === 'button' &&
+      flatten(el).some((child) => /sent me an invitation/i.test(child.text ?? '')),
+  );
+  if (option === undefined) throw new Error('entry chooser option not rendered');
+  // The click re-renders on its own; calling onOpen() again would wipe it.
+  option.triggerClick();
+}
+
+/**
+ * Clicks a tab in the connected pane. Roster, activity and invite each live
+ * behind one now (a single sidebar, tabs to switch), so a test that inspects
+ * their content reaches it the way a user does.
+ */
+function openTab(view: { containerEl: unknown }, label: RegExp): void {
+  const root = view.containerEl as unknown as MockElement;
+  const tab = flatten(root).find(
+    (el) =>
+      el.attrs['role'] === 'tab' && label.test(el.attrs['aria-label'] ?? ''),
+  );
+  if (tab === undefined) throw new Error(`tab ${label} not rendered`);
+  tab.triggerClick();
+}
+
 describe('plugin lifecycle', () => {
   beforeEach(() => {
     resetObsidianMock();
@@ -43,8 +75,10 @@ describe('plugin lifecycle', () => {
     await plugin.onload();
 
     expect(registrationState.settingsTabs).toHaveLength(1);
-    // Two ribbon actions: open Activity, and the F6 "Show authors" toggle.
-    expect(registrationState.ribbons).toHaveLength(2);
+    // One ribbon action: the hexagon opens the single Havemind pane (plans/007
+    // Stage 0). "Show authors" lost its icon and became a control inside that
+    // pane; its `show-authors` command keeps the keyboard route.
+    expect(registrationState.ribbons).toHaveLength(1);
     expect(registrationState.statusItems).toHaveLength(1);
     expect(registrationState.views.has(HAVEMIND_ACTIVITY_VIEW)).toBe(true);
     expect(registrationState.views.has(HAVEMIND_ONBOARDING_VIEW)).toBe(true);
@@ -113,7 +147,9 @@ describe('plugin lifecycle', () => {
     expect(command?.name).toBe('Create connection (owner)');
   });
 
-  it('opens the registered Activity view from the command', async () => {
+  it('opens the single Havemind pane from the command', async () => {
+    // plans/007 Stage 0: every entry point resolves to one pane, so the user
+    // never has to know which of two views holds what they came for.
     const app = new App();
     const plugin = new HavemindPlugin(app, manifest);
     await plugin.onload();
@@ -123,15 +159,15 @@ describe('plugin lifecycle', () => {
     await command?.callback?.();
 
     expect(app.workspace.rightLeaf?.states).toEqual([
-      { active: true, type: HAVEMIND_ACTIVITY_VIEW },
+      { active: true, type: HAVEMIND_ONBOARDING_VIEW },
     ]);
     expect(app.workspace.revealedLeaves).toEqual([app.workspace.rightLeaf]);
   });
 
-  it('reuses an existing Activity leaf and handles an unavailable sidebar', async () => {
+  it('reuses an existing Havemind leaf and handles an unavailable sidebar', async () => {
     const app = new App();
     const existingLeaf = new WorkspaceLeaf();
-    app.workspace.leaves.set(HAVEMIND_ACTIVITY_VIEW, [existingLeaf]);
+    app.workspace.leaves.set(HAVEMIND_ONBOARDING_VIEW, [existingLeaf]);
     const plugin = new HavemindPlugin(app, manifest);
     await plugin.onload();
 
@@ -228,7 +264,9 @@ describe('plugin lifecycle', () => {
     await view?.onOpen();
     const container = view?.containerEl as unknown as MockElement;
     const kids = container.children[1]?.children ?? [];
-    expect(kids[0]?.text).toBe('Connect to Havemind');
+    // The header strip names the plugin, not one of its screens: the pane holds
+    // connecting, activity, people and conflicts (design 1a).
+    expect(flatten(container).some(({ text }) => text === 'Havemind')).toBe(true);
     expect(kids.some(({ tag }) => tag === 'textarea')).toBe(true);
     expect(kids.some(({ text }) => text === 'Connect')).toBe(true);
   });
@@ -290,9 +328,12 @@ describe('plugin lifecycle', () => {
     const all = flatten(view?.containerEl as unknown as MockElement);
     expect(all.some(({ text }) => text === 'Creating connection')).toBe(true);
     expect(all.some(({ text }) => text === 'Create invitation')).toBe(true);
+    // Before an invitation exists there is nothing to wait for, so the waiting
+    // section stays silent rather than spending four lines saying so
+    // (round 2, Q4). It speaks once a device is actually on its way.
     expect(
-      all.some(({ text }) => text === 'Waiting for the other device'),
-    ).toBe(true);
+      all.some(({ text }) => /waiting for the other device/i.test(text)),
+    ).toBe(false);
   });
 
   it('renders the create and waiting sections together in one panel', async () => {
@@ -581,18 +622,22 @@ describe('plugin lifecycle', () => {
     await view.onOpen();
 
     const all = flatten(view.containerEl as unknown as MockElement);
-    // The code is shown prominently to the joining device only…
-    expect(
-      all.some(
-        ({ text, classes }) =>
-          text === '123456' &&
-          classes.includes('havemind-verification-phrase'),
-      ),
-    ).toBe(true);
-    // …with guidance to read it to the vault owner.
-    expect(
-      all.some(({ text }) => text === 'Read this 6-digit code to the vault owner.'),
-    ).toBe(true);
+    // The digits are grouped 3+3 to be spoken (design 1e), so assert on the
+    // block that carries them rather than on one undivided string.
+    const code = all.find(({ classes }) =>
+      classes.includes('havemind-handshake-code'),
+    );
+    expect(code).toBeDefined();
+    // Grouped for the eye, announced whole for a screen reader.
+    expect(code?.attrs['aria-label']).toBe('123456');
+    expect(flatten(code as MockElement).map(({ text }) => text)).toContain('123');
+
+    // The instruction is an imperative naming the other person…
+    expect(all.some(({ text }) => /read these six digits out loud/i.test(text))).toBe(
+      true,
+    );
+    // …and the failure mode is stated where it is actionable.
+    expect(all.some(({ text }) => /don't match/i.test(text))).toBe(true);
   });
 
   it('shows the invitee a terminal "invitation invalid" screen with a paste form', async () => {
@@ -605,9 +650,12 @@ describe('plugin lifecycle', () => {
     await view.onOpen();
 
     const all = flatten(view.containerEl as unknown as MockElement);
+    // Names the cause rather than reporting a failure (design 1e).
     expect(
-      all.some(({ text }) => text === ' This invitation is no longer valid'),
+      all.some(({ text }) => /invitation has been used/i.test(text)),
     ).toBe(true);
+    // Prices the fix in the other person's time, so asking feels cheap.
+    expect(all.some(({ text }) => /ten seconds/i.test(text))).toBe(true);
     // …it never shows the waiting spinner or the code, and it never goes blank:
     // the paste form is present so the guest can try a fresh invite.
     expect(
@@ -833,9 +881,9 @@ describe('plugin lifecycle', () => {
       },
     });
     await view.onOpen();
+    chooseInvitationPath(view);
 
-    const kids =
-      (view.containerEl as unknown as MockElement).children[1]?.children ?? [];
+    const kids = flatten(view.containerEl as unknown as MockElement);
     const textarea = kids.find(({ tag }) => tag === 'textarea');
     const server = kids.find(({ tag }) => tag === 'input');
     const button = kids.find(({ text }) => text === 'Connect');
@@ -853,6 +901,7 @@ describe('plugin lifecycle', () => {
       onConnect: () => undefined,
     });
     await view.onOpen();
+    chooseInvitationPath(view);
 
     const content = (view.containerEl as unknown as MockElement).children[1];
     const textarea = flatten(content as MockElement).find(
@@ -885,19 +934,17 @@ describe('plugin lifecycle', () => {
     // First open renders the waiting screen.
     await view.onOpen();
     let all = flatten(view.containerEl as unknown as MockElement);
-    expect(all.some(({ text }) => text === '7 tiger lamp')).toBe(true);
-    expect(
-      all.some(({ text }) =>
-        text.includes('Waiting for the other device to approve'),
-      ),
-    ).toBe(true);
+    expect(all.some(({ text }) => text.includes('7 tiger lamp'))).toBe(true);
+    // The screen states what to do with the code, in the imperative: the
+    // spinner it replaced described the system's state, not the user's job.
+    expect(all.some(({ text }) => /read these six digits/i.test(text))).toBe(true);
     // No paste form is drawn (re-pasting would re-redeem a single-use invite).
     expect(all.some(({ tag }) => tag === 'textarea')).toBe(false);
 
     // Reopening the pane keeps the phrase — the wait resumes, not a blank form.
     await view.onOpen();
     all = flatten(view.containerEl as unknown as MockElement);
-    expect(all.some(({ text }) => text === '7 tiger lamp')).toBe(true);
+    expect(all.some(({ text }) => text.includes('7 tiger lamp'))).toBe(true);
     expect(all.some(({ tag }) => tag === 'textarea')).toBe(false);
   });
 
@@ -964,10 +1011,23 @@ describe('plugin lifecycle', () => {
     });
     await view.onOpen();
 
-    const kids =
-      (view.containerEl as unknown as MockElement).children[1]?.children ?? [];
-    expect(kids.some(({ tag }) => tag === 'textarea')).toBe(false);
-    const disconnect = kids.find(({ text }) => text === 'Disconnect');
+    const root = view.containerEl as unknown as MockElement;
+    expect((root.children[1]?.children ?? []).some(({ tag }) => tag === 'textarea')).toBe(
+      false,
+    );
+
+    // Disconnect moved into the header overflow menu (design 1a): a standing
+    // button spent a line on the action a connected user least wants to hit.
+    const more = flatten(root).find(
+      (el) => el.attrs['aria-label'] === 'More options',
+    );
+    expect(more).toBeDefined();
+    more?.triggerClick();
+    await view.onOpen();
+
+    const disconnect = flatten(view.containerEl as unknown as MockElement).find(
+      ({ text }) => text === 'Disconnect',
+    );
     expect(disconnect).toBeDefined();
     disconnect?.triggerClick();
     expect(disconnected).toBe(1);
@@ -1061,9 +1121,9 @@ describe('plugin lifecycle', () => {
       onConnect: (input) => captured.push(input),
     });
     await view.onOpen();
+    chooseInvitationPath(view);
 
-    const kids =
-      (view.containerEl as unknown as MockElement).children[1]?.children ?? [];
+    const kids = flatten(view.containerEl as unknown as MockElement);
     kids.find(({ text }) => text === 'Connect')?.triggerClick();
 
     expect(captured).toEqual([]);
@@ -1089,6 +1149,7 @@ describe('plugin lifecycle', () => {
       onMarkDisconnected: () => undefined,
     });
     await view.onOpen();
+    openTab(view, /People/);
 
     const content = (view.containerEl as unknown as MockElement).children[1];
     const all = flatten(content as MockElement);
@@ -1117,6 +1178,7 @@ describe('plugin lifecycle', () => {
       onRejoin: (membershipId) => rejoined.push(membershipId),
     });
     await view.onOpen();
+    openTab(view, /People/);
 
     const content = (view.containerEl as unknown as MockElement).children[1];
     flatten(content as MockElement)
@@ -1139,6 +1201,7 @@ describe('plugin lifecycle', () => {
       onRejoin: () => undefined,
     });
     await view.onOpen();
+    openTab(view, /People/);
 
     const content = (view.containerEl as unknown as MockElement).children[1];
     const all = flatten(content as MockElement);
@@ -1163,6 +1226,7 @@ describe('plugin lifecycle', () => {
       onMarkDisconnected: (membershipId) => marked.push(membershipId),
     });
     await view.onOpen();
+    openTab(view, /People/);
 
     const content = (view.containerEl as unknown as MockElement).children[1];
     const all = flatten(content as MockElement);
@@ -1185,6 +1249,7 @@ describe('plugin lifecycle', () => {
       onRemove: () => undefined,
     });
     await view.onOpen();
+    openTab(view, /People/);
 
     const content = (view.containerEl as unknown as MockElement).children[1];
     const all = flatten(content as MockElement);
@@ -1210,6 +1275,7 @@ describe('plugin lifecycle', () => {
       onRemove: (membershipId) => removed.push(membershipId),
     });
     await view.onOpen();
+    openTab(view, /People/);
 
     const content = (view.containerEl as unknown as MockElement).children[1];
     const remove = flatten(content as MockElement).find(
