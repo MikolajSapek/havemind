@@ -28,10 +28,11 @@
  * A failed rotation throws and leaves the stored refresh token untouched, so a
  * transient failure never discards a still-valid credential.
  *
- * Connect-safety: the durable persistence callbacks are optional AND their
- * failures are swallowed. If the pending-rotation store is unavailable (throws
- * on load/save/clear) the provider degrades to exactly the in-memory-only
- * behaviour — a store outage never aborts rotation, connect, or the sync loop.
+ * Safety boundary: production wires the durable callbacks to SecretStorage. A
+ * read or pre-request write failure aborts the rotation before it reaches the
+ * server. Continuing in memory would let a successful server-side rotation
+ * survive only until a crash, permanently stranding the device on its burned
+ * refresh token.
  */
 
 import type { RequestUrlFn } from './sync-transport';
@@ -61,10 +62,10 @@ export interface RefreshTokenAccessProviderOptions {
   readonly generateSuccessorToken: () => string;
   /**
    * Durable persistence for the in-flight rotation record. Optional: when
-   * omitted the record lives only in memory (still fixes in-process retry and
-   * concurrency, but not a crash/restart mid-rotation). Production wires these
-   * to the same SecretStorage the refresh token uses. Any of these throwing is
-   * tolerated — the provider degrades to in-memory-only rather than failing.
+   * omitted the record lives only in memory (acceptable only for explicitly
+   * ephemeral callers such as unit tests). Production wires these to the same
+   * SecretStorage the refresh token uses. A read or pre-request write failure
+   * must reject before any request is sent.
    */
   readonly loadPendingRotation?: () => Promise<PendingRotation | null>;
   readonly savePendingRotation?: (record: PendingRotation) => Promise<void>;
@@ -215,10 +216,9 @@ export class RefreshTokenAccessProvider {
   }
 
   /**
-   * Loads the persisted in-flight record, degrading to the in-memory record if
-   * no durable store is wired or the store throws. A store outage must never
-   * abort a rotation, so a load failure is treated as "use whatever is in
-   * memory" (identical to the in-memory-only configuration).
+   * Loads the persisted in-flight record. When production storage is wired but
+   * unreadable, fail closed: it may contain the exact retry pair from a prior
+   * process, and minting a new pair could burn the refresh-token family.
    */
   private async loadPending(): Promise<PendingRotation | null> {
     if (!this.options.loadPendingRotation) {
@@ -226,20 +226,16 @@ export class RefreshTokenAccessProvider {
     }
     try {
       return await this.options.loadPendingRotation();
-    } catch (error) {
-      console.error(
-        'Havemind: pending-rotation load failed; using in-memory record',
-        error,
-      );
-      return this.memoryPending;
+    } catch {
+      console.error('Havemind: pending-rotation load failed.');
+      throw new AccessTokenError('Could not read refresh rotation safely.');
     }
   }
 
   /**
-   * Persists the freshly minted record durably. A save failure is swallowed:
-   * the record still lives in memory (single-flight remains safe within this
-   * process) and the rotation proceeds — degrading to in-memory-only rather
-   * than aborting.
+   * Persists the freshly minted record durably before the refresh request. A
+   * failed write must stop here: sending an unrepeatable rotation would make a
+   * restart unable to recover its successor token.
    */
   private async savePending(record: PendingRotation): Promise<void> {
     if (!this.options.savePendingRotation) {
@@ -247,11 +243,9 @@ export class RefreshTokenAccessProvider {
     }
     try {
       await this.options.savePendingRotation(record);
-    } catch (error) {
-      console.error(
-        'Havemind: pending-rotation save failed; continuing in-memory only',
-        error,
-      );
+    } catch {
+      console.error('Havemind: pending-rotation save failed.');
+      throw new AccessTokenError('Could not persist refresh rotation safely.');
     }
   }
 
@@ -262,8 +256,10 @@ export class RefreshTokenAccessProvider {
     }
     try {
       await this.options.clearPendingRotation();
-    } catch (error) {
-      console.error('Havemind: pending-rotation clear failed', error);
+    } catch {
+      // The successor is already durable. A stale pending record is safe: its
+      // refresh token will not match on the next rotation and will be replaced.
+      console.error('Havemind: pending-rotation clear failed.');
     }
   }
 }

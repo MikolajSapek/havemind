@@ -18,6 +18,8 @@ import { HAVEMIND_ACTIVITY_VIEW } from './view-types';
 export interface ActivityViewOptions {
   readonly feedProvider?: () => readonly RevisionRecord[];
   readonly onRestore?: (revisionId: string) => void;
+  /** Releases the plugin's active-view reference when Obsidian closes this leaf. */
+  readonly onClosed?: () => void;
 }
 
 export class HavemindActivityView extends ItemView {
@@ -42,6 +44,10 @@ export class HavemindActivityView extends ItemView {
 
   override onOpen(): void {
     this.render();
+  }
+
+  override onClose(): void {
+    this.options.onClosed?.();
   }
 
   /** Re-renders from the live feed — called when the activity log changes. */

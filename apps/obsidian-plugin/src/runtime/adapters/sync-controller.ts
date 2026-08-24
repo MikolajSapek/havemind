@@ -202,11 +202,10 @@ export function buildSyncController(
         controllerRef.current?.setPushConnected(connected);
       },
     });
-  } catch (error) {
+  } catch {
     wake = undefined;
     console.error(
       'Havemind: real-time push setup failed; continuing poll-only',
-      error,
     );
   }
 

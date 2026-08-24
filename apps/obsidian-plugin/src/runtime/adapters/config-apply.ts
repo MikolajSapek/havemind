@@ -76,8 +76,8 @@ export interface ConfigApplyReloaderOptions {
   readonly notify: (message: string) => void;
   /** Timer seam; defaults to `window.setTimeout`. */
   readonly schedule?: (run: () => void, delayMs: number) => void;
-  /** Diagnostic sink for a failing side effect; defaults to `console.warn`. */
-  readonly warn?: (message: string, error: unknown) => void;
+  /** Diagnostic sink for a failing side effect; it never receives error data. */
+  readonly warn?: (message: string) => void;
   readonly batchMs?: number;
 }
 
@@ -103,9 +103,7 @@ export function createConfigApplyReloader(
     options.schedule ?? ((run, delayMs) => void window.setTimeout(run, delayMs));
   const warn =
     options.warn ??
-    ((message, error) => {
-      console.warn(message, error);
-    });
+    ((message) => console.warn(message));
   const batchMs = options.batchMs ?? CONFIG_APPLY_BATCH_MS;
 
   let cssPending = false;
@@ -115,8 +113,10 @@ export function createConfigApplyReloader(
   const runGuarded = (label: string, effect: () => void): void => {
     try {
       effect();
-    } catch (error) {
-      warn(`Havemind: could not ${label} after a synced settings change.`, error);
+    } catch {
+      // External workspace errors may contain file contents. Preserve the
+      // diagnostic but never forward opaque error data to a console sink.
+      warn(`Havemind: could not ${label} after a synced settings change.`);
     }
   };
 

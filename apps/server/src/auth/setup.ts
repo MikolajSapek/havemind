@@ -166,6 +166,7 @@ export interface RotateOwnerPairingResult {
 
 interface PairingRow {
   readonly consumedAt: string | null;
+  readonly consumedByDeviceId: string | null;
   readonly expiresAt: string;
   readonly id: string;
   readonly userId: string;
@@ -446,17 +447,50 @@ export class OwnerSetupService {
     const pair = this.#database.transaction(
       (): PairOwnerDeviceFromHashResult => {
         const pairing = this.#database
-          .prepare(
-            `SELECT id, user_id AS userId, vault_id AS vaultId,
-                    expires_at AS expiresAt, consumed_at AS consumedAt
-             FROM owner_pairings WHERE token_hash = ?`,
-          )
-          .get(pairingTokenHash) as PairingRow | undefined;
-        if (
-          pairing === undefined ||
-          pairing.consumedAt !== null ||
-          Date.parse(pairing.expiresAt) <= now.getTime()
-        ) {
+        .prepare(
+          `SELECT id, user_id AS userId, vault_id AS vaultId,
+                  expires_at AS expiresAt, consumed_at AS consumedAt,
+                  consumed_by_device_id AS consumedByDeviceId
+           FROM owner_pairings WHERE token_hash = ?`,
+        )
+        .get(pairingTokenHash) as PairingRow | undefined;
+        if (pairing === undefined) {
+          throw new OwnerSetupError('INVALID_PAIRING');
+        }
+
+        // A device may receive the successful response but lose power before it
+        // can write its local connection record.  Replaying the same one-time
+        // pairing code with the same client-held refresh-token hash must return
+        // the original device, not strand that pairing or create a second one.
+        if (pairing.consumedAt !== null) {
+          const retried = this.#database
+            .prepare(
+              `SELECT families.id AS familyId, families.expires_at AS refreshExpiresAt
+               FROM refresh_token_families AS families
+               INNER JOIN refresh_tokens AS tokens ON tokens.family_id = families.id
+               WHERE families.device_id = ?
+                 AND families.user_id = ?
+                 AND families.status = 'active'
+                 AND tokens.generation = 0
+                 AND tokens.token_hash = ?`,
+            )
+            .get(
+              pairing.consumedByDeviceId,
+              pairing.userId,
+              input.refreshTokenHash,
+            ) as { familyId: string; refreshExpiresAt: string } | undefined;
+          if (pairing.consumedByDeviceId === null || retried === undefined) {
+            throw new OwnerSetupError('INVALID_PAIRING');
+          }
+          return {
+            deviceId: pairing.consumedByDeviceId,
+            familyId: retried.familyId,
+            ownerUserId: pairing.userId,
+            refreshExpiresAt: retried.refreshExpiresAt,
+            vaultId: pairing.vaultId,
+          };
+        }
+        if (Date.parse(pairing.expiresAt) <= now.getTime()) {
           throw new OwnerSetupError('INVALID_PAIRING');
         }
 

@@ -68,10 +68,9 @@ export async function startHavemindConnection(
     // sidecar is the only record of what the pairing used to be.
     try {
       await preserveCorruptOwnerConnection(plugin, gate.raw, Date.now());
-    } catch (error) {
+    } catch {
       console.warn(
         'Havemind: failed to preserve the damaged connection record to a sidecar.',
-        error,
       );
     }
     console.warn(
@@ -167,9 +166,32 @@ async function connectAsOwner(
     return null;
   }
   options.report('Pairing owner device…');
+  const clientInstanceId = await ensureClientInstanceId(
+    createClientInstanceRepo(plugin),
+  );
+  const secrets = new ObsidianOnboardingSecrets({
+    clientInstanceId,
+    secretStorage: plugin.app.secretStorage,
+  });
+  // Persist the exact client half before consuming the one-time code.  If the
+  // app dies after the server commits but before data.json is updated, a retry
+  // replays the same hash and the server returns the original pairing.
+  const existing = await secrets.getPendingOwnerPairing();
+  const refreshToken =
+    existing !== null &&
+    existing.apiBaseUrl === apiBaseUrl &&
+    existing.pairingToken === pairingToken
+      ? existing.refreshToken
+      : generateRefreshTokenValue();
+  if (existing === null || existing.refreshToken !== refreshToken) {
+    await secrets.savePendingOwnerPairing({
+      apiBaseUrl,
+      pairingToken,
+      refreshToken,
+    });
+  }
   // The raw refresh token never crosses the wire to /owner/pair — only its hash
   // does. The server binds the family to the hash; the client keeps the secret.
-  const refreshToken = generateRefreshTokenValue();
   const pairing = await pairOwnerDevice({
     requestUrl: createRequestUrlFn(),
     apiBaseUrl,
@@ -178,13 +200,6 @@ async function connectAsOwner(
     pairingToken,
   });
 
-  const clientInstanceId = await ensureClientInstanceId(
-    createClientInstanceRepo(plugin),
-  );
-  const secrets = new ObsidianOnboardingSecrets({
-    clientInstanceId,
-    secretStorage: plugin.app.secretStorage,
-  });
   await secrets.saveRefreshToken(refreshToken);
   const connection: StoredConnection = {
     apiBaseUrl,
@@ -193,6 +208,7 @@ async function connectAsOwner(
     ...(pairing.memberId === undefined ? {} : { memberId: pairing.memberId }),
   };
   await writeOwnerConnection(plugin, connection);
+  await secrets.clearPendingOwnerPairing();
 
   options.report('Connected. Syncing…');
   return startSyncLoop(plugin, connection, options.onStatus, {

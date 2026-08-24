@@ -32,8 +32,9 @@ function makeProvider(options: {
   // but before the successor is committed locally.
   crashOnSave?: boolean;
   // When true, the durable pending-rotation store throws on every op — models a
-  // SecretStorage outage. The provider must degrade to in-memory-only.
-  storeUnavailable?: boolean;
+  // SecretStorage outage. Production must fail before it sends a rotation that
+  // could not survive a crash/restart.
+  storeUnavailable?: 'load' | 'save' | 'clear';
   now?: () => number;
 }): RefreshTokenAccessProvider {
   const {
@@ -64,19 +65,19 @@ function makeProvider(options: {
     generateRotationId: () => `rot-${(rotation += 1)}`,
     generateSuccessorToken: () => `hm_rt_next-${(successor += 1)}`,
     loadPendingRotation: async () => {
-      if (storeUnavailable === true) {
+      if (storeUnavailable === 'load') {
         throw new Error('SecretStorage unavailable');
       }
       return backing.pending;
     },
     savePendingRotation: async (record) => {
-      if (storeUnavailable === true) {
+      if (storeUnavailable === 'save') {
         throw new Error('SecretStorage unavailable');
       }
       backing.pending = record;
     },
     clearPendingRotation: async () => {
-      if (storeUnavailable === true) {
+      if (storeUnavailable === 'clear') {
         throw new Error('SecretStorage unavailable');
       }
       backing.pending = null;
@@ -306,7 +307,7 @@ describe('RefreshTokenAccessProvider', () => {
     );
   });
 
-  it('still rotates when the pending-rotation store is unavailable (degrades to in-memory, connect not aborted)', async () => {
+  it('fails closed before sending a refresh when pending rotation cannot be persisted', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
       const backing = makeBacking('hm_rt_current');
@@ -317,13 +318,18 @@ describe('RefreshTokenAccessProvider', () => {
         responder: () => refreshOk('2026-07-24T10:05:00.000Z'),
         calls,
         savedRefresh,
-        storeUnavailable: true,
+        storeUnavailable: 'save',
       });
-      const token = await provider.getAccessToken();
-      // The rotation succeeds despite every store op throwing.
-      expect(token).toBe('access-1');
-      expect(calls).toHaveLength(1);
-      expect(savedRefresh).toHaveLength(1);
+      await expect(provider.getAccessToken()).rejects.toThrow(
+        'Could not persist refresh rotation safely.',
+      );
+      // Sending after a failed durable write burns the old token on success and
+      // makes a restart unrecoverable. The request must therefore not happen.
+      expect(calls).toHaveLength(0);
+      expect(savedRefresh).toHaveLength(0);
+      expect(errorSpy).toHaveBeenCalledWith(
+        'Havemind: pending-rotation save failed.',
+      );
     } finally {
       errorSpy.mockRestore();
     }

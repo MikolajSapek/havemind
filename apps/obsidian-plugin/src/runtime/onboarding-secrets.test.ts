@@ -57,7 +57,7 @@ describe('ObsidianOnboardingSecrets', () => {
     expect(await secrets.getPendingRotation()).toBeNull();
   });
 
-  it('treats a malformed pending-rotation record as absent', async () => {
+  it('fails closed for a malformed pending-rotation record', async () => {
     await secrets.savePendingRotation({
       refreshToken: 'hm_rt_cur',
       rotationId: 'rot-1',
@@ -71,7 +71,19 @@ describe('ObsidianOnboardingSecrets', () => {
     if (key !== undefined) {
       storage.setSecret(key, '{not valid json');
     }
-    expect(await secrets.getPendingRotation()).toBeNull();
+    await expect(secrets.getPendingRotation()).rejects.toThrow('corrupt');
+  });
+
+  it('keeps an owner-pairing retry record only in SecretStorage', async () => {
+    const record = {
+      apiBaseUrl: 'https://sync.example',
+      pairingToken: 'hm_pt_once',
+      refreshToken: 'hm_rt_current',
+    };
+    await secrets.savePendingOwnerPairing(record);
+    expect(await secrets.getPendingOwnerPairing()).toEqual(record);
+    await secrets.clearPendingOwnerPairing();
+    expect(await secrets.getPendingOwnerPairing()).toBeNull();
   });
 
   describe('SecretStorage 64-char key ceiling (regression guard)', () => {
@@ -94,6 +106,11 @@ describe('ObsidianOnboardingSecrets', () => {
         refreshToken: 'hm_rt_cur',
         rotationId: 'rot-1',
         successorRefreshToken: 'hm_rt_next',
+      });
+      await uuidSecrets.savePendingOwnerPairing({
+        apiBaseUrl: 'https://sync.example',
+        pairingToken: 'hm_pt_once',
+        refreshToken: 'hm_rt_current',
       });
 
       const keys = uuidStorage.listSecrets();

@@ -189,8 +189,8 @@ defeats the entire model.
 Once connected, the vault's owner issues invitations without touching a
 terminal:
 
-1. Owner: command palette → **Havemind: Create invitation (owner)**. This
-   opens the Connect screen with a one-time invitation envelope to copy.
+1. Owner: command palette → **Havemind: Create connection (owner)**. This
+   opens the Havemind pane with a one-time invitation envelope to copy.
 2. Owner hands that envelope to the joining person over a trusted channel
    (it's a secret, single-use, and expires quickly).
 3. Joining person: command palette → **Havemind: Connect to Havemind**, paste

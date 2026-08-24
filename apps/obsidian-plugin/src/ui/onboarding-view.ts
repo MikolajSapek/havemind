@@ -129,6 +129,8 @@ export interface GuestWaitingViewModel {
 
 /** Injected data + actions for the onboarding surface. */
 export interface OnboardingViewOptions {
+  /** Releases the plugin's active-view reference when Obsidian closes this leaf. */
+  readonly onClosed?: () => void;
   /**
    * The revision feed, rendered as a collapsed section of this pane rather
    * than a separate destination (plans/007 Stage 0). Reads the same provider
@@ -320,6 +322,10 @@ export class HavemindOnboardingView extends ItemView {
 
   override onOpen(): void {
     this.render();
+  }
+
+  override onClose(): void {
+    this.options.onClosed?.();
   }
 
   /** Re-renders from the current panel state — called on every status change. */

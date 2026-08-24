@@ -18,7 +18,7 @@ every human and every agent works from one continuously-synced brain. You write,
 your Claude writes, their Claude writes — Havemind keeps it one coherent
 knowledge base, live, with full authorship and zero silent overwrites.
 
-**Version 1.1.1 — stable.** The seven-day pilot closed on 2026-08-07 with zero
+**Version 1.1.8 — private pilot.** The seven-day pilot closed on 2026-08-07 with zero
 data loss across real two-device use. Note that content is stored on the server
 in plaintext and there is no end-to-end encryption, so the machine running the
 server is the trust boundary — see [Security model](#security-model) before
@@ -144,7 +144,7 @@ npm ci
 npm run build
 npm run typecheck
 npm run lint
-npm test            # 1200+ unit/integration tests
+npm test            # unit and integration tests
 npm run test:e2e    # two-device fault matrix
 ```
 

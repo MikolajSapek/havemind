@@ -106,9 +106,8 @@ export async function startSyncLoop(
     saveRefreshToken: (value) => secrets.saveRefreshToken(value),
     generateRotationId: generateRotationIdValue,
     generateSuccessorToken: generateRefreshTokenValue,
-    // GAP-5: durable in-flight rotation persistence. Connect-safe — the
-    // provider swallows any load/save/clear failure and degrades to
-    // in-memory-only, so a SecretStorage outage never aborts connect or sync.
+    // Durable in-flight rotation persistence. A failed load or save is
+    // fail-closed: minting an unrecoverable rotation could burn the token family.
     loadPendingRotation: () => secrets.getPendingRotation(),
     savePendingRotation: (record) => secrets.savePendingRotation(record),
     clearPendingRotation: () => secrets.clearPendingRotation(),
