@@ -4,8 +4,13 @@
 havemind-action-row
 havemind-activity
 havemind-activity-action
+havemind-activity-copy
+havemind-activity-main
+havemind-activity-path
 havemind-activity-row
 havemind-activity-time
+havemind-activity-trail
+havemind-activity-who
 havemind-alarm
 havemind-alarm-conflict
 havemind-alarm-rows
@@ -99,7 +104,10 @@ havemind-reset
 havemind-retry
 havemind-roster-action
 havemind-roster-action-armed
+havemind-roster-copy
 havemind-roster-dot
+havemind-roster-meta
+havemind-roster-name
 havemind-roster-row
 havemind-roster-row-height
 havemind-row-color
@@ -117,7 +125,9 @@ havemind-status-bar
 havemind-status-detail
 havemind-status-dot
 havemind-status-dot-idle
+havemind-status-line
 havemind-status-spin
+havemind-status-time
 havemind-step
 havemind-step-link
 havemind-step-number

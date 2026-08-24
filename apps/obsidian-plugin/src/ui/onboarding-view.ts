@@ -577,8 +577,19 @@ export class HavemindOnboardingView extends ItemView {
       setIcon(icon, panel.icon);
     }
     row.createEl('span', { text: ` ${panel.label}` });
-    const detail = content.createDiv({ text: panel.detail });
+    const detail = content.createDiv();
     detail.addClass('havemind-status-detail');
+    for (const part of panel.detail.split(' · ')) {
+      const line = detail.createEl('span');
+      line.addClass('havemind-status-line');
+      const lastSync = /^Last sync:\s*(.+)$/.exec(part);
+      if (lastSync?.[1] !== undefined) {
+        line.appendText('Last sync: ');
+        line.createEl('span', { text: lastSync[1] }).addClass('havemind-status-time');
+      } else {
+        line.setText(part);
+      }
+    }
 
     // A "Retry now" affordance for the non-synced backoff/terminal states
     // (offline waiting on the sync runner's backoff, or a terminal

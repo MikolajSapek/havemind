@@ -50,19 +50,26 @@ export function renderActivityRows(
     // `kind · path · actor` string still lives on `row.label` for anything
     // that reads it; nothing about the data changes.
     const text = entry.createDiv();
-    text.createDiv({ text: row.headline });
-    text.createDiv({ text: row.pathLabel }).addClass('havemind-hint');
+    text.addClass('havemind-activity-main');
+    text.addClass('havemind-activity-copy');
+    text.createDiv({ text: row.headline }).addClass('havemind-activity-who');
+    const path = text.createDiv({ text: row.pathLabel });
+    path.addClass('havemind-hint');
+    path.addClass('havemind-activity-path');
     // Author colour as a left accent, paired with the author name already in
     // the headline — colour is never the only signal (accessibility rule).
     entry.style.setProperty('--havemind-row-color', `var(${row.colorToken})`);
-    // The Restore button stays the first child so the F5 restore contract is
-    // unchanged; the time is appended after it.
+    // The trailing column owns the compact timestamp and Restore action. It is
+    // deliberately a non-shrinking sibling of the wrapping text column, so a
+    // long vault path can never push either control beyond the sidebar edge.
+    const trail = entry.createDiv();
+    trail.addClass('havemind-activity-trail');
     if (row.canRestore && options.onRestore) {
-      const restore = entry.createEl('button', { text: 'Restore' });
+      const restore = trail.createEl('button', { text: 'Restore' });
       restore.addClass('havemind-activity-action');
       restore.onClickEvent(() => options.onRestore?.(row.revisionId));
     }
-    const time = entry.createEl('span', { text: ` ${row.timeLabel}` });
+    const time = trail.createEl('span', { text: row.timeLabel });
     time.addClass('havemind-activity-time');
   }
 

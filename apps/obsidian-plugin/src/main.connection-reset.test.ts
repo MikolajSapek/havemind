@@ -330,7 +330,7 @@ describe('Reset connection action (P1 #5)', () => {
 
   it('explains the broken state in the panel detail instead of blaming the server', async () => {
     const panel = buildConnectionPanel({ status: 'reset-required' });
-    expect(panel.label).toBe('Connection data damaged');
+    expect(panel.label).toBe('Not connected');
     expect(panel.detail).toContain(
       'The stored connection data is incomplete or unreadable.',
     );

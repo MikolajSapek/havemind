@@ -27,10 +27,10 @@ export function prefersReducedMotion(): boolean {
  */
 export const DECORATIVE = { 'aria-hidden': 'true' } as const;
 
-/** Compact local time for an activity row (e.g. "16 Jul, 15:42"). */
+/** Compact local clock time for an activity row (e.g. "15:42"). */
 export function formatActivityTime(timestamp: number): string {
   const date = new Date(timestamp);
-  return `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
 /**

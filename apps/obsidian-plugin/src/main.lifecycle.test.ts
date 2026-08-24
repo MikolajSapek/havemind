@@ -776,7 +776,9 @@ describe('plugin lifecycle', () => {
     expect(textBlock?.children[0]?.text).toBe('Alice edit');
     expect(textBlock?.children[1]?.text).toBe('Notes/a.md');
 
-    const restoreButton = rows[1]?.children[1];
+    const restoreButton = flatten(rows[1] as MockElement).find(({ classes }) =>
+      classes.includes('havemind-activity-action'),
+    );
     restoreButton?.triggerClick();
     expect(restored).toEqual(['rev-1']);
   });
@@ -813,7 +815,9 @@ describe('plugin lifecycle', () => {
       ?.(new WorkspaceLeaf());
     await view?.onOpen();
     const container = view?.containerEl as unknown as MockElement;
-    const restoreButton = container.children[1]?.children[1]?.children[1];
+    const restoreButton = flatten(container).find(({ classes }) =>
+      classes.includes('havemind-activity-action'),
+    );
     expect(restoreButton?.text).toBe('Restore');
 
     restoreButton?.triggerClick();

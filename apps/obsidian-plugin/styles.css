@@ -480,6 +480,15 @@
   stroke: currentColor;
 }
 
+.havemind-status-time {
+  color: var(--text-normal);
+  font-variant-numeric: tabular-nums;
+}
+
+.havemind-status-line {
+  display: block;
+}
+
 /* --- the "comb" sync glyph -------------------------------------------------
    Syncing spins a hexagon: one full turn per 1.3s. `setIcon(icon,'hexagon')`
    supplies the shape (see render-tweaks.md); the animation is pure CSS, so no
@@ -540,32 +549,36 @@
 }
 
 .havemind-roster-dot {
-  display: inline-flex;
-  align-items: center;
-  flex: none;
-}
-
-.havemind-roster-dot .svg-icon {
   width: var(--havemind-status-dot-size);
   height: var(--havemind-status-dot-size);
-  fill: currentColor;
-  stroke: currentColor;
+  flex: none;
+  border-radius: 50%;
+  background: currentColor;
 }
 
-/* A disconnected member keeps the outlined "circle-off" glyph, unfilled. */
-.havemind-roster-row .havemind-roster-dot .svg-icon[class*='circle-off'],
-.havemind-roster-dot.is-disconnected .svg-icon {
-  width: 10px;
-  height: 10px;
-  fill: none;
+.havemind-roster-dot.is-disconnected {
+  width: 9px;
+  height: 9px;
+  box-sizing: border-box;
+  border: 1.5px solid var(--text-faint);
+  background: none;
 }
 
-/* Name + role/status stack. */
-.havemind-roster-row > span:not([class]) {
+.havemind-roster-copy {
   flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.havemind-roster-name {
+  color: var(--text-normal);
+  font-size: var(--havemind-roster-name-size);
+}
+
+.havemind-roster-meta {
+  color: var(--text-faint);
+  font-size: var(--havemind-roster-meta-size);
 }
 
 .havemind-roster-action,
@@ -650,36 +663,68 @@
   background: var(--havemind-row-color, var(--text-faint));
 }
 
+/* This is the only flexible column in a row. Without `min-width: 0`, a long
+   vault path uses its intrinsic width and pushes the timestamp and Restore
+   action out of the sidebar instead of wrapping inside the available space. */
+.havemind-activity-copy {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.havemind-activity-who {
+  color: var(--text-normal);
+  font-size: var(--havemind-roster-name-size);
+}
+
+.havemind-activity-path {
+  display: block;
+  margin-top: 1px;
+  overflow: hidden;
+  color: var(--text-faint);
+  font-size: var(--havemind-roster-meta-size);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+}
+
+.havemind-activity-trail {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
 .havemind-activity-action,
 .havemind-view button.havemind-activity-action {
-  order: 3;
-  margin-left: auto;
-  flex: none;
   padding: 0;
   border: none;
   box-shadow: none;
   background: transparent;
   color: var(--havemind-accent);
-  font-size: var(--font-ui-smaller);
+  font-size: var(--havemind-row-time-size);
+  font-weight: 500;
+  opacity: 0.62;
   cursor: pointer;
 }
 
 .havemind-view button.havemind-activity-action:hover {
   background: transparent;
   text-decoration: underline;
+  opacity: 1;
+}
+
+.havemind-activity-row:hover .havemind-activity-action {
+  opacity: 1;
 }
 
 .havemind-activity-time {
-  order: 2;
-  margin-left: auto;
   color: var(--text-faint);
-  font-size: var(--font-ui-smaller);
+  font-size: var(--havemind-row-time-size);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-}
-
-.havemind-activity-action + .havemind-activity-time {
-  margin-left: auto;
 }
 
 /* =========================================================================
@@ -1244,14 +1289,8 @@
   background: none;
 }
 
-/* The resize ladder (round 2, Q2). Three steps, because each fails for a
-   different reason:
-     ≥330px  icon over label — fits, but 44px tall and the icons do no work
-     250–329 label only, 30px tall — the default
-     <250px  icon only + tooltip; a word truncated to "Activi…" is worse than
-             a glyph you can hover
-   Labels never truncate at any width, because the layout changes before they
-   have to. */
+/* The handoff keeps labels in one compact row at every practical sidebar
+   width. Icons take over only below 250px, where words would truncate. */
 .havemind-tab-icon { display: none; }
 .havemind-tab-label {
   max-width: 100%;
@@ -1271,21 +1310,6 @@
 .havemind-view button.havemind-tab.needs-attention .havemind-tab-count {
   color: var(--havemind-bad);
   font-weight: var(--font-medium);
-}
-
-@container havemind-pane (min-width: 330px) {
-  .havemind-tab,
-  .havemind-view button.havemind-tab {
-    flex-direction: column;
-    gap: 3px;
-    /* The stacked step is the one rung sized by padding rather than height:
-       icon over label has no single line to set a height from. */
-    height: auto;
-    padding: var(--havemind-tab-stack-pad);
-  }
-  .havemind-tab-icon { display: flex; }
-  .havemind-tab-icon .svg-icon { width: var(--havemind-tab-icon); height: var(--havemind-tab-icon); }
-  .havemind-tab-label { font-size: 10.5px; }
 }
 
 @container havemind-pane (max-width: 249px) {

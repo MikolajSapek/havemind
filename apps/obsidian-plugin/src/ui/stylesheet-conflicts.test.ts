@@ -192,6 +192,16 @@ describe('stylesheet — the resize ladder measures something other than itself'
   });
 });
 
+describe('stylesheet — activity rows stay inside the sidebar', () => {
+  it('makes the activity copy the only shrinkable, wrapping column', () => {
+    const copyRule = css.match(/\.havemind-activity-copy\s*\{([^}]*)\}/)?.[1] ?? '';
+
+    expect(copyRule).toContain('flex: 1 1 0');
+    expect(copyRule).toContain('min-width: 0');
+    expect(copyRule).toContain('overflow-wrap: anywhere');
+  });
+});
+
 describe('stylesheet — every class it styles is one the code renders', () => {
   it('has no rules for elements that no longer exist', () => {
     // `.havemind-comb` styled a `renderCombGlyph()` that was never written, and

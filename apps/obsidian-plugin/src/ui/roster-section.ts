@@ -8,8 +8,6 @@
  * two-step confirms that call back into the plugin.
  */
 
-import { setIcon } from 'obsidian';
-
 import type { RejoinRosterView } from '../runtime/rejoin-roster';
 
 import { DECORATIVE } from './primitives';
@@ -66,14 +64,16 @@ export function renderRejoinRoster(
       'color',
       row.self ? 'var(--interactive-accent)' : `var(${row.colorToken})`,
     );
-    setIcon(dot, row.connected ? 'circle' : 'circle-off');
     const text = item.createDiv();
-    text.createDiv({ text: row.displayName });
-    text.createDiv({
+    text.addClass('havemind-roster-copy');
+    text.createDiv({ text: row.displayName }).addClass('havemind-roster-name');
+    const meta = text.createDiv({
       text: row.self
         ? `${row.role} · you`
         : `${row.role} · ${row.statusLabel}`,
-    }).addClass('havemind-hint');
+    });
+    meta.addClass('havemind-hint');
+    meta.addClass('havemind-roster-meta');
 
     if (row.rejoinable && actions.onRejoin) {
       if (actions.waiting.has(row.membershipId)) {

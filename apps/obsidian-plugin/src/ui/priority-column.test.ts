@@ -76,7 +76,7 @@ describe('priority column — calm state', () => {
     );
 
     expect(detail).toBeDefined();
-    expect((detail?.text ?? '').length).toBeGreaterThan(0);
+    expect(flatten(detail as MockElement).map((el) => el.text).join('')).not.toBe('');
   });
 
   it('renders no uppercase section captions', () => {

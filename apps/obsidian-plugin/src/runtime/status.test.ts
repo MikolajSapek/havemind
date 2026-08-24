@@ -32,7 +32,7 @@ describe('buildConnectionPanel', () => {
     });
     expect(panel.colorToken).toBe('--text-success');
     expect(panel.icon).toBe('check-circle');
-    expect(panel.label).toBe('Connected — synced');
+    expect(panel.label).toBe('Connected · synced');
     expect(panel.showForm).toBe(false);
     // The address is carried on its own field now, not spliced into the detail
     // line: the pane shows it in the overflow menu, so the status line keeps

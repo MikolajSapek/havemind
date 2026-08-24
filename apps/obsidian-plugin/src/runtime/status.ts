@@ -62,6 +62,7 @@ export const RESET_REQUIRED_DETAIL =
   'The stored connection data is incomplete or unreadable. Reset the connection and pair this device again.';
 
 const NO_E2EE_NOTE = 'Private Tailscale network only — no end-to-end encryption.';
+const PANE_NETWORK_NOTE = 'Private Tailscale network · Encrypted in transit';
 
 /**
  * What the user sees while a remote change is held back. It says what is
@@ -210,7 +211,7 @@ const PANEL_STYLES: Readonly<Record<ConnectionStatus, PanelStyle>> = {
   },
   syncing: {
     icon: 'hexagon',
-    label: 'Syncing…',
+    label: 'Connected · syncing',
     colorToken: '--text-accent',
     spin: true,
     showForm: false,
@@ -226,14 +227,14 @@ const PANEL_STYLES: Readonly<Record<ConnectionStatus, PanelStyle>> = {
   },
   synced: {
     icon: 'check-circle',
-    label: 'Connected — synced',
+    label: 'Connected · synced',
     colorToken: '--text-success',
     spin: false,
     showForm: false,
   },
   offline: {
     icon: 'cloud-off',
-    label: 'Offline — will retry',
+    label: 'Offline · queued',
     colorToken: '--text-warning',
     spin: false,
     showForm: false,
@@ -265,7 +266,7 @@ const PANEL_STYLES: Readonly<Record<ConnectionStatus, PanelStyle>> = {
   // device afresh overwrites the broken record and is an equally valid way out.
   'reset-required': {
     icon: 'alert-triangle',
-    label: 'Connection data damaged',
+    label: 'Not connected',
     colorToken: '--text-error',
     spin: false,
     showForm: true,
@@ -301,7 +302,7 @@ export function buildConnectionPanel(
   if (input.status === 'reset-required') {
     parts.push(input.errorMessage ?? RESET_REQUIRED_DETAIL);
   }
-  parts.push(NO_E2EE_NOTE);
+  parts.push(PANE_NETWORK_NOTE);
 
   return {
     status: input.status,
