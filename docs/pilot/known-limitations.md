@@ -24,13 +24,12 @@ Notes where any path segment starts with a dot (e.g.
 safe (under-sync, never over-sync), but such notes stay local
 without any warning.
 
-**Exception (as of commit `dcd366f`):** `.obsidian/` now has its own, separate
-config-mirroring mechanism (theme, colours, hotkeys, snippets, third-party
-plugin code) via adapter polling, independent of the dot-path guard
-above. This mechanism has its own hard denylist that stays local on
-each machine: every `data.json`, `workspace.json`, `community-plugins.json`,
-and the `havemind-sync` folder. Outside this exception, `.obsidian/` is still subject
-to the general dot-path guard described above.
+**Exception (as of commit `dcd366f`):** `.obsidian/` has a separate appearance
+mirror for themes, snippets, appearance, hotkeys, core-plugin and graph settings.
+It is an explicit allowlist: all third-party plugin code and data, every
+`data.json`, `workspace.json`, `community-plugins.json`, and the
+`havemind-sync` folder stay local on each machine. Outside this exception,
+`.obsidian/` is still subject to the general dot-path guard described above.
 
 **Recommendation:** do not keep your own notes in dot-paths or in the
 `Havemind Conflicts/` folder.

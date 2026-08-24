@@ -1,7 +1,7 @@
 # Installing the Havemind plugin on both MacBooks (pilot)
 
 This guide installs the desktop Havemind Obsidian plugin from the built package
-in `apps/obsidian-plugin/dist/` onto the two pilot MacBooks. It is a manual
+in `apps/obsidian-plugin/` onto the two pilot MacBooks. It is a manual
 "unmanaged plugin" install — Havemind is private and is not in the Obsidian
 community catalogue.
 
@@ -10,17 +10,18 @@ community catalogue.
 
 ## What the package contains
 
-`apps/obsidian-plugin/dist/`:
+`apps/obsidian-plugin/` after a build:
 
 - `main.js` — the bundled plugin (built with `npm run build` in the workspace).
 - `manifest.json` — plugin id `havemind-sync`, desktop-only.
+- `styles.css` — the Havemind pane stylesheet.
 
 Rebuild any time with:
 
 ```bash
 npm ci
 npm run build --workspace @havemind/obsidian-plugin
-# → apps/obsidian-plugin/main.js (also copy into dist/ for distribution)
+# → apps/obsidian-plugin/{main.js,manifest.json,styles.css}
 ```
 
 ## Prerequisites (both machines)
@@ -43,15 +44,16 @@ npm run build --workspace @havemind/obsidian-plugin
    <vault>/.obsidian/plugins/havemind-sync/
    ```
 
-4. Copy `main.js` and `manifest.json` from `apps/obsidian-plugin/dist/` into
-   that folder. The folder must contain exactly those two files.
+4. Copy `main.js`, `manifest.json` and `styles.css` from
+   `apps/obsidian-plugin/` into that folder.
 5. In Obsidian: **Settings → Community plugins**. If "Restricted mode" is on,
    turn it off (this only enables community plugins locally; nothing is
    published).
 6. Under **Installed plugins**, click the refresh icon, find **Havemind**, and
    toggle it **on**.
-7. Open the command palette (`Cmd+P`) → **Havemind: Open activity**, or click
-   the ribbon icon, to confirm the plugin loaded. The status bar shows
+7. Click the Havemind hexagon in the ribbon to open the pane (or use the command
+   palette → **Havemind: Connect to Havemind**) and confirm the plugin loaded.
+   The status bar shows
    `Havemind: disconnected` until the vault is connected.
 
 ## Second device — extra step
@@ -92,10 +94,9 @@ shell — zero networking, `Havemind: disconnected`.
 
 The owner (whoever ran `setup`) can mint invitations without touching a
 terminal. On the owner's connected machine: command palette (`Cmd+P`) →
-**Havemind: Create invitation (owner)**. The plugin calls the server's
-owner-only invitation endpoint with its access token and opens the Connect
-screen showing the `v1.…` envelope to copy. The envelope contains a secret, is
-single-use, and expires in **15 minutes** — hand it to the second participant
+**Havemind: Create connection (owner)**. The pane creates the invitation and
+approves the joining device in one flow. The `v1.…` envelope contains a secret,
+is single-use, and expires in **15 minutes** — hand it to the second participant
 over a trusted channel promptly and never paste it into logs or chat.
 
 ## Remote-only files

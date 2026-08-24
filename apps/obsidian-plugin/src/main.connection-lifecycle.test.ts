@@ -228,6 +228,28 @@ describe('connectFromInput lifecycle safety', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((plugin as any).connection).toBe(existing);
   });
+
+  it('keeps the working connection when a replacement flow does not connect', async () => {
+    const plugin = newPlugin();
+    const existing = fakeHandle('existing');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (plugin as any).connection = existing;
+    adapterMocks.connectFromInput.mockResolvedValue(null);
+
+    await (
+      plugin as unknown as {
+        connectFromInput: (
+          input: string,
+          serverUrl: string,
+          report: (message: string) => void,
+        ) => Promise<void>;
+      }
+    ).connectFromInput('bad-input', 'https://sapserver.example', () => {});
+
+    expect(existing.stop).not.toHaveBeenCalled();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((plugin as any).connection).toBe(existing);
+  });
 });
 
 /** Flush the microtask queue so a `void this.armRejoin()` settles before asserting. */

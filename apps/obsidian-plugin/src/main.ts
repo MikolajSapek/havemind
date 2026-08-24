@@ -357,10 +357,16 @@ export default class HavemindPlugin extends Plugin {
         recoveryRequiredProvider: () =>
           this.syncState?.isRecoveryRequired() ?? false,
         onRetrySend: (revisionId) => {
-          void this.retrySend(revisionId);
+          void this.retrySend(revisionId).catch(() => {
+            new Notice('Havemind: could not retry this queued change.');
+            this.views.refreshOnboarding();
+          });
         },
         onDiscardSend: (revisionId) => {
-          void this.discardSend(revisionId);
+          void this.discardSend(revisionId).catch(() => {
+            new Notice('Havemind: could not discard this queued change.');
+            this.views.refreshOnboarding();
+          });
         },
         rejoinRosterProvider: () => this.rejoinRosterView(),
         rejoinWaitingProvider: () => this.rejoinWaiting,
@@ -631,12 +637,21 @@ export default class HavemindPlugin extends Plugin {
       // Record the approved device as a PERSISTENT roster member (green until an
       // explicit teardown). The owner's client already knows the display name,
       // role and server membershipId at approval time — endpoint-free.
-      void this.recordRosterMember({
-        membershipId: approved.membershipId,
-        displayName: approvedName ?? 'Member',
-        role: approvedEntry?.intendedRole ?? 'editor',
-        self: false,
-      });
+      try {
+        await this.recordRosterMember({
+          membershipId: approved.membershipId,
+          displayName: approvedName ?? 'Member',
+          role: approvedEntry?.intendedRole ?? 'editor',
+          self: false,
+        });
+      } catch {
+        // The server has already approved the device. Do not falsely report a
+        // rejected approval, but make the local durability failure actionable.
+        report(
+          'Device approved, but its local roster entry could not be saved. Reconnect to retry the local save.',
+        );
+        return;
+      }
       this.pendingApprovals = this.pendingApprovals.filter(
         (entry) => entry.invitationId !== invitationId,
       );
@@ -674,7 +689,22 @@ export default class HavemindPlugin extends Plugin {
     }
   }
 
+  /** Starts sync without allowing startup failures to escape UI/event callbacks. */
   private async startConnection(): Promise<void> {
+    try {
+      await this.startConnectionOnce();
+    } catch {
+      if (this.unloaded) return;
+      this.connectionStatus = 'offline';
+      this.connectionError = 'Havemind could not start syncing. Try reconnecting.';
+      this.setStatus(formatStatusBar({ status: 'offline' }));
+      new Notice('Havemind: could not start syncing. Try reconnecting.');
+      this.views.refreshOnboarding();
+    }
+  }
+
+  /** The fallible connection build, kept separate from the UI-facing boundary. */
+  private async startConnectionOnce(): Promise<void> {
     // Load the persisted roster first so a reopened, already-connected vault
     // shows its connected members immediately (never derived from activity).
     await this.loadRoster();
@@ -789,6 +819,19 @@ export default class HavemindPlugin extends Plugin {
   private async openConflictModal(
     copyPath: string,
   ): Promise<ConflictResolveModal | null> {
+    try {
+      return await this.openConflictModalOnce(copyPath);
+    } catch {
+      new Notice('Havemind: could not open this conflict. Try again.');
+      this.views.refreshOnboarding();
+      return null;
+    }
+  }
+
+  /** The fallible vault read and modal construction behind the safe UI boundary. */
+  private async openConflictModalOnce(
+    copyPath: string,
+  ): Promise<ConflictResolveModal | null> {
     const port = this.conflictPort();
     const copy = listConflictCopies(port).find((c) => c.copyPath === copyPath);
     if (copy === undefined) return null;
@@ -853,6 +896,9 @@ export default class HavemindPlugin extends Plugin {
       displayName: 'You',
       role: self.role,
       self: true,
+    }).catch(() => {
+      new Notice('Havemind: could not save this device in the member roster.');
+      this.views.refreshOnboarding();
     });
   }
 
@@ -891,15 +937,10 @@ export default class HavemindPlugin extends Plugin {
   ): Promise<void> {
     // A fresh paste clears any prior "invitation invalid" screen.
     this.guestInvitationInvalid = false;
-    // Quiesce any previous connection BEFORE the new loop is built and fires its
-    // first cycle. `startSyncLoop` triggers an initial sync synchronously on
-    // `controller.start()`, so unless the prior connection is stopped first its
-    // runner (and pending backoff) can race a push onto the wire under the old
-    // identity during the reconnect window — the stale-identity 403 burst. This
-    // is an explicit user-initiated (re)connect, so replacing the connection is
-    // the intended outcome; the new identity is the only one that pushes after.
-    this.connection?.stop();
-    this.connection = null;
+    // Keep a working connection until the replacement flow has actually
+    // succeeded. A malformed paste, rejected code, or transient outage must not
+    // disconnect a healthy vault.
+    const previousConnection = this.connection;
     const handle = await connectFromInput(this, input, serverUrl, {
       report,
       onStatus: (status, view) => this.handleStatus(status, view),
@@ -932,13 +973,12 @@ export default class HavemindPlugin extends Plugin {
       // Without the `connection !== null` arm this late handle would clobber and
       // orphan that live connection. Same stop-the-newcomer, keep-the-existing
       // invariant startConnection enforces.
-      if (this.unloaded || this.connection !== null) {
+      if (this.unloaded || this.connection !== previousConnection) {
         handle.stop();
         return;
       }
-      // Connected: the wait is over. The prior connection was already stopped
-      // above, before this new loop started, so nothing stale is left to tear
-      // down here.
+      // The replacement is live; only now is it safe to stop the old handle.
+      previousConnection?.stop();
       this.awaitingApproval = null;
       this.guestInvitationInvalid = false;
       this.connection = handle;

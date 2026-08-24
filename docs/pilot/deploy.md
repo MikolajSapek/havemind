@@ -237,7 +237,7 @@ redeems it at `POST /owner/pair` (deny-by-default, rate-limited, single-use),
 stores a rotating refresh token in SecretStorage, and starts syncing (status bar
 `Havemind: Synced`). From then it can mint short-lived access tokens via
 `POST /auth/refresh` and create invitations from the plugin (command
-**Havemind: Create invitation (owner)**, which performs step 5b for you).
+**Havemind: Create connection (owner)**, which performs step 5b for you).
 
 ### 5b. Create the invitation (owner, authenticated)
 

@@ -62,7 +62,7 @@ export function parseOwnerConnection(raw: unknown): OwnerConnectionReadResult {
   // retry, backoff or rejoin can ever succeed.
   if (
     !isRecord(raw) ||
-    typeof raw.apiBaseUrl !== 'string' ||
+    !isCanonicalHttpsOrigin(raw.apiBaseUrl) ||
     typeof raw.vaultId !== 'string'
   ) {
     return { status: 'corrupt', raw };
@@ -77,6 +77,25 @@ export function parseOwnerConnection(raw: unknown): OwnerConnectionReadResult {
       ...(typeof raw.deviceId === 'string' ? { deviceId: raw.deviceId } : {}),
     },
   };
+}
+
+/** Only a canonical HTTPS origin may ever receive a persisted refresh token. */
+function isCanonicalHttpsOrigin(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === 'https:' &&
+      url.username.length === 0 &&
+      url.password.length === 0 &&
+      url.pathname === '/' &&
+      url.search.length === 0 &&
+      url.hash.length === 0 &&
+      url.origin === value
+    );
+  } catch {
+    return false;
+  }
 }
 
 async function readOwnerConnectionResult(

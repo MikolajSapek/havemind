@@ -102,7 +102,7 @@ npm run typecheck
 npm run lint
 npm test
 npm run test:coverage
-npm run test:integration
+npm run test
 npm run dev:server
 npm run dev:plugin
 npm run compose:smoke
