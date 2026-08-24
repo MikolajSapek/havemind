@@ -93,7 +93,7 @@ describe('the tab body survives a throwing provider', () => {
 
     // The strip is how the user leaves a broken tab for a working one.
     const tabs = all.filter((el) => el.attrs['role'] === 'tab');
-    expect(tabs).toHaveLength(3);
+    expect(tabs).toHaveLength(4);
     expect(all.some((el) => el.classes.includes('havemind-pane-header'))).toBe(
       true,
     );

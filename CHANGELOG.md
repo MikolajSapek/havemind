@@ -5,6 +5,26 @@ All notable changes to this project are documented here. The format is based on
 follows independent [Semantic Versioning](https://semver.org) for the plugin
 and the server.
 
+## [1.2.0] — 2026-08-24 — Panel Redesign & Connection Reliability
+
+### Added
+
+- Redesigned Havemind sidebar with Status, Activity, People, and Connect tabs;
+  the Connect tab brings sync, recovery, server, and disconnect controls into
+  one place.
+- Owner invitation composer has an explicit Close action, so it never traps the
+  user in the create-connection screen.
+
+### Fixed
+
+- The sidebar tab uses the Havemind hexagon in Obsidian's top bar.
+- Server context appears after the overflow-menu actions rather than splitting
+  them.
+- Copy invitation confirms success only after clipboard access succeeds and
+  provides a manual-copy fallback when it does not.
+- Unexpected connect-flow errors are reported in the panel rather than leaving
+  an unhandled asynchronous error.
+
 ## [1.1.8] — 2026-08-20
 
 ### Added

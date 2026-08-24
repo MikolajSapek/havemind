@@ -324,6 +324,7 @@ describe('plugin lifecycle', () => {
     const view = registrationState.views
       .get(HAVEMIND_ONBOARDING_VIEW)
       ?.(new WorkspaceLeaf());
+    expect(view?.getIcon()).toBe('hexagon');
     await view?.onOpen();
     const all = flatten(view?.containerEl as unknown as MockElement);
     expect(all.some(({ text }) => text === 'Creating connection')).toBe(true);
@@ -416,7 +417,10 @@ describe('plugin lifecycle', () => {
         },
         pending: [],
       }),
-      onCopyInvitation: (envelope) => copied.push(envelope),
+      onCopyInvitation: (envelope) => {
+        copied.push(envelope);
+        return true;
+      },
     });
     await view.onOpen();
 
@@ -430,6 +434,34 @@ describe('plugin lifecycle', () => {
 
     all.find(({ text }) => text === 'Copy')?.triggerClick();
     expect(copied).toEqual(['v1.COPYME']);
+  });
+
+  it('offers manual copying when the clipboard is unavailable', async () => {
+    const view = new HavemindOnboardingView(new WorkspaceLeaf(), {
+      composerProvider: () => ({
+        role: 'editor',
+        name: '',
+        invitation: {
+          envelope: 'v1.COPYME',
+          expiresAt: '2026-07-16T10:15:00.000Z',
+          invitationId: 'id-1',
+        },
+        pending: [],
+      }),
+      onCopyInvitation: () => false,
+    });
+    await view.onOpen();
+
+    const content = (view.containerEl as unknown as MockElement).children[1];
+    const all = flatten(content as MockElement);
+    all.find(({ text }) => text === 'Copy')?.triggerClick();
+    await Promise.resolve();
+
+    expect(
+      flatten(content as MockElement).some(({ text }) =>
+        text.includes('Could not copy automatically.'),
+      ),
+    ).toBe(true);
   });
 
   it('approves a waiting device without tearing down the create section', async () => {
@@ -1031,6 +1063,38 @@ describe('plugin lifecycle', () => {
     expect(disconnect).toBeDefined();
     disconnect?.triggerClick();
     expect(disconnected).toBe(1);
+  });
+
+  it('places the server address below every overflow-menu action', async () => {
+    const view = new HavemindOnboardingView(new WorkspaceLeaf(), {
+      panelProvider: () =>
+        buildConnectionPanel({ status: 'synced', serverName: 'sap.ts.net' }),
+      onSyncNow: () => undefined,
+      onDisconnect: () => undefined,
+      onReset: () => undefined,
+    });
+    await view.onOpen();
+
+    const root = view.containerEl as unknown as MockElement;
+    flatten(root)
+      .find((element) => element.attrs['aria-label'] === 'More options')
+      ?.triggerClick();
+    await view.onOpen();
+
+    const menuEntries = flatten(view.containerEl as unknown as MockElement)
+      .filter(
+        (element) =>
+          element.classes.includes('havemind-pane-menu-item') ||
+          element.classes.includes('havemind-pane-menu-note'),
+      )
+      .map(({ text }) => text);
+    expect(menuEntries).toEqual([
+      'Sync now',
+      'Show getting started',
+      'Disconnect',
+      'Reset connection',
+      'Server: sap.ts.net',
+    ]);
   });
 
   it('renders a "Retry now" button in the status section when offline', async () => {

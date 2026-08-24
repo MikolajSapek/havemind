@@ -161,7 +161,7 @@ describe('the minted invitation cannot be edited', () => {
         },
         pending: [],
       }),
-      onCopyInvitation: () => {},
+      onCopyInvitation: () => true,
     });
 
     // The `<code>` element renders the envelope but cannot be typed into; the

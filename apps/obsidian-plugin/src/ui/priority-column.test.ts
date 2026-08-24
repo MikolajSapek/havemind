@@ -42,24 +42,25 @@ function texts(root: MockElement): string[] {
   return flatten(root).map((el) => el.text);
 }
 
-describe('priority column — header', () => {
-  it('offers an overflow menu instead of a standing Disconnect button', () => {
-    // The designer cut the "Connection" block that echoed the user's own server
-    // URL: nobody needs their own address daily. It moves to the header
-    // overflow with Disconnect and Reset.
-    const root = pane();
-    const labels = flatten(root).map((el) => el.attrs['aria-label'] ?? '');
-
-    expect(labels.some((l) => /more options/i.test(l))).toBe(true);
-  });
-
-  it('does not spend a line on the user own server address', () => {
+describe('connection controls', () => {
+  it('makes connection management a visible tab', () => {
     const root = pane({
       panelProvider: () =>
         buildConnectionPanel({ status: 'synced', serverName: 'sap.ts.net' }),
+      onSyncNow: () => {},
+      onDisconnect: () => {},
     });
+    const connect = flatten(root).find(
+      (el) => el.attrs['role'] === 'tab' && /connect/i.test(el.attrs['aria-label'] ?? ''),
+    );
 
-    expect(texts(root).some((t) => t.includes('sap.ts.net'))).toBe(false);
+    expect(connect).toBeDefined();
+    connect?.triggerClick();
+
+    const visible = texts(root).join(' ');
+    expect(visible).toContain('sap.ts.net');
+    expect(visible).toContain('Sync now');
+    expect(visible).toContain('Disconnect and change server');
   });
 });
 
@@ -114,6 +115,26 @@ describe('entry chooser', () => {
 });
 
 describe('priority column — no duplicated sections', () => {
+  it('lets the owner close the invite composer before creating an invitation', () => {
+    let closed = 0;
+    const root = pane({
+      composerProvider: () => ({
+        role: 'editor',
+        name: '',
+        invitation: null,
+        pending: [],
+      }),
+      onCloseComposer: () => {
+        closed += 1;
+      },
+    });
+
+    const close = flatten(root).find((el) => el.text === 'Close');
+    expect(close).toBeDefined();
+    close?.triggerClick();
+    expect(closed).toBe(1);
+  });
+
   it('draws the roster once when the composer is open', () => {
     // The composer carried its own roster from when it was a separate screen.
     // Once it moved inside the People tab — which already draws the roster —

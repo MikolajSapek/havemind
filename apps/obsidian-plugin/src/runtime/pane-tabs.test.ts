@@ -8,14 +8,15 @@ const base: PaneTabsInput = {
 };
 
 describe('pane tabs', () => {
-  it('offers the same three tabs to everyone', () => {
-    // Inviting was a fourth, owner-only tab. A strip that changes shape by role
-    // makes the pane two different products to describe and support, so it
-    // became a modal launched from People instead.
+  it('offers the same four tabs to everyone', () => {
+    // Connection management must remain visible in the pane: hiding the server
+    // and recovery actions behind an overflow menu makes a connected vault
+    // look like it has no way to change or repair its connection.
     expect(buildPaneTabs(base).tabs.map((t) => t.id)).toEqual([
       'status',
       'activity',
       'people',
+      'connect',
     ]);
   });
 

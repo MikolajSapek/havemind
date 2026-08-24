@@ -1,6 +1,7 @@
 # Generated: every havemind-* class the plugin source can apply.
 # Refresh: node scripts/list-plugin-classes.mjs
 # A class here but not in styles.css is fine (unstyled); the reverse is a dead rule.
+havemind-action-row
 havemind-activity
 havemind-activity-action
 havemind-activity-row
@@ -26,6 +27,8 @@ havemind-author-mark-animate
 havemind-authors
 havemind-client-
 havemind-comb
+havemind-composer-close
+havemind-composer-title
 havemind-conflict-action
 havemind-conflict-action-armed
 havemind-conflict-buttons
@@ -42,8 +45,12 @@ havemind-conflict-modal
 havemind-conflict-modal-meta
 havemind-conflict-note
 havemind-conflict-row
+havemind-connect-block
+havemind-connect-label
+havemind-connect-row
 havemind-connect-server
 havemind-connect-token
+havemind-connect-value
 havemind-divider
 havemind-empty
 havemind-entry-back

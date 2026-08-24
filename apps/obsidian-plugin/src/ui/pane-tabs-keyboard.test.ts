@@ -62,22 +62,22 @@ describe('tab strip — arrow keys', () => {
   it('wraps from the last tab to the first', () => {
     // A tablist is a ring. Stopping at the end makes the user reverse all the
     // way back, which is exactly the friction the pattern exists to remove.
-    const { tabs, selected } = strip('people');
-    press(tabs[2] as MockElement, 'ArrowRight');
+    const { tabs, selected } = strip('connect');
+    press(tabs[3] as MockElement, 'ArrowRight');
     expect(selected).toEqual(['status']);
   });
 
   it('wraps from the first tab to the last', () => {
     const { tabs, selected } = strip('status');
     press(tabs[0] as MockElement, 'ArrowLeft');
-    expect(selected).toEqual(['people']);
+    expect(selected).toEqual(['connect']);
   });
 
   it('jumps to the first tab on Home and the last on End', () => {
     const { tabs, selected } = strip('activity');
     press(tabs[1] as MockElement, 'Home');
     press(tabs[1] as MockElement, 'End');
-    expect(selected).toEqual(['status', 'people']);
+    expect(selected).toEqual(['status', 'connect']);
   });
 
   it('leaves other keys to the browser', () => {
@@ -122,7 +122,7 @@ describe('tab strip — focus follows selection', () => {
 describe('tab strip — roving tabindex', () => {
   it('gives exactly one tab stop', () => {
     const { tabs } = strip('activity');
-    expect(tabs.map((tab) => tab.attrs['tabindex'])).toEqual(['-1', '0', '-1']);
+    expect(tabs.map((tab) => tab.attrs['tabindex'])).toEqual(['-1', '0', '-1', '-1']);
   });
 });
 

@@ -143,6 +143,8 @@ export interface OnboardingViewOptions {
   readonly onToggleAuthorOverlay?: () => void;
   /** Opens the owner's invite composer from the action bar. */
   readonly onOpenComposer?: () => void;
+  /** Closes the owner's invite composer and returns to the People tab. */
+  readonly onCloseComposer?: () => void;
   /** Forces a sync cycle from the action bar, matching the `sync-now` command. */
   readonly onSyncNow?: () => void;
   /**
@@ -240,7 +242,7 @@ export interface OnboardingViewOptions {
    */
   readonly onReset?: () => void;
   /** Copy the rendered invitation envelope to the clipboard (never logged). */
-  readonly onCopyInvitation?: (envelope: string) => void;
+  readonly onCopyInvitation?: (envelope: string) => boolean | Promise<boolean>;
   /** Mint an invitation for the given role and intended-member name. */
   readonly onCreateInvitation?: (
     role: InvitationRole,
@@ -313,7 +315,7 @@ export class HavemindOnboardingView extends ItemView {
   }
 
   override getIcon(): string {
-    return 'link';
+    return 'hexagon';
   }
 
   override getViewType(): string {
@@ -517,6 +519,11 @@ export class HavemindOnboardingView extends ItemView {
       return;
     }
 
+    if (tab === 'connect') {
+      this.renderConnectionControls(body, panel);
+      return;
+    }
+
     // People holds both who is here and how someone else gets here (round 2,
     // Q3): inviting is a momentary task, so it lives where "who is in this
     // vault" already lives rather than holding a permanent tab of its own.
@@ -549,7 +556,11 @@ export class HavemindOnboardingView extends ItemView {
     if (live.name) this.draft.name = live.name.value;
   }
 
-  private renderIndicator(content: HTMLElement, panel: ConnectionPanelView): void {
+  private renderIndicator(
+    content: HTMLElement,
+    panel: ConnectionPanelView,
+    includeRecovery = true,
+  ): void {
     const row = content.createDiv({ text: '' });
     row.addClass('havemind-status');
     if (panel.spin) row.addClass('havemind-status-spin');
@@ -572,6 +583,7 @@ export class HavemindOnboardingView extends ItemView {
     // retry) or conflict/disconnected (retry cannot help those). Lives in the
     // panel, not the status bar, since setText clobbers status-bar children.
     if (
+      includeRecovery &&
       this.options.onRetry !== undefined &&
       (panel.status === 'offline' || panel.status === 'reconnect-required')
     ) {
@@ -586,7 +598,11 @@ export class HavemindOnboardingView extends ItemView {
     // Deliberately NOT rendered for any other status: this is the only state in
     // which sync is provably dead, so the button can never be an accidental
     // click on a healthy connection.
-    if (this.options.onReset !== undefined && panel.status === 'reset-required') {
+    if (
+      includeRecovery &&
+      this.options.onReset !== undefined &&
+      panel.status === 'reset-required'
+    ) {
       const reset = content.createEl('button', {
         text: 'Reset connection',
         attr: {
@@ -598,6 +614,77 @@ export class HavemindOnboardingView extends ItemView {
       reset.addClass('havemind-reset');
       reset.onClickEvent(() => this.options.onReset?.());
     }
+  }
+
+  /**
+   * Keeps every connection action in the pane instead of requiring the header
+   * overflow menu. Connecting a different server remains an explicit two-step
+   * action: disconnect first, then the normal pairing form appears.
+   */
+  private renderConnectionControls(
+    content: HTMLElement,
+    panel: ConnectionPanelView,
+  ): void {
+    this.renderIndicator(content, panel, false);
+
+    const state = content.createDiv();
+    state.addClass('havemind-connect-block');
+    if (panel.serverName !== undefined) {
+      const server = state.createDiv();
+      server.addClass('havemind-connect-row');
+      server.createEl('span', { text: 'Server' }).addClass('havemind-connect-label');
+      server
+        .createEl('span', { text: panel.serverName })
+        .addClass('havemind-connect-value');
+    }
+
+    const actions = content.createDiv();
+    actions.addClass('havemind-connect-block');
+    if (this.options.onSyncNow !== undefined) {
+      const sync = actions.createEl('button', { text: 'Sync now' });
+      sync.addClass('havemind-action-row');
+      sync.onClickEvent(() => this.options.onSyncNow?.());
+    }
+
+    if (
+      this.options.onRetry !== undefined &&
+      (panel.status === 'offline' || panel.status === 'reconnect-required')
+    ) {
+      const retry = actions.createEl('button', { text: 'Retry now' });
+      retry.addClass('havemind-action-row');
+      retry.onClickEvent(() => this.options.onRetry?.());
+    }
+
+    if (this.options.onReset !== undefined && panel.status === 'reset-required') {
+      const reset = actions.createEl('button', { text: 'Reset connection' });
+      reset.addClass('havemind-action-row');
+      reset.addClass('mod-warning');
+      reset.onClickEvent(() => this.options.onReset?.());
+    }
+
+    const help = actions.createEl('button', {
+      text: this.helpOpen ? 'Hide getting started' : 'Show getting started',
+      attr: { 'aria-expanded': this.helpOpen ? 'true' : 'false' },
+    });
+    help.addClass('havemind-action-row');
+    help.addClass('mod-quiet');
+    help.onClickEvent(() => {
+      this.helpOpen = !this.helpOpen;
+      this.render();
+    });
+
+    if (this.options.onDisconnect !== undefined) {
+      const exit = content.createDiv();
+      exit.addClass('havemind-connect-block');
+      const disconnect = exit.createEl('button', {
+        text: 'Disconnect and change server',
+      });
+      disconnect.addClass('havemind-action-row');
+      disconnect.addClass('mod-warning');
+      disconnect.onClickEvent(() => this.options.onDisconnect?.());
+    }
+
+    if (this.helpOpen) renderGettingStarted(content, buildGettingStartedViewModel());
   }
 
   /**
@@ -743,13 +830,6 @@ export class HavemindOnboardingView extends ItemView {
         this.render();
       },
     });
-    if (panel.serverName !== undefined) {
-      items.push({
-        label: `Server: ${panel.serverName}`,
-        onSelect: () => {},
-        readOnly: true,
-      });
-    }
     if (this.options.onDisconnect) {
       items.push({
         label: 'Disconnect',
@@ -766,6 +846,15 @@ export class HavemindOnboardingView extends ItemView {
           this.menuOpen = false;
           this.options.onReset?.();
         },
+      });
+    }
+    // Context belongs after the actions: it is useful for confirmation, but
+    // must not split the menu's destructive/recovery choices.
+    if (panel.serverName !== undefined) {
+      items.push({
+        label: `Server: ${panel.serverName}`,
+        onSelect: () => {},
+        readOnly: true,
       });
     }
     return items;
@@ -903,7 +992,14 @@ export class HavemindOnboardingView extends ItemView {
     content: HTMLElement,
     model: CreateConnectionViewModel,
   ): void {
-    renderViewTitle(content, 'Creating connection');
+    const title = content.createDiv();
+    title.addClass('havemind-composer-title');
+    renderViewTitle(title, 'Creating connection');
+    if (this.options.onCloseComposer !== undefined) {
+      const close = title.createEl('button', { text: 'Close' });
+      close.addClass('havemind-composer-close');
+      close.onClickEvent(() => this.options.onCloseComposer?.());
+    }
     if (model.notice) this.renderNotice(content, model.notice, model.noticeKind);
 
     // MAJOR 5: isolate the create, roster and waiting sections so a throw in
@@ -1025,8 +1121,20 @@ export class HavemindOnboardingView extends ItemView {
     const copy = content.createEl('button', { text: 'Copy' });
     copy.addClass('mod-cta');
     copy.onClickEvent(() => {
-      this.options.onCopyInvitation?.(envelope);
-      copyStatus.setText('Copied to clipboard.');
+      void Promise.resolve(this.options.onCopyInvitation?.(envelope) ?? false).then(
+        (copied) => {
+          copyStatus.setText(
+            copied
+              ? 'Copied to clipboard.'
+              : 'Could not copy automatically. Select and copy the invitation manually.',
+          );
+        },
+        () => {
+          copyStatus.setText(
+            'Could not copy automatically. Select and copy the invitation manually.',
+          );
+        },
+      );
     });
     content
       .createDiv({ text: `Expires: ${model.invitation.expiresAt}` })

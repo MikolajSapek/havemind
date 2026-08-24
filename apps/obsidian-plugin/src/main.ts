@@ -341,6 +341,7 @@ export default class HavemindPlugin extends Plugin {
         onOpenComposer: () => {
           void this.openCreateConnectionView();
         },
+        onCloseComposer: () => this.closeCreateConnectionView(),
         onSyncNow: () => {
           void this.syncNow();
         },
@@ -379,7 +380,10 @@ export default class HavemindPlugin extends Plugin {
           void this.removeMember(membershipId);
         },
         onConnect: (input, serverUrl, report) => {
-          void this.connectFromInput(input, serverUrl, report);
+          void this.connectFromInput(input, serverUrl, report).catch(() => {
+            report('Could not connect. Check the invitation, pairing token, and server URL.');
+            this.views.refreshOnboarding();
+          });
         },
         onDisconnect: () => this.disconnect(),
         onRetry: () => {
@@ -390,7 +394,7 @@ export default class HavemindPlugin extends Plugin {
         },
         onCopyInvitation: (envelope) => {
           // Move the secret into the clipboard; never log the envelope.
-          void copyTextToClipboard(envelope, browserClipboardCopyDeps());
+          return copyTextToClipboard(envelope, browserClipboardCopyDeps());
         },
         onCreateInvitation: (role, name, report) => {
           void this.createInvitation(role, name, report);
@@ -582,6 +586,14 @@ export default class HavemindPlugin extends Plugin {
     this.connectionNoticeKind = undefined;
     this.views.refreshOnboarding();
     return this.openView(HAVEMIND_ONBOARDING_VIEW);
+  }
+
+  /** Returns from the owner composer without discarding an already-minted invite. */
+  private closeCreateConnectionView(): void {
+    this.connectionActive = false;
+    this.connectionNotice = undefined;
+    this.connectionNoticeKind = undefined;
+    this.views.refreshOnboarding();
   }
 
   /** Snapshot of the owner composer state for the unified panel. */

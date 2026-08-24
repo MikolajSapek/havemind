@@ -16,7 +16,7 @@
  * Pure: no DOM, no Obsidian import.
  */
 
-export type PaneTabId = 'status' | 'activity' | 'people';
+export type PaneTabId = 'status' | 'activity' | 'people' | 'connect';
 
 export interface PaneTab {
   readonly id: PaneTabId;
@@ -65,6 +65,7 @@ export function buildPaneTabs(input: PaneTabsInput): PaneTabsView {
     // into noise. Counts in the strip went 3 → 1.
     { id: 'activity', label: 'Activity', icon: 'history' },
     { id: 'people', label: 'People', icon: 'users' },
+    { id: 'connect', label: 'Connect', icon: 'link' },
   ];
 
   // Three tabs for everyone. Inviting used to be a fourth, owner-only tab —
