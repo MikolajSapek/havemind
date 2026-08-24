@@ -209,6 +209,16 @@ export interface ApproveRedeemedDeviceResult {
   readonly userId: string;
 }
 
+/** Secret-free metadata an owner needs to resume a pending approval after restart. */
+export interface PendingInvitationApproval {
+  readonly invitationId: string;
+  readonly pendingDeviceId: string;
+  readonly deviceDisplayName: string;
+  readonly expiresAt: string;
+  readonly intendedMemberDisplayName: string;
+  readonly intendedRole: InvitationRole;
+}
+
 export interface RedeemInvitationInput {
   readonly invitationToken: string;
   readonly deviceId: string;
@@ -662,6 +672,48 @@ export class InvitationService {
     });
 
     reject.immediate();
+  }
+
+  /**
+   * Lists active pending devices for an owner-controlled vault. This deliberately
+   * returns only display metadata: invitation tokens, pending credentials and
+   * verification phrases never leave their existing single-purpose flows.
+   */
+  public listPendingApprovals(
+    vaultId: string,
+    approverMembershipId: string,
+  ): readonly PendingInvitationApproval[] {
+    const safeVaultId = requireUuid(vaultId);
+    const safeMembershipId = requireUuid(approverMembershipId);
+    this.#requireOwnerMembership(safeMembershipId, safeVaultId);
+
+    const rows = this.#database
+      .prepare(
+        `SELECT invitations.id AS invitationId,
+                invitations.pending_device_id AS pendingDeviceId,
+                invitations.expires_at AS expiresAt,
+                invitations.intended_member_display_name AS intendedMemberDisplayName,
+                invitations.intended_role AS intendedRole,
+                devices.display_name AS deviceDisplayName
+         FROM invitations
+         INNER JOIN devices ON devices.id = invitations.pending_device_id
+         WHERE invitations.vault_id = ?
+           AND invitations.consumed_at IS NOT NULL
+           AND invitations.pending_device_id IS NOT NULL
+           AND invitations.revoked_at IS NULL
+           AND devices.status = 'pending'
+         ORDER BY invitations.created_at ASC, invitations.id ASC`,
+      )
+      .all(safeVaultId) as Array<PendingInvitationApproval>;
+
+    return rows.map((row) => ({
+      deviceDisplayName: requireDisplayName(row.deviceDisplayName),
+      expiresAt: row.expiresAt,
+      intendedMemberDisplayName: requireDisplayName(row.intendedMemberDisplayName),
+      intendedRole: requireRole(row.intendedRole),
+      invitationId: requireUuid(row.invitationId),
+      pendingDeviceId: requireUuid(row.pendingDeviceId),
+    }));
   }
 
   /**

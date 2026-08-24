@@ -1,0 +1,1132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Havemind pane · final mockup (dark Obsidian)</title>
+<style>
+/* ==========================================================================
+   HAVEMIND PANE · FINAL MOCKUP
+   Every value in this file is explicit and implementable. Class names are the
+   ones the plugin already renders (pane-header.ts, pane-tabs-section.ts,
+   styles.css); nothing new is invented except the `hm-*` classes, which belong
+   to this mockup page only (gallery chrome + forced hover/focus states).
+
+   Sections
+     0. Mockup page chrome (hm-*) · NOT part of the plugin
+     1. Theme tokens (Obsidian dark defaults + Havemind locals)
+     2. Pane shell
+     3. Header strip
+     4. Tab strip + resize ladder
+     5. Tab body: status block
+     6. Tab body: activity rows
+     7. Tab body: roster rows + invite row
+     8. Empty state
+     9. Overflow menu
+    10. Pending-device notice (invite flow, above the strip)
+    11. Invite modal body
+    12. Focus, disabled, reduced motion
+   ========================================================================== */
+
+/* ---- 0. Mockup page chrome ------------------------------------------- */
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: #141416;
+  color: #dcddde;
+  font: 13px/1.5 -apple-system, "Segoe UI", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+.hm-page { padding: 40px 40px 64px; max-width: 1500px; }
+.hm-h1 { margin: 0 0 6px; font: 600 20px/1.25 -apple-system, "Segoe UI", system-ui, sans-serif; }
+.hm-lede { margin: 0 0 34px; max-width: 720px; color: #9a9ca2; font-size: 13px; line-height: 1.65; }
+.hm-h2 {
+  margin: 40px 0 4px; padding-bottom: 8px; border-bottom: 1px solid #2c2c30;
+  font: 600 11px/1.2 ui-monospace, Menlo, monospace; letter-spacing: .1em;
+  text-transform: uppercase; color: #7f8189;
+}
+.hm-row { display: flex; flex-wrap: wrap; gap: 26px; align-items: flex-start; margin-top: 22px; }
+.hm-col { display: flex; flex-direction: column; gap: 9px; }
+.hm-cap { margin: 0; max-width: 300px; font: 10.5px/1.55 ui-monospace, Menlo, monospace; color: #74767d; }
+.hm-cap b { color: #b9bbc1; font-weight: 600; }
+.hm-frame {
+  border: 1px solid #303035; border-radius: 10px; overflow: hidden;
+  box-shadow: 0 1px 0 rgba(255,255,255,.03) inset, 0 10px 26px rgba(0,0,0,.35);
+}
+.hm-note { max-width: 320px; color: #8d8f96; font-size: 12px; line-height: 1.7; }
+.hm-note p { margin: 0 0 10px; }
+.hm-note b { color: #c8cad0; }
+.hm-tokens { width: 100%; border-collapse: collapse; margin-top: 20px; font: 11.5px/1.5 ui-monospace, Menlo, monospace; }
+.hm-tokens th, .hm-tokens td { text-align: left; padding: 7px 12px 7px 0; border-bottom: 1px solid #26262a; vertical-align: top; }
+.hm-tokens th { color: #7f8189; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; font-size: 10px; }
+.hm-tokens td:first-child { color: #c8b8ff; white-space: nowrap; }
+.hm-tokens td:nth-child(2) { color: #dcddde; white-space: nowrap; }
+.hm-tokens td:last-child { color: #85878e; font-family: -apple-system, "Segoe UI", system-ui, sans-serif; font-size: 11.5px; }
+.hm-sw { display: inline-block; width: 10px; height: 10px; margin-right: 7px; border-radius: 2px; vertical-align: -1px; border: 1px solid rgba(255,255,255,.14); }
+
+/* ---- 1. Theme tokens -------------------------------------------------
+   In the plugin these come from Obsidian. Pinned here so the mockup renders
+   standalone and so the implementer has the exact colour a screenshot shows.
+   Values = Obsidian's stock dark theme, except --interactive-accent, which the
+   user owns (Havemind purple shown). ------------------------------------ */
+.hm-theme {
+  --background-primary: #1e1e1e;
+  --background-primary-alt: #1a1a1a;
+  --background-secondary: #242427;
+  --background-secondary-alt: #2a2a2e;
+  --background-modifier-border: #333337;
+  --background-modifier-hover: rgba(255, 255, 255, 0.055);
+  --background-modifier-active: rgba(255, 255, 255, 0.09);
+  --text-normal: #dcddde;
+  --text-muted: #a1a3a9;
+  --text-faint: #74767d;
+  --text-on-accent: #ffffff;
+  --text-success: #5fd3ac;
+  --text-error: #ef7a70;
+  --interactive-accent: #8b6cef;
+  --interactive-accent-hover: #9a7ef2;
+  --color-accent-rgb: 139, 108, 239;
+  --color-green-rgb: 95, 211, 172;
+  --color-red-rgb: 239, 122, 112;
+  --font-ui: -apple-system, "Segoe UI", system-ui, sans-serif;
+  --font-monospace: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --radius-s: 4px;
+  --radius-m: 6px;
+  --radius-l: 8px;
+  /* Author colours (author-colors.ts, dark set) */
+  --havemind-author-2: #c99bf0;
+  --havemind-author-3: #5fd3ac;
+  --havemind-author-6: #a7aebb;
+}
+
+/* Havemind locals · the geometry of the design, one declaration each. */
+.havemind-view {
+  --havemind-accent: var(--interactive-accent);
+  --havemind-hairline: var(--background-modifier-border);
+  --havemind-quiet: var(--text-muted);
+
+  /* header */
+  --havemind-header-height: 38px;
+  --havemind-header-pad: 0 6px 0 10px;
+  --havemind-header-gap: 2px;
+  --havemind-mark-size: 24px;
+  --havemind-mark-radius: 6px;
+  --havemind-mark-icon: 15px;
+  --havemind-title-size: 13px;
+  --havemind-title-weight: 600;
+  --havemind-title-offset: 8px;
+  --havemind-action-size: 26px;
+  --havemind-action-radius: 6px;
+  --havemind-action-icon: 15px;
+
+  /* tab strip */
+  --havemind-tab-height: 32px;
+  --havemind-tab-label-size: 11.5px;
+  --havemind-tab-label-weight: 500;
+  --havemind-tab-active-weight: 600;
+  --havemind-tab-icon: 16px;
+  --havemind-tab-stack-pad: 7px 2px 6px;
+  --havemind-tab-active-rule: 2px solid var(--interactive-accent);
+
+  /* body */
+  --havemind-body-pad: 14px 12px 16px;
+  --havemind-block-gap: 14px;
+
+  /* status */
+  --havemind-status-size: 13.5px;
+  --havemind-status-weight: 600;
+  --havemind-status-gap: 8px;
+  --havemind-status-glyph: 14px;
+  --havemind-status-dot-size: 8px;
+  --havemind-status-detail-indent: 22px;
+  --havemind-status-detail-size: 11.5px;
+  --havemind-status-detail-gap: 4px;
+
+  /* rows */
+  --havemind-roster-row-height: 44px;
+  --havemind-activity-row-pad: 9px 0;
+  --havemind-row-name-size: 12.5px;
+  --havemind-row-meta-size: 11.5px;
+  --havemind-row-time-size: 11px;
+  --havemind-dot-size: 8px;
+}
+
+/* ---- 2. Pane shell --------------------------------------------------- */
+/* The container the resize ladder measures · the leaf, one level above the
+   view (a container cannot size itself). */
+.workspace-leaf-content[data-type='havemind-onboarding'] {
+  container-type: inline-size;
+  container-name: havemind-pane;
+  background: var(--background-primary);
+}
+.workspace-leaf-content[data-type='havemind-onboarding'] .view-content {
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.havemind-view {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.havemind-view > .havemind-tab-body { flex: 1; min-height: 0; overflow-y: auto; }
+
+/* ---- 3. Header strip -------------------------------------------------
+   Chrome (header + strip) sits on --background-secondary; the body sits on
+   --background-primary. One tone of separation replaces the extra hairlines
+   and the shaded action row the screenshot carries. */
+.havemind-pane-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--havemind-header-gap);
+  height: var(--havemind-header-height);
+  padding: var(--havemind-header-pad);
+  background: var(--background-secondary);
+}
+.havemind-pane-mark {
+  position: relative;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--havemind-mark-size);
+  height: var(--havemind-mark-size);
+  border-radius: var(--havemind-mark-radius);
+  background: none;
+  color: var(--havemind-accent);
+}
+.havemind-pane-mark .svg-icon {
+  width: var(--havemind-mark-icon);
+  height: var(--havemind-mark-icon);
+  stroke-width: 1.7;
+}
+.havemind-pane-mark-dot {
+  position: absolute;
+  top: -1px;
+  right: -1px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-error);
+  border: 1.5px solid var(--background-secondary);
+}
+.havemind-pane-title {
+  flex: 1;
+  min-width: 0;
+  margin-left: var(--havemind-title-offset);
+  font-size: var(--havemind-title-size);
+  font-weight: var(--havemind-title-weight);
+  letter-spacing: 0.005em;
+  color: var(--text-normal);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.havemind-header-action {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--havemind-action-size);
+  height: var(--havemind-action-size);
+  padding: 0;
+  border: none;
+  box-shadow: none;
+  border-radius: var(--havemind-action-radius);
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background-color 90ms ease-out, color 90ms ease-out;
+}
+.havemind-header-action .svg-icon {
+  width: var(--havemind-action-icon);
+  height: var(--havemind-action-icon);
+  stroke-width: 1.75;
+}
+.havemind-header-action:hover,
+.havemind-header-action.hm-hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+.havemind-header-action:active,
+.havemind-header-action.hm-active {
+  background: var(--background-modifier-active);
+  color: var(--text-normal);
+}
+/* Pressed toggle: accent tint + accent glyph, paired with aria-pressed. */
+.havemind-header-action.is-on,
+.havemind-header-action.is-on:hover {
+  background: rgba(var(--color-accent-rgb), 0.16);
+  color: var(--havemind-accent);
+}
+.havemind-pane-more { color: var(--text-faint); }
+.havemind-pane-more .svg-icon { stroke: none; fill: currentColor; }
+
+/* ---- 4. Tab strip + resize ladder ----------------------------------- */
+.havemind-tabs {
+  flex: none;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  background: var(--background-secondary);
+  border-bottom: 1px solid var(--havemind-hairline);
+}
+.havemind-tab {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: var(--havemind-tab-height);
+  padding: 0 3px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  box-shadow: none;
+  border-radius: 0;
+  background: none;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: var(--havemind-tab-label-size);
+  font-weight: var(--havemind-tab-label-weight);
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition: color 90ms ease-out, background-color 90ms ease-out;
+}
+.havemind-tab .svg-icon { stroke-width: 1.75; }
+.havemind-tab:hover,
+.havemind-tab.hm-hover { background: var(--background-modifier-hover); color: var(--text-normal); }
+.havemind-tab.is-active {
+  color: var(--text-normal);
+  font-weight: var(--havemind-tab-active-weight);
+  border-bottom: var(--havemind-tab-active-rule);
+  background: none;
+}
+.havemind-tab-count {
+  color: var(--text-faint);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.havemind-tab.needs-attention { color: var(--text-error); }
+.havemind-tab.needs-attention .havemind-tab-count { color: var(--text-error); font-weight: 600; }
+.havemind-tab-label { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.havemind-tab-icon { display: none; }
+.havemind-tab-icon .svg-icon { width: var(--havemind-tab-icon); height: var(--havemind-tab-icon); }
+
+/* ≥330px · icon over label */
+@container havemind-pane (min-width: 330px) {
+  .havemind-tab { flex-direction: column; gap: 3px; height: auto; padding: var(--havemind-tab-stack-pad); }
+  .havemind-tab-icon { display: flex; }
+  .havemind-tab-label { font-size: 10.5px; }
+}
+/* <250px · icon only, tooltip + aria-label carry the name */
+@container havemind-pane (max-width: 249px) {
+  .havemind-tab-label { display: none; }
+  .havemind-tab-icon { display: flex; }
+  .havemind-tab-icon .svg-icon { width: 17px; height: 17px; }
+}
+
+/* ---- 5. Status block ------------------------------------------------- */
+.havemind-tab-body { padding: var(--havemind-body-pad); background: var(--background-primary); }
+.havemind-status {
+  display: flex;
+  align-items: center;
+  gap: var(--havemind-status-gap);
+  font-size: var(--havemind-status-size);
+  font-weight: var(--havemind-status-weight);
+  letter-spacing: 0.005em;
+}
+.havemind-status .svg-icon {
+  flex: none;
+  width: var(--havemind-status-glyph);
+  height: var(--havemind-status-glyph);
+  color: inherit;
+  stroke-width: 2;
+}
+.havemind-status-ok { color: var(--text-success); }
+.havemind-status-bad { color: var(--text-error); }
+.havemind-status-idle { color: var(--text-muted); }
+/* Synced reads as a filled dot with a soft ring: colour is never the only
+   signal · the word beside it names the state. */
+.havemind-status-dot {
+  flex: none;
+  width: var(--havemind-status-dot-size);
+  height: var(--havemind-status-dot-size);
+  margin: 0 3px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 0 3px rgba(var(--color-green-rgb), 0.16);
+}
+.havemind-status-dot-idle { background: none; border: 1.5px solid currentColor; box-shadow: none; }
+.havemind-status-spin .svg-icon { animation: havemind-comb 1.3s linear infinite; transform-origin: 50% 50%; }
+@keyframes havemind-comb { to { transform: rotate(360deg); } }
+.havemind-status-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: var(--havemind-status-detail-gap);
+  padding-left: var(--havemind-status-detail-indent);
+  color: var(--havemind-quiet);
+  font-size: var(--havemind-status-detail-size);
+  line-height: 1.6;
+  text-wrap: pretty;
+}
+.havemind-status-time { color: var(--text-normal); font-variant-numeric: tabular-nums; }
+.havemind-status-line { display: block; }
+
+/* ---- 6. Activity rows ----------------------------------------------- */
+.havemind-activity-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: var(--havemind-activity-row-pad);
+  background: transparent;
+  line-height: 1.45;
+}
+.havemind-activity-row + .havemind-activity-row { border-top: 1px solid var(--havemind-hairline); }
+.havemind-activity-row:hover,
+.havemind-activity-row.hm-hover { background: var(--background-modifier-hover); box-shadow: 0 0 0 12px var(--background-modifier-hover); }
+.havemind-activity-row::before {
+  content: '';
+  flex: none;
+  width: var(--havemind-dot-size);
+  height: var(--havemind-dot-size);
+  margin-top: 5px;
+  border-radius: 50%;
+  background: var(--havemind-row-color, var(--text-faint));
+}
+.havemind-activity-row.is-local::before { background: none; border: 1.5px solid var(--text-faint); }
+.havemind-activity-main { flex: 1; min-width: 0; }
+.havemind-activity-who { font-size: var(--havemind-row-name-size); color: var(--text-normal); }
+.havemind-activity-who b { font-weight: 600; }
+.havemind-activity-verb { color: var(--havemind-quiet); }
+.havemind-activity-path {
+  display: block;
+  margin-top: 1px;
+  color: var(--text-faint);
+  font-size: var(--havemind-row-meta-size);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl;
+  text-align: left;
+}
+.havemind-activity-trail { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.havemind-activity-time {
+  color: var(--text-faint);
+  font-size: var(--havemind-row-time-size);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.havemind-activity-action {
+  padding: 0;
+  border: none;
+  box-shadow: none;
+  background: none;
+  color: var(--havemind-accent);
+  font-family: inherit;
+  font-size: var(--havemind-row-time-size);
+  font-weight: 500;
+  opacity: 0.62;
+  cursor: pointer;
+  transition: opacity 90ms ease-out;
+}
+.havemind-activity-row:hover .havemind-activity-action,
+.havemind-activity-row.hm-hover .havemind-activity-action,
+.havemind-activity-action:hover { opacity: 1; }
+.havemind-activity-action:hover { text-decoration: underline; }
+
+/* ---- 7. Roster rows + invite row ------------------------------------ */
+.havemind-roster-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: var(--havemind-roster-row-height);
+  padding: 4px 0;
+  font-size: var(--havemind-row-name-size);
+}
+.havemind-roster-row + .havemind-roster-row,
+.havemind-roster-row + .havemind-invite-cta { border-top: 1px solid var(--havemind-hairline); }
+.havemind-roster-row:hover,
+.havemind-roster-row.hm-hover { background: var(--background-modifier-hover); box-shadow: 0 0 0 12px var(--background-modifier-hover); }
+.havemind-roster-dot {
+  flex: none;
+  width: var(--havemind-dot-size);
+  height: var(--havemind-dot-size);
+  border-radius: 50%;
+  background: var(--havemind-row-color, var(--text-faint));
+}
+.havemind-roster-dot.is-disconnected { width: 9px; height: 9px; background: none; border: 1.5px solid var(--text-faint); }
+.havemind-roster-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.havemind-roster-row.is-away .havemind-roster-name { color: var(--havemind-quiet); }
+.havemind-roster-meta { color: var(--text-faint); font-size: var(--havemind-row-meta-size); }
+.havemind-roster-action {
+  flex: none;
+  margin-left: auto;
+  padding: 3px 5px;
+  border: none;
+  box-shadow: none;
+  border-radius: var(--radius-s);
+  background: transparent;
+  color: var(--havemind-quiet);
+  font-family: inherit;
+  font-size: var(--havemind-row-time-size);
+  cursor: pointer;
+}
+.havemind-roster-action:hover { background: var(--background-modifier-hover); color: var(--text-normal); }
+.havemind-roster-action.mod-cta { color: var(--havemind-accent); font-weight: 600; }
+.havemind-roster-action.mod-warning:hover { color: var(--text-error); }
+.havemind-invite-cta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 40px;
+  margin: 0;
+  padding: 4px 0;
+  border: none;
+  box-shadow: none;
+  background: none;
+  color: var(--havemind-accent);
+  font-family: inherit;
+  font-size: var(--havemind-row-name-size);
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.havemind-invite-cta .svg-icon { flex: none; width: 15px; height: 15px; stroke-width: 1.75; }
+.havemind-invite-cta:hover { color: var(--interactive-accent-hover); }
+
+/* ---- 7b. Connect rows ---------------------------------------------- */
+.havemind-connect-block { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--havemind-hairline); }
+.havemind-connect-row {
+  display: flex; align-items: baseline; gap: 10px; min-height: 26px; padding: 3px 0; font-size: 12px;
+}
+.havemind-connect-label { flex: none; color: var(--text-faint); }
+.havemind-connect-value {
+  flex: 1; min-width: 0; color: var(--text-normal);
+  font-family: var(--font-monospace); font-size: 11px; overflow-wrap: anywhere;
+}
+.havemind-action-row {
+  display: flex; align-items: center; gap: 8px; width: 100%; min-height: 32px; padding: 4px 0;
+  border: none; box-shadow: none; background: none;
+  color: var(--interactive-accent);
+  font-family: inherit; font-size: 12px; font-weight: 500; text-align: left; cursor: pointer;
+  transition: color 90ms ease-out;
+}
+.havemind-action-row + .havemind-action-row { border-top: 1px solid var(--havemind-hairline); }
+.havemind-action-row:hover { color: var(--interactive-accent-hover); }
+.havemind-action-row .havemind-action-hint {
+  margin-left: auto; color: var(--text-faint); font-size: 11px; font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+.havemind-action-row.mod-quiet { color: var(--text-muted); }
+.havemind-action-row.mod-quiet:hover { color: var(--text-normal); }
+.havemind-action-row.mod-warning { color: var(--text-muted); }
+.havemind-action-row.mod-warning:hover { color: var(--text-error); }
+.havemind-getting-started { display: flex; flex-direction: column; gap: 9px; padding: 4px 0 8px; }
+.havemind-step { display: flex; align-items: baseline; gap: 9px; }
+.havemind-step-number {
+  flex: none; display: inline-flex; align-items: center; justify-content: center;
+  width: 17px; height: 17px; border: 1px solid var(--havemind-accent); border-radius: 50%;
+  color: var(--havemind-accent); font-size: 10px; font-weight: 600; line-height: 1;
+}
+.havemind-step-text { font-size: 12px; line-height: 1.55; color: var(--text-normal); }
+
+/* ---- 7c. Disconnected: entry chooser + connect form ----------------- */
+.havemind-entry-subheading { color: var(--text-muted); font-size: 12px; line-height: 1.6; }
+.havemind-entry-options { display: flex; flex-direction: column; gap: 8px; margin: 12px 0 0; }
+.havemind-entry-option {
+  display: block; width: 100%; text-align: left; padding: 9px 11px;
+  border: 1px solid var(--havemind-hairline); border-radius: var(--radius-m);
+  background: none; color: var(--text-normal); font-family: inherit; font-size: 12.5px; cursor: pointer;
+}
+.havemind-entry-option:hover { background: var(--background-modifier-hover); }
+.havemind-entry-option-title { font-weight: 600; margin-bottom: 2px; }
+.havemind-entry-option-note { color: var(--text-faint); font-size: 11.5px; line-height: 1.5; }
+.havemind-view label { display: block; margin-top: 14px; color: var(--text-muted); font-size: 11px; }
+.havemind-view input[type='text'] {
+  width: 100%; margin-top: 5px; padding: 7px 9px;
+  border: 1px solid var(--havemind-hairline); border-radius: var(--radius-m);
+  background: var(--background-primary-alt); color: var(--text-normal);
+  font-family: var(--font-monospace); font-size: 11.5px;
+}
+.havemind-connect-submit {
+  width: 100%; height: 32px; margin-top: 10px; border: none; border-radius: var(--radius-m);
+  background: var(--interactive-accent); color: var(--text-on-accent);
+  font-family: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer;
+}
+.havemind-connect-submit:hover { background: var(--interactive-accent-hover); }
+
+/* ---- 8. Empty state -------------------------------------------------- */
+.havemind-empty {
+  padding: 10px 0 0;
+  color: var(--text-faint);
+  font-size: 12px;
+  line-height: 1.7;
+  text-wrap: pretty;
+}
+.havemind-empty b { display: block; margin-bottom: 3px; color: var(--havemind-quiet); font-weight: 600; font-size: 12.5px; }
+
+/* ---- 9. Overflow menu ------------------------------------------------ */
+.havemind-pane-menu {
+  position: absolute;
+  top: 36px;
+  right: 6px;
+  z-index: 30;
+  min-width: 184px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 5px;
+  border: 1px solid var(--havemind-hairline);
+  border-radius: var(--radius-l);
+  background: var(--background-secondary-alt);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+.havemind-pane-menu-item {
+  text-align: left;
+  padding: 6px 8px;
+  border: none;
+  box-shadow: none;
+  border-radius: var(--radius-m);
+  background: none;
+  color: var(--text-normal);
+  font-family: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.havemind-pane-menu-item:hover,
+.havemind-pane-menu-item.hm-hover { background: var(--background-modifier-hover); }
+.havemind-pane-menu-note {
+  padding: 6px 8px 4px;
+  color: var(--text-faint);
+  font-family: var(--font-monospace);
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.havemind-pane-menu-sep { height: 1px; margin: 4px 0; background: var(--havemind-hairline); }
+
+/* ---- 10. Pending-device notice (invite flow) ------------------------ */
+.havemind-alarm {
+  flex: none;
+  padding: 9px 11px 10px;
+  border-left: 2px solid var(--interactive-accent);
+  border-bottom: 1px solid var(--havemind-hairline);
+  background: rgba(var(--color-accent-rgb), 0.1);
+}
+.havemind-alarm-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-normal);
+  font-size: 12px;
+  font-weight: 600;
+}
+.havemind-alarm-head .svg-icon { flex: none; width: 14px; height: 14px; color: var(--havemind-accent); stroke-width: 1.8; }
+.havemind-alarm-body { margin-top: 3px; padding-left: 21px; color: var(--havemind-quiet); font-size: 11.5px; line-height: 1.55; }
+.havemind-alarm-actions { display: flex; align-items: center; gap: 10px; margin: 8px 0 0 21px; }
+.havemind-alarm button.mod-cta {
+  padding: 5px 10px;
+  border: none;
+  border-radius: var(--radius-m);
+  box-shadow: none;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.havemind-alarm button.mod-cta:hover { background: var(--interactive-accent-hover); }
+.havemind-quiet-action {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--havemind-quiet);
+  font-family: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.havemind-quiet-action:hover { color: var(--text-normal); text-decoration: underline; }
+
+/* ---- 11. Invite modal body ----------------------------------------- */
+/* Obsidian's Modal draws the window, its title and its close control. Only
+   the body below is Havemind's. */
+.havemind-invite { width: 100%; }
+.havemind-invite-lead {
+  color: var(--havemind-quiet);
+  font-size: 12px;
+  line-height: 1.6;
+  text-wrap: pretty;
+}
+.havemind-invite-label {
+  display: block;
+  margin: 14px 0 5px;
+  color: var(--text-faint);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+}
+.havemind-invite-envelope {
+  position: relative;
+  display: block;
+  padding: 9px 10px;
+  border: 1px solid var(--havemind-hairline);
+  border-radius: var(--radius-m);
+  background: var(--background-primary-alt);
+  color: var(--havemind-quiet);
+  font-family: var(--font-monospace);
+  font-size: 10.5px;
+  line-height: 1.65;
+  word-break: break-all;
+}
+.havemind-invite-copy {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 32px;
+  margin-top: 8px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-m);
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: .005em;
+  cursor: pointer;
+  transition: background-color 90ms ease-out;
+}
+.havemind-invite-copy:hover { background: var(--interactive-accent-hover); }
+.havemind-invite-wait {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--havemind-hairline);
+  color: var(--text-muted);
+  font-size: 11.5px;
+}
+.havemind-invite-wait .svg-icon {
+  flex: none; width: 13px; height: 13px; color: var(--havemind-accent); stroke-width: 1.8;
+  animation: havemind-comb 1.3s linear infinite; transform-origin: 50% 50%;
+}
+.havemind-invite-clock {
+  margin-left: auto;
+  padding: 2px 6px;
+  border-radius: var(--radius-s);
+  background: var(--background-modifier-hover);
+  color: var(--text-faint);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- 12. Focus, disabled, reduced motion --------------------------- */
+.havemind-view button:focus-visible,
+.havemind-view a:focus-visible,
+.havemind-view input:focus-visible,
+.hm-focus {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-s);
+}
+.havemind-tab:focus-visible,
+.havemind-tab.hm-focus { outline-offset: -2px; border-radius: 0; }
+.havemind-view button:disabled,
+.havemind-view button.hm-disabled {
+  opacity: 0.42;
+  cursor: default;
+  background: none;
+  color: var(--text-muted);
+}
+.havemind-alarm button.mod-cta:disabled,
+.havemind-alarm button.mod-cta.hm-disabled { background: var(--interactive-accent); color: var(--text-on-accent); }
+@media (prefers-reduced-motion: reduce) {
+  .havemind-status-spin .svg-icon,
+  .havemind-invite-wait .svg-icon { animation: none; }
+  .havemind-header-action, .havemind-tab, .havemind-activity-action { transition: none; }
+}
+
+/* ---- frame mode (one pane fills the document, for PNG capture) ------ */
+body.hm-frame-mode { background: var(--background-primary, #1e1e1e); }
+body.hm-frame-mode, body.hm-frame-mode html { height: 100%; }
+body.hm-frame-mode .hm-frame-host { position: fixed; inset: 0; }
+body.hm-frame-mode .hm-frame-host .workspace-leaf-content { height: 100%; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script>
+/* ===================== Lucide icons · the allowed set only ============== */
+const ICON = {
+  hexagon: '<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>',
+  eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/>',
+  'user-plus': '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6"/><path d="M22 11h-6"/>',
+  'circle-check': '<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
+  activity: '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
+  users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+  'more-horizontal': '<circle cx="12" cy="12" r="1.4"/><circle cx="18.5" cy="12" r="1.4"/><circle cx="5.5" cy="12" r="1.4"/>'
+};
+function icon(name) {
+  const flat = name === 'more-horizontal';
+  return '<svg class="svg-icon lucide-' + name + '" viewBox="0 0 24 24" ' +
+    (flat ? 'fill="currentColor" stroke="none"' : 'fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"') +
+    '>' + ICON[name] + '</svg>';
+}
+
+/* ===================== Pane parts ====================================== */
+const TABS = [
+  { id: 'status', label: 'Status', icon: 'circle-check' },
+  { id: 'activity', label: 'Activity', icon: 'activity' },
+  { id: 'people', label: 'People', icon: 'users' },
+  { id: 'connect', label: 'Connect', icon: 'link' }
+];
+
+function header(o) {
+  return '<div class="havemind-pane-header">' +
+    '<span class="havemind-pane-mark">' + icon('hexagon') +
+      (o.alarm ? '<span class="havemind-pane-mark-dot" title="Needs attention"></span>' : '') +
+    '</span>' +
+    '<span class="havemind-pane-title">Havemind</span>' +
+    '<button class="havemind-header-action' + (o.overlayOn === false ? '' : ' is-on') + (o.hover === 'eye' ? ' hm-hover' : '') + (o.focus === 'eye' ? ' hm-focus' : '') +
+      '" aria-label="Authorship colours" aria-pressed="' + (o.overlayOn === false ? 'false' : 'true') + '">' + icon('eye') + '</button>' +
+    '<button class="havemind-header-action' + (o.hover === 'invite' ? ' hm-hover' : '') + (o.disabled === 'invite' ? ' hm-disabled' : '') +
+      '" aria-label="Invite someone">' + icon('user-plus') + '</button>' +
+    '<button class="havemind-header-action havemind-pane-more' + (o.menu ? ' hm-active' : '') + '" aria-label="More options" aria-expanded="' + (o.menu ? 'true' : 'false') + '">' +
+      icon('more-horizontal') + '</button>' +
+    '</div>';
+}
+
+function tabs(o) {
+  const cells = TABS.map(function (t) {
+    const active = t.id === o.tab;
+    const attention = o.attention && t.id === 'status';
+    return '<button class="havemind-tab' + (active ? ' is-active' : '') + (attention ? ' needs-attention' : '') +
+      (o.hover === 'tab:' + t.id ? ' hm-hover' : '') + (o.focus === 'tab:' + t.id ? ' hm-focus' : '') +
+      '" role="tab" id="havemind-tab-' + t.id + '" aria-controls="havemind-tabpanel"' +
+      ' aria-selected="' + (active ? 'true' : 'false') + '" tabindex="' + (active ? '0' : '-1') + '"' +
+      ' aria-label="' + t.label + (attention ? ', ' + o.attention + ', needs attention' : '') + '" title="' + t.label + '">' +
+      '<span class="havemind-tab-icon" aria-hidden="true">' + icon(t.icon) + '</span>' +
+      '<span class="havemind-tab-label">' + t.label + '</span>' +
+      (attention ? '<span class="havemind-tab-count">' + o.attention + '</span>' : '') +
+      '</button>';
+  }).join('');
+  return '<div class="havemind-tabs" role="tablist">' + cells + '</div>';
+}
+
+const STATUS = {
+  synced: '<div class="havemind-status havemind-status-ok"><span class="havemind-status-dot"></span><span>Connected · synced</span></div>' +
+    '<div class="havemind-status-detail">' +
+    '<span class="havemind-status-line">Last sync <span class="havemind-status-time">01:46</span></span>' +
+    '<span class="havemind-status-line">Private Tailscale network</span>' +
+    '<span class="havemind-status-line">Encrypted in transit</span></div>',
+  syncing: '<div class="havemind-status havemind-status-idle havemind-status-spin">' + icon('hexagon') + '<span>Connected · syncing</span></div>' +
+    '<div class="havemind-status-detail">' +
+    '<span class="havemind-status-line">Sending 3 changes</span>' +
+    '<span class="havemind-status-line">Started <span class="havemind-status-time">01:52</span></span></div>',
+  offline: '<div class="havemind-status havemind-status-idle"><span class="havemind-status-dot havemind-status-dot-idle"></span><span>Offline · queued</span></div>' +
+    '<div class="havemind-status-detail">' +
+    '<span class="havemind-status-line">Last sync <span class="havemind-status-time">00:31</span></span>' +
+    '<span class="havemind-status-line">2 changes will send when the network returns</span></div>',
+  error: '<div class="havemind-status havemind-status-bad">' + icon('circle-check') + '<span>Not connected</span></div>' +
+    '<div class="havemind-status-detail">' +
+    '<span class="havemind-status-line">The server refused the connection</span>' +
+    '<span class="havemind-status-line"><button class="havemind-quiet-action" style="color:var(--interactive-accent);font-weight:600;padding:0">Retry now</button></span></div>'
+};
+
+const ACTIVITY = [
+  { who: 'Mira', verb: 'edited', path: 'Projects/Kiln notes.md', time: '2m', color: 'var(--havemind-author-2)' },
+  { who: 'You', verb: 'edited', path: 'Daily/2026-08-24.md', time: '6m', local: true },
+  { who: 'Tomas', verb: 'created', path: 'Reading/Ostrom.md', time: '18m', color: 'var(--havemind-author-3)' },
+  { who: 'Mira', verb: 'renamed', path: 'Meetings/Weekly sync.md', time: '41m', color: 'var(--havemind-author-2)' }
+];
+
+function activityRows(o) {
+  return ACTIVITY.map(function (r, i) {
+    return '<div class="havemind-activity-row' + (r.local ? ' is-local' : '') + (o.hover === 'row:' + i ? ' hm-hover' : '') + '"' +
+      (r.color ? ' style="--havemind-row-color:' + r.color + '"' : '') + '>' +
+      '<span class="havemind-activity-main">' +
+        '<span class="havemind-activity-who"><b>' + r.who + '</b> <span class="havemind-activity-verb">' + r.verb + '</span></span>' +
+        '<span class="havemind-activity-path" dir="rtl">' + r.path + '</span>' +
+      '</span>' +
+      '<span class="havemind-activity-trail">' +
+        '<span class="havemind-activity-time">' + r.time + '</span>' +
+        '<button class="havemind-activity-action' + (o.focus === 'restore:' + i ? ' hm-focus' : '') + '">Restore</button>' +
+      '</span></div>';
+  }).join('');
+}
+
+function rosterRows(o) {
+  return '<div class="havemind-roster-row" style="--havemind-row-color:var(--havemind-author-2)">' +
+      '<span class="havemind-roster-dot" title="Mira · connected" aria-label="Mira, connected"></span>' +
+      '<span class="havemind-roster-name">Mira <span class="havemind-roster-meta">· owner</span></span></div>' +
+    '<div class="havemind-roster-row' + (o.hover === 'roster:1' ? ' hm-hover' : '') + '" style="--havemind-row-color:var(--havemind-author-3)">' +
+      '<span class="havemind-roster-dot" title="Tomas · connected" aria-label="Tomas, connected"></span>' +
+      '<span class="havemind-roster-name">Tomas</span>' +
+      '<button class="havemind-roster-action mod-warning">Remove</button></div>' +
+    '<div class="havemind-roster-row is-away">' +
+      '<span class="havemind-roster-dot is-disconnected" title="Ines · disconnected" aria-label="Ines, disconnected"></span>' +
+      '<span class="havemind-roster-name">Ines <span class="havemind-roster-meta">· 2 days</span></span>' +
+      '<button class="havemind-roster-action mod-cta">Rejoin</button></div>' +
+    '<button class="havemind-invite-cta' + (o.focus === 'invite-row' ? ' hm-focus' : '') + '">' + icon('user-plus') + 'Invite someone</button>';
+}
+
+const GUIDE = [
+  'Install Havemind on the device that holds the vault you want to join.',
+  'Ask the vault owner for an invitation · it works once.',
+  'Paste it below and read the six digits out to each other.'
+];
+
+function connectBody(o) {
+  if (o.disconnected) {
+    return '<div class="havemind-entry-subheading">This vault is not connected to a Havemind server.</div>' +
+      '<div class="havemind-entry-options">' +
+      '<button class="havemind-entry-option"><span class="havemind-entry-option-title">I have an invitation</span>' +
+      '<span class="havemind-entry-option-note">Paste it below and confirm the six digits.</span></button>' +
+      '<button class="havemind-entry-option"><span class="havemind-entry-option-title">Host the server myself</span>' +
+      '<span class="havemind-entry-option-note">One command on the machine that stays awake.</span></button></div>' +
+      '<label for="hm-token">Invitation</label>' +
+      '<input id="hm-token" type="text" value="hm_pt_…" spellcheck="false">' +
+      '<button class="havemind-connect-submit">Connect</button>';
+  }
+  const s = o.status || 'synced';
+  const recovery =
+    s === 'offline' ? '<button class="havemind-action-row">Retry now<span class="havemind-action-hint">2 queued</span></button>' :
+    s === 'error' ? '<button class="havemind-action-row">Reset connection<span class="havemind-action-hint">clears local pairing</span></button>' : '';
+  return STATUS[s] +
+    '<div class="havemind-connect-block">' +
+      '<div class="havemind-connect-row"><span class="havemind-connect-label">Server</span>' +
+      '<span class="havemind-connect-value">kiln.tail9c2f.ts.net:8443</span></div>' +
+    '</div>' +
+    '<div class="havemind-connect-block">' +
+      '<button class="havemind-action-row">Sync now<span class="havemind-action-hint">last 01:46</span></button>' +
+      recovery +
+      '<button class="havemind-action-row mod-quiet" aria-expanded="' + (o.guide ? 'true' : 'false') + '">' +
+        (o.guide ? 'Hide getting started' : 'Show getting started') + '</button>' +
+      (o.guide ? '<div class="havemind-getting-started">' + GUIDE.map(function (g, i) {
+        return '<div class="havemind-step"><span class="havemind-step-number">' + (i + 1) + '</span>' +
+          '<span class="havemind-step-text">' + g + '</span></div>';
+      }).join('') + '</div>' : '') +
+    '</div>' +
+    '<div class="havemind-connect-block">' +
+      '<button class="havemind-action-row mod-warning">Disconnect and change server</button>' +
+    '</div>';
+}
+
+function body(o) {
+  if (o.empty) {
+    return '<div class="havemind-empty"><b>Nothing yet</b>Changes made in this vault · by you or by anyone connected · will appear here as they arrive.</div>';
+  }
+  if (o.tab === 'status') return STATUS[o.status || 'synced'];
+  if (o.tab === 'activity') return activityRows(o);
+  if (o.tab === 'connect') return connectBody(o);
+  return rosterRows(o);
+}
+
+function menu() {
+  return '<div class="havemind-pane-menu">' +
+    '<button class="havemind-pane-menu-item hm-hover">Sync now</button>' +
+    '<button class="havemind-pane-menu-item">Getting started</button>' +
+    '<button class="havemind-pane-menu-item">Disconnect</button>' +
+    '<button class="havemind-pane-menu-item">Reset connection</button>' +
+    '<div class="havemind-pane-menu-sep"></div>' +
+    '<div class="havemind-pane-menu-note">100.84.12.7:8443</div>' +
+    '</div>';
+}
+
+function alarm() {
+  return '<div class="havemind-alarm">' +
+    '<div class="havemind-alarm-head">' + icon('user-plus') + '<span>A device wants to join</span></div>' +
+    '<div class="havemind-alarm-body">Ask them to read out their six digits.</div>' +
+    '<div class="havemind-alarm-actions"><button class="mod-cta">Check the digits</button>' +
+    '<button class="havemind-quiet-action">Not now</button></div></div>';
+}
+
+/* One pane. `o.width` in px, or omitted to fill the host (frame mode). */
+function pane(o) {
+  o = o || {};
+  const style = o.width ? 'width:' + o.width + 'px;height:' + (o.height || 384) + 'px' : '';
+  return '<div class="workspace-leaf-content hm-theme" data-type="havemind-onboarding" style="' + style + '">' +
+    '<div class="view-content havemind-view">' +
+      header(o) +
+      (o.pending ? alarm() : '') +
+      tabs(o) +
+      '<div class="havemind-tab-body" id="havemind-tabpanel" role="tabpanel" aria-labelledby="havemind-tab-' + o.tab + '">' + body(o) + '</div>' +
+      (o.menu ? menu() : '') +
+    '</div></div>';
+}
+
+/* ===================== frame mode ====================================== */
+const params = new URLSearchParams(location.search);
+if (params.get('tab')) {
+  document.body.classList.add('hm-frame-mode');
+  document.body.classList.add('hm-theme');
+  document.getElementById('app').innerHTML = '<div class="hm-frame-host">' + pane({
+    tab: params.get('tab'),
+    status: params.get('status') || 'synced',
+    pending: params.get('pending') === '1',
+    guide: params.get('guide') === '1',
+    disconnected: params.get('disconnected') === '1',
+    menu: params.get('menu') === '1'
+  }) + '</div>';
+} else {
+  /* ===================== gallery ======================================= */
+  const widths = [
+    { w: 240, note: '<b>&lt;250px · icon only.</b> Labels are hidden; title + aria-label carry the name. A glyph you can hover beats "Activi…".' },
+    { w: 300, note: '<b>250–329px · compact labels.</b> The default sidebar. 32px strip, one line, no truncation.' },
+    { w: 420, note: '<b>≥330px · icon + label.</b> The strip stacks; nothing else in the pane responds to width.' }
+  ];
+  function group(g) {
+    return '<div id="grp-' + g.w + '" style="padding:6px 0 2px"><div class="hm-row">' +
+      TABS.map(function (t) {
+        return '<div class="hm-col"><div class="hm-frame">' + pane({ tab: t.id, width: g.w, height: 430 }) + '</div>' +
+          '<p class="hm-cap" style="max-width:' + g.w + 'px"><b>' + g.w + 'px · ' + t.label + '</b></p></div>';
+      }).join('') +
+      '<div class="hm-note" style="max-width:260px"><p>' + g.note + '</p></div>' +
+      '</div></div>';
+  }
+
+  function state(label, o, width) {
+    return '<div class="hm-col"><div class="hm-frame">' + pane(Object.assign({ width: width || 300, height: o.h || 300 }, o)) + '</div>' +
+      '<p class="hm-cap" style="max-width:' + (width || 300) + 'px">' + label + '</p></div>';
+  }
+
+  const tokenRows = [
+    ['--background-primary', '#1e1e1e', 'Tab body ground'],
+    ['--background-secondary', '#242427', 'Header + tab strip ground (the one tonal step in the pane)'],
+    ['--background-secondary-alt', '#2a2a2e', 'Overflow menu ground'],
+    ['--background-modifier-border', '#333337', 'Every hairline: 1px, under the strip and between rows'],
+    ['--background-modifier-hover', 'rgba(255,255,255,.055)', 'Hover fill on actions, tabs and rows'],
+    ['--background-modifier-active', 'rgba(255,255,255,.09)', 'Pressed fill'],
+    ['--text-normal', '#dcddde', 'Title, active tab, names, status word on neutral states'],
+    ['--text-muted', '#a1a3a9', 'Inactive tabs, detail line, secondary actions'],
+    ['--text-faint', '#74767d', 'Paths, times, counts, empty state'],
+    ['--interactive-accent', '#8b6cef', 'Hexagon, active underline, Restore / Rejoin / Invite, focus ring'],
+    ['--interactive-accent-hover', '#9a7ef2', 'Accent hover'],
+    ['--text-success', '#5fd3ac', 'Synced dot + word'],
+    ['--text-error', '#ef7a70', 'Attention count, mark dot, destructive hover'],
+    ['--text-on-accent', '#ffffff', 'Label on a filled accent button']
+  ];
+  const geomRows = [
+    ['header height', '38px', 'was 34px · buys the 24px mark a 7px breathing margin'],
+    ['header padding', '0 6px 0 10px', 'gap between actions 2px'],
+    ['mark', '24px box / icon 15px', 'no fill · accent hexagon on the chrome ground, stroke 1.7'],
+    ['title', '13px / 600 / ls .005em', 'margin-left 8px, ellipsis at overflow'],
+    ['header action', '26px / radius 6px / icon 15px', 'stroke 1.75; pressed = accent 16% fill'],
+    ['tab strip', 'height 32px, 4 × 1fr', 'labels 11.5px/500, active 600 + 2px accent rule, no fill; padding 0 3px'],
+    ['tab (≥330px)', 'padding 7px 2px 6px', 'icon 16px over label 10.5px, gap 3px'],
+    ['tab (<250px)', 'height 32px, icon 17px', 'label display:none'],
+    ['tab body', 'padding 14px 12px 16px', 'the only inset in the pane'],
+    ['status word', '13.5px / 600', 'gap 8px to the dot/glyph'],
+    ['status dot', '8px + 3px ring', 'ring = state colour at 16%'],
+    ['status detail', '11.5px / 1.6, indent 22px, gap 2px', 'one fact per line, stacked; lines up under the word, not the dot'],
+    ['activity row', 'padding 9px 0', 'dot 8px at margin-top 5px; hairline between rows only'],
+    ['roster row', 'min-height 44px', 'pointer target floor; padding 4px 0, gap 10px'],
+    ['invite row', 'min-height 40px', 'accent, 12.5px/600, icon 15px'],
+    ['radii', '4 / 6 / 8px', 'chips + focus ring / buttons + mark / menu'],
+    ['shadow (menu)', '0 8px 24px rgba(0,0,0,.45)', 'the only shadow in the pane'],
+    ['focus ring', '2px accent, offset 2px', 'offset −2px inside a tab so the strip stays flush'],
+    ['motion', '90ms ease-out', 'colour only; 1.3s linear for the syncing hexagon']
+  ];
+  function table(head, rows, swatch) {
+    return '<table class="hm-tokens"><thead><tr><th>' + head[0] + '</th><th>' + head[1] + '</th><th>' + head[2] + '</th></tr></thead><tbody>' +
+      rows.map(function (r) {
+        const sw = swatch && /^#|^rgba/.test(r[1]) ? '<span class="hm-sw" style="background:' + r[1] + '"></span>' : '';
+        return '<tr><td>' + r[0] + '</td><td>' + sw + r[1] + '</td><td>' + r[2] + '</td></tr>';
+      }).join('') + '</tbody></table>';
+  }
+
+  document.getElementById('app').innerHTML =
+    '<div class="hm-page">' +
+    '<h1 class="hm-h1">Havemind · Obsidian side pane, final</h1>' +
+    '<p class="hm-lede">One design, dark Obsidian, implementable 1:1. Four tabs · Status, Activity, People, Connect. Chrome is 38px header + 32px strip = <b>70px</b>; every surface is an Obsidian token, the accent marks only what you can act on, and the resize ladder switches the strip at 330px and 250px. Nothing below is a variant · the state gallery shows the same components in every state they can be in.</p>' +
+
+    '<h2 class="hm-h2">1 · The pane at three widths, four tabs</h2>' +
+    widths.map(group).join('') +
+
+    '<h2 class="hm-h2">2 · Component states</h2>' +
+    '<div class="hm-row">' +
+      state('<b>Hover</b> · header action, and a row (12px bleed, so the fill reaches the pane edge)', { tab: 'activity', hover: 'row:0', h: 300 }) +
+      state('<b>Focus-visible</b> · 2px accent ring; inside a tab the offset goes negative', { tab: 'activity', focus: 'tab:activity', h: 300 }) +
+      state('<b>Disabled</b> · invite at 42% opacity, no hover, pointer stays default', { tab: 'status', disabled: 'invite', h: 300 }) +
+    '</div>' +
+    '<div class="hm-row">' +
+      state('<b>Empty</b> · one bold line and one sentence; no illustration, no button', { tab: 'activity', empty: true, h: 300 }) +
+      state('<b>Attention</b> · count in the strip and a dot on the mark; the alarm block itself is unchanged from styles.css §Urgency', { tab: 'status', attention: 2, alarm: true, h: 300 }) +
+      state('<b>Overflow menu</b> · floats over the pane, 184px, server address read-only', { tab: 'status', menu: true, h: 300 }) +
+    '</div>' +
+    '<div class="hm-row">' +
+      state('<b>Invite flow, step 2</b> · pending device above the strip, accent not red: expected, but time-boxed and it needs a human', { tab: 'people', pending: true, h: 340 }) +
+      state('<b>Syncing</b> · the hexagon spins, 1.3s linear; stops under prefers-reduced-motion', { tab: 'status', status: 'syncing', h: 340 }) +
+      state('<b>Offline / not connected</b> · hollow dot, and Retry now as an accent text action', { tab: 'status', status: 'offline', h: 340 }) +
+    '</div>' +
+    '<div class="hm-row">' +
+      '<div class="hm-col"><div class="hm-frame hm-theme" style="width:320px;padding:16px 16px 18px;background:var(--background-secondary-alt)">' +
+        '<div style="font:600 13.5px/1.3 var(--font-ui);color:var(--text-normal);margin-bottom:9px;letter-spacing:.005em">Invite someone</div>' +
+        '<div class="havemind-view havemind-invite" style="height:auto;background:none">' +
+        '<div class="havemind-invite-lead">Send this to them the way you would send a password. It can be used once.</div>' +
+        '<span class="havemind-invite-label">One-time invitation</span>' +
+        '<code class="havemind-invite-envelope">hm_pt_2f9c41ab7e0d3c81f0a6b45d9e27c4a10b83f5c7d2…</code>' +
+        '<button class="havemind-invite-copy">Copy invitation</button>' +
+        '<div class="havemind-invite-wait">' + icon('hexagon') + '<span>Waiting for the other device</span><span class="havemind-invite-clock">4:52</span></div>' +
+        '</div></div>' +
+        '<p class="hm-cap" style="max-width:320px"><b>Invite flow, step 1</b> · the modal body. Obsidian draws the window, the title and the close control; only this block is ours.</p></div>' +
+      '<div class="hm-note"><p><b>Why the invite flow stays two objects.</b> Step 1 is a task the owner starts, so it is a modal · it can be dismissed and it holds the one-time secret. Step 2 is an event that arrives on its own, so it renders above the tab strip, where it is visible from every tab and precedes the tablist in DOM order. No new screens, no new tab.</p><p><b>One line, not five.</b> Waiting is not an empty state: the spinner is proof of life and the clock is the only fact that changes.</p></div>' +
+    '</div>' +
+
+    '<h2 class="hm-h2">3 · Connect tab states</h2>' +
+    '<div class="hm-row">' +
+      state('<b>Getting started, expanded</b> · the same numbered steps the disconnected screen uses, in place under the action', { tab: 'connect', guide: true, h: 430 }) +
+      state('<b>Offline</b> · Retry now appears above the guide action, with the queue count as a hint', { tab: 'connect', status: 'offline', h: 430 }) +
+      state('<b>Reset required</b> · Reset connection takes the recovery slot; nothing else moves', { tab: 'connect', status: 'error', h: 430 }) +
+      state('<b>Disconnected</b> · the existing entry chooser and connect form, no second form', { tab: 'connect', disconnected: true, h: 430 }) +
+    '</div>' +
+    '<div class="hm-row"><div class="hm-note" style="max-width:640px">' +
+      '<p><b>Why Connect is a tab and not a menu.</b> Every connection action is now visible in the pane: server, Sync now, getting started, the state-specific recovery action, and the destructive exit. The overflow menu keeps the same items as a shortcut, but nothing is reachable <i>only</i> there.</p>' +
+      '<p><b>Order is fixed for every role</b> · Status, Activity, People, Connect. Four cells at 300px are 75px each; the widest label (Connect, 51px) sits inside a 69px content box, so no rung truncates. Below 250px the strip is icon-only at 17px, so the fourth tab costs no height.</p>' +
+      '<p><b>Rows, not cards.</b> Three hairline-separated blocks: state, actions, exit. The destructive action is quiet muted text that turns <span style="color:#ef7a70">red on hover</span> · the same vocabulary as Remove in the roster.</p>' +
+    '</div></div>' +
+
+    '<h2 class="hm-h2">4 · Interaction and state matrix</h2>' +
+    '<table class="hm-tokens"><thead><tr><th>State</th><th>Status line</th><th>Connect body</th><th>Elsewhere</th></tr></thead><tbody>' +
+    [['synced', 'green dot · "Connected · synced" · last sync time', 'Server, Sync now, Show getting started, Disconnect and change server', 'no alarm; strip carries no count'],
+     ['syncing', 'spinning hexagon · "Connected · syncing" · count + start time', 'same, Sync now stays enabled', 'no alarm'],
+     ['offline', 'hollow dot · "Offline · queued"', '+ Retry now above the guide action, hint = queued count', 'no alarm; queue is a fact, not an alarm'],
+     ['reconnect required', 'hollow dot · "Offline · queued"', '+ Retry now, hint = "reconnect required"', 'mark dot only if something needs the user'],
+     ['reset required', 'red circle-check · "Not connected"', '+ Reset connection in the recovery slot', 'alarm block above the strip if changes are stranded'],
+     ['disconnected', 'no status line', 'entry chooser + the existing connect form', 'header invite action hidden; tabs stay in place'],
+     ['conflicts / failed send', 'unchanged', 'unchanged', 'alarm block above the strip on every tab, count on Status']]
+      .map(function (r) { return '<tr><td>' + r[0] + '</td><td style="white-space:normal">' + r[1] + '</td><td style="white-space:normal;color:#dcddde">' + r[2] + '</td><td>' + r[3] + '</td></tr>'; }).join('') +
+    '</tbody></table>' +
+
+    '<h2 class="hm-h2">5 · Colour tokens</h2>' + table(['Token', 'Value (Obsidian dark)', 'Where it lands'], tokenRows, true) +
+    '<h2 class="hm-h2">6 · Geometry, type, radius, shadow</h2>' + table(['Element', 'Value', 'Note'], geomRows, false) +
+    '<h2 class="hm-h2">7 · Icons · Lucide, nothing outside this set</h2>' +
+    table(['Icon', 'Size / stroke', 'Used for'], [
+      ['hexagon', '15px / 1.7', 'Havemind mark in the header; also the spinning syncing glyph (14px / 1.8)'],
+      ['eye', '15px / 1.75', 'Authorship colours toggle (aria-pressed)'],
+      ['user-plus', '15px / 1.75', 'Header invite action; 15px in the People invite row; 14px / 1.8 in the pending notice'],
+      ['more-horizontal', '15px / filled', 'Overflow menu trigger · three r1.4 dots, fill not stroke'],
+      ['circle-check', '16px stacked / 17px icon-only / 1.75', 'Status tab; 14px / 2 as the not-connected glyph'],
+      ['activity', '16px stacked / 17px icon-only / 1.75', 'Activity tab'],
+      ['users', '16px stacked / 17px icon-only / 1.75', 'People tab'],
+      ['link', '16px stacked / 17px icon-only / 1.75', 'Connect tab · the one addition the fourth tab required']
+    ], false) +
+    '</div>';
+}
+</script>
+</body>
+</html>

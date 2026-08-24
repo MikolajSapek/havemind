@@ -2,6 +2,7 @@ import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import { approveRedeemedDevice, ApproveDeviceError } from './approve-device';
+import { listPendingApprovals } from './list-pending-approvals';
 import type {
   RequestUrlOptions,
   RequestUrlResponseLike,
@@ -149,5 +150,59 @@ describe('approveRedeemedDevice', () => {
         },
       ),
     );
+  });
+});
+
+describe('listPendingApprovals', () => {
+  it('gets the owner pending list with bearer auth and accepts only secret-free rows', async () => {
+    const calls: RequestUrlOptions[] = [];
+    const result = await listPendingApprovals({
+      apiBaseUrl: API,
+      getAccessToken: async () => 'access-1',
+      requestUrl: async (options) => {
+        calls.push(options);
+        return {
+          status: 200,
+          json: {
+            pending: [
+              {
+                deviceDisplayName: 'Magda Laptop',
+                expiresAt: '2026-08-24T12:00:00.000Z',
+                intendedMemberDisplayName: 'Magda',
+                intendedRole: 'editor',
+                invitationId: INVITATION,
+                pendingDeviceId: '33333333-3333-4333-8333-333333333333',
+              },
+            ],
+          },
+        };
+      },
+      vaultId: VAULT,
+    });
+
+    expect(calls[0]).toMatchObject({
+      method: 'GET',
+      url: `${API}/vaults/${VAULT}/invitations/pending`,
+      headers: { Authorization: 'Bearer access-1' },
+    });
+    expect(result).toEqual([
+      {
+        expiresAt: '2026-08-24T12:00:00.000Z',
+        intendedMemberDisplayName: 'Magda',
+        intendedRole: 'editor',
+        invitationId: INVITATION,
+      },
+    ]);
+  });
+
+  it('rejects a malformed pending-list response', async () => {
+    await expect(
+      listPendingApprovals({
+        apiBaseUrl: API,
+        getAccessToken: async () => 'access-1',
+        requestUrl: async () => ({ status: 200, json: { pending: [{}] } }),
+        vaultId: VAULT,
+      }),
+    ).rejects.toThrow('malformed');
   });
 });

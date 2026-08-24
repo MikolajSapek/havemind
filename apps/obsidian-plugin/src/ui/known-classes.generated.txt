@@ -87,6 +87,7 @@ havemind-pane-mark-dot
 havemind-pane-menu
 havemind-pane-menu-item
 havemind-pane-menu-note
+havemind-pane-menu-sep
 havemind-pane-more
 havemind-pane-title
 havemind-pending-credential
@@ -115,6 +116,7 @@ havemind-status
 havemind-status-bar
 havemind-status-detail
 havemind-status-dot
+havemind-status-dot-idle
 havemind-status-spin
 havemind-step
 havemind-step-link

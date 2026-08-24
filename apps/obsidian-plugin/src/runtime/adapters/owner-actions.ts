@@ -18,6 +18,7 @@ import {
   type CreatedInvitation,
 } from '../create-invitation';
 import { ObsidianOnboardingSecrets } from '../onboarding-secrets';
+import { listPendingApprovals, type PendingApproval } from '../list-pending-approvals';
 import { requestRejoinGrant, type RejoinGrantWaiting } from '../rejoin';
 import { revokeMembership, type MembershipRemoved } from '../remove-member';
 import { ensureClientInstanceId } from '../../storage/client-store';
@@ -127,6 +128,36 @@ export async function approvePendingDeviceForOwner(
     vaultId: connected.vaultId,
     invitationId: options.invitationId,
     verificationPhrase: options.verificationPhrase,
+    getAccessToken: () => accessProvider.getAccessToken(),
+  });
+}
+
+/** Reads the server-authoritative, secret-free pending approval queue. */
+export async function listPendingApprovalsForOwner(
+  plugin: Plugin,
+): Promise<readonly PendingApproval[] | null> {
+  const connected = await resolveConnectedVault(plugin);
+  if (connected === null) return null;
+  const clientInstanceId = await ensureClientInstanceId(createClientInstanceRepo(plugin));
+  const secrets = new ObsidianOnboardingSecrets({
+    clientInstanceId,
+    secretStorage: plugin.app.secretStorage,
+  });
+  const accessProvider = new RefreshTokenAccessProvider({
+    requestUrl: createRequestUrlFn(),
+    apiBaseUrl: connected.apiBaseUrl,
+    getRefreshToken: () => secrets.getRefreshToken(),
+    saveRefreshToken: (value) => secrets.saveRefreshToken(value),
+    generateRotationId: generateRotationIdValue,
+    generateSuccessorToken: generateRefreshTokenValue,
+    loadPendingRotation: () => secrets.getPendingRotation(),
+    savePendingRotation: (record) => secrets.savePendingRotation(record),
+    clearPendingRotation: () => secrets.clearPendingRotation(),
+  });
+  return listPendingApprovals({
+    requestUrl: createRequestUrlFn(),
+    apiBaseUrl: connected.apiBaseUrl,
+    vaultId: connected.vaultId,
     getAccessToken: () => accessProvider.getAccessToken(),
   });
 }

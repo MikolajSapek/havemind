@@ -132,6 +132,7 @@ export {
 export {
   approvePendingDeviceForOwner,
   createInvitationForOwner,
+  listPendingApprovalsForOwner,
   requestRejoinGrantForOwner,
   revokeMembershipForOwner,
 } from './adapters/owner-actions';

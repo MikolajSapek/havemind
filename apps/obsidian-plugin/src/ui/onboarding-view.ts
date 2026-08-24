@@ -566,12 +566,16 @@ export class HavemindOnboardingView extends ItemView {
     if (panel.spin) row.addClass('havemind-status-spin');
     // synced / conflict read as a small filled dot; the icon name, label and
     // colour token stay exactly as status.ts provides them.
-    if (panel.status === 'synced' || panel.status === 'conflict') {
-      row.addClass('havemind-status-dot');
-    }
+    const isDotStatus = panel.status === 'synced' || panel.status === 'offline';
     row.style.setProperty('color', `var(${panel.colorToken})`);
-    const icon = row.createEl('span', { attr: DECORATIVE });
-    setIcon(icon, panel.icon);
+    if (isDotStatus) {
+      const dot = row.createEl('span', { attr: DECORATIVE });
+      dot.addClass('havemind-status-dot');
+      if (panel.status === 'offline') dot.addClass('havemind-status-dot-idle');
+    } else {
+      const icon = row.createEl('span', { attr: DECORATIVE });
+      setIcon(icon, panel.icon);
+    }
     row.createEl('span', { text: ` ${panel.label}` });
     const detail = content.createDiv({ text: panel.detail });
     detail.addClass('havemind-status-detail');
@@ -673,6 +677,10 @@ export class HavemindOnboardingView extends ItemView {
       this.render();
     });
 
+    if (this.helpOpen) {
+      renderGettingStarted(actions, buildGettingStartedViewModel());
+    }
+
     if (this.options.onDisconnect !== undefined) {
       const exit = content.createDiv();
       exit.addClass('havemind-connect-block');
@@ -684,7 +692,6 @@ export class HavemindOnboardingView extends ItemView {
       disconnect.onClickEvent(() => this.options.onDisconnect?.());
     }
 
-    if (this.helpOpen) renderGettingStarted(content, buildGettingStartedViewModel());
   }
 
   /**

@@ -401,6 +401,36 @@ afterEach(async () => {
 });
 
 describe('onboarding HTTP surface', () => {
+  it('restores an owner-visible pending approval without exposing its verification phrase', async () => {
+    const fixture = makeFixture();
+    const app = createApp(fixture);
+    const { invitationId, pending } = await redeemPending(
+      app,
+      fixture.ownerAccessToken,
+    );
+
+    const listed = await app.inject({
+      headers: { authorization: `Bearer ${fixture.ownerAccessToken}` },
+      method: 'GET',
+      url: `/vaults/${VAULT}/invitations/pending`,
+    });
+
+    expect(listed.statusCode).toBe(200);
+    const body = listed.json() as {
+      pending: Array<Record<string, unknown>>;
+    };
+    expect(body.pending).toHaveLength(1);
+    expect(body.pending[0]).toMatchObject({
+      deviceDisplayName: 'Bob Laptop',
+      intendedMemberDisplayName: 'Bob',
+      intendedRole: 'editor',
+      invitationId,
+      pendingDeviceId: pending.pendingDeviceId,
+    });
+    expect(JSON.stringify(body)).not.toContain(pending.verificationPhrase);
+    expect(JSON.stringify(body)).not.toContain(pending.pendingCredential);
+  });
+
   it('runs the full invite → redeem → approve → refresh → bootstrap flow', async () => {
     const fixture = makeFixture();
     const app = createApp(fixture);

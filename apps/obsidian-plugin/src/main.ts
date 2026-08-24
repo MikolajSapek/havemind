@@ -69,6 +69,7 @@ import {
   buildRejoinControllerForInvitee,
   connectFromInput,
   createInvitationForOwner,
+  listPendingApprovalsForOwner,
   requestRejoinGrantForOwner,
   resetHavemindConnectionState,
   revokeMembershipForOwner,
@@ -748,6 +749,7 @@ export default class HavemindPlugin extends Plugin {
     // one down (FINDING 1b).
     this.connectGeneration += 1;
     this.adoptSelfMembership(this.connection);
+    void this.restorePendingApprovals();
     // MRG-05: on start (after the canonicalization rebase inside the handle
     // build), sweep any pre-existing conflict copies that a persisted ancestor
     // can now auto-merge. Scheduled (debounced) so it runs alongside — not
@@ -1339,7 +1341,16 @@ export default class HavemindPlugin extends Plugin {
    */
   private async armRejoin(): Promise<void> {
     if (this.rejoinController !== null) return;
-    const controller = await buildRejoinControllerForInvitee(this);
+    let controller: RejoinController | null;
+    try {
+      controller = await buildRejoinControllerForInvitee(this);
+    } catch {
+      if (!this.unloaded) {
+        this.connectionError = 'Havemind could not prepare reconnection. Pair again if this persists.';
+        this.views.refreshOnboarding();
+      }
+      return;
+    }
     // The build awaits plugin data; guard against unload racing it and against a
     // second arm having won while we awaited.
     if (controller === null || this.unloaded || this.rejoinController !== null) {
@@ -1360,6 +1371,19 @@ export default class HavemindPlugin extends Plugin {
     // this single boundary rather than reshaping the platform declaration.
     this.registerInterval(timer as unknown as number);
     this.rejoinPollTimer = timer;
+  }
+
+  /** Hydrates owner approvals after restart; failure never disrupts sync. */
+  private async restorePendingApprovals(): Promise<void> {
+    try {
+      const pending = await listPendingApprovalsForOwner(this);
+      if (pending === null || this.unloaded) return;
+      this.pendingApprovals = [...pending];
+      this.views.refreshOnboarding();
+    } catch {
+      // A non-owner or temporarily unavailable server must not make a healthy
+      // connection appear broken. The composer will retry when reopened.
+    }
   }
 
   /**

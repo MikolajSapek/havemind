@@ -85,7 +85,7 @@ export function renderPaneHeader(
     });
     toggle.addClass('havemind-header-action');
     if (on) toggle.addClass('is-on');
-    setIcon(toggle, 'users');
+    setIcon(toggle, 'eye');
     toggle.onClickEvent(() => options.onToggleAuthorOverlay?.());
   }
 
@@ -113,13 +113,18 @@ export function renderPaneHeader(
 
   const menu = content.createDiv();
   menu.addClass('havemind-pane-menu');
+  let renderedAction = false;
   for (const item of options.items) {
     if (item.readOnly === true) {
+      if (renderedAction) {
+        menu.createDiv().addClass('havemind-pane-menu-sep');
+      }
       menu.createDiv({ text: item.label }).addClass('havemind-pane-menu-note');
       continue;
     }
     const entry = menu.createEl('button', { text: item.label });
     entry.addClass('havemind-pane-menu-item');
     entry.onClickEvent(() => item.onSelect());
+    renderedAction = true;
   }
 }

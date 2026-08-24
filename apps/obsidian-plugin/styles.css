@@ -68,35 +68,44 @@
      --------------------------------------------------------------------- */
 
   /* Header strip */
-  --havemind-header-height: 34px;
-  --havemind-header-pad: 0 4px 0 12px;
-  --havemind-header-gap: 4px;
+  --havemind-header-height: 38px;
+  --havemind-header-pad: 0 6px 0 10px;
+  --havemind-header-gap: 2px;
+  --havemind-mark-size: 24px;
+  --havemind-mark-radius: 6px;
+  --havemind-mark-icon: 15px;
   --havemind-action-size: 26px;
-  --havemind-action-radius: 4px;
+  --havemind-action-radius: 6px;
+  --havemind-action-icon: 15px;
   --havemind-title-size: 13px;
-  --havemind-title-weight: 500;
-  --havemind-title-offset: 3px;
+  --havemind-title-weight: 600;
+  --havemind-title-offset: 8px;
 
   /* Alarm dot riding the hexagon mark */
   --havemind-mark-dot-size: 6px;
-  --havemind-mark-dot-ring: 1.5px solid var(--background-primary);
+  --havemind-mark-dot-ring: 1.5px solid var(--background-secondary);
 
   /* Tab strip */
-  --havemind-tab-height: 30px;
-  --havemind-tab-label-size: 10.5px;
-  --havemind-tab-stack-pad: 6px 2px 5px;
+  --havemind-tab-height: 32px;
+  --havemind-tab-label-size: 11.5px;
+  --havemind-tab-label-weight: 500;
+  --havemind-tab-active-weight: 600;
+  --havemind-tab-icon: 16px;
+  --havemind-tab-stack-pad: 7px 2px 6px;
   --havemind-tab-active-rule: 2px solid var(--interactive-accent);
 
   /* Status block */
-  --havemind-status-size: 14px;
-  --havemind-status-gap: 9px;
+  --havemind-status-size: 13.5px;
+  --havemind-status-weight: 600;
+  --havemind-status-gap: 8px;
+  --havemind-status-glyph: 14px;
   --havemind-status-dot-size: 8px;
-  --havemind-status-detail-indent: 17px;
+  --havemind-status-detail-indent: 22px;
   --havemind-status-detail-size: 11.5px;
-  --havemind-status-detail-gap: 3px;
+  --havemind-status-detail-gap: 4px;
 
   /* Tab body inset */
-  --havemind-body-pad: 16px 14px 0;
+  --havemind-body-pad: 14px 12px 16px;
 
   /* Alarm block (conflicts, failed sends) */
   --havemind-alarm-rule: 2px solid var(--text-error);
@@ -112,8 +121,11 @@
   --havemind-roster-row-height: 44px;
   --havemind-roster-gap: 10px;
   --havemind-roster-name-size: 12.5px;
-  --havemind-roster-meta-size: 11px;
+  --havemind-roster-meta-size: 11.5px;
   --havemind-roster-row-pad: 4px 0;
+  --havemind-activity-row-pad: 9px 0;
+  --havemind-row-time-size: 11px;
+  --havemind-dot-size: 8px;
 }
 
 /* =========================================================================
@@ -170,7 +182,8 @@
  * could silently change the layout. One declaration, one place. */
 .havemind-view {
   color: var(--text-normal);
-  font-size: var(--font-ui-small);
+  font-family: var(--font-ui);
+  font-size: 13px;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -178,6 +191,7 @@
   /* The frame the overflow menu positions against. The container query lives
      one level up, on `.workspace-leaf-content` — see the note there. */
   position: relative;
+  background: var(--background-primary);
 }
 .havemind-view > .havemind-tab-body {
   flex: 1;
@@ -213,6 +227,7 @@
 .workspace-leaf-content[data-type='havemind-onboarding'] {
   container-type: inline-size;
   container-name: havemind-pane;
+  background: var(--background-primary);
 }
 
 /* Air between the top-level blocks of a view — the main lever of the redesign.
@@ -426,23 +441,41 @@
   align-items: center;
   gap: var(--havemind-status-gap);
   font-size: var(--havemind-status-size);
-  font-weight: var(--font-medium);
+  font-weight: var(--havemind-status-weight);
+  letter-spacing: 0.005em;
 }
 
 /* The glyph takes the colour of the row it sits in, so semantic colour is set
    once on the row rather than twice. `.havemind-pending-row .svg-icon` is not
    listed: it sets its own muted colour further down, and naming it here as
    well meant the sheet stated two different colours for one element. */
-.havemind-status .svg-icon,
-.havemind-roster-dot .svg-icon {
+.havemind-status .svg-icon {
+  flex: none;
+  width: var(--havemind-status-glyph);
+  height: var(--havemind-status-glyph);
   color: inherit;
+  stroke-width: 2;
 }
 
 /* Synced / conflict read as a small dot rather than a glyph: the icon box is
    shrunk and filled. The label beside it still names the state. */
-.havemind-status-dot .svg-icon {
+.havemind-status-dot {
+  flex: none;
   width: var(--havemind-status-dot-size);
   height: var(--havemind-status-dot-size);
+  margin: 0 3px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 0 3px rgba(var(--color-green-rgb), 0.16);
+}
+
+.havemind-status-dot-idle {
+  background: none;
+  border: 1.5px solid currentColor;
+  box-shadow: none;
+}
+
+.havemind-status-dot .svg-icon {
   fill: currentColor;
   stroke: currentColor;
 }
@@ -493,8 +526,17 @@
   gap: var(--havemind-roster-gap);
   min-height: var(--havemind-roster-row-height);
   padding: var(--havemind-roster-row-pad);
-  border-bottom: 1px solid var(--havemind-hairline);
   font-size: var(--havemind-roster-name-size);
+}
+
+.havemind-roster-row + .havemind-roster-row,
+.havemind-roster-row + .havemind-invite-cta {
+  border-top: 1px solid var(--havemind-hairline);
+}
+
+.havemind-roster-row:hover {
+  background: var(--background-modifier-hover);
+  box-shadow: 0 0 0 12px var(--background-modifier-hover);
 }
 
 .havemind-roster-dot {
@@ -582,20 +624,28 @@
 .havemind-activity-row {
   display: flex;
   align-items: flex-start;
-  gap: var(--size-4-3);
-  padding: var(--size-4-2) 0;
-  border-top: 1px solid var(--havemind-hairline);
+  gap: 9px;
+  padding: var(--havemind-activity-row-pad);
   background: transparent;
   line-height: 1.45;
+}
+
+.havemind-activity-row + .havemind-activity-row {
+  border-top: 1px solid var(--havemind-hairline);
+}
+
+.havemind-activity-row:hover {
+  background: var(--background-modifier-hover);
+  box-shadow: 0 0 0 12px var(--background-modifier-hover);
 }
 
 /* The author colour becomes a dot before the row rather than a left rule. */
 .havemind-activity-row::before {
   content: '';
   flex: none;
-  width: 8px;
-  height: 8px;
-  margin-top: 0.4em;
+  width: var(--havemind-dot-size);
+  height: var(--havemind-dot-size);
+  margin-top: 5px;
   border-radius: 50%;
   background: var(--havemind-row-color, var(--text-faint));
 }
@@ -1043,7 +1093,7 @@
   height: var(--havemind-header-height);
   padding: var(--havemind-header-pad);
   flex: none;
-  border-bottom: 1px solid var(--havemind-hairline);
+  background: var(--background-secondary);
 }
 
 .havemind-pane-title {
@@ -1055,6 +1105,7 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  letter-spacing: 0.005em;
 }
 
 .havemind-pane-more,
@@ -1082,17 +1133,18 @@
    and the content out of view — a menu is a temporary layer, not a section. */
 .havemind-pane-menu {
   position: absolute;
-  top: 34px;
-  right: 8px;
+  top: 36px;
+  right: 6px;
   z-index: var(--layer-popover, 30);
-  min-width: 180px;
+  min-width: 184px;
   display: flex;
   flex-direction: column;
   border: 1px solid var(--havemind-hairline);
-  border-radius: 6px;
-  padding: 4px;
-  background: var(--background-secondary);
-  box-shadow: var(--shadow-s, 0 2px 8px rgba(0, 0, 0, 0.25));
+  gap: 1px;
+  border-radius: 8px;
+  padding: 5px;
+  background: var(--background-secondary-alt);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
 }
 /* `position` is declared once on `.havemind-view` in section 3; the container
    query lives on `.workspace-leaf-content` above it. */
@@ -1102,11 +1154,11 @@
   background: none;
   box-shadow: none;
   border: none;
-  border-radius: 4px;
+  border-radius: 6px;
   padding: 6px 8px;
   color: var(--text-normal);
   font: inherit;
-  font-size: 13px;
+  font-size: 12.5px;
   cursor: pointer;
 }
 .havemind-view button.havemind-pane-menu-item:hover {
@@ -1114,10 +1166,17 @@
 }
 /* The server address: present for reference, never interactive. */
 .havemind-pane-menu-note {
-  padding: 6px 8px;
+  padding: 6px 8px 4px;
   color: var(--text-faint);
-  font-size: 11.5px;
+  font-family: var(--font-monospace);
+  font-size: 11px;
   overflow-wrap: anywhere;
+}
+
+.havemind-pane-menu-sep {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--havemind-hairline);
 }
 
 /* The status word's own size and gap are set once, on `.havemind-status` in
@@ -1140,6 +1199,7 @@
   flex: none;
   display: grid;
   grid-template-columns: repeat(4, 1fr);
+  background: var(--background-secondary);
   border-bottom: 1px solid var(--havemind-hairline);
 }
 
@@ -1165,6 +1225,9 @@
   color: var(--text-muted);
   font: inherit;
   font-size: var(--havemind-tab-label-size);
+  font-weight: var(--havemind-tab-label-weight);
+  letter-spacing: 0.01em;
+  transition: color 90ms ease-out, background-color 90ms ease-out;
   cursor: pointer;
 }
 .havemind-view button.havemind-tab:hover {
@@ -1176,8 +1239,9 @@
    `border-bottom`, and a shadow sat 1px off the strip's own bottom rule. */
 .havemind-view button.havemind-tab.is-active {
   color: var(--text-normal);
-  font-weight: var(--font-medium);
+  font-weight: var(--havemind-tab-active-weight);
   border-bottom: var(--havemind-tab-active-rule);
+  background: none;
 }
 
 /* The resize ladder (round 2, Q2). Three steps, because each fails for a
@@ -1213,23 +1277,24 @@
   .havemind-tab,
   .havemind-view button.havemind-tab {
     flex-direction: column;
-    gap: 2px;
+    gap: 3px;
     /* The stacked step is the one rung sized by padding rather than height:
        icon over label has no single line to set a height from. */
     height: auto;
     padding: var(--havemind-tab-stack-pad);
   }
   .havemind-tab-icon { display: flex; }
-  .havemind-tab-icon .svg-icon { width: 16px; height: 16px; }
+  .havemind-tab-icon .svg-icon { width: var(--havemind-tab-icon); height: var(--havemind-tab-icon); }
+  .havemind-tab-label { font-size: 10.5px; }
 }
 
 @container havemind-pane (max-width: 249px) {
   .havemind-tab-label { display: none; }
   .havemind-tab-icon { display: flex; }
-  .havemind-tab-icon .svg-icon { width: 16px; height: 16px; }
+  .havemind-tab-icon .svg-icon { width: 17px; height: 17px; }
 }
 
-.havemind-tab-body { padding: var(--havemind-body-pad); }
+.havemind-tab-body { padding: var(--havemind-body-pad); background: var(--background-primary); }
 
 /* The view container lost its padding so chrome can span the pane; anything
    that is not chrome sets its own inset back. */
@@ -1268,14 +1333,26 @@
   background: none;
   color: var(--text-muted);
   cursor: pointer;
+  transition: background-color 90ms ease-out, color 90ms ease-out;
 }
 .havemind-view button.havemind-header-action:hover {
   background: var(--background-modifier-hover);
   color: var(--text-normal);
 }
+
+.havemind-header-action .svg-icon {
+  width: var(--havemind-action-icon);
+  height: var(--havemind-action-icon);
+  stroke-width: 1.75;
+}
+
+.havemind-pane-more .svg-icon {
+  fill: currentColor;
+  stroke: none;
+}
 /* Pressed is carried by aria-pressed as well as this fill. */
 .havemind-view button.havemind-header-action.is-on {
-  background: var(--background-modifier-hover);
+  background: rgba(var(--color-accent-rgb), 0.16);
   color: var(--interactive-accent);
 }
 
@@ -1285,13 +1362,20 @@
 .havemind-pane-mark {
   position: relative;
   display: flex;
+  align-items: center;
+  justify-content: center;
   flex: none;
+  width: var(--havemind-mark-size);
+  height: var(--havemind-mark-size);
+  border-radius: var(--havemind-mark-radius);
+  background: none;
   color: var(--havemind-accent);
 }
+.havemind-pane-mark .svg-icon { width: var(--havemind-mark-icon); height: var(--havemind-mark-icon); stroke-width: 1.7; }
 .havemind-pane-mark-dot {
   position: absolute;
-  top: -2px;
-  right: -2px;
+  top: -1px;
+  right: -1px;
   width: var(--havemind-mark-dot-size);
   height: var(--havemind-mark-dot-size);
   border-radius: 50%;
@@ -1299,23 +1383,41 @@
   border: var(--havemind-mark-dot-ring);
 }
 
+.havemind-status-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-wrap: pretty;
+}
+
+
+@media (prefers-reduced-motion: reduce) {
+  .havemind-header-action,
+  .havemind-tab,
+  .havemind-activity-action { transition: none; }
+}
+
 /* Invite lives at the foot of People, not in a tab of its own. */
 .havemind-invite-cta,
 .havemind-view button.havemind-invite-cta {
-  margin-top: 10px;
-  padding: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 40px;
+  margin: 0;
+  padding: 4px 0;
   border: none;
   box-shadow: none;
   background: none;
   color: var(--interactive-accent);
   font: inherit;
-  font-size: var(--font-ui-smaller);
-  font-weight: var(--font-medium);
+  font-size: 12.5px;
+  font-weight: 600;
   cursor: pointer;
 }
 .havemind-view button.havemind-invite-cta:hover {
-  background: none;
-  text-decoration: underline;
+  color: var(--interactive-accent-hover);
 }
 
 /* The column itself is declared once in section 3. This block used to

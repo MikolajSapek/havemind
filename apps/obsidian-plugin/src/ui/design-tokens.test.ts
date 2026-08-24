@@ -38,7 +38,7 @@ const tokens: Record<string, DesignToken> = JSON.parse(
   readFileSync(
     fileURLToPath(
       new URL(
-        '../../../../design/pane-redesign/round-2-result/tokens.json',
+        '../../../../design/status-line-ui-mockups/tokens.json',
         import.meta.url,
       ),
     ),
@@ -92,16 +92,10 @@ describe('design tokens — the stylesheet agrees with the handoff', () => {
   });
 });
 
-describe('design tokens — deliberate deviations stay visible', () => {
-  it('overrides the roster row height for the 44px touch target', () => {
-    // The design draws 38px rows. The project requires 44px minimum targets, so
-    // the stylesheet deviates on purpose. Pinning it here is what separates a
-    // decision from a regression: without this, restoring 38px would look like
-    // a fix rather than the accessibility loss it is.
+describe('design tokens — accessible row geometry', () => {
+  it('keeps the handoff’s 44px roster target', () => {
     const roster = tokens['roster-row-height'];
-    expect(roster?.value).toBe('38px');
-    expect(roster?.override).toBe('44px');
-    expect(roster?.reason).toMatch(/44px/);
+    expect(roster?.value).toBe('44px');
 
     expect(declaredValue('--havemind-roster-row-height')).toBe('44px');
   });

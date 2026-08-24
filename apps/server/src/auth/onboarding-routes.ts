@@ -448,6 +448,28 @@ export function registerOwnerInvitationRoutes(
   instance: FastifyInstance,
   deps: OnboardingRoutesDeps,
 ): void {
+  instance.get('/vaults/:vaultId/invitations/pending', async (request, reply) => {
+    const params = vaultParamsSchema.safeParse(request.params);
+    if (!params.success) {
+      return sendError(reply, 400, 'INVALID_REQUEST');
+    }
+    const membership = requireOwner(request, reply, deps, params.data.vaultId);
+    if (membership === null) {
+      return reply;
+    }
+    try {
+      reply.header('cache-control', 'no-store');
+      return {
+        pending: deps.invitations.listPendingApprovals(
+          params.data.vaultId,
+          membership.membershipId,
+        ),
+      };
+    } catch (error) {
+      return sendInvitationError(reply, error);
+    }
+  });
+
   instance.post('/vaults/:vaultId/invitations', async (request, reply) => {
     const params = vaultParamsSchema.safeParse(request.params);
     if (!params.success) {

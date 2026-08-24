@@ -9,6 +9,7 @@ const adapterMocks = vi.hoisted(() => ({
   requestRejoinGrantForOwner: vi.fn(),
   revokeMembershipForOwner: vi.fn(),
   buildRejoinControllerForInvitee: vi.fn(),
+  listPendingApprovalsForOwner: vi.fn(),
 }));
 
 vi.mock('./runtime/obsidian-adapters', async (importOriginal) => {
@@ -20,6 +21,7 @@ vi.mock('./runtime/obsidian-adapters', async (importOriginal) => {
     requestRejoinGrantForOwner: adapterMocks.requestRejoinGrantForOwner,
     revokeMembershipForOwner: adapterMocks.revokeMembershipForOwner,
     buildRejoinControllerForInvitee: adapterMocks.buildRejoinControllerForInvitee,
+    listPendingApprovalsForOwner: adapterMocks.listPendingApprovalsForOwner,
   };
 });
 
@@ -65,6 +67,7 @@ describe('startConnection lifecycle safety', () => {
     adapterMocks.connectFromInput.mockReset();
     adapterMocks.requestRejoinGrantForOwner.mockReset();
     adapterMocks.buildRejoinControllerForInvitee.mockReset();
+    adapterMocks.listPendingApprovalsForOwner.mockReset();
   });
 
   it('stops (never leaves live) a connection handle that resolves after onunload', async () => {
@@ -140,6 +143,29 @@ describe('startConnection lifecycle safety', () => {
     expect(handle.stop).not.toHaveBeenCalled();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((plugin as any).connection).toBe(handle);
+  });
+
+  it('hydrates server-authoritative pending approvals after an owner restart', async () => {
+    const plugin = newPlugin();
+    adapterMocks.startHavemindConnection.mockResolvedValue(fakeHandle('sapserver'));
+    adapterMocks.listPendingApprovalsForOwner.mockResolvedValue([
+      {
+        expiresAt: '2026-08-24T12:00:00.000Z',
+        intendedMemberDisplayName: 'Magda',
+        intendedRole: 'editor',
+        invitationId: '22222222-2222-4222-8222-222222222222',
+      },
+    ]);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (plugin as any).startConnection();
+    await Promise.resolve();
+
+    expect(adapterMocks.listPendingApprovalsForOwner).toHaveBeenCalledWith(plugin);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((plugin as any).pendingApprovals).toEqual([
+      expect.objectContaining({ intendedMemberDisplayName: 'Magda' }),
+    ]);
   });
 });
 
@@ -698,6 +724,22 @@ describe('F9 rejoin wiring', () => {
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((plugin as any).rejoinController).toBeNull();
+  });
+
+  it('surfaces a controller-setup failure instead of leaking an unhandled rejection', async () => {
+    const plugin = newPlugin();
+    adapterMocks.buildRejoinControllerForInvitee.mockRejectedValue(
+      new Error('keychain unavailable'),
+    );
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (plugin as any).handleStatus('reconnect-required', STATUS_VIEW);
+    await flushMicrotasks();
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((plugin as any).rejoinController).toBeNull();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((plugin as any).connectionError).toContain('could not prepare reconnection');
   });
 
   it('cancels the rejoin restart cleanly when unload races an in-flight poll', async () => {
