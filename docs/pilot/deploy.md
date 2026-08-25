@@ -1,4 +1,10 @@
-# Deploying the Havemind server on sapserver (pilot runbook)
+# Historical pilot deployment runbook
+
+> **Historical document.** This records the original sapserver pilot setup.
+> It contains pilot-only names and safety constraints that are no longer the
+> current installation path. Use [self-hosting](../self-hosting.md) for a new
+> deployment, and use the [closed beta guide](../beta/README.md) before inviting
+> external testers.
 
 Paste-ready runbook for standing up the single-service Havemind server on
 `sapserver` behind Tailscale. It matches the real `deploy/compose.yaml`,
@@ -18,9 +24,9 @@ Conventions (from `plan/08-sapserver-operations.md` and `plan/02-fundamenty.md`)
 > `plan/01-zasady-i-slownik.md` rule 5 the agent must not run these without the
 > user; the user runs them. Everything else can run as the ordinary login user.
 
-> **Honesty note:** the pilot ships **without end-to-end encryption** — use only
-> the two disposable pilot vaults. Step 5 (first invitation) is currently
-> **blocked** — see the warning in that section.
+> **Historical security note:** the pilot did not use end-to-end encryption.
+> That remains true for the current product: content is stored in plaintext on
+> the self-hosted server, so only connect vaults and servers all members trust.
 
 Where each command runs is called out. If your shell prompt already shows
 `…@sapserver`, you are on the server: run server commands directly (no `ssh`).

@@ -1,6 +1,9 @@
-# Known limitations (pilot)
+# Current limitations and historical pilot record
 
-Status as of 2026-08-07. Source: bug-hunt loop audits (`plan/11-BACKLOG.md`, AUDIT-FINDINGS section).
+Status as of 2026-08-25. The pilot record below is retained for traceability;
+it is not an instruction to use an outdated plugin build or a disposable vault.
+For current installation and operation, use [self-hosting](../self-hosting.md)
+and the [closed beta guide](../beta/README.md).
 
 ## Auto-formatters on two machines (AUD-03)
 
@@ -44,7 +47,7 @@ and never blocks the scan or the sync of the rest of the vault. Any other
 format — outside the allowed list and `.md` — remains unsynced and
 is counted in reconciliation as an excluded attachment.
 
-## Backup: pipeline ready, activation on the user's side (AUD-10)
+## Backup and restore (AUD-10)
 
 **Implemented and covered by tests** (`apps/server/src/backup-scheduler.test.ts`,
 `backup-cli.test.ts`, `backup-restore.test.ts`):
@@ -63,7 +66,7 @@ is counted in reconciliation as an excluded attachment.
 - `ops/sapserver/restic/restore-drill.sh` — a full restore attempt with a single
   PASS/FAIL result, runnable entirely with user-level permissions.
 
-**Activation requires steps that cannot be automated** (full list:
+**Historical activation prerequisites** (full list:
 `ops/sapserver/restic/README.md`, "Activation checklist" section):
 
 - **X.** on the Mac: enable Remote Login, create `~/havemind-restic`, add
@@ -77,18 +80,17 @@ is counted in reconciliation as an excluded attachment.
   the restic repo password, run `bootstrap.sh`, add two lines to the user's
   crontab (backup + prune; neither needs docker).
 
-**Effect until X/Y/Z are done:** the server volume is the only copy of the data.
-A disk failure means data loss.
-
-**Gate before 1.0:** `restore-drill.sh` must finish with `RESTORE DRILL: PASS`
-on sapserver. Date of the last successful run: _(not yet run)_.
-
-**Activation completed and drill PASSED (2026-08-08).** Backup pipeline is LIVE:
+**Activation completed and drill PASSED (2026-08-08).** The backup pipeline is
+live:
 scheduled in-server artifacts to `deploy/backups`, nightly restic push over SFTP
 to the owner's Mac (user crontab: backup 03:20 daily, prune 04:40 Sundays), and
 `restore-drill.sh` returned **PASS** (283 blobs byte-exact, 513 revisions,
 `integrity_check: ok`, artifact `2026-08-08T12-04-22-006Z-8a239483`). The 1.0
 release gate is satisfied.
+
+**Current operational rule:** run and record a restore drill after any deployment
+or backup-configuration change. Until a new deployment has a passing drill, its
+recovery status is unverified.
 
 ## Keychain entries accumulate: SecretStorage has no delete
 

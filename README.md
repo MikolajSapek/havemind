@@ -160,8 +160,9 @@ requires network use to be described in the README. See the
 - [Zero-configuration connection amendment](specs/002-public-access.md)
 - [Open-source readiness amendment](specs/003-open-source-release.md)
 - [Approved technical implementation plan](plans/001-technical-plan.md)
-- [Private-pilot task matrix](plans/002-pilot-tasks.md)
-- [Known limitations (pilot)](docs/pilot/known-limitations.md)
+- [Historical private-pilot task matrix](plans/002-pilot-tasks.md)
+- [Current limitations and operational notes](docs/pilot/known-limitations.md)
+- [Closed beta programme](docs/beta/README.md)
 - [Existing-solutions research](docs/research.md)
 
 ## Local verification
@@ -177,5 +178,5 @@ npm test            # unit and integration tests
 npm run test:e2e    # two-device fault matrix
 ```
 
-Do not point the development plugin at an existing Obsidian vault — the pilot
-uses dedicated disposable vaults.
+Do not point a development build at an existing important vault. Use a dedicated
+test vault for development and automated testing.

@@ -1,12 +1,18 @@
-# Installing the Havemind plugin on both MacBooks (pilot)
+# Historical pilot installation guide
+
+> **Historical document.** These are the original two-MacBook pilot steps. For
+> a current installation, use the Community directory or BRAT and follow the
+> [closed beta guide](../beta/README.md). The direct file-copy method below is
+> useful only for local development and recovery.
 
 This guide installs the desktop Havemind Obsidian plugin from the built package
 in `apps/obsidian-plugin/` onto the two pilot MacBooks. It is a manual
 "unmanaged plugin" install — Havemind is private and is not in the Obsidian
 community catalogue.
 
-> Honesty note: the pilot ships **without end-to-end encryption**. Use only the
-> two disposable pilot vaults, never a real vault (see `plan/01-zasady-i-slownik.md`).
+> Security note: Havemind does not provide end-to-end encryption. The server can
+> read synced content, so use a server operated by someone every vault member
+> trusts.
 
 ## What the package contains
 

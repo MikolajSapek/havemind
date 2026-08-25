@@ -5,11 +5,11 @@ content-addressed blob store under the server's data directory. This page covers
 how copies of that state are made, where they go, and how a restore is proven —
 not assumed.
 
-Status: the pipeline is implemented and covered by tests; **activation on
-sapserver needs a handful of user-only steps** (Remote Login on the Mac, one SSH
-key, one `chown`). Until the restore drill has printed `PASS` the deployment
-still has exactly one copy of its data. See
-`docs/pilot/known-limitations.md` (AUD-10).
+Status: the production backup pipeline is active and the initial restore drill
+passed on 2026-08-08. Run a new restore drill after every deployment or backup
+configuration change; until it passes, recovery for that deployment is
+unverified. See `docs/pilot/known-limitations.md` (AUD-10) for the historical
+activation record.
 
 ## The three layers
 

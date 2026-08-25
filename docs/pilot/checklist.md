@@ -157,8 +157,8 @@ endpoint + wake registry + GAP-4 exemption + prefix-notify + Dockerfile crypto;
     (07-16, 07-24, 07-25) and the server was rebuilt fresh on 2026-08-04 during
     audit remediation. Disk pressure was never observed; the disk-pressure guard
     shipped in the meantime.
-  - Backup remains deliberately deferred (user decision) — release gate before
-    1.0, tracked in known-limitations (AUD-10).
+  - Backup was deferred at pilot closure. It was activated and passed its restore
+    drill on 2026-08-08; see `known-limitations.md` (AUD-10).
 - Post-pilot state: server healthy (healthz ok, 2026-08-07), `main` at 741ad72
   with the P1/P2 hardening batch. The project exits pilot mode into normal
   operation.
