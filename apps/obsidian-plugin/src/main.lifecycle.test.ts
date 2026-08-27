@@ -327,7 +327,7 @@ describe('plugin lifecycle', () => {
     expect(view?.getIcon()).toBe('hexagon');
     await view?.onOpen();
     const all = flatten(view?.containerEl as unknown as MockElement);
-    expect(all.some(({ text }) => text === 'Creating connection')).toBe(true);
+    expect(all.some(({ text }) => text === 'Invite someone')).toBe(true);
     expect(all.some(({ text }) => text === 'Create invitation')).toBe(true);
     // Before an invitation exists there is nothing to wait for, so the waiting
     // section stays silent rather than spending four lines saying so
@@ -361,7 +361,7 @@ describe('plugin lifecycle', () => {
     const content = (view.containerEl as unknown as MockElement).children[1];
     const all = flatten(content as MockElement);
     // Top (create) section.
-    expect(all.some(({ text }) => text === 'Creating connection')).toBe(true);
+    expect(all.some(({ text }) => text === 'Invite someone')).toBe(true);
     expect(all.some(({ tag }) => tag === 'select')).toBe(true);
     expect(all.some(({ text }) => text === 'Create invitation')).toBe(true);
     // Minted envelope with the Copy button.

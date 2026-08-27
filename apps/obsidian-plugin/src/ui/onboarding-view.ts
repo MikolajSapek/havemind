@@ -1012,7 +1012,7 @@ export class HavemindOnboardingView extends ItemView {
   ): void {
     const title = content.createDiv();
     title.addClass('havemind-composer-title');
-    renderViewTitle(title, 'Creating connection');
+    renderViewTitle(title, 'Invite someone');
     if (this.options.onCloseComposer !== undefined) {
       const close = title.createEl('button', { text: 'Close' });
       close.addClass('havemind-composer-close');

@@ -30,14 +30,14 @@ a private network, and the selected server stores synced content in plaintext.
 
 ## Installation and first connection
 
-1. Install **Havemind** from the Obsidian Community directory. If it is still
-   under review, use BRAT with <https://github.com/MikolajSapek/obsidian-havemind>.
+1. Install **Havemind** from the Obsidian Community directory. To try a
+   prerelease, use BRAT with <https://github.com/MikolajSapek/obsidian-havemind>.
 2. Open the Havemind sidebar and select **Connect**.
 3. The server owner first pairs their own device using the single-use setup
    token. They then create a one-time invitation for each additional device.
 4. The recipient pastes the invitation, verifies the server, vault and inviter,
    and reads the six-digit verification phrase to the owner.
-5. Wait until both panels report **Connected, synced**. Make one small edit on
+5. Wait until both panels report **Connected · synced**. Make one small edit on
    each device and confirm it appears on the other.
 
 ## What testers should try

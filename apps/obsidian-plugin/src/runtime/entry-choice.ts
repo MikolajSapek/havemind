@@ -80,7 +80,7 @@ export const SELF_HOSTING_GUIDE_URL =
 export function buildHostView(): HostViewModel {
   return {
     heading: 'Run the server',
-    subheading: 'On a machine that stays awake. A Pi is enough.',
+    subheading: 'On a machine that stays awake and is on your private network.',
     steps: [
       { text: 'Install Docker and Tailscale on that machine.' },
       { text: 'Sign both machines into the same tailnet.' },

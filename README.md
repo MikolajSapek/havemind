@@ -1,28 +1,24 @@
 <p align="center">
-  <img src="design/brand/havemind-banner-white.png" alt="Havemind, one shared brain for your team and their AIs" width="100%">
+  <img src="design/brand/havemind-banner-white.png" alt="Havemind, a shared Obsidian vault for people you trust" width="100%">
 </p>
 
 # Havemind
 
-### The living knowledge base your team and your agents both write to.
+### Share one Obsidian vault with people you trust.
 
-Havemind is a private, self-hosted, **real-time** sync layer for
-[Obsidian](https://obsidian.md), built for a small trusted circle, two or three
-people sharing one vault. Everyone keeps a normal local vault; a small server on
-your own hardware relays revisions between devices in about a second and records
-who changed what, without ever seeing more than it needs to.
+Havemind is private, self-hosted sync for [Obsidian](https://obsidian.md). It is
+built for two or three people sharing one vault: each person keeps a normal local
+copy while a server you control relays changes, keeps history, and records who
+changed what.
 
-**It's not just for people, it's for your agents too.** Point Claude and your
-AI tools (MCP, the Obsidian tools, your own agents) at the same shared vault, and
-every human and every agent works from one continuously-synced brain. You write,
-your Claude writes, their Claude writes, Havemind keeps it one coherent
-knowledge base, live, with full authorship and zero silent overwrites.
+Use it with people first. If you choose to use Claude, MCP, or another local
+agent in that vault, Havemind keeps those changes in the same history too.
 
-**Version 1.2.1, Reliable releases & connection reliability.** The seven-day pilot closed on 2026-08-07 with zero
-data loss across real two-device use. Note that content is stored on the server
-in plaintext and there is no end-to-end encryption, so the machine running the
-server is the trust boundary, see [Security model](#security-model) before
-connecting a vault you care about.
+**Version 1.2.1 — reliable releases and connection handling.** A seven-day,
+two-device pilot completed without data loss. Havemind does not provide
+end-to-end encryption: the self-hosted server stores synced content in plaintext.
+Read the [security model](#security-model) before connecting a vault you care
+about.
 
 **Self-hosting your own instance?** See
 [docs/self-hosting.md](docs/self-hosting.md) for the full zero-to-working
@@ -36,7 +32,7 @@ requirements and the steps.
 
 - **Real-time two-way sync (~1 second).** A long-poll wake channel pushes a
   peer's change to your device in roughly a second, with a periodic poll as a
-  fallback, no manual refresh, no waiting.
+  fallback. You do not need to manually refresh.
 - **Notes and attachments.** Markdown notes sync with line-level history; images
   (PNG/JPG/GIF/WebP/SVG) and PDFs up to 25 MB sync byte-for-byte.
 - **Appearance settings, from an explicit allowlist.** Theme stylesheets
@@ -44,10 +40,9 @@ requirements and the steps.
   groups included) and the `appearance.json` / `app.json` settings mirror between
   devices, so a vault looks and behaves the same everywhere. That list is the
   whole of it, nothing else under `.obsidian/` is in scope.
-- **Append-only history, zero silent overwrites.** A concurrent edit never
-  destroys the other person's work. Non-overlapping edits merge automatically
-  (3-way merge over a common ancestor); a genuine clash lands as a conflict copy
-  under `Havemind Conflicts/`, both versions preserved, always.
+- **History without silent overwrites.** Non-overlapping concurrent edits merge
+  automatically. When two people edit the same content, Havemind keeps both
+  versions and places a conflict copy in `Havemind Conflicts/` for review.
 - **Fail-closed durability.** The local queue survives crashes and corrupt
   writes: a torn state file is preserved to a sidecar and flagged for recovery
   rather than silently dropping unsent changes.
@@ -62,9 +57,10 @@ requirements and the steps.
 
 ## What it deliberately does not do
 
-- **No cloud.** The server runs on your own hardware, reachable only over your
-  private [Tailscale](https://tailscale.com) network. Nothing is ever published
-  to the internet.
+- **No Havemind-hosted cloud.** The server runs on your own hardware and is
+  intended to be reachable only over your private
+  [Tailscale](https://tailscale.com) network. Do not expose it to the public
+  internet.
 - **No plugin sync, and no device state.** `.obsidian/plugins/` is excluded in
   full, no plugin code, no plugin state, no plugin secrets (`data.json`), as
   are the enabled-plugins registry (`community-plugins.json`) and the

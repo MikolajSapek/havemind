@@ -1,14 +1,14 @@
 # Havemind
 
-Private, self-hosted, real-time sync for a shared Obsidian vault. Havemind is
-for a small trusted circle that wants to keep Markdown data on hardware it
-controls, rather than in a third-party cloud.
+Private, self-hosted sync for a shared Obsidian vault. Havemind is for two or
+three people who want to keep Markdown data on hardware they control, rather
+than in a Havemind-hosted cloud.
 
 ## Install
 
 Install from the Obsidian Community directory, or use BRAT with this repository
-while a release is being reviewed. Havemind is desktop-only and requires a
-Havemind server that the vault owner self-hosts.
+to try a prerelease. Havemind is desktop-only and requires a server the vault
+owner self-hosts.
 
 ## Privacy and permission disclosures
 
