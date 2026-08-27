@@ -4,12 +4,12 @@
  * per-revision egress amplifier). Both routes are deliberately outside the
  * device-keyed request limiter (see `auth-routes` GAP-4 / AUD-08) so a normal
  * reconnect storm or catch-up backlog is not 429'd; these throttles bound the
- * abuse an authenticated member could otherwise inflict — many concurrent held
- * long-polls, or unbounded blob streaming — without touching legitimate use.
+ * abuse an authenticated member could otherwise inflict, many concurrent held
+ * long-polls, or unbounded blob streaming, without touching legitimate use.
  *
  * // ponytail: single-process Maps are the correct ceiling for a 2-3 user
  * // server. If the server ever runs more than one process, these counters
- * // become per-process (each replica enforces its own share) — acceptable for
+ * // become per-process (each replica enforces its own share), acceptable for
  * // this threat model; no shared store (Redis is forbidden) is added here.
  */
 
@@ -63,8 +63,8 @@ interface Bucket {
  * Per-device token bucket measured in BYTES. Each blob GET charges the blob's
  * byte length; an over-budget charge is refused (the route returns 429). The
  * bucket starts full, so a fresh device can burst up to `burstBytes` before any
- * pacing — generous enough that an initial vault materialisation (many blobs)
- * is never throttled — then refills at `refillBytesPerMs`.
+ * pacing, generous enough that an initial vault materialisation (many blobs)
+ * is never throttled, then refills at `refillBytesPerMs`.
  */
 export class BlobByteRateLimiter {
   readonly #buckets = new Map<string, Bucket>();

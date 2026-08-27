@@ -36,7 +36,7 @@ describe('RerunGuard (MINOR: conflict sweep re-arm)', () => {
     await Promise.resolve();
     expect(task.runs).toBe(1);
 
-    // A second trigger arrives mid-run: it must NOT drop — it re-arms a re-run.
+    // A second trigger arrives mid-run: it must NOT drop, it re-arms a re-run.
     void guard.trigger();
     task.releaseNext(); // first run finishes → loop re-runs runOnce
     await Promise.resolve();

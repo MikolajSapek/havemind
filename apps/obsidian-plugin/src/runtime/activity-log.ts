@@ -1,14 +1,14 @@
 /**
- * Live client activity log — the fed data source behind the Activity view.
+ * Live client activity log, the fed data source behind the Activity view.
  *
  * The Activity view was previously orphaned: its `feedProvider` was never set,
  * so it always rendered the empty placeholder. This module is the missing feed.
  * The runtime records an entry at the two points where the client actually
- * learns about a revision — a local change detected by the push producer, and a
- * remote revision applied by the sync runner — and the view reads a snapshot
+ * learns about a revision, a local change detected by the push producer, and a
+ * remote revision applied by the sync runner, and the view reads a snapshot
  * (newest first) that live-updates via `subscribe`.
  *
- * Author attribution is honest (`plan/01` rule 3 — never guess):
+ * Author attribution is honest (`plan/01` rule 3, never guess):
  *  - a locally authored change carries the local member's id, resolved to a name
  *    and colour via the roster;
  *  - a remote applied revision does NOT carry an author id in the pull stream
@@ -16,7 +16,7 @@
  *    When the roster has exactly one other member (the two-person pilot) it is
  *    attributed to them; otherwise it stays a neutral "Remote" label. Precise
  *    N-member remote attribution needs the author id surfaced in the pull
- *    payload — a FUTURE server change, deliberately out of scope here.
+ *    payload, a FUTURE server change, deliberately out of scope here.
  *
  * Pure except for the in-memory buffer + listeners; no Obsidian/DOM/network.
  */
@@ -101,12 +101,12 @@ export class ActivityLog {
 
 /**
  * Resolves the sole non-self roster member, or null when that is ambiguous
- * (nobody else, or more than one other member — the N-member case).
+ * (nobody else, or more than one other member, the N-member case).
  *
  * Correct only for the two-person pilot: with exactly one other roster member
  * "the sole other member" and "the true author of this remote revision" are
  * the same person by construction. This stops being sound the moment a third
- * member joins — see the module docstring above for the N-member follow-up.
+ * member joins, see the module docstring above for the N-member follow-up.
  */
 function soleOtherMember(
   roster: readonly RosterMember[],
@@ -169,7 +169,7 @@ export interface RemoteAppliedInfoWithOrigin extends RemoteAppliedInfo {
  * pre-existing vault (a joining device, or the owner re-pulling after a data.json
  * wipe) applies one revision per file; recording each would flood the feed with a
  * full replay of the vault. Bootstrap applies are therefore collapsed to silence
- * — the files still land on disk, only the Activity entry is withheld — while every
+ *, the files still land on disk, only the Activity entry is withheld, while every
  * LIVE peer edit afterwards still records a normal entry via
  * {@link remoteAppliedToActivityEntry}.
  */
@@ -229,7 +229,7 @@ export function activityEntriesToRecords(
       actor: author,
       timestamp: entry.timestamp,
       content: entry.hasContent ? '' : null,
-      // Non-empty placeholder for the same reason as vaultId above — the feed
+      // Non-empty placeholder for the same reason as vaultId above, the feed
       // never tracks a real content hash, but RevisionDag rejects an empty
       // blobHash. Keyed by revisionId so distinct entries stay distinct.
       blobHash: `feed:${entry.revisionId}`,

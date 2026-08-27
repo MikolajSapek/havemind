@@ -28,10 +28,10 @@ function makeProvider(options: {
   responder: (o: RequestUrlOptions) => RequestUrlResponseLike;
   calls?: RequestUrlOptions[];
   savedRefresh?: string[];
-  // When true, saveRefreshToken throws — models a crash after the server's 200
+  // When true, saveRefreshToken throws, models a crash after the server's 200
   // but before the successor is committed locally.
   crashOnSave?: boolean;
-  // When true, the durable pending-rotation store throws on every op — models a
+  // When true, the durable pending-rotation store throws on every op, models a
   // SecretStorage outage. Production must fail before it sends a rotation that
   // could not survive a crash/restart.
   storeUnavailable?: 'load' | 'save' | 'clear';
@@ -198,7 +198,7 @@ describe('RefreshTokenAccessProvider', () => {
 
   it('replays the identical {rotationId, successor} after an interrupted rotation and commits on retry (GAP-5)', async () => {
     // Attempt 1: the server commits (200) but the client crashes before it can
-    // persist the successor locally — modelled by saveRefreshToken throwing.
+    // persist the successor locally, modelled by saveRefreshToken throwing.
     const backing = makeBacking('hm_rt_current');
     const calls1: RequestUrlOptions[] = [];
     const crashed = makeProvider({
@@ -215,7 +215,7 @@ describe('RefreshTokenAccessProvider', () => {
     const firstBody = JSON.parse(calls1[0]?.body ?? '{}');
 
     // Attempt 2: a fresh provider (simulated restart) over the same backing must
-    // REPLAY the identical rotationId + successor — not mint a new pair — so the
+    // REPLAY the identical rotationId + successor, not mint a new pair, so the
     // server's exact-retry guard forgives it instead of burning the family.
     const calls2: RequestUrlOptions[] = [];
     const savedRefresh: string[] = [];

@@ -16,7 +16,7 @@
 --
 -- NULLABLE on purpose (forward-only, no backfill): a device onboarded before
 -- this migration has no secret hash. Redemption treats a NULL hash as
--- fail-closed — such a device cannot rejoin and must re-onboard. New invitee
+-- fail-closed, such a device cannot rejoin and must re-onboard. New invitee
 -- devices provision a hash at redeem time, so they can rejoin.
 ALTER TABLE devices
   ADD COLUMN rejoin_secret_hash TEXT

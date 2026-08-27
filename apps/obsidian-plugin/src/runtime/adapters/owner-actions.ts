@@ -4,7 +4,7 @@
  * dead contact, and revoke a membership. Each resolves the connected vault (owner
  * pairing or invitee onboarding), builds a short-lived access provider over the
  * stored refresh token, performs exactly one authenticated call, and returns null
- * rather than throwing when this device is not connected — so the caller can
+ * rather than throwing when this device is not connected, so the caller can
  * prompt "connect first" instead of surfacing an auth error. Secrets and
  * verification phrases are forwarded to request bodies only, never logged.
  */
@@ -62,7 +62,7 @@ export async function createInvitationForOwner(
     saveRefreshToken: (value) => secrets.saveRefreshToken(value),
     generateRotationId: generateRotationIdValue,
     generateSuccessorToken: generateRefreshTokenValue,
-    // GAP-5: durable in-flight rotation persistence. Connect-safe — the
+    // GAP-5: durable in-flight rotation persistence. Connect-safe, the
     // provider swallows any load/save/clear failure and degrades to
     // in-memory-only, so a SecretStorage outage never aborts connect or sync.
     loadPendingRotation: () => secrets.getPendingRotation(),
@@ -114,7 +114,7 @@ export async function approvePendingDeviceForOwner(
     saveRefreshToken: (value) => secrets.saveRefreshToken(value),
     generateRotationId: generateRotationIdValue,
     generateSuccessorToken: generateRefreshTokenValue,
-    // GAP-5: durable in-flight rotation persistence. Connect-safe — the
+    // GAP-5: durable in-flight rotation persistence. Connect-safe, the
     // provider swallows any load/save/clear failure and degrades to
     // in-memory-only, so a SecretStorage outage never aborts connect or sync.
     loadPendingRotation: () => secrets.getPendingRotation(),
@@ -166,7 +166,7 @@ export async function listPendingApprovalsForOwner(
  * Owner-only (F9 Rejoin): issue a rejoin grant for a known, currently-dead
  * contact. Requires an already-connected owner session (mirrors
  * `createInvitationForOwner`); returns null when the vault is not connected so
- * the caller can prompt the owner to connect first. Nothing secret is returned —
+ * the caller can prompt the owner to connect first. Nothing secret is returned,
  * only the non-secret "waiting for the contact to reconnect" acknowledgement.
  */
 export async function requestRejoinGrantForOwner(
@@ -192,7 +192,7 @@ export async function requestRejoinGrantForOwner(
     saveRefreshToken: (value) => secrets.saveRefreshToken(value),
     generateRotationId: generateRotationIdValue,
     generateSuccessorToken: generateRefreshTokenValue,
-    // GAP-5: durable in-flight rotation persistence. Connect-safe — the
+    // GAP-5: durable in-flight rotation persistence. Connect-safe, the
     // provider swallows any load/save/clear failure and degrades to
     // in-memory-only, so a SecretStorage outage never aborts connect or sync.
     loadPendingRotation: () => secrets.getPendingRotation(),
@@ -237,7 +237,7 @@ export async function revokeMembershipForOwner(
     saveRefreshToken: (value) => secrets.saveRefreshToken(value),
     generateRotationId: generateRotationIdValue,
     generateSuccessorToken: generateRefreshTokenValue,
-    // GAP-5: durable in-flight rotation persistence. Connect-safe — the
+    // GAP-5: durable in-flight rotation persistence. Connect-safe, the
     // provider swallows any load/save/clear failure and degrades to
     // in-memory-only, so a SecretStorage outage never aborts connect or sync.
     loadPendingRotation: () => secrets.getPendingRotation(),

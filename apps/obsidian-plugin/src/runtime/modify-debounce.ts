@@ -7,7 +7,7 @@
  * note immediately after Havemind's own apply, the naive path hashes the note
  * mid-rewrite and pushes a spurious revision; two devices with different
  * formatter settings then oscillate forever. Debouncing each modify by a short
- * window — reset on every further modify to the SAME path — means the note is
+ * window, reset on every further modify to the SAME path, means the note is
  * hashed once, after it settles, reading its final content.
  *
  * Only `modify` is debounced. Create/rename/delete are ordering-sensitive and
@@ -15,7 +15,7 @@
  * never pass through here.
  *
  * The timer is injected (`DebounceTimer`) so tests drive it deterministically
- * with a fake clock — the same injected-timer idiom the scheduler uses — and
+ * with a fake clock, the same injected-timer idiom the scheduler uses, and
  * `dispose()` clears every pending timer on unload/re-pair, mirroring the
  * producer's listener-teardown contract.
  */
@@ -54,7 +54,7 @@ export class ModifyDebouncer {
   /**
    * Set by `dispose()`. Once torn down the debouncer is inert: a late vault
    * event or a commit-recovery re-arm reaching `trigger()` must not schedule a
-   * fresh timer against a producer that no longer exists — its settle would run
+   * fresh timer against a producer that no longer exists, its settle would run
    * `onSettled` on a torn-down producer and a stale save could clobber the next
    * producer's `data.json` after a re-pair.
    */
@@ -93,7 +93,7 @@ export class ModifyDebouncer {
    * Cancels the pending settle for a single `path`, if any. Called when a
    * rename or delete for that path fires: those events carry their own content
    * (or tombstone) immediately, so a later settled modify for the same path
-   * would resolve against a file that has moved or gone — reading '' for the
+   * would resolve against a file that has moved or gone, reading '' for the
    * missing path and pushing a phantom empty create. A no-op when nothing is
    * pending for `path`.
    */
@@ -108,7 +108,7 @@ export class ModifyDebouncer {
   /**
    * Cancels every pending settle and marks the debouncer disposed. Called on
    * producer teardown/unload. After this the invariant holds unconditionally: no
-   * settle can fire against the torn-down producer — both because every pending
+   * settle can fire against the torn-down producer, both because every pending
    * timer is cleared here AND because `trigger()` is now inert, so even a re-arm
    * or a late vault event arriving after teardown cannot schedule a new one.
    */

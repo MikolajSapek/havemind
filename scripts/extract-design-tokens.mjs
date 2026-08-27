@@ -89,7 +89,7 @@ if (process.argv.includes('--check')) {
   try {
     current = readFileSync(OUT, 'utf8');
   } catch {
-    console.error('tokens.json is missing — run: node scripts/extract-design-tokens.mjs');
+    console.error('tokens.json is missing, run: node scripts/extract-design-tokens.mjs');
     process.exit(1);
   }
   if (current !== serialised) {

@@ -52,7 +52,7 @@ describe('buildActivityViewModel', () => {
       [record({ actor: { kind: 'author', actorId: 'u1', displayName: 'Alice' }, timestamp: 1000 })],
       { formatTimestamp: (ts) => `@${ts}` },
     );
-    // Colour is the stable per-author token — same source as roster/overlay.
+    // Colour is the stable per-author token, same source as roster/overlay.
     expect(model.rows[0]?.colorToken).toBe(authorColorToken('u1'));
     // Author name lives in the label, so colour is never the only signal.
     expect(model.rows[0]?.label).toContain('Alice');

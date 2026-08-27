@@ -18,7 +18,7 @@ interface BlobHashRow {
  * "orphaned" is a global property, not a per-vault one.
  *
  * This MUST only run when no push request can be concurrently committing a
- * revision — i.e. at server startup, before the app begins accepting
+ * revision, i.e. at server startup, before the app begins accepting
  * connections. Deleting from the request hot path is unsafe: `blobStore.put`
  * for one request and `commitRevision` for a *different* concurrent request
  * can interleave around an await, so a liveness check taken mid-request can

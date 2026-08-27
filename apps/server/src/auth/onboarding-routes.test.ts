@@ -46,7 +46,7 @@ const SECOND_VAULT = '80000000-0000-4000-8000-0000000000b3';
 const SECOND_MEMBERSHIP = '80000000-0000-4000-8000-0000000000b4';
 const SECOND_VAULT_TIME = '2026-07-16T04:00:00.000Z';
 
-// A real vault the owner holds NO membership in — naming it on bootstrap must
+// A real vault the owner holds NO membership in, naming it on bootstrap must
 // be refused, never served.
 const FOREIGN_VAULT = '80000000-0000-4000-8000-0000000000c3';
 
@@ -506,8 +506,8 @@ describe('onboarding HTTP surface', () => {
       method: 'GET',
       url: `/devices/${pending.pendingDeviceId}/approval`,
     });
-    // The approved poll surfaces the invitee's active membership id — the exact
-    // memberships.id that POST /revisions checks expectedMemberId against — so the
+    // The approved poll surfaces the invitee's active membership id, the exact
+    // memberships.id that POST /revisions checks expectedMemberId against, so the
     // invitee can stamp a valid push identity. It is the membership row, never the
     // invitee's user id (intendedMemberId), which the server assigns as user_id.
     const inviteeMembership = fixture.database
@@ -662,7 +662,7 @@ describe('onboarding HTTP surface', () => {
     expect(third.statusCode).toBe(403);
     expect(third.json()).toEqual({ error: { code: 'APPROVAL_LOCKED' } });
 
-    // The device is gone and cannot be brute-forced further — even the correct
+    // The device is gone and cannot be brute-forced further, even the correct
     // code no longer approves; a fresh invitation is required.
     expect(
       fixture.database
@@ -993,7 +993,7 @@ describe('onboarding HTTP surface', () => {
     });
 
     expect(bootstrap.statusCode).toBe(200);
-    // The caller-named vault must be the one read — never the first/oldest one
+    // The caller-named vault must be the one read, never the first/oldest one
     // `loadFirstActiveVault` would resolve.
     expect(probe.requestedVaults).toEqual([SECOND_VAULT]);
     const body = bootstrap.json() as { items: Array<{ fileId: string }> };

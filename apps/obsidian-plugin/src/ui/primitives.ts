@@ -6,7 +6,7 @@
  * because they encode panel-wide conventions (never colour alone, never
  * `window.confirm`, one failing section never blanks a pane) that the section
  * renderers, the view classes and the plugin's status bar must all obey
- * identically. Presentation only — nothing here reads or writes plugin state.
+ * identically. Presentation only, nothing here reads or writes plugin state.
  */
 
 import { setIcon } from 'obsidian';
@@ -34,7 +34,7 @@ export function formatActivityTime(timestamp: number): string {
 }
 
 /**
- * Renders a panel's `h3` title with a small leading hexagon glyph — the
+ * Renders a panel's `h3` title with a small leading hexagon glyph, the
  * "hive mind" motif that gives every Havemind surface a shared identity. The
  * title text stays on the `h3` itself; the hexagon is an accent-tinted child
  * placed before the text via CSS (order), so it never becomes the only signal
@@ -88,7 +88,7 @@ export function labelledField(
 /**
  * The form's status line, as a live region.
  *
- * "Connecting…", "That code did not match", "Copied" — every one of these is
+ * "Connecting…", "That code did not match", "Copied", every one of these is
  * written into this element after the user acts. Without `role="status"` the
  * change is silent to a screen reader: the sighted user sees the result and
  * everyone else waits for nothing.
@@ -106,14 +106,14 @@ export function renderFormStatus(parent: HTMLElement): HTMLElement {
 }
 
 /**
- * Wraps an alarm — a conflict list, a failed send — in the single bordered
+ * Wraps an alarm, a conflict list, a failed send, in the single bordered
  * region the design draws it as: accent rule down the left edge, tinted ground,
  * hairline closing it underneath.
  *
  * It exists because containment is load-bearing here rather than cosmetic.
  * Drawn as loose siblings (which is how this started) the tint stops short of
  * the heading, nothing closes the block off at the bottom, and the left rule
- * runs beside the rows only — three fragments where the design has one object.
+ * runs beside the rows only, three fragments where the design has one object.
  * No amount of correct spacing fixes that; the elements have to share a parent.
  *
  * Returns the block so the caller renders its contents inside, and takes the
@@ -134,7 +134,7 @@ export function renderAlarmBlock(
  * Read a provider without letting it take the pane down.
  *
  * `renderSection` guards the sections it wraps, but the view reads several
- * providers BEFORE any section exists — to decide which surface to draw at all.
+ * providers BEFORE any section exists, to decide which surface to draw at all.
  * `render()` has already called `content.empty()` by then, so a throw there left
  * the user with a blank pane: no header, no tabs, no way back. That is the
  * precise failure the boundaries exist to prevent, arriving by the one route
@@ -161,7 +161,7 @@ export function safeRead<T>(
  * MAJOR 5: render one panel section inside an error boundary. A synchronous
  * throw from a section's provider or render body is logged and degraded to a
  * small inline "Section unavailable" fallback so the failure is contained to
- * that section — every other section keeps rendering rather than the whole
+ * that section, every other section keeps rendering rather than the whole
  * panel blanking after `content.empty()`.
  */
 export function renderSection(
@@ -182,7 +182,7 @@ export function renderSection(
  * A destructive two-step confirm button, mirroring the Remove-button idiom: the
  * first click arms the button (swapping its label to `confirmLabel`), the second
  * click within the same render executes. `executed` guards a stray third click
- * from re-firing after confirmation. No `window.confirm` — it blocks Electron.
+ * from re-firing after confirmation. No `window.confirm`, it blocks Electron.
  */
 export function armedButton(
   parent: HTMLElement,

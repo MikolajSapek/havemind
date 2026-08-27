@@ -430,7 +430,7 @@ export class OwnerSetupService {
   /**
    * Onboarding-friendly owner pairing: binds the refresh family to a client-held
    * refresh-token *hash* (the raw token never reaches the server) and mints no
-   * access token — the device rotates via `/auth/refresh` to obtain access. This
+   * access token, the device rotates via `/auth/refresh` to obtain access. This
    * mirrors the invitee redeem contract, so the owner's `/auth/refresh` succeeds.
    */
   public pairOwnerDeviceFromHash(
@@ -547,8 +547,8 @@ export class OwnerSetupService {
    * Creates an ADDITIONAL vault owned by a NEW, independent owner (Model B).
    *
    * The new owner is deliberately not the instance owner (`is_instance_owner = 0`),
-   * so the `one_active_instance_owner` unique index — held by the original
-   * bootstrap owner — stays intact. Requires the instance owner to be initialised.
+   * so the `one_active_instance_owner` unique index, held by the original
+   * bootstrap owner, stays intact. Requires the instance owner to be initialised.
    * In one transaction it mints the new user, vault, an active owner membership and
    * a fresh single-use owner pairing token, returning the plaintext token exactly
    * as owner setup does.
@@ -645,7 +645,7 @@ export class OwnerSetupService {
 
   /**
    * Like {@link rotateOwnerPairing}, but targets the active `owner` membership of
-   * a SPECIFIC vault — whether or not that owner is the instance owner. This is
+   * a SPECIFIC vault, whether or not that owner is the instance owner. This is
    * how a `create-vault` secondary owner recovers a lost/expired pairing token
    * instead of being permanently locked out. Requires the local CLI capability.
    */

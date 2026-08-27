@@ -24,15 +24,15 @@ import {
 
 /**
  * Regression guard for the initial-bootstrap flood (UX): when a device first
- * materialises a PRE-EXISTING vault — a joining device pulling the whole vault,
- * or the owner re-pulling after a data.json wipe — the sync runner applies one
+ * materialises a PRE-EXISTING vault, a joining device pulling the whole vault,
+ * or the owner re-pulling after a data.json wipe, the sync runner applies one
  * revision per file, each returning 'applied'. Recording each as an Activity
  * entry floods the feed with a full replay of the vault.
  *
  * The fix threads a `bootstrap` origin from the runner (every event at or below
  * the server head observed at connect) into the apply, and the Activity wiring
  * collapses bootstrap applies to silence while every LIVE peer edit afterwards
- * still records a normal entry. Files still land on disk unchanged — only the
+ * still records a normal entry. Files still land on disk unchanged, only the
  * Activity presentation differs.
  */
 

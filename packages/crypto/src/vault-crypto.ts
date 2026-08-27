@@ -1,10 +1,10 @@
 /**
- * @havemind/crypto — vault-key derivation, key wrapping and payload AEAD.
+ * @havemind/crypto, vault-key derivation, key wrapping and payload AEAD.
  *
  * =============================== HARD CONSTRAINTS ===========================
  * - ZERO own cryptography. Every primitive here is a documented call into
  *   libsodium (the `libsodium-wrappers-sumo` WASM build), a vetted, audited
- *   library. We invent no cipher, no KDF, no key-wrap scheme — we only compose
+ *   library. We invent no cipher, no KDF, no key-wrap scheme, we only compose
  *   libsodium's Argon2id (`crypto_pwhash`) and XChaCha20-Poly1305-IETF AEAD
  *   (`crypto_aead_xchacha20poly1305_ietf_*`). This satisfies plans/004
  *   "ZERO own cryptography" and plans/001 §10 "No custom cryptographic
@@ -12,7 +12,7 @@
  * - The SUMO build is required: Argon2id `crypto_pwhash` is absent from the
  *   standard `libsodium-wrappers` build and present only in the sumo build.
  *   The sumo build is a self-contained WASM module (no Node builtins), so it is
- *   browser-safe and bundleable by esbuild — but this module is NOT imported
+ *   browser-safe and bundleable by esbuild, but this module is NOT imported
  *   into the Obsidian plugin bundle (it is a de-risking spike per plans/004
  *   Rollout step 1), so the plugin bundle is unchanged.
  * - This module NEVER runs on the server. The Havemind server stays opaque and
@@ -72,7 +72,7 @@ export function moderateKdfParams(sodium: Sodium): KdfParams {
  * Derive a 32-byte passphrase key (KEK) from a passphrase and a public salt
  * using Argon2id. The passphrase never leaves the device; the salt is public
  * and stored alongside the wrapped vault key (never on the server as plaintext
- * of the vault key — the wrapped key is opaque). plans/004 "Wyprowadzenie
+ * of the vault key, the wrapped key is opaque). plans/004 "Wyprowadzenie
  * klucza vaultu (KDF)".
  */
 export function deriveVaultKey(
@@ -114,10 +114,10 @@ export function generateVaultKey(sodium: Sodium): Uint8Array {
 /**
  * Generate a random 32-byte recovery key. This wraps a second, independent copy
  * of the vault key (the recovery kit). HONEST LIMITATION: losing the passphrase
- * AND the recovery key means the vault is unrecoverable — the opaque server
+ * AND the recovery key means the vault is unrecoverable, the opaque server
  * cannot help (plans/004 "Odzyskiwanie"; §4 threat model). The human-readable
  * encoding of this key (BIP39 words / base32-with-checksum) is a spike decision
- * and intentionally out of scope for this module — it returns raw key bytes.
+ * and intentionally out of scope for this module, it returns raw key bytes.
  */
 export function generateRecoveryKey(sodium: Sodium): Uint8Array {
   return sodium.randombytes_buf(KEY_BYTES);
@@ -126,7 +126,7 @@ export function generateRecoveryKey(sodium: Sodium): Uint8Array {
 /**
  * AEAD encrypt with XChaCha20-Poly1305-IETF: fresh random 24-byte nonce per
  * message, nonce prepended to the ciphertext+tag. No associated data is bound
- * here — binding the protected header as AAD happens at the (not-yet-built)
+ * here, binding the protected header as AAD happens at the (not-yet-built)
  * wire layer, deliberately kept out of this spike module.
  */
 function aeadEncrypt(
@@ -150,7 +150,7 @@ function aeadEncrypt(
 
 /**
  * AEAD decrypt the [nonce || ciphertext+tag] layout produced by aeadEncrypt.
- * Throws (never returns garbage) if the tag fails to authenticate — a tampered
+ * Throws (never returns garbage) if the tag fails to authenticate, a tampered
  * byte, a truncated nonce or the wrong key all raise. Callers treat a throw as
  * "quarantine, never overwrite the local file" (plans/004 §3 acceptance).
  */
@@ -211,7 +211,7 @@ export function encryptPayload(
 
 /**
  * Decrypt a payload produced by encryptPayload. Throws on any tampering or the
- * wrong key — the caller must treat a throw as an authentication failure and
+ * wrong key, the caller must treat a throw as an authentication failure and
  * quarantine, never materialise garbage.
  */
 export function decryptPayload(

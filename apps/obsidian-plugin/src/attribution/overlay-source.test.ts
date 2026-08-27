@@ -61,7 +61,7 @@ describe('buildFileOverlayInput', () => {
     ).toBeNull();
   });
 
-  it('stays silent when nothing is recorded for the path — never guesses', () => {
+  it('stays silent when nothing is recorded for the path, never guesses', () => {
     expect(
       buildFileOverlayInput({
         ...BASE,

@@ -49,7 +49,7 @@ interface Seed {
  * Seeds a database with one of everything the cleanup sweep must
  * distinguish between: an expired invitation, a consumed (but not
  * expired) invitation, a fresh invitation, an old pending device, a fresh
- * pending device, and an approved device — plus one invitation whose
+ * pending device, and an approved device, plus one invitation whose
  * `inviter_device_id` still points at the approved device, so the
  * cleanup's own dependency check has something real to read.
  */
@@ -241,7 +241,7 @@ describe('runStaleCleanup', () => {
   });
 
   it('skips and reports a stale pending device with a RESTRICT reference', () => {
-    // Make the stale pending device an invitation's inviter_device_id — an
+    // Make the stale pending device an invitation's inviter_device_id, an
     // ON DELETE RESTRICT reference the cleanup must never violate.
     database
       .prepare('UPDATE invitations SET inviter_device_id = ? WHERE id = ?')

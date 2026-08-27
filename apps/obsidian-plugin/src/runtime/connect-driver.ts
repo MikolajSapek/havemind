@@ -5,7 +5,7 @@
  * step per `resume()` based on its durable state. This loop repeatedly resumes,
  * pausing only while the device sits in `pending-approval` (waiting for the
  * owner to approve the verification phrase), and returns once connected or after
- * `maxSteps` — never busy-looping without a delay while polling.
+ * `maxSteps`, never busy-looping without a delay while polling.
  */
 
 export interface OnboardingPhaseState {

@@ -2,7 +2,7 @@
  * The runner's `VaultFilePort` bound to the live Obsidian Vault: every read,
  * write, delete and conflict-artifact landing the apply path performs, plus the
  * folder-materialisation guards those writes depend on. Grouped here because the
- * guards are not reusable utilities but the port's own preconditions — a create
+ * guards are not reusable utilities but the port's own preconditions, a create
  * whose parent folder is missing, or a reserved path occupied by a non-folder
  * file, both throw inside Obsidian's Vault API and previously wedged the pull
  * cycle in permanent backoff.
@@ -60,7 +60,7 @@ export interface VaultFilePortOptions {
  * (e.g. a note literally named `Havemind Conflicts` with no extension):
  * `getAbstractFileByPath` returning non-null does not mean the path is a
  * folder, and skipping `createFolder` in that case would make the later
- * `vault.create` throw — a throw the sync cycle has no permanent-error
+ * `vault.create` throw, a throw the sync cycle has no permanent-error
  * classification for on the pull path, so it wedges the pull loop in
  * infinite 'offline' backoff (see `writeConflictArtifact`). Falls back to a
  * sanitized sibling folder name, then to the vault root, so a single
@@ -111,7 +111,7 @@ async function resolveConflictTarget(
 }
 
 /**
- * Exact ArrayBuffer view of `bytes` — copies only the used region, so a
+ * Exact ArrayBuffer view of `bytes`, copies only the used region, so a
  * Uint8Array that is a subview of a larger buffer never ships trailing bytes to
  * `createBinary`/`modifyBinary` (F9).
  */
@@ -125,18 +125,18 @@ function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
 /**
  * Ensures every ANCESTOR folder of `path` exists before a create-materialization
  * write, walking from the shallowest segment down and creating each missing
- * level with `vault.createFolder` (level by level — Obsidian's `createFolder`
+ * level with `vault.createFolder` (level by level, Obsidian's `createFolder`
  * does not reliably create nested paths in one call). This is the fix for the
  * 5-day field outage: a freshly onboarded vault that pulls a remote create for
  * `Notatki/Start.md` has no `Notatki` folder, and Obsidian's `vault.create`
- * THROWS when the parent folder is missing — that throw bubbled to the pull
+ * THROWS when the parent folder is missing, that throw bubbled to the pull
  * cycle, which has no permanent-error classification on the apply path, so the
- * cursor never advanced and sync wedged on 'Offline — will retry' forever.
+ * cursor never advanced and sync wedged on 'Offline, will retry' forever.
  *
  * Reuses the TFolder-instanceof discipline from `ensureWritableConflictFolder`:
  * `getAbstractFileByPath` returning non-null does NOT prove a folder. If an
  * ancestor path is occupied by a FILE, the hierarchy cannot be created, so this
- * throws {@link ParentFolderOccupiedError} — a PERMANENT per-item failure the
+ * throws {@link ParentFolderOccupiedError}, a PERMANENT per-item failure the
  * apply side diverts to a conflict artifact, so a single occupied path never
  * wedges the whole cycle. An overwrite/modify of an EXISTING file needs no
  * folder work and never calls this.
@@ -179,7 +179,7 @@ export function createVaultFilePort(options: VaultFilePortOptions): VaultFilePor
       return state.fileIdAtPath(path);
     },
     async readByPath(path) {
-      // A `.obsidian/` config path lives outside the Vault file API — read it via
+      // A `.obsidian/` config path lives outside the Vault file API, read it via
       // the DataAdapter, canonicalised on equal terms with the producer.
       if (isSyncableConfigPath(path)) {
         if (!(await vault.adapter.exists(path))) return null;
@@ -201,7 +201,7 @@ export function createVaultFilePort(options: VaultFilePortOptions): VaultFilePor
       const raw = await vault.read(existing as TFile);
       // Canonicalise the same way the push producer and base-hash seed do
       // (AUD-03), so the on-disk overwrite guard compares content on equal
-      // terms. Hash/compare-side only — the file on disk is never rewritten.
+      // terms. Hash/compare-side only, the file on disk is never rewritten.
       return canonicalizeMarkdown(raw);
     },
     async readBinaryByPath(path) {
@@ -211,7 +211,7 @@ export function createVaultFilePort(options: VaultFilePortOptions): VaultFilePor
       }
       const existing = vault.getAbstractFileByPath(path);
       if (existing === null) return null;
-      // Raw bytes, never canonicalised (F9) — the binary apply path compares and
+      // Raw bytes, never canonicalised (F9), the binary apply path compares and
       // hashes them byte-for-byte.
       const buffer = await vault.readBinary(existing as TFile);
       return new Uint8Array(buffer);
@@ -231,7 +231,7 @@ export function createVaultFilePort(options: VaultFilePortOptions): VaultFilePor
       state.recordConflictArtifactPath(revisionId, path),
     async writeByPath(path, content) {
       // A `.obsidian/` config write goes through the DataAdapter (create-or-
-      // overwrite), materialising parent dirs — the Vault file API cannot touch
+      // overwrite), materialising parent dirs, the Vault file API cannot touch
       // hidden paths.
       if (isSyncableConfigPath(path)) {
         // MERGE, never replace, for a config file with machine-local view state:
@@ -239,7 +239,7 @@ export function createVaultFilePort(options: VaultFilePortOptions): VaultFilePor
         // machine keeps its own graph zoom and panel folds while adopting the
         // peer's colour groups. Re-normalising the merged result reproduces the
         // incoming payload exactly, which is what the caller adopted into the
-        // producer mapping — so this write cannot echo back as a local change.
+        // producer mapping, so this write cannot echo back as a local change.
         const local = (await vault.adapter.exists(path))
           ? await vault.adapter.read(path)
           : null;
@@ -248,7 +248,7 @@ export function createVaultFilePort(options: VaultFilePortOptions): VaultFilePor
           path,
           mergeConfigContent(path, local, content),
         );
-        // The bytes alone change nothing the user can see — Obsidian holds its
+        // The bytes alone change nothing the user can see, Obsidian holds its
         // config in memory. Report the apply so the batch can refresh the CSS or
         // tell the user a reload is needed.
         configApply?.applied(path);
@@ -256,7 +256,7 @@ export function createVaultFilePort(options: VaultFilePortOptions): VaultFilePor
       }
       const existing = vault.getAbstractFileByPath(path);
       if (existing === null) {
-        // A create must first materialize the parent-folder hierarchy — a
+        // A create must first materialize the parent-folder hierarchy, a
         // remote note in a folder this device has never seen (`Notatki/x.md`)
         // would otherwise make `vault.create` throw and wedge the pull cycle.
         await ensureParentFolders(vault, path);

@@ -4,7 +4,7 @@
 // returns the list of hardening violations. Consumed by scripts/compose-smoke.mjs
 // and by tests/compose/compose-config.test.ts. Kept dependency-free (no YAML
 // library) so it runs identically on macOS without Docker and on the sapserver
-// host — the authoritative `docker compose config` cross-check lives in the
+// host, the authoritative `docker compose config` cross-check lives in the
 // smoke runner.
 
 /**
@@ -107,7 +107,7 @@ function hostIpOf(mapping) {
   }
 
   // No recognisable host-IP prefix: `port:container`, bare `container`, or a
-  // wildcard bind — all leave Docker publishing on every interface.
+  // wildcard bind, all leave Docker publishing on every interface.
   return undefined;
 }
 

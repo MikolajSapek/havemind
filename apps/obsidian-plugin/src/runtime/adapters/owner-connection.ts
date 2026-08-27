@@ -33,7 +33,7 @@ export interface StoredConnection {
 
 /**
  * The persisted owner pairing, as a three-way result (P1 #5). The old
- * `StoredConnection | null` shape conflated ABSENT (a clean first run — resume
+ * `StoredConnection | null` shape conflated ABSENT (a clean first run, resume
  * invitee onboarding) with CORRUPT (a half-written record), so a broken record
  * silently became "nothing paired" and every connect fell through to the offline
  * retry loop. Mirrors {@link parseProducerStateResult}'s absent/ok/corrupt shape.
@@ -48,7 +48,7 @@ export type OwnerConnectionReadResult =
     };
 
 /**
- * Classifies a raw `ownerConnection` blob. Never throws — connect-safety: a
+ * Classifies a raw `ownerConnection` blob. Never throws, connect-safety: a
  * garbage record must produce a verdict, not an exception.
  */
 export function parseOwnerConnection(raw: unknown): OwnerConnectionReadResult {
@@ -134,7 +134,7 @@ export type OwnerConnectionGate =
 /**
  * Pure gate: a corrupt record, or a structurally valid one whose refresh secret
  * is gone, both mean "reset required". A half-paired device (record on disk,
- * secret missing — the exact second-computer failure) can never authenticate, so
+ * secret missing, the exact second-computer failure) can never authenticate, so
  * treating it as connectable only produces the offline loop this fixes.
  */
 export function gateOwnerConnection(
@@ -211,14 +211,14 @@ export async function preserveCorruptOwnerConnection(
 
 /**
  * Clears this device's Havemind state so a broken pairing can be replaced by a
- * fresh one (P1 #5) — the supported form of the manual "delete data.json" the
+ * fresh one (P1 #5), the supported form of the manual "delete data.json" the
  * field incident required.
  *
  * Order matters:
  *   1. Preserve the current `ownerConnection` bytes to a timestamped sidecar, so
  *      nothing is destroyed before anything is cleared.
  *   2. Clear the secrets, while the `clientInstanceId` that namespaces them is
- *      still on disk (best-effort — a SecretStorage failure must not abort the
+ *      still on disk (best-effort, a SecretStorage failure must not abort the
  *      reset, or the user is stuck in the broken state they asked to leave).
  *   3. Drop every top-level plugin-data key EXCEPT the corrupt-* sidecars.
  *

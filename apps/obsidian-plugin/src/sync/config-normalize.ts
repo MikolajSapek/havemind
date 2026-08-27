@@ -7,7 +7,7 @@
  * rewrites `scale` (the current zoom) and the `collapse-*` panel-fold flags. Two
  * devices therefore rewrote the file just by looking at it, each rewrite hashed
  * differently from the mapping, each produced a revision, and the two streams
- * ping-ponged — spawning conflict copies of a settings file and burying the one
+ * ping-ponged, spawning conflict copies of a settings file and burying the one
  * thing the user actually wanted synced (the colour groups), which never landed
  * on the second device.
  *
@@ -20,13 +20,13 @@
  *    peer's semantic keys are overlaid onto the local object, so the receiving
  *    machine keeps its own zoom and fold state while adopting the colours.
  *
- * Both are pure string→string functions over the path and the file text — no
- * Obsidian, DOM or Node imports — so the whole contract is unit-testable.
+ * Both are pure string→string functions over the path and the file text, no
+ * Obsidian, DOM or Node imports, so the whole contract is unit-testable.
  *
  * KEY ORDER of the output follows the SOURCE object (`JSON.stringify` of the
  * parsed object minus the dropped keys). That is deliberate and sufficient: the
  * two sides never compare two independently-ordered renderings of the same
- * settings — the receiving device re-normalises the file it just wrote, whose
+ * settings, the receiving device re-normalises the file it just wrote, whose
  * semantic keys are in the SENDER's order by construction (see
  * {@link mergeConfigContent}), so the producer's next read hashes equal to the
  * revision it just applied and the write cannot echo back.
@@ -40,7 +40,7 @@
 const GRAPH_SETTINGS_PATH = '.obsidian/graph.json';
 
 /**
- * Machine-local graph VIEW STATE — never synced. `scale` is the current zoom and
+ * Machine-local graph VIEW STATE, never synced. `scale` is the current zoom and
  * `close`/`collapse-*` are the fold state of the graph view's own side panels;
  * Obsidian rewrites them as a side effect of opening or resizing the view, and
  * every one of them describes this screen rather than the user's settings.
@@ -48,7 +48,7 @@ const GRAPH_SETTINGS_PATH = '.obsidian/graph.json';
  * Everything else is semantic and IS synced: `colorGroups`, `search`, `showTags`,
  * `showAttachments`, `hideUnresolved`, `showOrphans`, `showArrow`, the
  * `*Multiplier` sizing values, the force sliders (`centerStrength`,
- * `repelStrength`, `linkStrength`, `linkDistance`) — and any key not named here.
+ * `repelStrength`, `linkStrength`, `linkDistance`), and any key not named here.
  */
 const GRAPH_VOLATILE_KEYS: ReadonlySet<string> = new Set([
   'scale',
@@ -59,7 +59,7 @@ const GRAPH_VOLATILE_KEYS: ReadonlySet<string> = new Set([
   'collapse-forces',
 ]);
 
-/** Indentation for a rewritten settings file — Obsidian's own JSON style. */
+/** Indentation for a rewritten settings file, Obsidian's own JSON style. */
 const JSON_INDENT = 2;
 
 /** Backslash → forward slash, matching the wire-path separator. */
@@ -80,7 +80,7 @@ export function hasVolatileConfigFields(path: string): boolean {
  * Parses `text` as a JSON OBJECT, or returns `null` when it is not one. A leading
  * UTF-8 BOM is tolerated (`JSON.parse` rejects it). An array, a primitive, `null`
  * and unparseable bytes all yield `null`, which every caller treats as "leave the
- * content exactly as it is" — never trust external data, never rewrite what we do
+ * content exactly as it is", never trust external data, never rewrite what we do
  * not understand.
  */
 function parseConfigObject(text: string): Record<string, unknown> | null {
@@ -135,7 +135,7 @@ export function normalizeConfigContent(path: string, text: string): string {
  *
  * For `.obsidian/graph.json` that means the local `scale`/`collapse-*` survive
  * while the incoming `colorGroups` (and every other semantic key) replace what
- * was here — including REMOVALS: a key the remote no longer carries is dropped,
+ * was here, including REMOVALS: a key the remote no longer carries is dropped,
  * so a colour group the peer deleted disappears here too instead of living on
  * forever. `localText` is `null` (no file yet) or unparseable → the remote's
  * semantic content is written as-is, with no volatile keys imported from the peer.
@@ -147,7 +147,7 @@ export function normalizeConfigContent(path: string, text: string): string {
  * has nothing to preserve, and the incoming content wins whole.
  *
  * The result is built as `{ …local volatile, …remote semantic }`, so dropping the
- * volatile keys again leaves exactly the remote payload's own key order — that
+ * volatile keys again leaves exactly the remote payload's own key order, that
  * identity is what makes the producer's next read of this file hash equal to the
  * revision just applied (no echo, no ping-pong).
  */

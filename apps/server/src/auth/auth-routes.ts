@@ -144,7 +144,7 @@ export function createRateLimiter(
     const key = clientKey(request);
     if (key === null) {
       // Exempt: an authenticated, session-verified blob GET. It never
-      // consumes a bucket slot — see `defaultClientKey` for why.
+      // consumes a bucket slot, see `defaultClientKey` for why.
       return;
     }
     const nowMs = now().getTime();
@@ -171,7 +171,7 @@ const WAIT_ROUTE_PATTERN = '/vaults/:vaultId/wait';
 /**
  * True for a `GET` on the blob-download route. Draining a large pull backlog
  * fetches one blob per applied revision (see `sync-runner.ts`), so this is
- * the only per-revision amplifier in the auth/sync surface — everything else
+ * the only per-revision amplifier in the auth/sync surface, everything else
  * is at most one request per sync cycle.
  */
 function isBlobGetRoute(request: FastifyRequest): boolean {
@@ -185,7 +185,7 @@ function isBlobGetRoute(request: FastifyRequest): boolean {
  * True for a `GET` on the long-poll wake route (GAP-4). This is a held
  * request that reconnects roughly every 25s, not a mutation, and it never
  * counts against a client-controlled amplification factor the way blob GET
- * does — it is a single held connection, not one-per-revision. Excluding it
+ * does, it is a single held connection, not one-per-revision. Excluding it
  * from the bucket the same way as blob GET stops a reconnect storm (each
  * iteration doing `/auth/refresh` + `/wait` + pull) from momentarily
  * exhausting the per-device bucket and 429ing the real-time-push long-poll.
@@ -202,14 +202,14 @@ function isWaitGetRoute(request: FastifyRequest): boolean {
  * arrives from the loopback address, so IP-keying would put every device
  * sharing that tunnel into one global bucket and let one device's bulk
  * traffic 429 every other device. Falls back to IP for requests that carry
- * no valid session — pairing/approval endpoints never send a bearer token,
+ * no valid session, pairing/approval endpoints never send a bearer token,
  * so they keep the IP-keyed brute-force protection unchanged.
  *
  * A `GET` on the blob route from a session-verified caller returns `null`
  * (rate-limit exempt) instead of a key: `blobBelongsToVault` still guards
  * which bytes an authenticated member may read, so this is not an open
  * relay, and it is the only way to drain a large (>100-revision) catch-up
- * backlog — one blob fetch per applied revision — without the per-device
+ * backlog, one blob fetch per applied revision, without the per-device
  * bucket 429ing mid-drain (AUD-08).
  *
  * A `GET` on the long-poll wake route is exempted the same way (GAP-4): it
@@ -302,7 +302,7 @@ export function registerAuthRoutes(
 
   if (onboardingDeps !== undefined) {
     // Pre-authentication scope: rate limited so a flood is rejected before any
-    // invitation lookup, but no bearer session is required — the joining device
+    // invitation lookup, but no bearer session is required, the joining device
     // has no session yet.
     void app.register(async (instance) => {
       instance.addHook('onRequest', async (request, reply) => {
@@ -363,7 +363,7 @@ export function registerAuthRoutes(
 
       // Storage usage/quota is exposed only to an active member of this vault
       // (deny-by-default already enforced above), never leaking other vaults'
-      // numbers or any payload content — it is a pure blob_size/blob_hash sum.
+      // numbers or any payload content, it is a pure blob_size/blob_hash sum.
       reply.header('cache-control', 'no-store');
       return {
         members: loadVaultMembers(deps.database, params.data.vaultId),

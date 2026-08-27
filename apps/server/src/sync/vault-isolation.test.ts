@@ -417,7 +417,7 @@ describe('adversarial cross-vault isolation (two vaults, one server)', () => {
     const fixture = makeFixture();
     const app = createApp(fixture);
 
-    // Seed vault B with a revision so its cursor is non-zero — a leak would be
+    // Seed vault B with a revision so its cursor is non-zero, a leak would be
     // observable. Owner B commits it legitimately.
     const seeded = await push(app, fixture.ownerB.accessToken, fixture.vaultB, [
       revisionInput(fixture.vaultB, fixture.ownerB, REVISION_B1, FILE_B, 'kB1', 'seed-B'),
@@ -459,7 +459,7 @@ describe('adversarial cross-vault isolation (two vaults, one server)', () => {
     expect(blobHash).toBe(await hashBlob(Buffer.from(secret, 'utf8')));
 
     // Member B is a legitimate member of vault B, but vault B references no such
-    // hash — the read is indistinguishable from a missing blob (404).
+    // hash, the read is indistinguishable from a missing blob (404).
     const viaB = await app.inject({
       headers: { authorization: `Bearer ${fixture.memberB.accessToken}` },
       method: 'GET',
@@ -532,7 +532,7 @@ describe('adversarial cross-vault isolation (two vaults, one server)', () => {
     // Owner B (a real owner of vault B) tries to approve vault A's invitation via
     // vault B's own approve endpoint, supplying the correct phrase. The service's
     // #requireOwnerMembership binds the approver's membership to
-    // invitation.vault_id (A) — owner B's membership is in B, so it is rejected.
+    // invitation.vault_id (A), owner B's membership is in B, so it is rejected.
     const crossApprove = await app.inject({
       body: { verificationPhrase: pending.verificationPhrase },
       headers: { authorization: `Bearer ${fixture.ownerB.accessToken}` },
@@ -604,7 +604,7 @@ describe('adversarial cross-vault isolation (two vaults, one server)', () => {
 
     // Park a real waiter on each vault: owner A on A, owner B on B. Both are
     // members with their cursor at head 0, so both hold rather than fast-path.
-    // Vault A's waiter is the positive control — if the commit wake were broken
+    // Vault A's waiter is the positive control, if the commit wake were broken
     // outright, it would never resolve and this test would fail, so B staying
     // parked cannot pass vacuously.
     const heldA = app.inject({
@@ -630,13 +630,13 @@ describe('adversarial cross-vault isolation (two vaults, one server)', () => {
     expect(committed.statusCode).toBe(200);
 
     // Vault A's waiter woke with A's advanced cursor. Awaiting it proves the
-    // commit's wake has already been dispatched — no sleeping required.
+    // commit's wake has already been dispatched, no sleeping required.
     const resolvedA = await heldA;
     expect(resolvedA.statusCode).toBe(200);
     expect(resolvedA.json()).toEqual({ cursor: 1 });
     expect(fixture.wakeRegistry.pendingCount(VAULT_A)).toBe(0);
 
-    // Vault B's waiter is still parked after that same wake — it did not cross
+    // Vault B's waiter is still parked after that same wake, it did not cross
     // vaults, and its own hold has ~60 s left to run.
     expect(fixture.wakeRegistry.pendingCount(fixture.vaultB)).toBe(1);
 
@@ -665,7 +665,7 @@ describe('adversarial cross-vault isolation (two vaults, one server)', () => {
     ]);
     expect(fillA.statusCode).toBe(200);
 
-    // A further byte into A is rejected — A is exhausted.
+    // A further byte into A is rejected, A is exhausted.
     const overA = await push(app, fixture.ownerA.accessToken, VAULT_A, [
       revisionInput(
         VAULT_A,

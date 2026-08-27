@@ -3,7 +3,7 @@
  * two places the panel admits that local changes have not reached the server.
  * They sit together because both are drawn from the same durable sync state
  * immediately beneath the status indicator, and both must stay silent when there
- * is nothing wrong — a healthy queue renders no markup at all. Presentation only;
+ * is nothing wrong, a healthy queue renders no markup at all. Presentation only;
  * Retry and the two-step Discard call back into the plugin.
  */
 
@@ -21,8 +21,8 @@ export interface SendQueueSectionActions {
 
 /**
  * Renders the SND-01 send-queue visibility section: a muted "N changes
- * waiting to send" line when items have been queued too long, and — when the
- * quarantine is non-empty — a distinct "N changes couldn't be sent" warning with
+ * waiting to send" line when items have been queued too long, and, when the
+ * quarantine is non-empty, a distinct "N changes couldn't be sent" warning with
  * one row per failed item (path + reason) offering Retry and a two-step Discard.
  * Draws nothing when both signals are absent, so a healthy queue stays silent.
  */
@@ -81,7 +81,7 @@ export function renderSendQueueSection(
 /**
  * Renders the "local queue needs recovery" warning (GAP-1). Shown when the
  * durable sync state could not read its persisted outbox and resumed from a
- * clean, writable empty state — the unsent revisions were preserved to a sidecar
+ * clean, writable empty state, the unsent revisions were preserved to a sidecar
  * for manual recovery, so the user must be told rather than left assuming the
  * queue drained silently. Renders nothing when recovery is not required.
  */
@@ -91,7 +91,7 @@ export function renderRecoveryNotice(
 ): void {
   if (!recoveryRequired) return;
   const row = content.createDiv({
-    text: 'Local queue needs recovery — some unsent changes could not be read and were preserved for manual recovery.',
+    text: 'Local queue needs recovery, some unsent changes could not be read and were preserved for manual recovery.',
   });
   row.addClass('havemind-send-recovery');
 }

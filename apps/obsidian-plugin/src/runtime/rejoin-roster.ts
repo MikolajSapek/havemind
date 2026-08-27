@@ -2,7 +2,7 @@
  * Rejoin-aware roster view (F9 Rejoin, owner side).
  *
  * The base roster (`roster.ts`) treats every approved member as permanently
- * connected — presence is connection state, not activity, and there is no
+ * connected, presence is connection state, not activity, and there is no
  * inactivity timeout. Rejoin adds ONE new fact on top of that model: a member
  * whose connection is KNOWN-DEAD (its refresh family was burned / it hit a
  * terminal 401 / it was quarantined). Such a member is drawn as "disconnected"
@@ -24,9 +24,9 @@ export interface RejoinRosterRowView {
   readonly membershipId: string;
   readonly displayName: string;
   readonly role: MemberRole;
-  /** Persistent connection state — false only for a known-dead member. */
+  /** Persistent connection state, false only for a known-dead member. */
   readonly connected: boolean;
-  /** Text/aria label paired with the colour dot — never colour alone. */
+  /** Text/aria label paired with the colour dot, never colour alone. */
   readonly statusLabel: 'connected' | 'disconnected';
   /**
    * True only for a disconnected, non-self member: the owner may click Rejoin.
@@ -35,7 +35,7 @@ export interface RejoinRosterRowView {
   readonly rejoinable: boolean;
   /**
    * True for every non-self member: the owner may permanently remove them from
-   * the vault. Unlike `rejoinable`, this is independent of connection state — a
+   * the vault. Unlike `rejoinable`, this is independent of connection state, a
    * member can be removed whether connected or disconnected. The owner's own row
    * is never removable.
    */
@@ -51,8 +51,8 @@ export interface RejoinRosterView {
 
 /**
  * Builds the rejoin-aware roster view. Rows are ordered owner-first then by
- * display name (stable as the list grows). A member is "disconnected" — and
- * therefore rejoinable — only when its membership id is in `deadMembershipIds`
+ * display name (stable as the list grows). A member is "disconnected", and
+ * therefore rejoinable, only when its membership id is in `deadMembershipIds`
  * and it is not the local user's own row.
  */
 export function buildRejoinRosterView(

@@ -33,7 +33,7 @@ import { DB_FILENAME, openDatabase } from './db.js';
  * Trust model (plans/006 "Key management"): the server holds ONLY the
  * recipient PUBLIC key. It seals every checkpoint part with libsodium's
  * `crypto_box_seal` (anonymous public-key encryption), so it can CREATE a new
- * checkpoint but can NEVER open any — a stolen `sapserver` reveals nothing. The
+ * checkpoint but can NEVER open any, a stolen `sapserver` reveals nothing. The
  * owner's SECRET key (kept off-server in a recovery kit) is the only way to
  * restore. Losing it is unrecoverable by design (T3).
  */
@@ -241,8 +241,8 @@ async function listFiles(directory: string): Promise<string[]> {
  * Assembles a self-contained, at-rest-encrypted checkpoint under
  * `checkpointsDir`. The database image is taken with `better-sqlite3`'s
  * consistent in-process `serialize()` (never a raw copy of a live file mid-WAL,
- * plans/001 §8) and every part — the DB image, each content-addressed blob and
- * the manifest — is sealed to the recipient public key so nothing readable ever
+ * plans/001 §8) and every part, the DB image, each content-addressed blob and
+ * the manifest, is sealed to the recipient public key so nothing readable ever
  * lands on disk. Publication is atomic: the checkpoint is built in a dot-prefixed
  * temp directory, fsynced, then renamed into place, so a crash never leaves a
  * half-written checkpoint that looks valid (plans/006 T4).
@@ -444,7 +444,7 @@ function defaultIntegrityCheck(database: Database.Database): string {
  * everything fail-closed BEFORE the instance is "started" (its epoch rotated).
  *
  * Order (plans/006 restore steps 1–5): (1) open the sealed manifest with the
- * owner secret key — a tamper or the wrong key throws; (2) require the advisory
+ * owner secret key, a tamper or the wrong key throws; (2) require the advisory
  * plaintext manifest to be byte-identical to the sealed one; (3) verify the
  * sealed DB ciphertext hash matches the manifest, decrypt it, run
  * `PRAGMA integrity_check`; (4) decrypt every blob and verify its plaintext
@@ -497,7 +497,7 @@ interface StageRestoreDeps {
 /**
  * Verifies and materialises a checkpoint into `stagingDir` (never the caller's
  * target). Any thrown error leaves only the staging dir, which the caller
- * removes — the target is never touched.
+ * removes, the target is never touched.
  */
 async function stageRestore(
   options: RestoreCheckpointOptions,
@@ -728,7 +728,7 @@ export async function listCheckpoints(
  * sealed manifest/DB/blob files present, and the sealed DB ciphertext hash
  * matches the manifest. This is what "verify before forget" checks on a newer
  * checkpoint before any older one is pruned (plans/006 retention; plan/01 rule
- * 9 — never `forget` without a prior `verify`).
+ * 9, never `forget` without a prior `verify`).
  */
 export async function verifyCheckpointStructure(
   checkpointDir: string,
@@ -767,7 +767,7 @@ export interface PruneCheckpointsResult {
 }
 
 /**
- * Keeps the `keep` newest checkpoints and removes the rest — but NEVER deletes
+ * Keeps the `keep` newest checkpoints and removes the rest, but NEVER deletes
  * anything unless the newest retained checkpoint first passes structural
  * verification (plans/006 retention: "forget" only after a successful "verify"
  * of a newer checkpoint). If verification fails, nothing is removed.

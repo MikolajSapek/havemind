@@ -1,7 +1,7 @@
 /**
  * `OnboardingSecretsPort` over Obsidian SecretStorage. The invitation envelope,
  * pending device credential and refresh token are all secrets, so they live in
- * SecretStorage — never in `data.json` (`plan/05-plugin-polaczenie-i-sync.md`,
+ * SecretStorage, never in `data.json` (`plan/05-plugin-polaczenie-i-sync.md`,
  * rule 6). Keys are namespaced by client instance id so multiple vaults on one
  * machine never collide.
  */

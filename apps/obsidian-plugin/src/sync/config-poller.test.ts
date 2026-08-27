@@ -74,8 +74,8 @@ class InMemoryAdapter implements ConfigAdapterPort {
 }
 
 /**
- * A vault whose `getFiles()` returns ONLY non-`.obsidian` files — exactly what
- * real Obsidian does — while its `adapter` exposes the hidden config tree. If the
+ * A vault whose `getFiles()` returns ONLY non-`.obsidian` files, exactly what
+ * real Obsidian does, while its `adapter` exposes the hidden config tree. If the
  * poller ever regressed to enumerating config via `getFiles()`, config would be
  * invisible and these assertions would fail.
  */
@@ -133,7 +133,7 @@ function enqueuedPaths(enqueued: readonly OutboxEnvelope[]): string[] {
     .sort();
 }
 
-describe('config poller — enumeration via adapter, not getFiles (regression #5)', () => {
+describe('config poller, enumeration via adapter, not getFiles (regression #5)', () => {
   it('enqueues allowlisted config from adapter.list while getFiles has no config', async () => {
     const vault = new HiddenConfigVault();
     vault.adapter.files.set('.obsidian/appearance.json', '{}');
@@ -163,7 +163,7 @@ describe('config poller — enumeration via adapter, not getFiles (regression #5
   });
 });
 
-describe('config poller — cycle guard after a remote apply (test #6)', () => {
+describe('config poller, cycle guard after a remote apply (test #6)', () => {
   it('does not re-enqueue a config file that a remote apply just wrote', async () => {
     const path = '.obsidian/appearance.json';
     const raw = '{"accentColor":"#7c3aed"}';
@@ -174,7 +174,7 @@ describe('config poller — cycle guard after a remote apply (test #6)', () => {
 
     // Simulate the two effects of a remote apply of a config revision:
     //  1. the file is written to disk (via the DataAdapter), and
-    //  2. the producer mapping ADOPTS the applied hash (no enqueue) — exactly what
+    //  2. the producer mapping ADOPTS the applied hash (no enqueue), exactly what
     //     `remote-apply-coordinator` does through `adoptRemoteMapping`.
     adapter.files.set(path, canonical);
     const mapping: LocalFileMapping = {
@@ -221,7 +221,7 @@ describe('config poller — cycle guard after a remote apply (test #6)', () => {
   });
 });
 
-describe('config poller — create/update/delete lifecycle', () => {
+describe('config poller, create/update/delete lifecycle', () => {
   it('creates, then no-ops, then tombstones a config file across ticks', async () => {
     const path = '.obsidian/snippets/x.css';
     const adapter = new InMemoryAdapter();

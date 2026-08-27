@@ -31,7 +31,7 @@ export const PERSIST_CORRUPT_PREFIX = 'syncStateCorrupt.';
  * Prefix for a timestamped sidecar preserving a present-but-corrupt PRODUCER blob
  * (GAP-3), the producer analogue of {@link PERSIST_CORRUPT_PREFIX}. When the
  * producer state (path↔fileId↔content mappings) is present but unparseable, its
- * raw bytes are kept here for recovery rather than silently dropped — losing a
+ * raw bytes are kept here for recovery rather than silently dropped, losing a
  * mapping would let a later local edit mint a FRESH fileId (a duplicate) instead
  * of updating in place. A pre-existing sidecar at the same key is never clobbered.
  */

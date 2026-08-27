@@ -8,13 +8,13 @@ const RESERVED_ROOTS = new Set([
 ]);
 
 /**
- * Canonical form of note content used for HASHING and DIFF BASES only — never
+ * Canonical form of note content used for HASHING and DIFF BASES only, never
  * written back to disk (a user's file stays byte-exact as received). The
  * transform is deliberately CONSERVATIVE so it can never mask a real edit:
  *  1. strip a leading UTF-8 BOM (an interior U+FEFF is left untouched);
  *  2. normalize CRLF and lone CR to LF;
- *  3. collapse trailing blank lines to exactly one final LF (an empty — or
- *     newline-only — file stays empty).
+ *  3. collapse trailing blank lines to exactly one final LF (an empty, or
+ *     newline-only, file stays empty).
  * Nothing intra-line (quotes, list markers, spacing) is normalized; that would
  * hide genuine content changes. The transform is idempotent.
  *
@@ -88,11 +88,11 @@ function reservedRoot(path: string): boolean {
     return false;
   }
   // Exception: the `.obsidian/` APPEARANCE ALLOWLIST is permitted to cross the
-  // sync boundary — only the explicit set named inside `isSyncableConfigPath`
+  // sync boundary, only the explicit set named inside `isSyncableConfigPath`
   // (`appearance.json`, `app.json`, `hotkeys.json`, `core-plugins.json`,
   // `snippets/<name>.css`, `themes/<name>/…`). Everything else under
   // `.obsidian/` stays reserved and is rejected here at build, decode and
-  // schema-validation alike — notably ALL of `.obsidian/plugins/**`, so a
+  // schema-validation alike, notably ALL of `.obsidian/plugins/**`, so a
   // plugin-code revision authored by an older peer fails validation on arrival
   // instead of being written to disk (audit #3 finding 2). `.trash` and
   // `Havemind Conflicts/` are never under `.obsidian/`, so they stay reserved.

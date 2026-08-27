@@ -96,7 +96,7 @@ class FakeVault {
    * FIDELITY: real Obsidian's `vault.create`/`createBinary`/`createFolder` THROW
    * when the immediate parent folder does not exist (it is not auto-created).
    * The old double silently accepted nested paths, which is exactly why 931
-   * tests never caught the 5-day field outage — the missing-parent-folder throw
+   * tests never caught the 5-day field outage, the missing-parent-folder throw
    * could not be reproduced. Model the throw so the RED test can exist.
    */
   private assertParentFolderExists(path: string): void {
@@ -187,10 +187,10 @@ describe('registerVaultChangeListeners', () => {
   it('detaches exactly the listeners it registered when the disposer runs', async () => {
     // Regression: a re-pair used to leave the prior-session producer's vault
     // listeners attached (they were bound to plugin unload, not the connection),
-    // so every edit was enqueued twice — once under the new identity (accepted)
+    // so every edit was enqueued twice, once under the new identity (accepted)
     // and once under the stale prior-session identity (whole-request 403). The
     // connection handle's stop() now disposes the producer, so exactly the
-    // listeners this producer added must be removed — no more, no fewer.
+    // listeners this producer added must be removed, no more, no fewer.
     const { registerVaultChangeListeners } = await import('./obsidian-adapters');
 
     const registered: unknown[] = [];
@@ -350,8 +350,8 @@ describe('createRequestUrlFn', () => {
     const { RequestUrlTransport } = await import('./sync-transport');
 
     const cases: ReadonlyArray<readonly [number, boolean]> = [
-      [400, true], // permanent — quarantine, do not retry forever
-      [502, false], // transient — retry with backoff
+      [400, true], // permanent, quarantine, do not retry forever
+      [502, false], // transient, retry with backoff
     ];
     for (const [status, permanent] of cases) {
       mockRequestUrl.mockResolvedValue({
@@ -421,7 +421,7 @@ describe('createVaultFilePort writeConflictArtifact', () => {
     // `createFolder` and the later `vault.create` threw because the parent
     // path was a file, not a folder. That throw bubbles to the sync cycle's
     // catch, which has no permanent-error classification on the pull path,
-    // so every throw here was treated as 'offline' and backed off forever —
+    // so every throw here was treated as 'offline' and backed off forever,
     // a single stray note wedged sync permanently. It must recover instead.
     const { createVaultFilePort } = await import('./obsidian-adapters');
     const { TFile, TFolder } = await import('obsidian');
@@ -545,9 +545,9 @@ describe('createVaultFilePort ensures parent folders on create-materialization',
     // A freshly onboarded vault pulls a remote create for `Notatki/Start.md`
     // but has no `Notatki` folder. Real Obsidian's `vault.create` THROWS when
     // the parent folder is missing (the fidelity-fixed FakeVault now models
-    // that throw), and that throw bubbled to the pull cycle — which has no
-    // permanent-error classification on the apply path — so the cursor never
-    // advanced and sync wedged on 'Offline — will retry' forever. The port must
+    // that throw), and that throw bubbled to the pull cycle, which has no
+    // permanent-error classification on the apply path, so the cursor never
+    // advanced and sync wedged on 'Offline, will retry' forever. The port must
     // materialize the parent folder first.
     const { createVaultFilePort } = await import('./obsidian-adapters');
     const { TFile, TFolder } = await import('obsidian');
@@ -635,7 +635,7 @@ describe('createVaultFilePort ensures parent folders on create-materialization',
     // A file literally named `Notatki` (no extension) occupies the path where a
     // folder is needed for `Notatki/Start.md`. The hierarchy cannot be created,
     // so the port throws the typed permanent error the apply side diverts to a
-    // conflict artifact — never a silent overwrite of the occupying file, and
+    // conflict artifact, never a silent overwrite of the occupying file, and
     // never a cycle-killing throw.
     const { createVaultFilePort } = await import('./obsidian-adapters');
     const { ParentFolderOccupiedError } = await import('./vault-apply');
@@ -813,7 +813,7 @@ describe('parseProducerStateResult (GAP-3 fail-closed producer state)', () => {
     // The valid sibling survives.
     expect(result.state.mappings).toHaveLength(1);
     expect(result.state.mappings[0]?.fileId).toBe('f1');
-    // The bad entry is preserved (quarantined) for recovery — a recoverable signal.
+    // The bad entry is preserved (quarantined) for recovery, a recoverable signal.
     expect(result.quarantinedMappings).toEqual([badMapping]);
   });
 
@@ -903,7 +903,7 @@ describe('buildRejoinControllerForInvitee role gate (sweep-P1)', () => {
     } as unknown as Plugin;
   }
 
-  it('returns null for an OWNER connection (owner self-rejoin is a dead-end — never arm the doomed poll)', async () => {
+  it('returns null for an OWNER connection (owner self-rejoin is a dead-end, never arm the doomed poll)', async () => {
     // An authenticated owner session is required to issue a rejoin grant, which a
     // burned owner lacks: owner rejoin can never succeed. So no controller is
     // built for an owner connection and the doomed /auth/rejoin poll never arms.
@@ -923,7 +923,7 @@ describe('buildRejoinControllerForInvitee role gate (sweep-P1)', () => {
 });
 
 describe('createConfigPollTick (audit #3 finding 5: a failing config poll is never silent)', () => {
-  /** A genuine change op — only the fields the tick forwards are modelled. */
+  /** A genuine change op, only the fields the tick forwards are modelled. */
   function fakeOp(path: string): LocalChangeOperation {
     return { path } as unknown as LocalChangeOperation;
   }
@@ -974,7 +974,7 @@ describe('createConfigPollTick (audit #3 finding 5: a failing config poll is nev
     const failures = 25;
     for (let attempt = 0; attempt < failures; attempt += 1) await tick();
 
-    // 25 consecutive failures notify at 1, 10 and 20 — three notices, not 25.
+    // 25 consecutive failures notify at 1, 10 and 20, three notices, not 25.
     expect(CONFIG_POLL_FAILURE_NOTICE_EVERY).toBe(10);
     expect(notify).toHaveBeenCalledTimes(3);
     expect(notify).toHaveBeenCalledWith(CONFIG_POLL_FAILURE_NOTICE);
@@ -1155,7 +1155,7 @@ describe('createConfigApplyReloader', () => {
     expect(notify).toHaveBeenCalledTimes(1);
     expect(notify).toHaveBeenCalledWith(CONFIG_RELOAD_NOTICE);
     expect(CONFIG_RELOAD_NOTICE).toBe(
-      'Havemind: settings synced — reload Obsidian to apply them.',
+      'Havemind: settings synced, reload Obsidian to apply them.',
     );
     expect(triggerCssChange).not.toHaveBeenCalled();
   });
@@ -1410,7 +1410,7 @@ describe('createVaultFilePort graph.json volatile-field projection', () => {
     );
   });
 
-  it('reads a written revision back as EXACTLY the applied payload — the write cannot echo', async () => {
+  it('reads a written revision back as EXACTLY the applied payload, the write cannot echo', async () => {
     // The anti-ping-pong identity: the producer re-reads this file through the
     // same port and compares against the payload it adopted into its mapping. Any
     // difference here is a revision pushed straight back at the peer.
@@ -1441,12 +1441,12 @@ describe('reserved conflict folder name', () => {
     const { CONFLICT_FOLDER } = await import('./conflict-resolution');
     const { classifyVaultPath } = await import('../obsidian/vault-adapter');
 
-    // Site 1 — the one definition.
+    // Site 1, the one definition.
     expect(CONFLICT_FOLDER).toBe('Havemind Conflicts');
-    // Site 2 — the apply adapter's reserved folder is that same constant, not a
+    // Site 2, the apply adapter's reserved folder is that same constant, not a
     // private duplicate literal that could drift.
     expect(adapters.CONFLICT_FOLDER).toBe(CONFLICT_FOLDER);
-    // Site 3 — the producer's reserved-root exclusion keys on it too, so a
+    // Site 3, the producer's reserved-root exclusion keys on it too, so a
     // conflict copy is never re-synced.
     expect(classifyVaultPath(`${CONFLICT_FOLDER}/copy.md`).eligible).toBe(false);
   });

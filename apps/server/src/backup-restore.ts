@@ -391,7 +391,7 @@ async function verifyManifestBlobs(
  * Restores a backup into an empty target directory. Before the instance is
  * "started" (its epoch rotated), it runs `PRAGMA integrity_check` on the
  * restored database and verifies every manifest blob byte-for-byte. Only when
- * both pass is a fresh server epoch minted and the restore epoch incremented —
+ * both pass is a fresh server epoch minted and the restore epoch incremented,
  * so any client holding a cursor from the previous epoch is forced to
  * reconcile instead of silently continuing.
  */
@@ -418,7 +418,7 @@ export async function restoreInstance(
 
     await verifyManifestBlobs(options.targetDir, manifest);
 
-    // Both gates passed — start the instance by rotating its epoch.
+    // Both gates passed, start the instance by rotating its epoch.
     return rotateEpoch(database, randomUuid, now);
   } finally {
     database.close();
@@ -516,14 +516,14 @@ function readIntegrityReport(databasePath: string): string {
  * Opens the artifact's snapshot READ-ONLY and requires `PRAGMA integrity_check`
  * to answer exactly `ok`. A snapshot whose pages are garbage is neither empty
  * nor restorable, so "the file exists and is non-empty" is not evidence of a
- * usable backup — this is the check that makes retention's "verify before
+ * usable backup, this is the check that makes retention's "verify before
  * forget" mean something.
  *
  * SQLite refuses to answer at all for some corruptions (it throws
  * SQLITE_CORRUPT/SQLITE_NOTADB instead); both arms are the same verification
  * failure and no raw driver error escapes. Reading a WAL-mode database makes
  * SQLite create -wal/-shm files beside it, so any side file this check caused is
- * removed again — a verified artifact stays byte-identical to the published one.
+ * removed again, a verified artifact stays byte-identical to the published one.
  */
 async function verifyDatabaseIntegrity(databasePath: string): Promise<void> {
   const preexisting = new Set<string>();
@@ -625,7 +625,7 @@ export interface PruneBackupsResult {
 }
 
 /**
- * Keeps the `keep` newest artifacts and removes the rest — but NEVER deletes
+ * Keeps the `keep` newest artifacts and removes the rest, but NEVER deletes
  * anything unless EVERY artifact it is about to retain first passes
  * `verifyBackupStructure`, integrity_check included (plan/01 rule 9: no "forget"
  * without a prior successful "verify"). If any retained artifact fails, the

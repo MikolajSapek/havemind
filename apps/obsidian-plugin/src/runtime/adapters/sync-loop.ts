@@ -3,7 +3,7 @@
  * the plugin holds it by. This is where the access-token provider, the shared
  * fileId↔path↔base store, the one per-file lock that makes producing and applying
  * mutually exclusive, the one-time canonicalization rebase and the push producer
- * are ordered relative to each other — an ordering the data-safety rules depend
+ * are ordered relative to each other, an ordering the data-safety rules depend
  * on. The returned handle's `stop()` is equally load-bearing: it must dispose the
  * producer, or a re-pair leaves a prior-session observer enqueuing under a stale
  * identity alongside the new one.
@@ -56,9 +56,9 @@ export interface ConnectionHandle {
   readonly state?: DurableSyncState;
   /**
    * Retry a failed-to-queue row (MAJOR 2) by re-running the commit chain for
-   * `path` against the current on-disk content — the only recovery for a row
+   * `path` against the current on-disk content, the only recovery for a row
    * that never reached the outbox. Returns a tri-state (FINDING 1): `file-missing`
-   * (drop the stale row), `unavailable` (retry could not run — keep the row), or
+   * (drop the stale row), `unavailable` (retry could not run, keep the row), or
    * `retriggered`. Absent on the no-op handle and whenever no producer started
    * (no push identity), which is also when no failed-to-queue row can exist.
    */
@@ -156,7 +156,7 @@ export async function startSyncLoop(
     fileApplyLock,
   );
 
-  // AUD-03 PART 2 — one-time migration. BEFORE the first sync cycle, rebase any
+  // AUD-03 PART 2, one-time migration. BEFORE the first sync cycle, rebase any
   // persisted base hashes / producer-mapping content hashes that were computed
   // under the OLD canonicalization to the NEW canonical form, so the first pull
   // does not read stale hashes and mint spurious revisions / conflict artifacts
@@ -169,7 +169,7 @@ export async function startSyncLoop(
   // The push producer detects local edits, enumerates pre-existing files and
   // enqueues revisions the runner POSTs. Without a server-issued memberId +
   // deviceId a revision header cannot be built (rule 3), so the producer only
-  // starts once both are known — both the invitee flow and the owner /owner/pair
+  // starts once both are known, both the invitee flow and the owner /owner/pair
   // flow supply memberId + deviceId (connectAsOwner reads `pairing.memberId`
   // off the pairing response), so `hasPushIdentity` is true for either path.
   let producer: PushProducerHandle | null = null;
@@ -207,7 +207,7 @@ export async function startSyncLoop(
     // Tearing the producer's vault listeners down on stop is critical: a re-pair
     // (or reconnect) calls stop() on the previous handle before starting a new
     // one, and without this the prior-session observer stays attached and keeps
-    // enqueuing revisions stamped with the OLD identity alongside the new one —
+    // enqueuing revisions stamped with the OLD identity alongside the new one,
     // the exact mix of accepted (current identity) and 403-rejected (stale
     // identity) pushes. Disposing here guarantees exactly one live producer.
     stop: () => {

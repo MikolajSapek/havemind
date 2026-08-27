@@ -42,7 +42,7 @@ interface SeededInstance {
 
 /**
  * Seeds an initialised instance and CLOSES the database, because the CLI opens
- * the data directory itself — exactly as the operator invocation does.
+ * the data directory itself, exactly as the operator invocation does.
  */
 async function seedInstance(): Promise<SeededInstance> {
   const dataDir = makeDir();

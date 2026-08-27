@@ -121,7 +121,7 @@ async function runGenerateKeypair(
     'chmod 0600, and set HAVEMIND_CHECKPOINT_PUBLIC_KEY):',
     `  ${toHex(keypair.publicKey)}`,
     '',
-    'Secret key (write to the OWNER recovery kit, OFF-SERVER — NEVER store it on',
+    'Secret key (write to the OWNER recovery kit, OFF-SERVER, NEVER store it on',
     'sapserver, in havemind.db, in logs, or in this repo):',
     `  ${toHex(keypair.secretKey)}`,
     '',

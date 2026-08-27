@@ -122,7 +122,7 @@ import {
 // The view classes, section renderers, modal, settings tab and pure planners now
 // live under `./ui`. They are re-exported here so `./main` remains the single
 // import surface it has always been for the plugin's tests and for anything that
-// reads the bundle entry point — moving a file must not move a public name.
+// reads the bundle entry point, moving a file must not move a public name.
 export {
   HAVEMIND_ACTIVITY_VIEW,
   HAVEMIND_ONBOARDING_VIEW,
@@ -164,7 +164,7 @@ export {
   type RetryFromDiskEffect,
 } from './ui/retry-plan';
 
-/** Debounce window for the MRG-05 auto-repair sweep — a burst becomes one pass. */
+/** Debounce window for the MRG-05 auto-repair sweep, a burst becomes one pass. */
 const CONFLICT_SWEEP_DEBOUNCE_MS = 2000;
 
 /** `data.json` key holding the F6 "Show authors" toggle. */
@@ -178,7 +178,7 @@ export default class HavemindPlugin extends Plugin {
    * Set true in `onunload`. `startConnection` runs on `onLayoutReady` and awaits
    * an async connection build; if the plugin is disabled while that await is in
    * flight, `onunload` runs first and the resolved handle must be stopped, never
-   * assigned — otherwise its vault listeners and running sync loop leak with no
+   * assigned, otherwise its vault listeners and running sync loop leak with no
    * `stop()` ever reaching them.
    */
   private unloaded = false;
@@ -197,7 +197,7 @@ export default class HavemindPlugin extends Plugin {
   /**
    * True once the server reported this invitation is dead (owner rejected the
    * device or the 3-attempt cap was reached). Shows the "ask for a new invite"
-   * screen instead of the waiting screen — never offline, never a blank form.
+   * screen instead of the waiting screen, never offline, never a blank form.
    */
   private guestInvitationInvalid = false;
   private connectionStatus: ConnectionStatus = 'disconnected';
@@ -205,7 +205,7 @@ export default class HavemindPlugin extends Plugin {
   private connectionError: string | undefined;
   /** Lifecycle-safe bridge between long-lived plugin state and short-lived leaves. */
   private readonly views = new PluginViewRegistry();
-  /** Live feed behind the Activity view (previously orphaned — now wired). */
+  /** Live feed behind the Activity view (previously orphaned, now wired). */
   private readonly activityLog = new ActivityLog();
   /** Disposer for the activityLog subscription set up in onload(); torn down in onunload(). */
   private activityLogUnsubscribe: (() => void) | null = null;
@@ -217,7 +217,7 @@ export default class HavemindPlugin extends Plugin {
   private rosterMembers: RosterMember[] = [];
   /**
    * F9 Rejoin (owner side). Membership ids the owner has asserted are dead
-   * (pilot heuristic — no server liveness signal yet, see renderRejoinRoster):
+   * (pilot heuristic, no server liveness signal yet, see renderRejoinRoster):
    * their roster rows draw as disconnected and offer Rejoin.
    */
   private deadMembershipIds: string[] = [];
@@ -237,7 +237,7 @@ export default class HavemindPlugin extends Plugin {
    * (`startConnection`/`connectFromInput` assign a handle). The invitee rejoin
    * poll captures it when it arms; a poll tick that sees the counter has advanced
    * knows the connection was rebuilt since it armed (Retry now, a fresh user
-   * connect, a rejoin restart) and must not tear that healthy connection down —
+   * connect, a rejoin restart) and must not tear that healthy connection down,
    * see `pollRejoinOnce` (FINDING 1b).
    */
   private connectGeneration = 0;
@@ -245,7 +245,7 @@ export default class HavemindPlugin extends Plugin {
   private rejoinArmedGeneration: number | null = null;
   /**
    * Guards a user-initiated "Retry now" so a rapid double-click never spawns a
-   * second connection build while the first is still in flight — two live
+   * second connection build while the first is still in flight, two live
    * handles could otherwise be created (one would leak). Cleared once the retry
    * settles.
    */
@@ -263,7 +263,7 @@ export default class HavemindPlugin extends Plugin {
   private conflictResolver: ReturnType<typeof createConflictResolver> | null = null;
   /**
    * The live durable sync state (SND-01 + MRG-05), captured from the connection
-   * handle. Null when disconnected — the send-queue panel then renders nothing
+   * handle. Null when disconnected, the send-queue panel then renders nothing
    * and the sweep is a no-op.
    */
   private syncState: DurableSyncState | null = null;
@@ -279,7 +279,7 @@ export default class HavemindPlugin extends Plugin {
   private conflictSweepTimer: ReturnType<typeof globalThis.setTimeout> | null = null;
   /**
    * Serialises sweep runs AND re-arms one more pass when a trigger arrives
-   * mid-run — so a conflict copy written while a sweep is in flight is not
+   * mid-run, so a conflict copy written while a sweep is in flight is not
    * dropped (MINOR); the guarded no-op used to leave it un-swept.
    */
   private readonly conflictSweepGuard = new RerunGuard(() =>
@@ -287,7 +287,7 @@ export default class HavemindPlugin extends Plugin {
   );
   /**
    * F6 author overlay: whether "Show authors" is on for this vault. OFF by
-   * default — attribution decoration changes how every note looks, so it is
+   * default, attribution decoration changes how every note looks, so it is
    * opt-in. Persisted under `showAuthors` in `data.json` through the shared
    * plugin-data mutex; a data.json that cannot be read leaves the flag
    * session-only rather than blocking load.
@@ -330,7 +330,7 @@ export default class HavemindPlugin extends Plugin {
     this.registerView(HAVEMIND_ONBOARDING_VIEW, (leaf: WorkspaceLeaf) => {
       const view = new HavemindOnboardingView(leaf, {
         // The activity feed is a section of this pane now, not a separate
-        // destination (plans/007 Stage 0) — same providers the standalone
+        // destination (plans/007 Stage 0), same providers the standalone
         // Activity view reads, so the two can never disagree.
         activityFeedProvider: () => this.activityOptions.feedProvider?.() ?? [],
         onRestore: (revisionId) => this.handleRestore(revisionId),
@@ -428,7 +428,7 @@ export default class HavemindPlugin extends Plugin {
       callback: () => this.openCreateConnectionView(),
     });
     // The three connection actions the panel exposes as buttons also belong in
-    // the palette, so they can be run — and bound to a hotkey — without hunting
+    // the palette, so they can be run, and bound to a hotkey, without hunting
     // for the pane. `checkCallback` reports availability: syncing and
     // disconnecting are meaningless with nothing connected, so they grey out
     // rather than fail on invocation.
@@ -453,7 +453,7 @@ export default class HavemindPlugin extends Plugin {
     });
     // Reset carries no availability guard on purpose: it exists for the state in
     // which the stored pairing is damaged, and that state is not always
-    // detectable up front — a user who needs it must always be able to reach it.
+    // detectable up front, a user who needs it must always be able to reach it.
     this.addCommand({
       id: 'reset-connection',
       name: 'Reset connection',
@@ -462,7 +462,7 @@ export default class HavemindPlugin extends Plugin {
       },
     });
     // F6 author overlay: the one control that turns both surfaces on and off.
-    // No availability guard — with nothing recorded yet the overlay simply draws
+    // No availability guard, with nothing recorded yet the overlay simply draws
     // nothing, which is a legitimate state rather than an unavailable action.
     this.addCommand({
       id: 'show-authors',
@@ -471,7 +471,7 @@ export default class HavemindPlugin extends Plugin {
     });
 
     // One hexagon, one pane (plans/007 Stage 0). The plugin used to offer three
-    // doors — this icon for the activity feed, a second icon for the author
+    // doors, this icon for the activity feed, a second icon for the author
     // overlay, and the command palette for the panel that actually connects a
     // vault. A new user found the hexagon, got an activity list, and had no
     // route to connecting anything. The overlay toggle now lives inside the
@@ -482,8 +482,8 @@ export default class HavemindPlugin extends Plugin {
     });
 
     // FINDING 1: both author-overlay surfaces promised by `specs/001-mvp.md`.
-    // Obsidian owns their lifecycle — a registered editor extension and markdown
-    // post processor are torn down with the plugin — and both read the live flag
+    // Obsidian owns their lifecycle, a registered editor extension and markdown
+    // post processor are torn down with the plugin, and both read the live flag
     // and the live Activity feed through closures, so nothing else is retained.
     this.registerEditorExtension(
       createAuthorOverlayExtension({
@@ -506,7 +506,7 @@ export default class HavemindPlugin extends Plugin {
     this.statusItem = this.addStatusBarItem();
     this.statusItem.addClass('havemind-status-bar');
     // The status bar is text-only (setText clobbers children), so the Retry
-    // button lives in the panel. Clicking the status bar item opens that panel —
+    // button lives in the panel. Clicking the status bar item opens that panel,
     // the one place the button and full status detail render. The click listener
     // sits on the element itself, so subsequent setStatus text updates keep it.
     this.statusItem.onClickEvent(() => {
@@ -650,7 +650,7 @@ export default class HavemindPlugin extends Plugin {
       const connectedMessage = `${approvedName ?? 'Device'} connected.`;
       // Record the approved device as a PERSISTENT roster member (green until an
       // explicit teardown). The owner's client already knows the display name,
-      // role and server membershipId at approval time — endpoint-free.
+      // role and server membershipId at approval time, endpoint-free.
       try {
         await this.recordRosterMember({
           membershipId: approved.membershipId,
@@ -736,7 +736,7 @@ export default class HavemindPlugin extends Plugin {
     //    while this passive layout-ready connect was still building. Assigning
     //    here would clobber and orphan that handle (its producer/timers never
     //    stopped). The user connection wins; this late handle yields.
-    // Either way, stop THIS handle and do not assign — never orphan an existing
+    // Either way, stop THIS handle and do not assign, never orphan an existing
     // connection, never leak past unload.
     if (this.unloaded || this.connection !== null) {
       handle.stop();
@@ -753,8 +753,8 @@ export default class HavemindPlugin extends Plugin {
     void this.restorePendingApprovals();
     // MRG-05: on start (after the canonicalization rebase inside the handle
     // build), sweep any pre-existing conflict copies that a persisted ancestor
-    // can now auto-merge. Scheduled (debounced) so it runs alongside — not
-    // ahead of — the first sync cycle.
+    // can now auto-merge. Scheduled (debounced) so it runs alongside, not
+    // ahead of, the first sync cycle.
     this.scheduleConflictSweep();
   }
 
@@ -777,7 +777,7 @@ export default class HavemindPlugin extends Plugin {
       // refreshes the panel at once, so the phantom failure disappears.
       onSendQueueChanged: () => this.views.refreshOnboarding(),
       // MINOR 7: commit-recovery already showed a Notice for this failed-to-queue
-      // row, so record its id as notified — the panel's quarantine-notice check
+      // row, so record its id as notified, the panel's quarantine-notice check
       // then skips it, preventing a duplicate Notice for the same event.
       onFailedToQueueNotified: (revisionId) =>
         this.notifiedQuarantineIds.add(revisionId),
@@ -968,7 +968,7 @@ export default class HavemindPlugin extends Plugin {
       },
       // The owner rejected the device or the attempt cap was reached: leave the
       // waiting screen for the terminal "invitation invalid" screen. This is an
-      // expected auth response, not a connection loss — status is untouched.
+      // expected auth response, not a connection loss, status is untouched.
       onInvitationRejected: () => {
         this.awaitingApproval = null;
         this.guestInvitationInvalid = true;
@@ -980,7 +980,7 @@ export default class HavemindPlugin extends Plugin {
       // (up to ~1h) was still in flight: `onunload` already ran its
       // `connection?.stop()` on a still-null field, so assigning this late-
       // resolved handle now would leave it LIVE forever (leaked vault listeners
-      // + sync loop). Mirrors the `startConnection` unload guard (FIX 1) — stop
+      // + sync loop). Mirrors the `startConnection` unload guard (FIX 1), stop
       // this handle and never assign.
       //
       // FIX 3: also yield to a connection assigned MEANWHILE (e.g. the rejoin
@@ -998,7 +998,7 @@ export default class HavemindPlugin extends Plugin {
       this.guestInvitationInvalid = false;
       this.connection = handle;
       this.syncState = handle.state ?? null;
-      // A live connection was (re-)established — advance the generation (FINDING 1b).
+      // A live connection was (re-)established, advance the generation (FINDING 1b).
       this.connectGeneration += 1;
       // Record this device's own membership as a persistent roster member so the
       // invitee's UI clearly shows it is connected.
@@ -1011,8 +1011,8 @@ export default class HavemindPlugin extends Plugin {
   /**
    * Command-palette "Sync now": force an immediate cycle instead of waiting for
    * the loop's own schedule. The connection handle exposes no direct sync entry
-   * point, so this reuses the panel's "Retry now" path — stop the running loop,
-   * start a fresh one — which is exactly the forced cycle the button performs.
+   * point, so this reuses the panel's "Retry now" path, stop the running loop,
+   * start a fresh one, which is exactly the forced cycle the button performs.
    *
    * The palette greys the command out while nothing is connected, so this guard
    * is the belt to that braces: a direct invocation explains itself rather than
@@ -1032,7 +1032,7 @@ export default class HavemindPlugin extends Plugin {
     this.connection = null;
     this.syncState = null;
     // Tear down any armed invitee rejoin poll, matching retryConnection/onunload
-    // — otherwise a disconnected device keeps polling the server for a rejoin
+    //, otherwise a disconnected device keeps polling the server for a rejoin
     // grant it will never act on (NIT).
     this.disarmRejoin();
     this.connectionStatus = 'disconnected';
@@ -1054,17 +1054,17 @@ export default class HavemindPlugin extends Plugin {
     if (status === 'reset-required') {
       // The stored connection is damaged (P1 #5): drop any stale server-side
       // error so the panel shows its own "reset and pair again" explanation, and
-      // never arm the rejoin poll — a rejoin cannot fix a broken local record.
+      // never arm the rejoin poll, a rejoin cannot fix a broken local record.
       this.connectionError = undefined;
     }
     if (status === 'reconnect-required') {
-      this.connectionError = 'The server refused the session — reconnect.';
+      this.connectionError = 'The server refused the session, reconnect.';
       // Terminal auth failure: arm the invitee rejoin poll so this device
-      // re-admits itself once the owner clicks Rejoin — no re-pairing needed.
+      // re-admits itself once the owner clicks Rejoin, no re-pairing needed.
       void this.armRejoin();
     }
     // SND-01: fire a Notice the first time each item enters quarantine (never on
-    // a retry). Runs on every status change — the point sends are dead-lettered.
+    // a retry). Runs on every status change, the point sends are dead-lettered.
     this.checkQuarantineNotices();
     this.setStatus(view);
     this.views.refreshOnboarding();
@@ -1096,14 +1096,14 @@ export default class HavemindPlugin extends Plugin {
   /**
    * Retry a quarantined send. A server-rejected send (SND-01) re-enqueues its
    * stashed envelope through the outbox. A failed-to-queue row (SND-02, MAJOR 2)
-   * has no envelope — it never reached the outbox — so Retry re-runs the commit
+   * has no envelope, it never reached the outbox, so Retry re-runs the commit
    * chain for the path against the current on-disk content; if the file has
    * since been deleted, surface a Notice and drop the stale row instead of
    * pushing a phantom empty create for a vanished file.
    */
   private async retrySend(revisionId: string): Promise<void> {
     // Failed-to-queue synthetic row (SND-02): never had an envelope. Leave the
-    // row in place on a successful re-trigger — onCommitSuccess (MAJOR 1) clears
+    // row in place on a successful re-trigger, onCommitSuccess (MAJOR 1) clears
     // it once the commit actually goes through.
     const failedPath = parseFailedToQueuePath(revisionId);
     if (failedPath !== null) {
@@ -1148,8 +1148,8 @@ export default class HavemindPlugin extends Plugin {
    * Re-run the commit chain for `path` from disk (the MAJOR 2 recovery for a row
    * with no usable stashed envelope). FINDING 1: the retry outcome is tri-state.
    * Only a CONFIRMED-missing file drops the row; `unavailable` (debouncer
-   * disposed) and a null/uncallable connection — the common state for a durable
-   * row after a restart, before reconnect — keep the row and tell the user to
+   * disposed) and a null/uncallable connection, the common state for a durable
+   * row after a restart, before reconnect, keep the row and tell the user to
    * reconnect, so a real unsynced change is never silently discarded.
    * `discardOnRetrigger` drops the row immediately after a real re-trigger for a
    * superseded server-rejected row (MAJOR 4); a failed-to-queue row keeps its
@@ -1175,7 +1175,7 @@ export default class HavemindPlugin extends Plugin {
 
   /**
    * SND-01: emit one Notice per item the FIRST time it enters quarantine. A
-   * retry that re-quarantines the same revision is silent — its id is already in
+   * retry that re-quarantines the same revision is silent, its id is already in
    * `notifiedQuarantineIds`. Discarding then re-quarantining a NEW revision for
    * the same file does notify, which is correct: it is a distinct failed send.
    */
@@ -1198,7 +1198,7 @@ export default class HavemindPlugin extends Plugin {
     for (const item of fresh) {
       const label = item.path ?? item.fileId;
       new Notice(
-        `A change to ${label} could not be sent — see the Havemind panel.`,
+        `A change to ${label} could not be sent, see the Havemind panel.`,
       );
     }
   }
@@ -1261,7 +1261,7 @@ export default class HavemindPlugin extends Plugin {
   /**
    * Owner action (pilot heuristic): assert a connected contact has fallen off so
    * their row offers Rejoin. No server liveness signal reaches the owner yet, so
-   * "disconnected" is owner-driven — see renderRejoinRoster.
+   * "disconnected" is owner-driven, see renderRejoinRoster.
    */
   private markMemberDisconnected(membershipId: string): void {
     if (!this.deadMembershipIds.includes(membershipId)) {
@@ -1286,7 +1286,7 @@ export default class HavemindPlugin extends Plugin {
       this.views.refreshOnboarding();
     } catch (error) {
       new Notice(
-        `Havemind: could not request rejoin — ${
+        `Havemind: could not request rejoin, ${
           error instanceof Error ? error.message : 'unexpected error'
         }`,
       );
@@ -1295,7 +1295,7 @@ export default class HavemindPlugin extends Plugin {
 
   /**
    * Owner action: permanently remove a member from the vault. Revokes the
-   * membership server-side (append-only — the member's past revisions and
+   * membership server-side (append-only, the member's past revisions and
    * attribution survive; their sessions are burned and they are terminally
    * locked out), then drops the member from the local roster and clears any
    * dead/waiting markers so no stale Rejoin affordance lingers. This is a
@@ -1327,7 +1327,7 @@ export default class HavemindPlugin extends Plugin {
       this.views.refreshActivity();
     } catch (error) {
       new Notice(
-        `Havemind: could not remove member — ${
+        `Havemind: could not remove member, ${
           error instanceof Error ? error.message : 'unexpected error'
         }`,
       );
@@ -1336,7 +1336,7 @@ export default class HavemindPlugin extends Plugin {
 
   /**
    * Invitee side: arm the rejoin poll after a terminal auth failure. Idempotent
-   * — a second terminal status while a poll is already armed is a no-op, so the
+   *, a second terminal status while a poll is already armed is a no-op, so the
    * poll is never doubled. Builds the controller from this device's persisted
    * (membershipId, deviceId); if none is stored there is nothing to rejoin with.
    */
@@ -1368,7 +1368,7 @@ export default class HavemindPlugin extends Plugin {
       void this.pollRejoinOnce();
     }, REJOIN_POLL_INTERVAL_MS);
     // `registerInterval` clears the timer on unload; the Obsidian runtime hands
-    // a numeric id while Node's types surface a Timeout object — cast the id at
+    // a numeric id while Node's types surface a Timeout object, cast the id at
     // this single boundary rather than reshaping the platform declaration.
     this.registerInterval(timer as unknown as number);
     this.rejoinPollTimer = timer;
@@ -1397,7 +1397,7 @@ export default class HavemindPlugin extends Plugin {
     const controller = this.rejoinController;
     if (controller === null || this.rejoinRestarted || this.unloaded) return;
     // FINDING 1b: if the connection was re-established since this poll armed
-    // (Retry now, a fresh user connect, a rejoin restart — anything that assigns
+    // (Retry now, a fresh user connect, a rejoin restart, anything that assigns
     // a new handle bumps `connectGeneration`), this poll is stale. Presenting the
     // binding now would drive a 'syncing' result that stops + restarts the
     // healthy connection. Disarm and bail instead of thrashing it.
@@ -1447,7 +1447,7 @@ export default class HavemindPlugin extends Plugin {
   private surfaceRejoinFailed(): void {
     this.disarmRejoin();
     this.connectionError =
-      'Rejoin failed — the server rejected the automatic rejoin. Reconnect manually to resume syncing.';
+      'Rejoin failed, the server rejected the automatic rejoin. Reconnect manually to resume syncing.';
     this.setStatus(formatStatusBar({ status: 'reconnect-required' }));
     new Notice(
       'Havemind: rejoin failed. Reconnect manually to resume syncing.',
@@ -1494,7 +1494,7 @@ export default class HavemindPlugin extends Plugin {
    *
    * FINDING 1a: disarm any armed invitee rejoin poll BEFORE restarting. Leaving
    * it armed lets a stale 30 s tick fire against the connection this retry just
-   * rebuilt — attempt() → 'syncing' → stop + restart — thrashing a healthy
+   * rebuilt, attempt() → 'syncing' → stop + restart, thrashing a healthy
    * connection up to 30 s after the user fixed it. The fallback is not lost: if
    * the restart lands back in reconnect-required, `handleStatus` re-arms the poll
    * from scratch.
@@ -1555,7 +1555,7 @@ export default class HavemindPlugin extends Plugin {
       );
     } catch (error) {
       new Notice(
-        `Havemind: could not reset the connection — ${
+        `Havemind: could not reset the connection, ${
           error instanceof Error ? error.message : 'unexpected error'
         }`,
       );
@@ -1669,7 +1669,7 @@ export default class HavemindPlugin extends Plugin {
   }
 
   /**
-   * Overlay input for one file, honestly degraded to whole-file attribution —
+   * Overlay input for one file, honestly degraded to whole-file attribution,
    * see `attribution/overlay-source.ts` for why per-line is not derivable yet.
    */
   private overlayInputFor(
@@ -1721,7 +1721,7 @@ export default class HavemindPlugin extends Plugin {
    * Owner action: mint an invitation for the connected vault, reveal the
    * copyable envelope, and register the joining device in the waiting list so
    * the owner can approve it by clicking a row (never by typing a UUID). The
-   * envelope (a secret) is rendered only for the owner to copy — never logged.
+   * envelope (a secret) is rendered only for the owner to copy, never logged.
    */
   private async createInvitation(
     role: InvitationRole,
@@ -1738,7 +1738,7 @@ export default class HavemindPlugin extends Plugin {
         return;
       }
       // Minting an invite always belongs to the composer and must reveal the
-      // invite section — never leave it hidden behind another surface.
+      // invite section, never leave it hidden behind another surface.
       this.connectionActive = true;
       this.setPendingInvitation(invitation);
       this.pendingApprovals = [
@@ -1770,7 +1770,7 @@ export default class HavemindPlugin extends Plugin {
    * Closes the owner composer and returns to the connection panel. Clearing
    * `connectionActive` is what makes Done a real exit: `render()` gives the
    * composer priority and returns before drawing the status indicator, so
-   * leaving the composer open would hide "Connected — synced" indefinitely and
+   * leaving the composer open would hide "Connected, synced" indefinitely and
    * read as if the vault had disconnected.
    */
   private dismissInvitation(): void {
@@ -1809,8 +1809,8 @@ export default class HavemindPlugin extends Plugin {
   }
 
   /**
-   * The single door into the plugin (plans/007 Stage 0). Every entry point —
-   * the ribbon hexagon, `open-activity`, `connect` — resolves here, so the user
+   * The single door into the plugin (plans/007 Stage 0). Every entry point,
+   * the ribbon hexagon, `open-activity`, `connect`, resolves here, so the user
    * never has to know which of two panes holds the thing they want. `openView`
    * reuses an existing leaf, so asking twice focuses the pane rather than
    * opening a second copy of it.

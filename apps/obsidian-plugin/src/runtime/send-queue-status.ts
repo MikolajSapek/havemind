@@ -1,17 +1,17 @@
 /**
- * SND-01 — send-queue visibility ("no silent send failures").
+ * SND-01, send-queue visibility ("no silent send failures").
  *
  * Turns the durable outbox + quarantine bookkeeping (persisted in
  * `DurableSyncState`) into a small view model the panel renders. Two signals:
  *  - WAITING: outbox items that have been queued longer than a staleness
  *    threshold (~30s). A healthy outbox drains in a cycle or two, so a stale
- *    item means sends are stuck (offline/backoff) — worth surfacing quietly.
+ *    item means sends are stuck (offline/backoff), worth surfacing quietly.
  *  - FAILED: quarantined items (a permanent server rejection or a push that
  *    permanently failed). These never retry on their own, so they are surfaced
  *    with a per-item reason and Retry/Discard affordances.
  *
  * Pure and dependency-free: `main.ts` reads the outbox ages + quarantine through
- * the existing sync-state accessors and hands them here — no parallel store.
+ * the existing sync-state accessors and hands them here, no parallel store.
  */
 
 /** An outbox entry with the wall-clock time it was enqueued (SND-01). */
@@ -40,7 +40,7 @@ export interface SendQueueStatusInput {
 /** One rendered failed-send row: a display label plus the failure reason. */
 export interface SendQueueFailedRow {
   readonly revisionId: string;
-  /** Human-facing identifier — the vault path when known, else the fileId. */
+  /** Human-facing identifier, the vault path when known, else the fileId. */
   readonly label: string;
   readonly reason: string;
 }
@@ -56,7 +56,7 @@ const DEFAULT_STALE_THRESHOLD_MS = 30_000;
 
 /**
  * Builds the send-queue view. `waitingCount` counts only outbox items that have
- * been queued at least `staleThresholdMs` — a freshly enqueued change that the
+ * been queued at least `staleThresholdMs`, a freshly enqueued change that the
  * next cycle will ship is not "waiting" yet, so the row stays quiet during
  * normal operation. `failed` maps every quarantine entry to a row labelled by
  * its vault path (falling back to the fileId, then a generic label).

@@ -1,8 +1,8 @@
 /**
  * The Havemind Activity view: the F5-01 revision feed and its per-row Restore
- * action. The class owns nothing but rendering — the live feed and the restore
+ * action. The class owns nothing but rendering, the live feed and the restore
  * handler are injected as options by the plugin, and the row wording, ordering
- * and author colours come from the pure `buildActivityViewModel` helper — so the
+ * and author colours come from the pure `buildActivityViewModel` helper, so the
  * view can be constructed in a headless test with a stub leaf and a fixed feed.
  */
 
@@ -50,7 +50,7 @@ export class HavemindActivityView extends ItemView {
     this.options.onClosed?.();
   }
 
-  /** Re-renders from the live feed — called when the activity log changes. */
+  /** Re-renders from the live feed, called when the activity log changes. */
   refresh(): void {
     this.render();
   }

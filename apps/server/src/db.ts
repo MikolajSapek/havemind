@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 
 // Single source of truth for the on-disk database filename. The setup CLI
 // creates the file under this name, the live server opens it under this
-// name, and backup/restore must round-trip it under this same name — a
+// name, and backup/restore must round-trip it under this same name, a
 // mismatch here means `restoreInstance` silently writes to a filename the
 // server never opens, so a restore looks successful while the server starts
 // an empty database from scratch (apparent total data loss).

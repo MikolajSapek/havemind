@@ -5,7 +5,7 @@
  * diff without the DOM. They wrap the already-tested `buildActivityFeed` and
  * `computeRevisionDiff` from `activity/activity.ts`; the append-only restore
  * itself goes through `restoreRevision`, which this module deliberately does not
- * re-implement (rule 4 — a single append-only restore path).
+ * re-implement (rule 4, a single append-only restore path).
  */
 
 import {
@@ -21,11 +21,11 @@ import {
 export interface ActivityRowView {
   readonly revisionId: string;
   readonly fileId: string;
-  /** `kind · path · author` — author is paired with the colour token below. */
+  /** `kind · path · author`, author is paired with the colour token below. */
   readonly label: string;
-  /** `author verb` — the row's first line. `label` stays the full string. */
+  /** `author verb`, the row's first line. `label` stays the full string. */
   readonly headline: string;
-  /** Vault path — the row's second line. */
+  /** Vault path, the row's second line. */
   readonly pathLabel: string;
   readonly timestamp: number;
   /** Human-readable time shown alongside each entry (author + file + time). */
@@ -33,7 +33,7 @@ export interface ActivityRowView {
   /**
    * Deterministic, stable colour token for the entry's author (see
    * `author-colors`). Rendered as an accent paired with the author name in
-   * `label` — colour is never the only signal. Initial-import fragments get the
+   * `label`, colour is never the only signal. Initial-import fragments get the
    * reserved neutral token.
    */
   readonly colorToken: string;

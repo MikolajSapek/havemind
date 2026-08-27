@@ -5,7 +5,7 @@
  * its ACTUAL output into a static HTML page that shows the light and dark
  * themes, the reduced-motion variant, and every hidden-overlay state. This is
  * evidence for the qualitative AC "colour + underline + tooltip together, never
- * colour alone" — it is derived from the same code the tests exercise, never
+ * colour alone", it is derived from the same code the tests exercise, never
  * hand-faked. It is NOT a screenshot of Obsidian itself (see report).
  *
  * Usage: node scripts/render-attribution-fixture.mjs
@@ -145,8 +145,8 @@ const themeBlock = (themeAttr, themeName, tokens) => `
     <h2>${esc(themeName)}</h2>
     ${panel('Overlay on (animated)', renderLive(live), renderReading(reading), renderLegend(live.legend))}
     ${panel('Reduced motion (static colour + underline, no animation)', renderLive(liveReduced), renderReading(reading), renderLegend(liveReduced.legend), 'prefers-reduced-motion honoured: colour and underline appear immediately, highlight animation suppressed.')}
-    ${panel('Overlay hidden — hash mismatch', '<p class="hidden">Overlay hidden (reason: ' + esc(hiddenHash.hiddenReason) + '). No attribution shown after external edit.</p>', '<p class="hidden">Reading view silent.</p>', '')}
-    ${panel('Overlay hidden — toggle off', '<p class="hidden">Overlay hidden (reason: ' + esc(hiddenDisabled.hiddenReason) + ').</p>', '<p class="hidden">Reading view silent.</p>', '')}
+    ${panel('Overlay hidden, hash mismatch', '<p class="hidden">Overlay hidden (reason: ' + esc(hiddenHash.hiddenReason) + '). No attribution shown after external edit.</p>', '<p class="hidden">Reading view silent.</p>', '')}
+    ${panel('Overlay hidden, toggle off', '<p class="hidden">Overlay hidden (reason: ' + esc(hiddenDisabled.hiddenReason) + ').</p>', '<p class="hidden">Reading view silent.</p>', '')}
   </div>`;
 
 const html = `<!doctype html>
@@ -154,7 +154,7 @@ const html = `<!doctype html>
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Havemind F6-01 author overlay — render fixture</title>
+<title>Havemind F6-01 author overlay, render fixture</title>
 <style>
   :root { ${tokenCss} font-family: -apple-system, system-ui, sans-serif; }
   body { margin: 0; background: #f3f4f6; color: #1f2328; }
@@ -189,7 +189,7 @@ const html = `<!doctype html>
 </style>
 </head>
 <body>
-  <h1>Havemind F6-01 — author overlay render fixture (deterministic, generated from module output)</h1>
+  <h1>Havemind F6-01, author overlay render fixture (deterministic, generated from module output)</h1>
   <div class="fixtures">
     ${themeBlock('light', 'Light theme', tokenCss)}
     ${themeBlock('dark', 'Dark theme', tokenCssDark)}

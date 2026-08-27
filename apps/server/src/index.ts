@@ -4,7 +4,7 @@
 // SQLite database under HAVEMIND_DATA_DIR, wires the auth/onboarding/sync
 // repositories into `buildApp` (exactly as the integration harness does) and
 // starts listening. Passing `auth` is what makes the invitation, owner-pairing,
-// approval, bootstrap and sync routes exist — without it the process only
+// approval, bootstrap and sync routes exist, without it the process only
 // serves discovery/health, which is why `/owner/pair` returned 404 in prod.
 
 import { statfs } from 'node:fs/promises';
@@ -46,7 +46,7 @@ async function main(): Promise<void> {
 
   // Plain WAL SQLite (better-sqlite3): the live database and blob store are
   // stored UNENCRYPTED on the data volume. The `havemind_db_key` secret does
-  // NOT encrypt this file — it is used only to seal checkpoint snapshots (see
+  // NOT encrypt this file, it is used only to seal checkpoint snapshots (see
   // checkpoint.ts). Protecting the live data at rest is the operator's
   // responsibility: a trusted host with tailnet-only access (see the README
   // security model). The server opens the file exactly as setup created it.

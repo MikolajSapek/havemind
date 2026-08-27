@@ -1,5 +1,5 @@
 /**
- * MRG-05 — auto-repair sweep for existing conflict copies.
+ * MRG-05, auto-repair sweep for existing conflict copies.
  *
  * A conflict copy is a divergent revision the apply path could not converge in
  * place (see vault-apply.ts). Once the merge ancestor for the target note is
@@ -7,7 +7,7 @@
  * automatically after the fact: the ancestor + the live note + the copy is a
  * clean three-way merge input. This sweep re-attempts that merge for every
  * parseable copy and, on success, writes the merged text back into the note and
- * deletes the copy — collapsing conflicts that only ever needed a later apply.
+ * deletes the copy, collapsing conflicts that only ever needed a later apply.
  *
  * Hard laws honoured here:
  *  - NEVER guess an ancestor. A copy whose target has no hash-verified base
@@ -18,7 +18,7 @@
  *  - Per-item error isolation: one unreadable/undeletable copy never stops the
  *    sweep from resolving the others.
  *  - Idempotent: a re-run with nothing resolvable does nothing (no writes, no
- *    Notice) — resolved copies are already gone, and skips stay skipped.
+ *    Notice), resolved copies are already gone, and skips stay skipped.
  *  - No self-retrigger: the note write lands OUTSIDE the reserved folder and the
  *    copy delete is the only reserved-folder mutation. The runtime trigger keys
  *    off conflict-copy WRITES, so a sweep's own delete can never re-schedule it.
@@ -75,7 +75,7 @@ export async function sweepConflictCopies(
   for (const copy of listConflictCopies(deps.port)) {
     // Only new-format, markdown, uniquely-paired copies are auto-mergeable.
     // Legacy UUID names, binary copies and ambiguous/unknown targets are left
-    // for the manual modal — never guessed at, never deleted.
+    // for the manual modal, never guessed at, never deleted.
     if (copy.kind === 'legacy' || copy.isBinary || !copy.targetKnown) continue;
     const targetPath = copy.targetPath;
     if (targetPath === null) continue;
@@ -106,7 +106,7 @@ export async function sweepConflictCopies(
 
       // Zero content loss: the copy's content is now fully represented by the
       // merged note, so writing the note THEN deleting the copy is safe. Order
-      // matters — the delete only runs after a successful write.
+      // matters, the delete only runs after a successful write.
       await deps.port.writeText(targetPath, result.text);
       await deps.port.deleteFile(copy.copyPath);
       resolved += 1;

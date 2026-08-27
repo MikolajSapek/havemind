@@ -2,7 +2,7 @@
  * The two pure planners behind the send-queue section's Retry button: they map a
  * `retryFailedCommit` outcome, and an inert re-queue of a server-rejected row,
  * onto the Notice text plus the keep-or-discard decision the panel must apply.
- * Keeping them here — free of any plugin, vault or network handle — is what lets
+ * Keeping them here, free of any plugin, vault or network handle, is what lets
  * the "never silently drop a real unsent change" rules be unit-tested directly.
  */
 
@@ -19,8 +19,8 @@ export interface RetryFromDiskEffect {
 /**
  * FINDING 1: map a `retryFailedCommit` outcome to its Notice + discard effect.
  * The old boolean conflated three cases; only a CONFIRMED-missing file drops the
- * row. `unavailable` (debouncer disposed) and a null/uncallable connection — the
- * common state for a durable row after a restart, before reconnect — KEEP the
+ * row. `unavailable` (debouncer disposed) and a null/uncallable connection, the
+ * common state for a durable row after a restart, before reconnect, KEEP the
  * row and tell the user to reconnect, so a real unsynced change is never lost.
  */
 export function planRetryFromDisk(
@@ -31,14 +31,14 @@ export function planRetryFromDisk(
   switch (outcome) {
     case 'file-missing':
       return {
-        notice: `${path} no longer exists — removing it from the queue.`,
+        notice: `${path} no longer exists, removing it from the queue.`,
         discard: true,
       };
     case 'retriggered':
       return { notice: null, discard: discardOnRetrigger };
     default:
       return {
-        notice: 'Cannot retry while disconnected — reconnect first.',
+        notice: 'Cannot retry while disconnected, reconnect first.',
         discard: false,
       };
   }
@@ -65,6 +65,6 @@ export function planQuarantineRequeueFallback(
   if (path !== null) return { kind: 'retry-from-disk', path };
   return {
     kind: 'discard-dead-letter',
-    notice: 'The original file for this change no longer exists — removing it.',
+    notice: 'The original file for this change no longer exists, removing it.',
   };
 }

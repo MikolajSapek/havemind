@@ -1,4 +1,4 @@
-# Havemind pane — design tokens (final)
+# Havemind pane, design tokens (final)
 
 Dark Obsidian. Column 2 is the value a screenshot will measure; in the plugin it
 comes from the Obsidian variable named in column 1, so a theme change follows.
@@ -12,7 +12,7 @@ assumes.
 | --- | --- | --- |
 | `--background-primary` | `#1e1e1e` | Tab body ground |
 | `--background-primary-alt` | `#1a1a1a` | Invitation envelope (`<code>`) ground |
-| `--background-secondary` | `#242427` | Header + tab strip ground — the one tonal step in the pane |
+| `--background-secondary` | `#242427` | Header + tab strip ground, the one tonal step in the pane |
 | `--background-secondary-alt` | `#2a2a2e` | Overflow menu ground |
 | `--background-modifier-border` | `#333337` | Every hairline (1px): under the strip, between rows, menu border |
 | `--background-modifier-hover` | `rgba(255,255,255,.055)` | Hover fill: header actions, tabs, rows, menu items |
@@ -27,13 +27,13 @@ assumes.
 | `--text-on-accent` | `#ffffff` | Label on a filled accent button |
 | `--color-accent-rgb` | `139, 108, 239` | Accent tints: pressed toggle 16%, pending notice 10% |
 | `--color-green-rgb` | `95, 211, 172` | Synced dot ring, 16% |
-| `--havemind-author-2` | `#c99bf0` | Author dot (Mira) — from `author-colors.ts`, dark set |
+| `--havemind-author-2` | `#c99bf0` | Author dot (Mira), from `author-colors.ts`, dark set |
 | `--havemind-author-3` | `#5fd3ac` | Author dot (Tomas) |
 
 Contrast on `#1e1e1e`: `--text-normal` 11.4:1, `--text-muted` 6.6:1,
 `--text-faint` 3.6:1 (used only for non-essential meta ≥11px, never for a state
 word), `--text-success` 8.4:1, `--interactive-accent` 4.7:1. Semantic colour is
-never the only signal — every dot and glyph is paired with its word, plus
+never the only signal, every dot and glyph is paired with its word, plus
 `title`/`aria-label`.
 
 ## Typography

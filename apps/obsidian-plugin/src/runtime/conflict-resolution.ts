@@ -1,10 +1,10 @@
 /**
- * MRG-03 — in-app conflict-copy resolution.
+ * MRG-03, in-app conflict-copy resolution.
  *
  * A conflict copy is a divergent revision the apply path could not converge
  * (see vault-apply.ts). Copies live under the reserved `Havemind Conflicts/`
  * folder, which is excluded from sync, so every file operation here is purely
- * local — deleting a resolved copy never leaves the vault, and writing "theirs"
+ * local, deleting a resolved copy never leaves the vault, and writing "theirs"
  * into the live note is a normal local edit the producer will sync.
  *
  * This module is pure DI: all vault access flows through {@link ConflictVaultPort}
@@ -15,7 +15,7 @@
 import type { TFile, Vault } from 'obsidian';
 
 /**
- * Reserved, sync-excluded folder holding conflict copies — the SINGLE definition
+ * Reserved, sync-excluded folder holding conflict copies, the SINGLE definition
  * of the name. Three sites depend on it agreeing exactly: this resolution flow,
  * the producer's reserved-root exclusion (`obsidian/vault-adapter.ts`) and the
  * apply adapter's `conflictFolder` (`runtime/obsidian-adapters.ts`). All three
@@ -59,7 +59,7 @@ function splitExtension(name: string): { base: string; extension: string } {
 
 /**
  * Parses a conflict-copy filename per the fixed naming contract. Returns null
- * for any name that is neither a new-format nor a legacy UUID conflict copy —
+ * for any name that is neither a new-format nor a legacy UUID conflict copy,
  * the reserved folder should only contain copies, but unknown names are skipped
  * rather than trusted.
  */
@@ -116,7 +116,7 @@ export interface ConflictVaultPort {
   exists(path: string): Promise<boolean>;
   /**
    * Reads `path`, or null when the file is absent (MINOR 6). Signalling absence
-   * as null — never as '' — is what closes the exists→read TOCTOU: a copy
+   * as null, never as '', is what closes the exists→read TOCTOU: a copy
    * deleted between the guard and the read now returns null and aborts
    * keepTheirs, instead of reading '' and blanking the live note.
    */
@@ -141,7 +141,7 @@ export interface ConflictCopy {
   readonly manualHint: string | null;
 }
 
-const MANUAL_HINT = 'Target unknown — open files manually.';
+const MANUAL_HINT = 'Target unknown, open files manually.';
 
 /**
  * Lists every parseable conflict copy in the reserved folder, paired with its
@@ -211,7 +211,7 @@ function toLines(text: string): string[] {
  * Computes a line-level diff between the live note (`mine`) and the conflict
  * copy (`theirs`) using a longest-common-subsequence backtrace. Removed lines
  * are present in `mine` only; added lines are present in `theirs` only. Kept
- * intentionally small — no dependency, self-contained.
+ * intentionally small, no dependency, self-contained.
  */
 export function computeLineDiff(mine: string, theirs: string): DiffLine[] {
   const a = toLines(mine);
@@ -264,12 +264,12 @@ export interface ConflictResolver {
   /**
    * Runs a resolve action against the port. Returns:
    *  - `'resolved'` when it ran;
-   *  - `'ignored'` when this copy was already being resolved — the guard makes
+   *  - `'ignored'` when this copy was already being resolved, the guard makes
    *    a double click (or a stray second click before the list refreshes) safe:
    *    each destructive port op fires at most once per copy;
    *  - `'vanished'` when a keepTheirs was asked to apply a copy the auto-sweep
    *    had already resolved and deleted. The copy no longer exists, so applying
-   *    it would read '' and blank the (already-merged) live note — DATA LOSS.
+   *    it would read '' and blank the (already-merged) live note, DATA LOSS.
    *    The caller surfaces a Notice ("already auto-resolved") and refreshes.
    */
   resolve(copy: ConflictCopy, action: ResolveAction): Promise<ResolveOutcome>;
@@ -306,7 +306,7 @@ export function createConflictResolver(port: ConflictVaultPort): ConflictResolve
           if (!(await port.exists(copy.copyPath))) {
             return 'vanished';
           }
-          // MINOR 6: the read itself is the authoritative absence signal —
+          // MINOR 6: the read itself is the authoritative absence signal,
           // exists() above is belt-and-braces, but a copy deleted between the
           // guard and the read returns null here and aborts, never reading '' and
           // blanking the merged note (the exists→read TOCTOU, closed for good).
@@ -319,7 +319,7 @@ export function createConflictResolver(port: ConflictVaultPort): ConflictResolve
           break;
         }
         case 'keepBoth':
-          // Leave both files in place — no vault mutation.
+          // Leave both files in place, no vault mutation.
           break;
       }
       return 'resolved';

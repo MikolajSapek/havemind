@@ -13,7 +13,7 @@ manifest at root). Monorepo `apps/obsidian-plugin/` stays the source of truth.
 
 ## Submit to the official catalogue (done by the owner, in a browser)
 
-Requires an Obsidian account — cannot be automated by the agent.
+Requires an Obsidian account, cannot be automated by the agent.
 
 1. Go to **community.obsidian.md**, sign in with the Obsidian account.
 2. Link the GitHub account (proves repo ownership).

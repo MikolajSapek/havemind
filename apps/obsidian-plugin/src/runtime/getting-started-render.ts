@@ -3,7 +3,7 @@
  * disconnected/empty state (and re-openable from a small help affordance once
  * connected).
  *
- * This module stays pure — it returns the numbered steps as data so the desktop
+ * This module stays pure, it returns the numbered steps as data so the desktop
  * shell can render them with the existing panel helpers without the DOM, and so
  * the wording, ordering and doc link stay unit-testable. It invents no backend
  * calls or settings: every step maps onto the connect flow the panel already
@@ -23,7 +23,7 @@ export const SELF_HOSTING_DOC_PATH =
 export interface GettingStartedDocRef {
   /** Short human-readable link label (no URL, no emoji). */
   readonly label: string;
-  /** Target of the link — the in-repo doc path. */
+  /** Target of the link, the in-repo doc path. */
   readonly url: string;
 }
 
@@ -50,7 +50,7 @@ export interface GettingStartedViewModel {
 }
 
 /**
- * Builds the static "Getting started" tutorial. Content only — action-first,
+ * Builds the static "Getting started" tutorial. Content only, action-first,
  * one line per step, no filler. Step 2 carries the self-hosting doc link; the
  * footnote points newcomers at the README and the same guide for the two things
  * that happen outside this panel (installing the plugin, running a server).
@@ -59,7 +59,7 @@ export function buildGettingStartedViewModel(): GettingStartedViewModel {
   return {
     title: 'Getting started',
     requirement:
-      'Havemind needs a self-hosted server on your Tailscale network — there is no cloud. Connect to one you were given, or run your own.',
+      'Havemind needs a self-hosted server on your Tailscale network, there is no cloud. Connect to one you were given, or run your own.',
     steps: [
       {
         number: 1,
@@ -83,7 +83,7 @@ export function buildGettingStartedViewModel(): GettingStartedViewModel {
       {
         number: 5,
         text:
-          'Done — your edits sync to the other devices in about a second. Use a dedicated vault, and don\'t run another sync tool on it.',
+          'Done, your edits sync to the other devices in about a second. Use a dedicated vault, and don\'t run another sync tool on it.',
       },
     ],
     footnote:

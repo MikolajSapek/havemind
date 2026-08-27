@@ -96,7 +96,7 @@ describe('approveRedeemedDevice', () => {
     expect(error).toBeInstanceOf(ApproveDeviceError);
     expect(error.attemptsRemaining).toBe(2);
     expect(error.locked).toBe(false);
-    expect(error.message).toBe('Incorrect code — 2 attempts left.');
+    expect(error.message).toBe('Incorrect code, 2 attempts left.');
     expect(error.message).not.toContain(PHRASE);
   });
 
@@ -131,7 +131,7 @@ describe('approveRedeemedDevice', () => {
           );
           const error = await run().catch((caught: unknown) => caught);
           expect(error).toBeInstanceOf(ApproveDeviceError);
-          // A fixed template, never the phrase interpolated in — so the secret
+          // A fixed template, never the phrase interpolated in, so the secret
           // cannot leak regardless of what the joining device chose.
           expect((error as Error).message).toBe(
             'This invitation has expired. Create a new one.',

@@ -7,7 +7,7 @@
  *
  * The verification phrase is a second-channel secret: it travels only in the
  * request body and is never placed in the URL, and it is never included in any
- * thrown error message (`plan/01` rule 4 — secrets never in logs/reports).
+ * thrown error message (`plan/01` rule 4, secrets never in logs/reports).
  */
 
 import type { RequestUrlFn } from './sync-transport';
@@ -53,7 +53,7 @@ export class ApproveDeviceError extends Error {
 }
 
 const LOCKED_MESSAGE =
-  'Too many incorrect codes. This invitation is now invalid — create a new one.';
+  'Too many incorrect codes. This invitation is now invalid, create a new one.';
 
 const MESSAGE_BY_CODE: Readonly<Record<string, string>> = {
   FORBIDDEN: 'You are not the owner of this vault, so you cannot approve here.',
@@ -116,7 +116,7 @@ function describeFailure(status: number, json: unknown): ApproveDeviceError {
     const remaining = attemptsRemaining ?? 0;
     const plural = remaining === 1 ? 'attempt' : 'attempts';
     return new ApproveDeviceError(
-      `Incorrect code — ${remaining} ${plural} left.`,
+      `Incorrect code, ${remaining} ${plural} left.`,
       { attemptsRemaining: remaining },
     );
   }

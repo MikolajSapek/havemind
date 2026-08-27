@@ -124,7 +124,7 @@ describe('HavemindSettingTab refresh affordance (FINDING 4)', () => {
     if (tab === undefined) throw new Error('settings tab was not registered');
 
     // `PluginSettingTab.plugin` is typed as the base Plugin, so the tab keeps
-    // its own narrowed field — that is what removes the double cast the display
+    // its own narrowed field, that is what removes the double cast the display
     // body used to need on every read.
     expect(
       (tab as unknown as { havemind: HavemindPlugin }).havemind,

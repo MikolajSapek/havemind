@@ -100,7 +100,7 @@ describe('sweepConflictCopies', () => {
 
   it('auto-resolves a mergeable copy: note updated, copy deleted, one Notice', async () => {
     // Non-overlapping edits: the note added a line at the top, the copy at the
-    // bottom — a clean three-way merge combines both.
+    // bottom, a clean three-way merge combines both.
     vault.put(NOTE, 'top\nA\nB\nC\n');
     vault.put(COPY, 'A\nB\nC\nbottom\n');
     const deps = baseDeps(vault);

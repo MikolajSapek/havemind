@@ -330,7 +330,7 @@ export class SessionRepository {
    * Creates generation zero from a stored refresh-token hash without minting an
    * access token. The onboarding flow binds the joining device's own refresh
    * token at redemption time (hash only) and activates its family here, at owner
-   * approval, so the invitee — never the owner — holds the raw secret.
+   * approval, so the invitee, never the owner, holds the raw secret.
    */
   public createInitialFamilyFromHashInCurrentTransaction(
     input: CreateInitialFamilyFromHashInput,
@@ -551,8 +551,8 @@ export class SessionRepository {
   }
 
   /**
-   * Revokes a device and burns every session bound to it — the device row, all
-   * its refresh families, and all its access tokens — inside the caller's
+   * Revokes a device and burns every session bound to it, the device row, all
+   * its refresh families, and all its access tokens, inside the caller's
    * existing write transaction. This is the primitive membership revocation
    * composes over, so flipping the membership row and killing each of the
    * member's devices is one atomic write. Unavailable outside a transaction so

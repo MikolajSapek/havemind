@@ -9,7 +9,7 @@ const outputPath = fileURLToPath(new URL('main.js', import.meta.url));
 await build({
   absWorkingDir: packageDirectory,
   banner: {
-    js: '/* Havemind — Apache-2.0 */',
+    js: '/* Havemind, Apache-2.0 */',
   },
   bundle: true,
   entryPoints: ['src/main.ts'],

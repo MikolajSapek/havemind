@@ -2,7 +2,7 @@
  * The `.obsidian/` config-poll tick and its failure policy. Obsidian emits no
  * vault events for hidden files, so config changes are found by re-walking the
  * tree on an interval; this module owns that cadence plus the contract that one
- * bad tick can never wedge sync and can never fail silently either — every
+ * bad tick can never wedge sync and can never fail silently either, every
  * failure warns with a leak-free reason and a throttled Notice. The tick itself
  * is built from injected seams so the whole failure/recovery behaviour is
  * testable headlessly.
@@ -32,7 +32,7 @@ export const CONFIG_POLL_FAILURE_NOTICE_EVERY = 10;
  * config file ever reaches the UI.
  */
 export const CONFIG_POLL_FAILURE_NOTICE =
-  'Havemind: config sync ran into repeated errors — see console.';
+  'Havemind: config sync ran into repeated errors, see console.';
 
 /**
  * A leak-free description of a config-poll failure: the error's CLASS only. An
@@ -46,13 +46,13 @@ function describeConfigPollFailure(error: unknown): string {
 
 /** Seams for one config-poll tick, so failure handling is testable headlessly. */
 export interface ConfigPollTickDeps {
-  /** One poll attempt — the runtime injects `pollConfigOnce`. */
+  /** One poll attempt, the runtime injects `pollConfigOnce`. */
   readonly poll: () => Promise<readonly LocalChangeOperation[]>;
   /** Records a genuine change in the Activity feed. */
   readonly recordActivity: (op: LocalChangeOperation) => void;
   /** Requests a sync after a tick that enqueued something. */
   readonly triggerSync: () => void;
-  /** User-facing sink — `new Notice` in the runtime. */
+  /** User-facing sink, `new Notice` in the runtime. */
   readonly notify: (message: string) => void;
   /** Console sink; defaults to `console.warn`. */
   readonly warn?: (message: string, reason: string) => void;
@@ -62,7 +62,7 @@ export interface ConfigPollTickDeps {
  * Builds the `.obsidian/` config-poll tick.
  *
  * The returned function NEVER rejects: one bad tick must never stop the interval
- * or wedge sync. But a failure is never SILENT either (audit #3 finding 5) —
+ * or wedge sync. But a failure is never SILENT either (audit #3 finding 5),
  * every failure warns to the console with a reason-only detail, and the user sees
  * a throttled {@link CONFIG_POLL_FAILURE_NOTICE} on the first failure of a streak
  * and every {@link CONFIG_POLL_FAILURE_NOTICE_EVERY}-th after it. Recovery resets

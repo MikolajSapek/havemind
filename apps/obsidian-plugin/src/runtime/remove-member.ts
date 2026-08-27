@@ -3,7 +3,7 @@
  *
  * The owner permanently revokes a member's connection to the vault by calling
  * `POST /owner/memberships/:membershipId/revoke`. The server revocation is
- * append-only — the member's past revisions and attribution survive — but their
+ * append-only, the member's past revisions and attribution survive, but their
  * membership and devices are terminally locked out. Re-adding the member later
  * requires a fresh invitation and full pairing (rejoin cannot re-admit a revoked
  * member). This module is dependency-injected and free of Obsidian/DOM so it

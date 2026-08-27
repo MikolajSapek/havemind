@@ -212,7 +212,7 @@ describe('OutboxLocalChangeRepository', () => {
     ).rejects.toThrow(/too large/u);
 
     // The oversized change never entered the outbox and never mutated the map or
-    // head — so it cannot silently wedge the outbox.
+    // head, so it cannot silently wedge the outbox.
     expect(enqueued).toHaveLength(0);
     expect(store.state).toEqual({ mappings: [], heads: {} });
     expect(await repo.listMappings()).toHaveLength(0);
@@ -451,7 +451,7 @@ describe('OutboxLocalChangeRepository', () => {
       const decoded = decodeRevisionPayload(decode(enqueued[0] as OutboxEnvelope));
       expect(decoded.kind).toBe('binary');
       expect(decoded.content).toBeNull();
-      // The exact raw bytes round-trip through the envelope — never markdown
+      // The exact raw bytes round-trip through the envelope, never markdown
       // `content`, which would be canonicalised and corrupt binary data.
       expect(decoded.binaryContent).toEqual(bytes);
     });

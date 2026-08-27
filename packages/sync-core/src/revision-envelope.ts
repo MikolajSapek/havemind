@@ -2,14 +2,14 @@
  * Builds the opaque revision envelope a client PUSHes to the server. This is the
  * producer half of the sync loop: a local vault change becomes a protected
  * header plus a base64 payload that the peer decodes with `decodeRevisionPayload`
- * (`payload-codec.ts`). The server never inspects the payload — it stores the
- * bytes and computes their content-addressed hash — so the header must be valid
+ * (`payload-codec.ts`). The server never inspects the payload, it stores the
+ * bytes and computes their content-addressed hash, so the header must be valid
  * on its own and the payload must be decodable by the peer.
  *
  * The recipe is deliberately literal-only: a single literal part carrying the
  * whole note (or an empty parts list for an empty note). A literal-only recipe
  * has no `source` parts, so it validates against any header regardless of
- * parents — correct for both root creates and parented updates. Source-range
+ * parents, correct for both root creates and parented updates. Source-range
  * (delta) recipes are a later optimisation and are not required for correctness.
  */
 
@@ -50,7 +50,7 @@ export interface BuildRevisionEnvelopeInput {
   /**
    * Whether this change carries markdown text (`content`) or raw binary bytes
    * (`binaryContent`). Defaults to `'markdown'` so every existing caller is
-   * unchanged. A `'binary'` change is a whole-file replace (F9) — no line diff,
+   * unchanged. A `'binary'` change is a whole-file replace (F9), no line diff,
    * no recipe, no canonicalisation.
    */
   readonly kind?: 'markdown' | 'binary';
@@ -62,7 +62,7 @@ export interface BuildRevisionEnvelopeInput {
   /**
    * Reject (rather than build) an envelope whose payload exceeds this many
    * bytes. This is the real effective ceiling the server enforces per payload,
-   * so a note too large to ever be accepted is caught here — before it can be
+   * so a note too large to ever be accepted is caught here, before it can be
    * enqueued and silently wedge the whole outbox. Defaults to
    * {@link DEFAULT_MAX_REVISION_PAYLOAD_BYTES}.
    */
@@ -72,7 +72,7 @@ export interface BuildRevisionEnvelopeInput {
 /**
  * The server's per-payload ceiling (`DEFAULT_MAX_PAYLOAD_BYTES`). The payload is
  * measured as the exact bytes the server stores, which is what its own limit
- * checks — so a payload at or under this size is guaranteed to clear the
+ * checks, so a payload at or under this size is guaranteed to clear the
  * per-payload gate.
  */
 export const DEFAULT_MAX_REVISION_PAYLOAD_BYTES = 512 * 1024;

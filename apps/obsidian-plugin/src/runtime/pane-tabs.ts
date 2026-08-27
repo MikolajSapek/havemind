@@ -7,7 +7,7 @@
  *
  * The one rule this model enforces: **a tab may hide content, never an alarm.**
  * The designer's objection to tabs was that a pane can read "Synced" while two
- * files sit in conflict one tab away, with only a 6px dot arguing otherwise —
+ * files sit in conflict one tab away, with only a 6px dot arguing otherwise,
  * which would quietly break the promise the whole product rests on. So a tab
  * carrying something that needs the user reports it here, the strip marks it,
  * and the pane renders the alarm above the strip regardless of which tab is
@@ -28,7 +28,7 @@ export interface PaneTab {
   readonly count?: number;
   /**
    * True when this tab holds something the user must act on. The strip marks
-   * it, but the pane also lifts the item above the strip — a mark alone is the
+   * it, but the pane also lifts the item above the strip, a mark alone is the
    * failure mode we are avoiding, not the fix.
    */
   readonly needsAttention?: boolean;
@@ -61,14 +61,14 @@ export function buildPaneTabs(input: PaneTabsInput): PaneTabsView {
     },
     // No counts on Activity or People (round 2, cut list): "12 today" and
     // "2 connected" are facts nobody can act on, and three competing numbers in
-    // a 300px strip turn the one number that matters — the conflict count —
+    // a 300px strip turn the one number that matters, the conflict count,
     // into noise. Counts in the strip went 3 → 1.
     { id: 'activity', label: 'Activity', icon: 'history' },
     { id: 'people', label: 'People', icon: 'users' },
     { id: 'connect', label: 'Connect', icon: 'link' },
   ];
 
-  // Three tabs for everyone. Inviting used to be a fourth, owner-only tab —
+  // Three tabs for everyone. Inviting used to be a fourth, owner-only tab,
   // which made the strip change shape by role, so the pane became two
   // structurally different products to describe, screenshot and support. It is
   // a modal launched from People now: a momentary task should not hold a

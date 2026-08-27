@@ -1,5 +1,5 @@
 /**
- * F8-02 — deterministic two-device onboarding + sync end-to-end (Magda flow).
+ * F8-02, deterministic two-device onboarding + sync end-to-end (Magda flow).
  *
  * Unlike `fault-matrix.test.ts` (which inserts the second member directly into
  * the vault and only exercises the sync loop), this test drives the FULL real
@@ -17,10 +17,10 @@
  * `RequestUrlTransport`, the `SyncRunner`, `DurableSyncState`, the push producer
  * (`OutboxLocalChangeRepository` + `VaultChangeObserver` + `reconcileVaultState`)
  * and the vault-apply adapter. Only the transport and the vault/secret/state
- * ports are harness glue — the same seam the plugin fills with HTTP + Obsidian.
+ * ports are harness glue, the same seam the plugin fills with HTTP + Obsidian.
  *
  * This is the deterministic reproduction of the live 2-device pilot bugs:
- *   1. invitee stuck on "Offline — will retry" instead of the waiting-with-PIN
+ *   1. invitee stuck on "Offline, will retry" instead of the waiting-with-PIN
  *      screen / connected;
  *   2. zero revisions server-side from the invitee's device (B→A push).
  */
@@ -298,11 +298,11 @@ function memoryPersist(): {
 /**
  * A connected device's real sync runtime, assembled exactly like
  * `startSyncLoop`: durable state, opaque transport (identity-stamped), push
- * producer and vault-apply adapter — over a single in-memory vault.
+ * producer and vault-apply adapter, over a single in-memory vault.
  */
 class DeviceRuntime {
   readonly files = new Map<string, string>();
-  /** Raw bytes for binary attachments (F9) — a separate store from `files`
+  /** Raw bytes for binary attachments (F9), a separate store from `files`
    * (markdown text), shared by both the push-side snapshot port and the
    * apply-side file port so a binary write on either side is visible to the
    * other. */
@@ -366,7 +366,7 @@ class DeviceRuntime {
       // Bridges every remote-apply write into the push producer's own mapping
       // (the re-entrancy guard `RemoteApplyProducerSync` documents). Without
       // this, a LOCAL edit to a path this device only ever received from the
-      // peer finds no producer mapping and mints a fresh, unrelated fileId —
+      // peer finds no producer mapping and mints a fresh, unrelated fileId,
       // exactly the scenario the binary concurrent-edit test below exercises
       // (both devices editing the SAME received attachment independently).
       producerSync: {
@@ -424,7 +424,7 @@ class DeviceRuntime {
       // Seed the SHARED apply-store ownership+base for every file this device
       // authors/pushes, exactly as the production `startPushProducer` wiring
       // does (obsidian-adapters). Without it a locally-authored file's base is
-      // never seeded, so a concurrent peer edit to it can't be classified —
+      // never seeded, so a concurrent peer edit to it can't be classified,
       // the very case the divergence regression below exercises.
       onLocalMaterialized: (m) => applyLocalMaterialization(this.state, m),
       onLocalForgotten: (f) => forgetLocalMaterialization(this.state, f),
@@ -542,7 +542,7 @@ class DeviceRuntime {
     // of the port. This exercises the actual parent-folder materialization logic
     // end-to-end and removes a divergent second implementation of the same
     // contract. The double THROWS on a create into a missing folder, exactly
-    // like real Obsidian — so a fresh device catching up over a subfoldered
+    // like real Obsidian, so a fresh device catching up over a subfoldered
     // backlog is a genuine regression test for the 5-day field outage.
     const files = this.files;
     const binaryFiles = this.binaryFiles;
@@ -647,7 +647,7 @@ async function driveInviteeToConnected(
 /**
  * Runs the full real onboarding dance (invitation → redeem → approve →
  * connect) and returns two connected, real `DeviceRuntime`s sharing the same
- * opaque server — the same setup as steps 1–6 of the primary onboarding test
+ * opaque server, the same setup as steps 1–6 of the primary onboarding test
  * below, extracted so the binary attachment test does not have to re-drive
  * the connection handshake inline.
  */
@@ -761,7 +761,7 @@ describe('two-device onboarding + sync (Magda) against a real opaque server', ()
       const pendingState = await controller.confirmInvitation('Magda device');
 
       // BUG 1 REPRO: the post-redeem state must expose the 6-digit PIN and be
-      // the waiting-for-approval state — never offline / error.
+      // the waiting-for-approval state, never offline / error.
       expect(pendingState.phase).toBe('pending-approval');
       if (pendingState.phase !== 'pending-approval') {
         throw new Error('invitee did not reach pending-approval');
@@ -796,7 +796,7 @@ describe('two-device onboarding + sync (Magda) against a real opaque server', ()
 
       // 5. Build the invitee's REAL sync loop from the connected state, sharing
       // the same secrets the onboarding stored (this is where the live pilot
-      // dropped to "Offline — will retry" with zero requests).
+      // dropped to "Offline, will retry" with zero requests).
       const inviteeAccess = new RefreshTokenAccessProvider({
         requestUrl: injectRequestUrl(server.app),
         apiBaseUrl: connected.apiBaseUrl,
@@ -892,25 +892,25 @@ describe('two-device onboarding + sync (Magda) against a real opaque server', ()
 
       // Owner pushes first; the server accepts it as the new head.
       expect((await owner.sync()).status).toBe('synced');
-      // Invitee pushes its own concurrent edit — DAG-CAS accepts a second,
-      // divergent branch at write time — and in the same cycle pulls owner's
+      // Invitee pushes its own concurrent edit, DAG-CAS accepts a second,
+      // divergent branch at write time, and in the same cycle pulls owner's
       // edit. The on-disk file (invitee's own edit) diverges from BOTH the
       // incoming bytes and the recorded base, so the apply side must divert
       // to a conflict artifact rather than silently overwrite (rule 3); the
       // runner surfaces that as a 'conflict' cycle status, not an error.
       expect((await invitee.sync()).status).toBe('conflict');
-      // A further cycle is idempotent — no new conflict, no overwrite. (No
+      // A further cycle is idempotent, no new conflict, no overwrite. (No
       // new remote event remains to reapply, so this settles back to synced.)
       expect((await invitee.sync()).status).toBe('synced');
       expect(server.revisionCount()).toBe(3);
 
-      // The live file must still be the invitee's OWN edit — never silently
+      // The live file must still be the invitee's OWN edit, never silently
       // overwritten by the peer's concurrent edit.
       expect(invitee.readBinary(path)).toEqual(pngInviteeV2);
 
       // A binary conflict artifact appears under `Havemind Conflicts/`,
       // keeping the original `.png` extension, and carries the peer's
-      // (owner's) incoming bytes — so both edits survive.
+      // (owner's) incoming bytes, so both edits survive.
       const conflictArtifacts = invitee
         .binaryPaths()
         .filter((candidate) => candidate.startsWith(`${CONFLICT_FOLDER}/`));
@@ -926,7 +926,7 @@ describe('two-device onboarding + sync (Magda) against a real opaque server', ()
     }
   });
 
-  it('BUG A repro: create empty note then push N successive updates — receiver materializes create AND applies every update in place, zero conflict artifacts', async () => {
+  it('BUG A repro: create empty note then push N successive updates, receiver materializes create AND applies every update in place, zero conflict artifacts', async () => {
     const server = await TwoDeviceServer.create();
     try {
       const { owner, invitee } = await connectTwoDevices(server);
@@ -941,10 +941,10 @@ describe('two-device onboarding + sync (Magda) against a real opaque server', ()
       expect((await invitee.sync()).status).toBe('synced');
 
       // Writer (W, invitee) creates an EMPTY note (title only, no body), then
-      // types content in bursts — each burst a separate update revision. W
+      // types content in bursts, each burst a separate update revision. W
       // pushes the whole burst series BEFORE M's next poll, so M pulls the
       // create + every update in ONE cycle (M polls on an interval while W
-      // types) — the exact live topology.
+      // types), the exact live topology.
       await invitee.edit(path, '');
       expect((await invitee.sync()).status).toBe('synced');
 
@@ -956,7 +956,7 @@ describe('two-device onboarding + sync (Magda) against a real opaque server', ()
 
       // Receiver (M, owner) pulls the create + all updates in one batch. The
       // create materializes a 0-byte file; every update must then apply IN
-      // PLACE, converging to the last version — never divert to a conflict.
+      // PLACE, converging to the last version, never divert to a conflict.
       expect((await owner.sync()).status).toBe('synced');
 
       // Final state: content converged, ZERO conflict artifacts.
@@ -972,7 +972,7 @@ describe('two-device onboarding + sync (Magda) against a real opaque server', ()
       // re-entrancy guard): a reflected vault event that escaped dedup would
       // enqueue a spurious revision. After a final settle cycle the outbox is
       // empty and the server holds exactly the writer's 6 revisions + the
-      // owner's 5-note backlog — no reflected re-push.
+      // owner's 5-note backlog, no reflected re-push.
       expect((await owner.sync()).status).toBe('synced');
       expect(await owner.outboxSize()).toBe(0);
       expect(await invitee.outboxSize()).toBe(0);
@@ -1005,11 +1005,11 @@ describe('two-device onboarding + sync (Magda) against a real opaque server', ()
       // Owner pushes its own divergent edit (a second DAG branch) and pulls the
       // invitee's in the same cycle. The on-disk file (owner's own edit) differs
       // from BOTH the incoming content and the recorded base, so the apply side
-      // must divert to a conflict artifact — never silently overwrite (rule 3).
+      // must divert to a conflict artifact, never silently overwrite (rule 3).
       const cycle = await owner.sync();
       expect(cycle.status).toBe('conflict');
 
-      // The live file keeps the owner's OWN local edit — never overwritten.
+      // The live file keeps the owner's OWN local edit, never overwritten.
       expect(canonicalizeMarkdown(owner.read(path) ?? '')).toBe(
         canonicalizeMarkdown('owner LOCAL edit\n'),
       );
@@ -1024,7 +1024,7 @@ describe('two-device onboarding + sync (Magda) against a real opaque server', ()
         canonicalizeMarkdown('invitee wins\n'),
       );
 
-      // A further settle cycle is idempotent — no second conflict artifact.
+      // A further settle cycle is idempotent, no second conflict artifact.
       await owner.sync();
       const after = [...owner.files.keys()].filter((candidate) =>
         candidate.startsWith(`${CONFLICT_FOLDER}/`),
@@ -1041,7 +1041,7 @@ describe('two-device onboarding + sync (Magda) against a real opaque server', ()
       const { owner, invitee } = await connectTwoDevices(server);
 
       // Owner authors a backlog: a root note AND notes nested in folders the
-      // freshly onboarded invitee has never seen (the exact live scenario —
+      // freshly onboarded invitee has never seen (the exact live scenario,
       // event 5 was `Notatki/Start pilotażu.md` into a vault with no `Notatki`).
       await owner.edit('Root.md', 'root\n');
       await owner.edit('Notatki/Start pilotażu.md', 'start\n');
@@ -1050,8 +1050,8 @@ describe('two-device onboarding + sync (Magda) against a real opaque server', ()
 
       // The fresh invitee pulls the whole backlog in one cycle. Before the fix,
       // the first subfoldered create threw (missing parent folder), that throw
-      // bubbled to the pull cycle — misclassified as 'offline' — and the cursor
-      // stayed pinned: 'Offline — will retry' forever. It must now materialize
+      // bubbled to the pull cycle, misclassified as 'offline', and the cursor
+      // stayed pinned: 'Offline, will retry' forever. It must now materialize
       // every file, creating each missing folder first.
       const catchUp = await invitee.sync();
       expect(catchUp.status).toBe('synced');

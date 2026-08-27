@@ -79,7 +79,7 @@ export interface RejoinGrantServiceOptions {
 export interface CreateRejoinGrantInput {
   /** The owner's active membership issuing the grant (from the auth session). */
   readonly ownerMembershipId: string;
-  /** The known contact to re-admit — the membership recorded at approval. */
+  /** The known contact to re-admit, the membership recorded at approval. */
   readonly targetMembershipId: string;
 }
 
@@ -172,12 +172,12 @@ function requireStoredDate(value: string): number {
  * read aloud). The grant is bound server-side to the (membershipId, deviceId)
  * pair recorded at the original approval; redemption verifies the presenting
  * device matches the bound deviceId and the server assigns identity from the
- * stored binding — it never trusts an actor id from the request body.
+ * stored binding, it never trusts an actor id from the request body.
  *
  * Credential: redemption requires the device's per-device rejoin SECRET
  * (`hm_rj_…`), provisioned to the legitimate device at onboarding and stored
  * server-side only as a SHA-256 hash. The (membershipId, deviceId) binding is
- * an ADDITIONAL check, not the credential — both ids leak to every vault member
+ * an ADDITIONAL check, not the credential, both ids leak to every vault member
  * through event/receipt metadata, so binding alone must never redeem (audit
  * finding #1). A device with no provisioned secret is fail-closed and cannot
  * rejoin. The grant is still single-use and expires in 15 minutes.
@@ -212,7 +212,7 @@ export class RejoinGrantService {
    * Owner issues a grant for a known contact. Authorises the caller as an active
    * owner in the target membership's vault, requires the target membership to be
    * active, resolves the approved device bound to that member and records a
-   * single-use grant. Returns nothing secret — the binding is the credential.
+   * single-use grant. Returns nothing secret, the binding is the credential.
    */
   public createGrant(
     input: CreateRejoinGrantInput,
@@ -266,7 +266,7 @@ export class RejoinGrantService {
    * Invitee redeems a live grant by presenting the (membershipId, deviceId) pair
    * it already holds locally. On success the server mints a fresh refresh family
    * (generation zero) from the supplied hash, bound to the SAME (userId,
-   * deviceId), so sync resumes under the SAME membership — attribution and
+   * deviceId), so sync resumes under the SAME membership, attribution and
    * colours are unchanged. No user-visible pairing occurs.
    */
   public redeemGrant(input: RedeemRejoinGrantInput): RedeemRejoinGrantResult {
@@ -409,12 +409,12 @@ export class RejoinGrantService {
   #resolveBoundDevice(userId: string, vaultId: string): string {
     // Scoped to the grant's vault: a member who also belongs to another vault
     // has an approved device there too, and an unscoped selection would bind
-    // the grant to it — handing an owner authority over a device in a vault
+    // the grant to it, handing an owner authority over a device in a vault
     // they do not administer (same class as AUD2-04). `vault_id IS NULL` is the
     // legacy fallback: a device onboarded before the scope column cannot prove
     // its vault, so it stays eligible rather than losing rejoin entirely.
-    // Ordering makes that a LAST resort — a device proven to be in this vault
-    // always wins — and within each group the most recently approved is chosen,
+    // Ordering makes that a LAST resort, a device proven to be in this vault
+    // always wins, and within each group the most recently approved is chosen,
     // so the grant still targets a single, well-defined device.
     const row = this.#database
       .prepare(

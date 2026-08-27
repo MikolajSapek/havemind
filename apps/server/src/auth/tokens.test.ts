@@ -245,7 +245,7 @@ describe('rejoin secret primitives', () => {
     const secret = generateRejoinSecret();
     // Legacy device: no provisioned hash.
     expect(rejoinSecretMatchesHash(secret, null)).toBe(false);
-    // Malformed presented secret never throws — returns false.
+    // Malformed presented secret never throws, returns false.
     expect(rejoinSecretMatchesHash('not-a-secret', hashRejoinSecret(secret))).toBe(
       false,
     );

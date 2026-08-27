@@ -1,4 +1,4 @@
-# 09 — Pilot (Phase 7) and follow-up gates (Phase 8)
+# 09, Pilot (Phase 7) and follow-up gates (Phase 8)
 
 ## F8 decision gate (question to the user, mandatory despite rule 8 in `01-zasady-i-slownik.md`)
 
@@ -8,7 +8,7 @@ Before T032 starts, the orchestrator STOPS the loop and asks the user about:
 2. The choice of two disposable test vaults (names/locations on two machines).
 3. The time window for the seven-day pilot (when the user can respond to `Conflict`/`Offline`).
 
-## T032 — seven-day pilot (acceptance criteria)
+## T032, seven-day pilot (acceptance criteria)
 
 - Server setup, diagnostics (`havemind doctor` or equivalent), off-host backup configured and
   verified BEFORE connecting the first vault.
@@ -23,7 +23,7 @@ Before T032 starts, the orchestrator STOPS the loop and asks the user about:
 - Result recorded in `docs/pilot/checklist.md` (a target file in the Havemind repo, not in
   `plan/`).
 
-## Phase 8 — follow-up gates (don't start without closing T032)
+## Phase 8, follow-up gates (don't start without closing T032)
 
 Each follow-up plan is a SEPARATE document in `plans/00X-*.md`, executed sequentially:
 
@@ -45,5 +45,5 @@ If the backlog needs rebuilding during Phase 8 (e.g. new sub-phases for E2EE), u
 | Restic backup not ready before T032 | SRV-03/04/05 as a hard blocker, checked explicitly at the F8 gate |
 | Power outage during the 7-day pilot | SRV-07 (BIOS autostart) as a prerequisite for F8 |
 | 120 GB disk filled during the pilot | Data budget from `08-sapserver-operations.md`, monitored via `df -h /` daily during the pilot |
-| Agent performs an operation requiring `sudo` without the user's knowledge | Rule 9 from `01-zasady-i-slownik.md` — hard stop, ask the user |
+| Agent performs an operation requiring `sudo` without the user's knowledge | Rule 9 from `01-zasady-i-slownik.md`, hard stop, ask the user |
 | Public repo opened before E2EE is ready | Stage gates from `specs/003-open-source-release.md`, enforced in the table above |

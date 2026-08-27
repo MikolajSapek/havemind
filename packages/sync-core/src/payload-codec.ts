@@ -8,7 +8,7 @@
  * relevant fields and rejects reserved or non-canonical paths outright, so a
  * hostile or corrupt payload can never steer a write into `.obsidian/`,
  * `Havemind Conflicts/` or a path-traversal target (the trusted producer
- * validates the full schema — recipe, hashes — at creation time).
+ * validates the full schema, recipe, hashes, at creation time).
  */
 
 import { canonicalizeVaultPath, isCanonicalBase64 } from '@havemind/protocol';
@@ -40,7 +40,7 @@ export interface DecodedRevisionPayload {
    * Whether the payload carries markdown text (`content`) or raw binary bytes
    * (`binaryContent`). The decoder always populates it; it is OPTIONAL only so
    * the many existing test doubles that build a decoded payload literally
-   * (omitting it) keep type-checking — an absent `kind` means `'markdown'`.
+   * (omitting it) keep type-checking, an absent `kind` means `'markdown'`.
    * A legacy on-wire payload with no `kind` field also decodes as `'markdown'`,
    * so old revisions keep working unchanged (F9).
    */
@@ -49,7 +49,7 @@ export interface DecodedRevisionPayload {
   readonly content: string | null;
   /**
    * Raw file bytes for a binary payload, or `null` for markdown/delete. The
-   * bytes are the exact file content — never canonicalised — so materialising
+   * bytes are the exact file content, never canonicalised, so materialising
    * them reproduces the source file byte-for-byte. Optional for the same
    * test-double reason as `kind`.
    */
@@ -94,7 +94,7 @@ export function decodeRevisionPayload(
       : assertCanonicalPath(json.previousPath, 'previousPath');
 
   // Binary payloads (F9) carry raw bytes base64-encoded and never a delete
-  // tombstone — a binary delete is still a markdown-kind tombstone. Whole-file
+  // tombstone, a binary delete is still a markdown-kind tombstone. Whole-file
   // replace only, so `content` (markdown text) is always null here.
   if (json.kind === 'binary') {
     if (operation === 'delete') {

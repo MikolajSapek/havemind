@@ -19,7 +19,7 @@ describe('groupCode', () => {
 
   it('keeps the spacing of a word phrase, which is what makes it speakable', () => {
     // An earlier cut stripped whitespace before grouping, rendering
-    // "7 tiger lamp" as "7tigerlamp" — unreadable aloud, which is the one job
+    // "7 tiger lamp" as "7tigerlamp", unreadable aloud, which is the one job
     // this screen has.
     expect(groupCode('7 tiger lamp')).toEqual(['7 tiger lamp']);
   });
@@ -66,7 +66,7 @@ describe('guest handshake', () => {
 
 describe('owner handshake', () => {
   it('states the precondition in the button, not just the action', () => {
-    // "Approve" invites approving without checking — which is the one mistake
+    // "Approve" invites approving without checking, which is the one mistake
     // this whole ceremony exists to prevent.
     const view = buildOwnerHandshake({ code: '482917' });
     expect(view.approveLabel).toMatch(/match/i);

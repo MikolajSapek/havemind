@@ -21,7 +21,7 @@ import type { SyncCycleResult } from '../sync/sync-runner';
 export interface SyncRunnerLike {
   trigger(): Promise<SyncCycleResult>;
   /**
-   * Quiesces the runner on teardown so it issues no further push/pull — including
+   * Quiesces the runner on teardown so it issues no further push/pull, including
    * from its own pending backoff timer. Optional so lightweight fakes need not
    * implement it, but the real `SyncRunner` always does; without it a stopped
    * connection's runner could still fire a stale-identity cycle after reconnect.
@@ -109,7 +109,7 @@ export class HavemindSyncController {
     // the focus/online/interval triggers, but the runner owns a separate backoff
     // timer that would otherwise fire a cycle after teardown. On reconnect that
     // late cycle would push through the now-stale transport (prior identity) and
-    // 403 the server — so a stopped connection's runner must be fully inert.
+    // 403 the server, so a stopped connection's runner must be fully inert.
     this.options.runner.stop?.();
   }
 
@@ -136,7 +136,7 @@ export class HavemindSyncController {
   }
 
   /**
-   * Derives the indicator from the LATEST cycle outcome — never a sticky flag.
+   * Derives the indicator from the LATEST cycle outcome, never a sticky flag.
    * Called for every completed cycle: both the ones this controller triggers and
    * the ones the runner drives itself through backoff (wired via the runner's
    * `onCycleComplete`). A single transient failure shows a brief retrying state
@@ -157,7 +157,7 @@ export class HavemindSyncController {
     if (result.status === 'offline') {
       this.consecutiveFailures += 1;
       // Below the threshold the connection is not declared lost, but nothing is
-      // progressing either — so this reports `retrying`, never `syncing`. A
+      // progressing either, so this reports `retrying`, never `syncing`. A
       // spinner labelled "Syncing" during an outage claims work that is not
       // happening (honesty as a feature, `plan/01-zasady-i-slownik.md`).
       const status: ConnectionStatus =

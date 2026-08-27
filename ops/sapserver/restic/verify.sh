@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Havemind — SRV-03 verification method: `restic snapshots` + `restic check`.
+# Havemind, SRV-03 verification method: `restic snapshots` + `restic check`.
 # This is the exact command pair named in the SRV-03 acceptance criterion.
 # Read-only: lists snapshots and verifies repository integrity. Deletes nothing.
 #
-# Repository-level only. It proves the restic repo is internally consistent — it
+# Repository-level only. It proves the restic repo is internally consistent, it
 # does NOT prove a Havemind instance can be rebuilt from it. That is what
 # restore-drill.sh does, and the drill is the 1.0 release gate.
 set -euo pipefail

@@ -196,7 +196,7 @@ describe('runScheduledBackup', () => {
   it('refuses a traversal id even when the caller skipped validation', async () => {
     // Audit #3, finding 4: `join(backupsRoot, backupId)` resolves '../escaped'
     // OUTSIDE the backups root, so an unvalidated id wrote an artifact anywhere
-    // the server could reach. The scheduler validates itself — defence in depth
+    // the server could reach. The scheduler validates itself, defence in depth
     // for any future caller that forgets.
     const seed = await seedInstance();
     const parent = makeDir();

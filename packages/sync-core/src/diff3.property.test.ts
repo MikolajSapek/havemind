@@ -8,16 +8,16 @@
  * the guarantees the hand-written examples in `diff3.test.ts` can only spot
  * check:
  *
- *   (a) NO LINE LOSS      — a one-sided edit round-trips verbatim.
- *   (b) COMBINE-ONLY      — a successful merge only ever combines existing
+ *   (a) NO LINE LOSS, a one-sided edit round-trips verbatim.
+ *   (b) COMBINE-ONLY, a successful merge only ever combines existing
  *                           lines; it never invents a line and never drops a
  *                           line either side added.
- *   (c) CONFLICT SOUNDNESS — two different edits to the SAME ancestor line can
+ *   (c) CONFLICT SOUNDNESS, two different edits to the SAME ancestor line can
  *                           never silently pick a winner; they must conflict.
- *   (d) DETERMINISM / IDENTITIES — same inputs → same output, plus the three
+ *   (d) DETERMINISM / IDENTITIES, same inputs → same output, plus the three
  *                           algebraic identities merge(A,X,X)=X, merge(A,A,R)=R,
  *                           merge(A,L,A)=L.
- *   (e) CANONICAL SAFETY  — arbitrary trailing-newline / empty inputs never
+ *   (e) CANONICAL SAFETY, arbitrary trailing-newline / empty inputs never
  *                           throw, output stays LF-only and is a merge fixpoint.
  *
  * Generators are bounded (<= 40 lines; lines drawn from a small alphabet of
@@ -35,8 +35,8 @@ const RUNS = 500;
 /**
  * A small alphabet of whole lines. Keeping the pool small (and including the
  * blank line, indented lines, heading and list markers required by the brief)
- * makes exact line matches — and therefore interesting LCS alignments and hunk
- * collisions — common rather than astronomically rare.
+ * makes exact line matches, and therefore interesting LCS alignments and hunk
+ * collisions, common rather than astronomically rare.
  */
 const LINE_POOL = [
   '',
@@ -117,7 +117,7 @@ describe('mergeText property battery (fast-check)', () => {
           expect(union.has(line)).toBe(true);
         }
         // Every line ADDED by local (present in local, absent from ancestor)
-        // survives the merge — likewise for remote.
+        // survives the merge, likewise for remote.
         for (const line of localSet) {
           if (!ancestorSet.has(line)) expect(mergedSet.has(line)).toBe(true);
         }

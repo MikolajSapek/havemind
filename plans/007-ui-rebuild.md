@@ -1,6 +1,6 @@
-# Plan 007 — interface rebuild
+# Plan 007, interface rebuild
 
-- Status: **Draft — pending owner approval**
+- Status: **Draft, pending owner approval**
 - Date: 2026-08-20
 - Follows from: the plugin going public in the community catalogue on
   2026-08-19. Every new install now meets this interface before it meets
@@ -23,7 +23,7 @@ through one `render()` method. Three concrete failures follow from that:
 
 The getting-started tutorial opens with "Install and connect Tailscale" and
 "Get your Server URL … or set up your own". But roughly half of all users are
-*joining a vault somebody else hosts* — for them the only required action is
+*joining a vault somebody else hosts*, for them the only required action is
 pasting an invitation. Today both audiences see the identical five-step wall,
 so a joiner concludes they must run Docker and leaves.
 
@@ -32,18 +32,18 @@ feature is reachable.
 
 **2. States are ordered, not separated.**
 
-`render()` is a chain of `if (x) { renderX(); return; }` — four of them, before
+`render()` is a chain of `if (x) { renderX(); return; }`, four of them, before
 the main panel is reached. Precedence is implicit in statement order, so a new
 state can silently hide an existing one. This already shipped once: the
 Create-connection composer took the first branch and returned before the status
-row was drawn, so a connected vault displayed no "Connected — synced" anywhere
+row was drawn, so a connected vault displayed no "Connected, synced" anywhere
 and read as disconnected (fixed in 1.1.3, cause untouched).
 
 **3. A healthy panel looks as busy as a broken one.**
 
 The connected panel renders seven sections unconditionally: status, send queue,
 conflicts, connection, create-invitation, roster, waiting devices. Nothing
-distinguishes "everything is fine" from "three conflicts need you" — both fill
+distinguishes "everything is fine" from "three conflicts need you", both fill
 the pane. The signal that matters is buried in the signal that does not.
 
 ### Scope
@@ -52,7 +52,7 @@ In scope: what the user sees and in what order. Component structure of
 `ui/`. The view-state model.
 
 Out of scope: sync semantics, the wire protocol, `sync-core`, the server, the
-onboarding *protocol* (redeem → approval → bootstrap is unchanged — only its
+onboarding *protocol* (redeem → approval → bootstrap is unchanged, only its
 presentation changes).
 
 ### Non-goals
@@ -69,7 +69,7 @@ presentation changes).
 
 ---
 
-## Stage 0 — one hexagon, one pane (owner decision 2026-08-23)
+## Stage 0, one hexagon, one pane (owner decision 2026-08-23)
 
 **Everything the plugin offers lives behind a single ribbon hexagon, in one
 right-hand pane.**
@@ -83,7 +83,7 @@ Today there are three separate doors into one plugin:
 | Connect / roster / conflicts | command palette only | `HAVEMIND_ONBOARDING_VIEW` |
 
 A new user finds the hexagon, sees an activity list, and has no way to reach
-the panel that actually connects the vault — that one is reachable only if they
+the panel that actually connects the vault, that one is reachable only if they
 already know to search the command palette. Two registered views also mean two
 panes can sit open side by side showing halves of one plugin.
 
@@ -106,7 +106,7 @@ not separate destinations.
   leaf rather than creating a second (functional).
 - AT0-3: from that single pane a user can reach connect, activity, roster and
   conflicts without the command palette (functional).
-- AT0-4 negative: every command that exists today still resolves — removing a
+- AT0-4 negative: every command that exists today still resolves, removing a
   ribbon icon must not remove a keyboard or screen-reader path (regression on
   F8-02d / accessibility).
 
@@ -117,7 +117,7 @@ not fix the pixels.
 
 ---
 
-## Stage 1 — split the two entry paths
+## Stage 1, split the two entry paths
 
 **The single highest-value change. Presentation only.**
 
@@ -151,7 +151,7 @@ Both branches keep a "← back" affordance, so a wrong pick is not a dead end
 (`plan/01`: no dead ends).
 
 The chooser is skipped entirely when a `havemind-join` URI was handled or a
-draft token is already present — that user has self-evidently arrived with an
+draft token is already present, that user has self-evidently arrived with an
 invitation.
 
 **Acceptance**
@@ -164,13 +164,13 @@ invitation.
 - AT1-3: choosing "I'll host the server" → the five numbered steps present;
   the self-hosting link is present and absolute (regression on 1.1.5).
 - AT1-4: from either branch, "back" returns to the chooser with typed input
-  preserved (functional — reuses the existing `captureDrafts` seam).
+  preserved (functional, reuses the existing `captureDrafts` seam).
 - AT1-5 negative: arriving via `obsidian://havemind-join` skips the chooser and
   lands directly on the paste screen (regression on F3-01).
 
 ---
 
-## Stage 2 — hierarchy in the connected panel
+## Stage 2, hierarchy in the connected panel
 
 **Rule: a healthy panel is nearly empty.** Attention is a budget; spending it
 on "nothing is wrong" leaves none for "something is".
@@ -200,13 +200,13 @@ mechanics). It is a momentary task; it has no business replacing the panel.
 - AT2-3: roster renders as a summary line; expanding reveals the member rows
   (functional).
 - AT2-4 negative: no state change is required to *see* that something needs
-  attention — a conflict or a quarantined send is visible on first paint
-  (regression against `plan/01` rule 4 "no silent overwrites" — the user must be
+  attention, a conflict or a quarantined send is visible on first paint
+  (regression against `plan/01` rule 4 "no silent overwrites", the user must be
   able to notice).
 
 ---
 
-## Stage 3 — an explicit view state
+## Stage 3, an explicit view state
 
 Replace the ordered `if … return` chain with one discriminated union and one
 `switch`.
@@ -227,7 +227,7 @@ Derived by one pure function from the existing providers:
 export function resolveViewState(sources: ViewStateSources): ViewState;
 ```
 
-Pure, no DOM, no Obsidian import — so precedence becomes unit-testable in
+Pure, no DOM, no Obsidian import, so precedence becomes unit-testable in
 isolation, which is exactly what was missing when the composer hid the status
 row.
 
@@ -237,18 +237,18 @@ moves to its own module under `ui/screens/`, taking `onboarding-view.ts` from
 
 **The composer is deliberately absent from `ViewState`.** Creating an
 invitation becomes a modal over the connected panel, so it cannot occlude a
-screen — removing the whole class of "the status vanished" defects rather than
+screen, removing the whole class of "the status vanished" defects rather than
 patching another instance.
 
 **Acceptance**
 
-- AT3-1: `resolveViewState` precedence is exhaustively tested — invalid beats
+- AT3-1: `resolveViewState` precedence is exhaustively tested, invalid beats
   awaiting beats connected beats joining/hosting beats choosing (functional,
   table-driven).
 - AT3-2: opening the invitation composer while connected leaves the status row
   in the DOM (regression on the 1.1.3 bug, now structural).
 - AT3-3: every `ViewState` variant has exactly one renderer; a new variant
-  fails to compile until handled (qualitative — exhaustive `switch` with
+  fails to compile until handled (qualitative, exhaustive `switch` with
   `never` fallthrough).
 - AT3-4: the full suite stays green and coverage does not drop below the
   configured 80% threshold.
@@ -262,7 +262,7 @@ Presentation-only work, but three boundaries must not move:
 | # | Risk | Control |
 |---|---|---|
 | T1 | A screen reveals a secret (invitation envelope, token) somewhere new | Envelope stays behind the existing copy affordance; no secret enters a heading, notice or log. Regression: grep the rendered tree in tests for `hm_pt_`/`v1.` outside the intended field |
-| T2 | The chooser hides the honest security disclosure | "No end-to-end encryption" stays on the connect screen, where the decision to connect is actually made — not only in README |
+| T2 | The chooser hides the honest security disclosure | "No end-to-end encryption" stays on the connect screen, where the decision to connect is actually made, not only in README |
 | T3 | Collapsing sections hides something that needs action | Stage 2 collapses only idle/empty state; anything actionable is tier 1 and renders expanded (AT2-4) |
 | T4 | Refactor silently changes onboarding behaviour | `ViewState` is derived from the same providers; `resolveViewState` is pure and table-tested; the e2e onboarding suite (`tests/e2e/onboarding-two-device.test.ts`, 41 KB) must stay green untouched |
 
@@ -274,12 +274,12 @@ Beyond the per-stage ATs above, the whole plan is done when:
 
 1. `npm run build && npm run typecheck && npm run lint && npm test` green for
    the workspace, coverage ≥ 80%.
-2. `npm run test:e2e` green **without modification** — the two-device
+2. `npm run test:e2e` green **without modification**, the two-device
    onboarding and fault-matrix suites are the contract that presentation work
    must not break.
 3. `ui/onboarding-view.ts` is under 250 lines (dispatcher + shared helpers).
 4. No file in `ui/screens/` exceeds 200 lines.
-5. A user handed only an invitation reaches "Connected — synced" without
+5. A user handed only an invitation reaches "Connected, synced" without
    opening any documentation (manual, recorded in the phase report).
 
 ---
@@ -295,10 +295,10 @@ and after, and its own commit is kept separate from behavioural change so a
 revert is clean.
 
 No server change, no protocol change, no migration. A user on an older plugin
-is unaffected — nothing on the wire moves.
+is unaffected, nothing on the wire moves.
 
 ### Gates requiring a user question (`plan/01` rule 9)
 
-- Changing what the connect screen says about encryption (T2) — that is the
+- Changing what the connect screen says about encryption (T2), that is the
   honest-disclosure surface, so any wording change is an owner decision.
 - Publishing a release to the catalogue, as always.

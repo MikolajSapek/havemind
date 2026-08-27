@@ -2,7 +2,7 @@
  * The stylesheet must agree with the design handoff.
  *
  * Every value in `styles.css` was hand-transcribed from a design that uses no
- * classes and no stylesheet — 350 elements styled inline. Transcription drifts,
+ * classes and no stylesheet, 350 elements styled inline. Transcription drifts,
  * and it drifted: the header, the tab strip and the alarm blocks each ended up
  * with numbers the design never specified, discoverable only by holding the two
  * up side by side.
@@ -13,7 +13,7 @@
  * token, which is the whole point: drift becomes a test failure rather than
  * something noticed three rounds later.
  *
- * What this does NOT check is layout — that a rule is applied to the right
+ * What this does NOT check is layout, that a rule is applied to the right
  * element, or that the result looks correct. It checks that the numbers the
  * pane's geometry rests on are the design's numbers. Structure is covered by
  * `priority-column.test.ts`; this is the values layer beneath it.
@@ -65,7 +65,7 @@ function declaredValue(property: string): string | null {
   return (matches[0]?.[1] ?? '').trim();
 }
 
-describe('design tokens — the stylesheet agrees with the handoff', () => {
+describe('design tokens, the stylesheet agrees with the handoff', () => {
   const mapped = Object.entries(tokens).filter(([, t]) => t.css !== undefined);
 
   it('covers the geometry the pane rests on', () => {
@@ -92,7 +92,7 @@ describe('design tokens — the stylesheet agrees with the handoff', () => {
   });
 });
 
-describe('design tokens — accessible row geometry', () => {
+describe('design tokens, accessible row geometry', () => {
   it('keeps the handoff’s 44px roster target', () => {
     const roster = tokens['roster-row-height'];
     expect(roster?.value).toBe('44px');

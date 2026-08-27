@@ -1,7 +1,7 @@
 /**
  * The tab strip: one row of equal-width tabs under the header.
  *
- * Equal width is the point — the tabs are the plugin's table of contents, and a
+ * Equal width is the point, the tabs are the plugin's table of contents, and a
  * strip where one tab is twice its neighbour reads as a toolbar with a favourite
  * rather than a set of peers.
  *
@@ -113,7 +113,7 @@ export function renderPaneTabs(
     button.onClickEvent(() => options.onSelect(tab.id));
 
     // Selecting re-renders the strip, so the element that takes focus is the
-    // one in the NEW tree — not the button that was pressed, which no longer
+    // one in the NEW tree, not the button that was pressed, which no longer
     // exists by the time this runs.
     if (active && options.focusActive === true) button.focus();
   }

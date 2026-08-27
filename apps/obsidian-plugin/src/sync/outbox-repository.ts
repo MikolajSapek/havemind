@@ -6,7 +6,7 @@
  * change and hands it here as a `LocalChangeCommit`. This repository builds the
  * opaque revision envelope (`@havemind/sync-core`) and enqueues it, so the next
  * `SyncRunner` cycle POSTs it to `/vaults/:vaultId/revisions`. Without this
- * bridge the outbox is always empty and the client only ever pulls — the root
+ * bridge the outbox is always empty and the client only ever pulls, the root
  * cause of "local edits never reach the server".
  *
  * It also owns the durable fileId↔path mapping the observer reads back (so a
@@ -34,7 +34,7 @@ import type { OutboxEnvelope } from '../runtime/sync-state';
  * envelope (path, blobByteHash, field names); 40 MB covers that with headroom.
  * The observer already excludes over-cap files before they reach here, so this
  * ceiling is the belt-and-braces stop that keeps an oversized binary from
- * silently wedging the outbox — the same role the default markdown ceiling plays.
+ * silently wedging the outbox, the same role the default markdown ceiling plays.
  */
 export const MAX_BINARY_PAYLOAD_BYTES = 40 * 1024 * 1024;
 
@@ -78,7 +78,7 @@ export interface LocalMaterialization {
   readonly contentHash: string;
   /**
    * The canonical markdown text (the merge ancestor to seed, MRG-01), or null for
-   * a binary file — which never merges and records no base content.
+   * a binary file, which never merges and records no base content.
    */
   readonly content: string | null;
   /** The prior path on a rename, so its stale ownership can be forgotten. */
@@ -98,7 +98,7 @@ export interface OutboxLocalChangeRepositoryOptions {
   readonly generateRevisionId: () => string;
   /**
    * Effective per-payload byte ceiling. A change whose payload would exceed it
-   * is rejected here — before enqueue — with a surfaced
+   * is rejected here, before enqueue, with a surfaced
    * `RevisionPayloadTooLargeError`, so an oversized note can never silently wedge
    * the outbox. Defaults to the sync-core default (the server's per-payload
    * limit).
@@ -140,8 +140,8 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
   }
 
   /**
-   * This device's current head revisionId for `fileId` — the last revision it
-   * authored locally or adopted from a remote apply — or null if none is
+   * This device's current head revisionId for `fileId`, the last revision it
+   * authored locally or adopted from a remote apply, or null if none is
    * known. Read by the apply side's causal apply-vs-conflict decision (rule 3)
    * to tell a fast-forward (the incoming revision descends from this head)
    * from a concurrent divergence that must never be silently overwritten.
@@ -220,7 +220,7 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
         }),
       );
       await this.seedSharedState(operation);
-      // The real, server-facing revision id — never `operation.operationId`
+      // The real, server-facing revision id, never `operation.operationId`
       // (a client-only idempotency key). Callers (the Activity feed) must
       // record this id so a local push and its later remote echo collapse by
       // revisionId instead of appearing as two separate entries.

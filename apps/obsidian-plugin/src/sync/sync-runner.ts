@@ -6,7 +6,7 @@
  * from `plans/001-technical-plan.md` §14:
  *
  *  - a single-flight loop, never two overlapping cycles racing the same cursor;
- *  - never a silent overwrite of a divergent open buffer — such an event is
+ *  - never a silent overwrite of a divergent open buffer, such an event is
  *    deferred or turned into a visible conflict, never applied on top.
  */
 
@@ -20,7 +20,7 @@ export interface RemoteRevision {
    * carried from the producer's header. Lets the apply side decide, by
    * causality, whether an incoming revision is a fast-forward from this device's
    * head (the peer had our version → apply in place) or a concurrent divergence
-   * (never a silent overwrite — rule 3). Optional/best-effort: absent (or empty)
+   * (never a silent overwrite, rule 3). Optional/best-effort: absent (or empty)
    * when the transport cannot surface it, in which case apply fails SAFE
    * (a divergent shared file becomes a conflict, never an overwrite).
    */
@@ -81,7 +81,7 @@ export interface PushItemResult {
    * Present when `outcome === 'rejected'`: `true` means the server rejected the
    * revision because its parent is not (yet) on the server (MISSING_PARENT). This
    * is retryable-by-code (`permanent` stays false) while the parent is still
-   * pending in the outbox, but TERMINAL once the parent is quarantined or gone —
+   * pending in the outbox, but TERMINAL once the parent is quarantined or gone,
    * otherwise a child of a dead parent retries forever. The runner resolves which
    * of the two applies from the in-outbox lineage.
    */
@@ -95,7 +95,7 @@ export interface PullResult {
 
 /**
  * The opaque server transport. The runner never asks the server to compute a
- * diff, provenance or merge — it only ships bytes and reads back ordered
+ * diff, provenance or merge, it only ships bytes and reads back ordered
  * events.
  */
 export interface SyncTransport {
@@ -150,7 +150,7 @@ export type RemoteApplyOutcome = 'applied' | 'conflict' | 'noop';
  * Per-apply hints the runner threads into `applyRemote`. `bootstrap` marks an
  * apply that belongs to the one-time initial catch-up after connect (the first
  * pull materialising a PRE-EXISTING vault onto this device). The vault side uses
- * it only to label the resulting Activity entry — the sync/materialisation of the
+ * it only to label the resulting Activity entry, the sync/materialisation of the
  * file is identical whether or not the flag is set. It is what lets the Activity
  * feed collapse the bootstrap replay to silence while still recording every live
  * peer edit that arrives afterwards.
@@ -201,7 +201,7 @@ export interface SyncRunnerOptions {
   /** Maximum revisions in one push request; defaults to the server's 64. */
   readonly maxPushBatchItems?: number;
   /**
-   * Observes the outcome of every completed cycle — including cycles the runner
+   * Observes the outcome of every completed cycle, including cycles the runner
    * drives itself through its internal backoff scheduler. Wiring the controller
    * here (not only through `trigger()`'s return value) is what lets a background
    * recovery cycle clear a stale "offline" status: a success reached only via
@@ -357,7 +357,7 @@ export class SyncRunner {
    *
    * A stopped runner is inert: it issues no push/pull. This is what guarantees
    * that after a reconnect (or teardown) the previous connection's runner can
-   * never ship a stale-identity revision — its own backoff timer may still fire,
+   * never ship a stale-identity revision, its own backoff timer may still fire,
    * but the trigger it drives is a no-op. Only the freshly-built runner, whose
    * transport already carries the current identity, ever pushes after reconnect.
    */
@@ -437,7 +437,7 @@ export class SyncRunner {
         suppressed: 0,
       };
     }
-    // Report every completed cycle — including backoff-driven retries — so a
+    // Report every completed cycle, including backoff-driven retries, so a
     // recovery reached only through the runner's own scheduler still clears a
     // stale offline status.
     this.options.onCycleComplete?.(result);
@@ -554,13 +554,13 @@ export class SyncRunner {
           ))
         ) {
           // The server has no parent for this child AND none of its parents is
-          // still pending/accepted here — the parent is dead, so the child (and
+          // still pending/accepted here, the parent is dead, so the child (and
           // its own descendants) can never land. Dead-letter it terminally rather
           // than retry forever.
           await quarantineLineage(result.revisionId, MISSING_PARENT_REASON);
         }
-        // A transient rejection — or a MISSING_PARENT whose parent is still
-        // pending/accepted — is left in the outbox to retry after a pull.
+        // A transient rejection, or a MISSING_PARENT whose parent is still
+        // pending/accepted, is left in the outbox to retry after a pull.
       }
     }
 
@@ -648,13 +648,13 @@ export class SyncRunner {
     for (const remoteEvent of ordered) {
       if (remoteEvent.serverSequence <= cursor) {
         // Already materialized, or a duplicate of an earlier sequence in this
-        // page — never regress the cursor onto it.
+        // page, never regress the cursor onto it.
         continue;
       }
 
       // Contiguity gate (rule 3, no silent skip): the next sequence we
-      // materialize must be exactly `cursor + 1`. A hole — the page starts
-      // beyond `cursor + 1`, or a gap opens mid-page — means an earlier
+      // materialize must be exactly `cursor + 1`. A hole, the page starts
+      // beyond `cursor + 1`, or a gap opens mid-page, means an earlier
       // revision is not in this page. Stop here rather than advancing the cursor
       // PAST the missing sequence (which would skip that revision forever). The
       // `/events` endpoint is cursor-based, so the next poll re-requests from the
@@ -753,7 +753,7 @@ function isAuthDenied(error: unknown): boolean {
 }
 
 /**
- * A transport error is permanent (a 4xx the same bytes will never satisfy —
+ * A transport error is permanent (a 4xx the same bytes will never satisfy,
  * e.g. 413 too large, 422 invalid batch, 400 bad request) when it carries
  * `permanent === true`. Such a request must never be retried forever; the
  * offending revision is quarantined instead. Structural check keeps the runner

@@ -68,7 +68,7 @@ describe('renderConflictSection', () => {
 
     const all = flatten(container);
     // The count reads as a sentence ("2 conflicts"), not as a bare numeral
-    // parked at the far edge of the row — where the design found it looked like
+    // parked at the far edge of the row, where the design found it looked like
     // a badge belonging to whatever sat next to it.
     const header = all.find((e) =>
       e.classes.includes('havemind-conflict-header'),
@@ -89,7 +89,7 @@ describe('renderConflictSection', () => {
     const container = createContent();
     renderConflictSection(
       asEl(container),
-      [newCopy({ targetKnown: false, targetPath: null, manualHint: 'Target unknown — open files manually.' })],
+      [newCopy({ targetKnown: false, targetPath: null, manualHint: 'Target unknown, open files manually.' })],
       { onResolve: () => undefined },
     );
     const all = flatten(container);
@@ -109,7 +109,7 @@ describe('buildConflictModalModel', () => {
 
   it('has a null diff and a hint for a binary copy', () => {
     const model = buildConflictModalModel(
-      newCopy({ isBinary: true, manualHint: 'Binary conflict — open files manually.' }),
+      newCopy({ isBinary: true, manualHint: 'Binary conflict, open files manually.' }),
       null,
     );
     expect(model.diff).toBeNull();

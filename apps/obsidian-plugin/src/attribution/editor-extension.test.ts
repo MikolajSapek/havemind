@@ -107,7 +107,7 @@ describe('buildAuthorDecorations', () => {
     expect(marks[0]?.spec['class']).toBe(AUTHOR_MARK_CLASS);
   });
 
-  it('skips an empty span — CodeMirror rejects a zero-length mark', () => {
+  it('skips an empty span, CodeMirror rejects a zero-length mark', () => {
     expect(
       buildAuthorDecorations(overlay([segment({ from: 3, to: 3 })]), 10).size,
     ).toBe(0);

@@ -2,7 +2,7 @@
  * The two user-visible ways a device reaches a running sync loop: resuming what
  * is already persisted on layout-ready, and connecting from a freshly pasted
  * owner pairing token or invitation envelope. Both end in `startSyncLoop`, and
- * both are held to the same rules — a broken stored pairing is reported as a
+ * both are held to the same rules, a broken stored pairing is reported as a
  * distinct actionable state rather than looped as "offline", an auth rejection is
  * a terminal in-flow answer rather than a connection loss, and no secret (pairing
  * token, envelope, verification phrase) is ever logged.
@@ -60,7 +60,7 @@ export async function startHavemindConnection(
   // P1 #5: a BROKEN record (half-written, or valid-but-missing its refresh
   // secret) used to read as "no record" and fall through to the onboarding
   // resume, which reported disconnected and then looped on offline retries
-  // forever — the second-computer incident whose only fix was deleting
+  // forever, the second-computer incident whose only fix was deleting
   // data.json by hand. Report it as a distinct, actionable state instead.
   const gate = await evaluateOwnerConnection(plugin);
   if (gate.kind === 'reset-required') {
@@ -110,11 +110,11 @@ export interface ConnectFromInputOptions {
    * Called once the invitee is redeemed and waiting for owner approval, carrying
    * the verification phrase this device must read aloud. Lets the caller hold the
    * waiting state durably so a pane reopen resumes it (never re-redeeming a
-   * single-use invitation). The phrase is a second-channel secret — never logged.
+   * single-use invitation). The phrase is a second-channel secret, never logged.
    */
   readonly onPendingApproval?: (verificationPhrase: string) => void;
   /**
-   * Called when the server reports the invitation is no longer valid — the owner
+   * Called when the server reports the invitation is no longer valid, the owner
    * rejected this device or the 3-attempt cap was reached. Lets the caller move
    * the guest to a clear "ask for a new invite" state instead of leaving it stuck
    * on the waiting screen (an auth rejection is never a connection loss).
@@ -190,7 +190,7 @@ async function connectAsOwner(
       refreshToken,
     });
   }
-  // The raw refresh token never crosses the wire to /owner/pair — only its hash
+  // The raw refresh token never crosses the wire to /owner/pair, only its hash
   // does. The server binds the family to the hash; the client keeps the secret.
   const pairing = await pairOwnerDevice({
     requestUrl: createRequestUrlFn(),
@@ -245,9 +245,9 @@ async function connectAsInvitee(
   if (state.phase === 'rejected') {
     // An auth rejection is an expected in-flow response, not a connection loss:
     // never flip to offline. Hand the caller a distinct terminal signal so it
-    // shows "invitation no longer valid — ask for a new one" instead of a wait.
+    // shows "invitation no longer valid, ask for a new one" instead of a wait.
     options.report(
-      'This invitation is no longer valid — ask the owner for a new one.',
+      'This invitation is no longer valid, ask the owner for a new one.',
     );
     options.onInvitationRejected?.();
     return null;

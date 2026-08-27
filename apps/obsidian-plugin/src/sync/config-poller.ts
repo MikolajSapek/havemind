@@ -1,7 +1,7 @@
 /**
  * Change detection for the `.obsidian/` config mirror. Obsidian emits NO vault
  * events for hidden files, so a watcher can never see a theme change or a foreign
- * plugin update — the mirror is driven by POLLING instead.
+ * plugin update, the mirror is driven by POLLING instead.
  *
  * Each tick re-walks the config tree (via {@link listSyncableConfigPaths}), reads
  * every syncable file, and hands each path to the SAME {@link VaultChangeObserver}
@@ -11,7 +11,7 @@
  * outbox pipeline. A config file that is in the mapping but no longer on disk is a
  * delete. Because the diff is BY CONTENT HASH against the mapping, a file just
  * written by a remote apply (which also adopts that hash into the mapping) hashes
- * equal and is never re-enqueued — the cycle guard.
+ * equal and is never re-enqueued, the cycle guard.
  */
 
 import { isSyncableConfigPath } from '@havemind/protocol';
@@ -57,13 +57,13 @@ export interface ConfigPollerDeps {
   >;
   /** Current syncable config paths on disk (the DataAdapter walk). */
   readonly listConfigPaths: () => Promise<readonly string[]>;
-  /** The durable producer mappings — the last-known base to diff deletes against. */
+  /** The durable producer mappings, the last-known base to diff deletes against. */
   readonly listMappings: () => Promise<readonly LocalFileMapping[]>;
 }
 
 /**
  * Runs one poll tick and returns the genuine (non-no-op) change operations it
- * enqueued — created/updated config files first, then deletes. A steady-state
+ * enqueued, created/updated config files first, then deletes. A steady-state
  * tick with no config changes returns an empty array and enqueues nothing.
  *
  * The observer itself decides create-vs-update-vs-noop from the mapping, so this
@@ -84,7 +84,7 @@ export async function pollConfigOnce(
   }
 
   for (const mapping of await deps.listMappings()) {
-    // Only config mappings are the poller's concern — `.md` deletes are handled
+    // Only config mappings are the poller's concern, `.md` deletes are handled
     // by the vault-event watchers, never here.
     if (!isSyncableConfigPath(mapping.path)) continue;
     if (onDisk.has(mapping.collisionKey)) continue;

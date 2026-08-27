@@ -1,5 +1,5 @@
 /**
- * The Havemind onboarding/connection view — the plugin's one interactive panel.
+ * The Havemind onboarding/connection view, the plugin's one interactive panel.
  * It hosts every connection surface: the owner's unified "Create connection"
  * composer, the guest paste form, the guest waiting and invitation-invalid
  * screens, and the connected panel with its status indicator, send-queue,
@@ -113,7 +113,7 @@ export interface CreateConnectionViewModel {
 /**
  * Durable guest-side state while waiting for the owner to approve this device.
  * Held in plugin state (not the ephemeral status line) so closing and reopening
- * the pane resumes the waiting screen instead of drawing a blank paste form —
+ * the pane resumes the waiting screen instead of drawing a blank paste form,
  * which would tempt the guest into re-pasting a single-use invitation.
  */
 export interface GuestWaitingViewModel {
@@ -121,7 +121,7 @@ export interface GuestWaitingViewModel {
   readonly verificationPhrase: string;
   /**
    * Who invited them, when known. Naming the other person turns an instruction
-   * into a conversation — "read these to Mira" beats "read these to the vault
+   * into a conversation, "read these to Mira" beats "read these to the vault
    * owner" (design 1e). An unnamed owner is still a valid state.
    */
   readonly ownerName?: string;
@@ -149,8 +149,8 @@ export interface OnboardingViewOptions {
   readonly onSyncNow?: () => void;
   /**
    * True when the user reached the pane through an `obsidian://havemind-join`
-   * link. That click already answers the entry chooser — they hold an
-   * invitation — so the question is skipped (design 1d).
+   * link. That click already answers the entry chooser, they hold an
+   * invitation, so the question is skipped (design 1d).
    */
   readonly arrivedWithInvitationProvider?: () => boolean;
   /** Restores a revision from an activity row. */
@@ -191,7 +191,7 @@ export interface OnboardingViewOptions {
   readonly sendQueueProvider?: () => SendQueueStatusView | null;
   /**
    * GAP-1 recovery signal. Returns true when the durable sync state could not
-   * read its persisted outbox and resumed from a clean empty state — the panel
+   * read its persisted outbox and resumed from a clean empty state, the panel
    * then draws a "local queue needs recovery" warning so the loss is never
    * silent. Defaults to false (nothing to recover) when omitted.
    */
@@ -210,7 +210,7 @@ export interface OnboardingViewOptions {
   readonly rejoinRosterProvider?: () => RejoinRosterView;
   /** Membership ids the owner has asked to rejoin (awaiting reconnect). */
   readonly rejoinWaitingProvider?: () => ReadonlySet<string>;
-  /** Owner clicked Rejoin on a disconnected contact — issue the rejoin grant. */
+  /** Owner clicked Rejoin on a disconnected contact, issue the rejoin grant. */
   readonly onRejoin?: (membershipId: string) => void;
   /** Owner marks a connected contact disconnected, arming its Rejoin button. */
   readonly onMarkDisconnected?: (membershipId: string) => void;
@@ -237,7 +237,7 @@ export interface OnboardingViewOptions {
   /**
    * Clear the broken persisted connection so this device can be paired again
    * (P1 #5). Rendered as the "Reset connection" button, and ONLY in the
-   * `reset-required` state — a state in which sync is provably dead, so the
+   * `reset-required` state, a state in which sync is provably dead, so the
    * button can never be mistaken for an action on a healthy connection.
    */
   readonly onReset?: () => void;
@@ -309,7 +309,7 @@ export class HavemindOnboardingView extends ItemView {
   }
 
   override getDisplayText(): string {
-    // The pane holds everything now — connecting, activity, people, conflicts —
+    // The pane holds everything now, connecting, activity, people, conflicts,
     // so naming it after one of those would misdescribe the other three.
     return 'Havemind';
   }
@@ -330,7 +330,7 @@ export class HavemindOnboardingView extends ItemView {
     this.options.onClosed?.();
   }
 
-  /** Re-renders from the current panel state — called on every status change. */
+  /** Re-renders from the current panel state, called on every status change. */
   refresh(): void {
     this.render();
   }
@@ -347,7 +347,7 @@ export class HavemindOnboardingView extends ItemView {
     this.liveInputs = {};
 
     // Every read below happens BEFORE any `renderSection` boundary exists, and
-    // `content.empty()` has already run — so an unguarded throw here blanks the
+    // `content.empty()` has already run, so an unguarded throw here blanks the
     // pane completely, leaving no header and no way back. Each one degrades to
     // the value that keeps the most of the pane usable, and says so in the log.
     //
@@ -420,7 +420,7 @@ export class HavemindOnboardingView extends ItemView {
     // blanking the whole panel (content.empty() has already run above).
 
     // Not yet connected: no tabs, because there is only one thing to do. The
-    // alarms still render — a conflict left over from a previous session does
+    // alarms still render, a conflict left over from a previous session does
     // not stop mattering because the vault is currently disconnected.
     //
     // An open composer is the exception: an owner minting an invitation has
@@ -438,8 +438,8 @@ export class HavemindOnboardingView extends ItemView {
 
     // Anything that needs the user renders ABOVE the strip, on every tab. A tab
     // may hide content; it must never hide an alarm. This is the specific
-    // failure the designer warned about — a pane reading "Synced" while two
-    // files sit in conflict one click away — and lifting it out of the tabs is
+    // failure the designer warned about, a pane reading "Synced" while two
+    // files sit in conflict one click away, and lifting it out of the tabs is
     // what makes a tabbed pane safe rather than merely tidy.
     renderSection(content, 'send queue', () => this.renderSendQueue(content));
     renderSection(content, 'conflicts', () => this.renderConflicts(content));
@@ -481,12 +481,12 @@ export class HavemindOnboardingView extends ItemView {
    *
    * Every read is guarded: the strip is chrome, and a provider that throws must
    * cost the user its count, not their whole pane. `renderSection` protects the
-   * sections it wraps, but this runs before them — an unguarded throw here would
+   * sections it wraps, but this runs before them, an unguarded throw here would
    * blank everything, which is the failure MAJOR 5 exists to prevent.
    */
   private paneTabs(composerOpen: boolean): PaneTabsView {
     // `composerOpen` is passed in, not re-read: `render()` already asked the
-    // provider once, and a second call could answer differently — leaving the
+    // provider once, and a second call could answer differently, leaving the
     // strip and the body describing different states of the same pane.
     return buildPaneTabs({
       // Inviting happens inside People now (round 2, Q3), so an open composer
@@ -609,7 +609,7 @@ export class HavemindOnboardingView extends ItemView {
     }
 
     // P1 #5: the stored connection is damaged, so retrying and rejoining are
-    // both dead ends — the one way forward is clearing it and pairing again.
+    // both dead ends, the one way forward is clearing it and pairing again.
     // Deliberately NOT rendered for any other status: this is the only state in
     // which sync is provably dead, so the button can never be an accidental
     // click on a healthy connection.
@@ -743,7 +743,7 @@ export class HavemindOnboardingView extends ItemView {
   /**
    * The disconnected pane: a chooser, then only the branch the user picked
    * (design 1d). The five-step tutorial used to render unconditionally above
-   * the form — correct for the half of users who will host a server, and fatal
+   * the form, correct for the half of users who will host a server, and fatal
    * for the half who only need to paste an invitation someone sent them.
    *
    * A user who arrived through `obsidian://havemind-join`, or who already has a
@@ -838,7 +838,7 @@ export class HavemindOnboardingView extends ItemView {
     }
 
     // Getting started lost its icon with the action row. It is read once and
-    // then never again, which is exactly what the overflow menu is for — but it
+    // then never again, which is exactly what the overflow menu is for, but it
     // must stay reachable, so it moves here rather than disappearing.
     items.push({
       label: this.helpOpen ? 'Hide getting started' : 'Show getting started',
@@ -943,7 +943,7 @@ export class HavemindOnboardingView extends ItemView {
   /**
    * Terminal guest screen after the owner rejected this device or the 3-attempt
    * cap was reached. The invitation is spent, so we present a clear message plus
-   * the paste form to try a fresh invite — never offline, never a blank form.
+   * the paste form to try a fresh invite, never offline, never a blank form.
    */
   private renderGuestInvalid(content: HTMLElement): void {
     // Never a blank screen (design 1e): name the cause, price the fix in the
@@ -1028,12 +1028,12 @@ export class HavemindOnboardingView extends ItemView {
 
     // No roster here. The composer carried its own back when it was a separate
     // screen; it now renders inside the People tab, which draws the roster
-    // above it — so keeping this drew "Connected / You" twice in one pane.
+    // above it, so keeping this drew "Connected / You" twice in one pane.
 
     renderSection(content, 'waiting devices', () => {
       // Four lines explaining that nothing has happened is the pane talking
       // about itself (round 2, Q4). One quiet line says the same and leaves the
-      // space for the device that is about to arrive — which is when this
+      // space for the device that is about to arrive, which is when this
       // section has something to say.
       if (model.pending.length === 0) {
         // Only meaningful once an invitation exists: before that there is
@@ -1114,7 +1114,7 @@ export class HavemindOnboardingView extends ItemView {
 
     content
       .createDiv({
-        text: 'Invite created — copy it and send it to the other device. Single-use, expires in 15 minutes.',
+        text: 'Invite created, copy it and send it to the other device. Single-use, expires in 15 minutes.',
       })
       .addClass('havemind-hint');
     const code = content.createEl('code', { text: envelope });
@@ -1122,7 +1122,7 @@ export class HavemindOnboardingView extends ItemView {
     // A hand-selectable copy for when the clipboard is unavailable or denied.
     // Genuinely readonly, not merely described as such: Copy sends the ORIGINAL
     // envelope, so an edited field would hand the owner something other than
-    // what they can see — a silent mismatch in the one string that must be
+    // what they can see, a silent mismatch in the one string that must be
     // exact. Readonly still allows selecting and copying by hand.
     const fallback = content.createEl('textarea', {
       value: envelope,
@@ -1165,7 +1165,7 @@ export class HavemindOnboardingView extends ItemView {
   /**
    * Renders the composer's transient notice line. 'success' (e.g. a device
    * just connected) uses the icon+label+colour status-row convention shared
-   * with the Connect panel indicator — never colour alone; other notices
+   * with the Connect panel indicator, never colour alone; other notices
    * (progress/info) stay a plain text line.
    */
   private renderNotice(

@@ -26,7 +26,7 @@ Copy this into a GitHub issue. Remove all private content before sending.
 - [ ] Onboarding blocked
 - [ ] Sync delayed
 - [ ] Conflict created
-- [ ] Possible data loss — I stopped editing and preserved both vaults
+- [ ] Possible data loss, I stopped editing and preserved both vaults
 
 ## Safe evidence
 Describe filenames generically (for example `Projects/example.md`). Do not add

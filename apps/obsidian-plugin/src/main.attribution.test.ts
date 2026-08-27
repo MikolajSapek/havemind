@@ -1,6 +1,6 @@
 /**
  * FINDING 1: the author overlay was fully implemented and fully tested, but
- * imported by nothing — `specs/001-mvp.md` promises a Live Preview editor
+ * imported by nothing, `specs/001-mvp.md` promises a Live Preview editor
  * extension, Reading-view block markers and a "Show authors" action, and none of
  * the three existed. These tests pin the wiring end to end: the command and the
  * ribbon toggle one flag, both surfaces are registered exactly once, and a

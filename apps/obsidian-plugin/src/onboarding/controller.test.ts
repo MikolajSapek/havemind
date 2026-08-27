@@ -26,7 +26,7 @@ const REDEMPTION_ID = '00000000-0000-4000-8000-000000000005';
 // The invitee's active membership id (memberships.id), minted at owner approval
 // and distinct from MEMBER_ID (the review's memberId, which is the invitee's
 // user id). This is the id POST /revisions authorises `expectedMemberId` against,
-// so it — not MEMBER_ID — must become the connection's push member id.
+// so it, not MEMBER_ID, must become the connection's push member id.
 const MEMBERSHIP_ID = '00000000-0000-4000-8000-000000000006';
 const VERIFICATION_PHRASE = '123456';
 const SERVER_ORIGIN = 'https://sync.example.test';
@@ -433,7 +433,7 @@ describe('onboarding controller', () => {
     expect(connected).toMatchObject({
       downloadedItems: 2,
       // The connected state carries the active membership id as its push member
-      // id — the value startSyncLoop threads into pushIdentity so the invitee's
+      // id, the value startSyncLoop threads into pushIdentity so the invitee's
       // POST /revisions stamps expectedMemberId with an id the server accepts.
       memberId: MEMBERSHIP_ID,
       phase: 'connected',
@@ -449,8 +449,8 @@ describe('onboarding controller', () => {
       refreshToken: REFRESH_TOKEN,
       url: `${API_BASE_URL}/bootstrap`,
       // The stored connection knows its vault (set at invitation review, well
-      // before this phase), so every bootstrap page request — including
-      // continuation pages — carries it for the server's ?vault= selection
+      // before this phase), so every bootstrap page request, including
+      // continuation pages, carries it for the server's ?vault= selection
       // (multi-vault 9b).
       vaultId: VAULT_ID,
     });

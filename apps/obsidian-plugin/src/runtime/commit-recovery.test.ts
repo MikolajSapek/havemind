@@ -25,10 +25,10 @@ describe('CommitPathRecovery (SND-02)', () => {
     await recovery.onCommitFailure('Notes/A.md');
 
     expect(notices).toEqual([
-      'A change to Notes/A.md could not be queued — will retry.',
+      'A change to Notes/A.md could not be queued, will retry.',
     ]);
     expect(rearmed).toEqual(['Notes/A.md']);
-    // Nothing durable yet — the re-arm gets one more chance.
+    // Nothing durable yet, the re-arm gets one more chance.
     expect(failedToQueue).toEqual([]);
   });
 
@@ -41,8 +41,8 @@ describe('CommitPathRecovery (SND-02)', () => {
     expect(rearmed).toEqual(['Notes/A.md']); // re-armed once only
     expect(failedToQueue).toEqual(['Notes/A.md']);
     expect(notices).toEqual([
-      'A change to Notes/A.md could not be queued — will retry.',
-      'A change to Notes/A.md could not be queued — see the Havemind panel.',
+      'A change to Notes/A.md could not be queued, will retry.',
+      'A change to Notes/A.md could not be queued, see the Havemind panel.',
     ]);
   });
 
@@ -71,7 +71,7 @@ describe('CommitPathRecovery (SND-02)', () => {
   it('clears any durable failed-to-queue row for a path on commit success (MAJOR 1)', async () => {
     // A transient failure records a durable row; a later successful commit for
     // the same path (the user edits again and it goes through) must discard that
-    // stale row — otherwise it survives forever as a phantom failure.
+    // stale row, otherwise it survives forever as a phantom failure.
     const { recovery, cleared } = harness();
 
     await recovery.onCommitFailure('Notes/A.md'); // re-arm

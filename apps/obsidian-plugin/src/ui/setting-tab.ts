@@ -1,6 +1,6 @@
 /**
  * The Havemind settings tab. It answers the four questions a settings pane is
- * opened for — which server, what state, when last synced, who is in the vault —
+ * opened for, which server, what state, when last synced, who is in the vault,
  * and offers every connection action in place, routing each button into the same
  * `connectionActions()` definition the command palette uses so the two surfaces
  * cannot drift. There are no editable options, so nothing here invents one.
@@ -38,7 +38,7 @@ export class HavemindSettingTab extends PluginSettingTab {
   override display(): void {
     this.containerEl.empty();
 
-    // FINDING 7: the tab used to be a dead end — one status line and a button
+    // FINDING 7: the tab used to be a dead end, one status line and a button
     // that sent the user somewhere else. It now answers the four questions a
     // settings pane is opened for (which server, what state, when last synced,
     // who is in the vault) and offers every connection action in place. There
@@ -68,7 +68,7 @@ export class HavemindSettingTab extends PluginSettingTab {
 
   /**
    * The action rows. Every button routes into the SAME plugin method its command
-   * palette entry runs — `connectionActions()` is the single definition of what
+   * palette entry runs, `connectionActions()` is the single definition of what
    * each action does, so the two surfaces can never drift apart.
    */
   private renderActions(

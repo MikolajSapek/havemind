@@ -1,9 +1,9 @@
 /**
  * Parsing the untrusted persisted PRODUCER blob (the path↔fileId↔content mapping
  * set) under the GAP-3 fail-closed policy. Pure and never-throwing: it runs
- * during connect-time producer setup, so it must always return a verdict —
+ * during connect-time producer setup, so it must always return a verdict,
  * absent, ok (with any malformed entry quarantined rather than dropped), or
- * structurally corrupt — because a silently lost mapping would let a later local
+ * structurally corrupt, because a silently lost mapping would let a later local
  * edit mint a fresh duplicate fileId instead of updating in place.
  */
 
@@ -16,14 +16,14 @@ import { isRecord } from './shared';
  * Outcome of parsing the untrusted persisted PRODUCER blob (GAP-3, the producer
  * analogue of `sync-state.ts`'s `ParseResult`).
  *
- *  - `absent`: null/undefined blob — a normal first run (clean, writable, no
+ *  - `absent`: null/undefined blob, a normal first run (clean, writable, no
  *    signal).
  *  - `ok`: parsed successfully. A single unparseable mapping entry is QUARANTINED
  *    (kept in `quarantinedMappings`) rather than silently dropped, and its valid
  *    siblings are preserved. `quarantinedMappings.length > 0` is the recoverable
  *    signal the caller preserves to a sidecar.
  *  - `corrupt`: present but the container itself is structurally broken (not a
- *    record, or `mappings`/`heads` the wrong shape) — fail closed. The caller
+ *    record, or `mappings`/`heads` the wrong shape), fail closed. The caller
  *    preserves the raw blob to a sidecar so a previously-populated mapping set is
  *    never silently replaced by an empty one.
  */
@@ -84,7 +84,7 @@ function buildProducerMapping(entry: Record<string, unknown>): LocalFileMapping 
  * {@link ProducerParseResult} for the absent/ok/corrupt distinction.
  */
 export function parseProducerStateResult(raw: unknown): ProducerParseResult {
-  // ABSENT: a genuinely missing blob is a normal first run — clean, writable,
+  // ABSENT: a genuinely missing blob is a normal first run, clean, writable,
   // and carries no signal. Distinguished from present-but-corrupt below.
   if (raw === null || raw === undefined) {
     return {

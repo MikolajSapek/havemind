@@ -23,7 +23,7 @@ export interface RuntimeHooks {
   readonly onLocalActivity?: (entry: ActivityLogEntry) => void;
   /**
    * Called for each remote revision the sync runner genuinely applied to the
-   * vault (`VaultApplyAdapter.applyRemote` returning 'applied' — never 'noop'
+   * vault (`VaultApplyAdapter.applyRemote` returning 'applied', never 'noop'
    * or 'conflict'), so the Activity view reflects the other device's edits
    * too. The entry is attributed to `{ kind: 'remote' }` (resolved to the
    * sole other roster member in the two-person pilot by `activity-log.ts`);
@@ -38,9 +38,9 @@ export interface RuntimeHooks {
    */
   readonly onConflictWritten?: () => void;
   /**
-   * Called when the send-queue (SND-01/02) changes outside a status cycle — in
+   * Called when the send-queue (SND-01/02) changes outside a status cycle, in
    * particular when a successful commit clears a stale `failed-to-queue` row
-   * (MAJOR 1) — so the panel drops the phantom failure immediately rather than
+   * (MAJOR 1), so the panel drops the phantom failure immediately rather than
    * waiting for the next status change to refresh it.
    */
   readonly onSendQueueChanged?: () => void;

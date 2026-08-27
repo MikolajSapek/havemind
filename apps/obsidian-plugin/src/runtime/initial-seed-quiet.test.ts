@@ -89,7 +89,7 @@ function makeMemoryPersist() {
  * Characterisation / regression guard for the owner's one-time initial seed.
  *
  * The reported UX concern was that connecting a vault that already has files
- * "replays the whole day's work" in the Activity panel — one row per pre-existing
+ * "replays the whole day's work" in the Activity panel, one row per pre-existing
  * file. This test pins the ACTUAL behaviour at HEAD: the seed pushes every file
  * (sync intact) but records ZERO Activity entries, both on the local
  * reconciliation path and when the owner's own revisions echo back through the

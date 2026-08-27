@@ -2,7 +2,7 @@
  * Status-bar model per `plan/05-plugin-polaczenie-i-sync.md`. Pure formatting so
  * the desktop shell can render a stable label plus a hover tooltip carrying the
  * last-sync time. The tooltip always states that sync runs over a private
- * Tailscale network only, with no end-to-end encryption — honesty as a feature
+ * Tailscale network only, with no end-to-end encryption, honesty as a feature
  * (`plan/01-zasady-i-slownik.md`).
  */
 
@@ -23,14 +23,14 @@ export type ConnectionStatus =
   | 'conflict'
   /**
    * A remote change is held back because the target note is open with unsaved
-   * divergent edits. Nothing was written and no conflict copy exists — the apply
+   * divergent edits. Nothing was written and no conflict copy exists, the apply
    * simply retries once the buffer settles, so this must never be reported as a
    * conflict.
    */
   | 'deferred'
   | 'reconnect-required'
   /**
-   * The persisted connection state is broken — a half-written record, or a
+   * The persisted connection state is broken, a half-written record, or a
    * structurally valid one whose refresh secret is gone (P1 #5). Distinct from
    * `offline` (the server is unreachable but the pairing is sound) and from
    * `reconnect-required` (the pairing is sound but the session was refused):
@@ -39,7 +39,7 @@ export type ConnectionStatus =
    */
   | 'reset-required';
 
-// Sentence case throughout — one convention, so the status bar never mixes
+// Sentence case throughout, one convention, so the status bar never mixes
 // lowercase and capitalised labels between states.
 const LABELS: Readonly<Record<ConnectionStatus, string>> = {
   disconnected: 'Disconnected',
@@ -55,18 +55,18 @@ const LABELS: Readonly<Record<ConnectionStatus, string>> = {
 
 /**
  * What the user sees when the persisted connection is unusable. It names the
- * local data as the cause — never the server, which is not at fault — and states
+ * local data as the cause, never the server, which is not at fault, and states
  * the one action that resolves it.
  */
 export const RESET_REQUIRED_DETAIL =
   'The stored connection data is incomplete or unreadable. Reset the connection and pair this device again.';
 
-const NO_E2EE_NOTE = 'Private Tailscale network only — no end-to-end encryption.';
+const NO_E2EE_NOTE = 'Private Tailscale network only, no end-to-end encryption.';
 const PANE_NETWORK_NOTE = 'Private Tailscale network · Encrypted in transit';
 
 /**
  * What the user sees while a remote change is held back. It says what is
- * happening and that it resolves itself — no conflict copy was written, so it
+ * happening and that it resolves itself, no conflict copy was written, so it
  * must never send the user to the Conflicts folder.
  */
 export const DEFERRED_DETAIL =
@@ -110,7 +110,7 @@ export function formatStatusBar(input: StatusBarInput): StatusBarView {
     input.lastSyncedAt === undefined
       ? 'Last sync: not yet.'
       : `Last sync: ${format(input.lastSyncedAt)}.`;
-  return { text, tooltip: `${text} — ${lastSync} ${NO_E2EE_NOTE}` };
+  return { text, tooltip: `${text}, ${lastSync} ${NO_E2EE_NOTE}` };
 }
 
 /**
@@ -129,7 +129,7 @@ function twoDigits(value: number): string {
  * Renders a sync time the way a person reads a clock: `HH:MM` when it happened
  * today, `D MMM, HH:MM` otherwise. Local time, 24-hour, no dependencies. A raw
  * ISO string is precise but unreadable at a glance, and its date half is noise
- * in the common case — a sync minutes ago.
+ * in the common case, a sync minutes ago.
  *
  * `now` is a parameter so the same-day test is deterministic; callers use the
  * `formatTimestamp` injection point on the inputs instead.
@@ -175,7 +175,7 @@ export interface ConnectionPanelInput {
 
 export interface ConnectionPanelView {
   readonly status: ConnectionStatus;
-  /** Lucide icon name — rendered via `setIcon`, never an emoji. */
+  /** Lucide icon name, rendered via `setIcon`, never an emoji. */
   readonly icon: string;
   readonly label: string;
   /** Obsidian CSS colour variable (e.g. `--text-success`). */
@@ -241,13 +241,13 @@ const PANEL_STYLES: Readonly<Record<ConnectionStatus, PanelStyle>> = {
   },
   conflict: {
     icon: 'alert-triangle',
-    label: 'Conflict — see Havemind Conflicts',
+    label: 'Conflict, see Havemind Conflicts',
     colorToken: '--text-warning',
     spin: false,
     showForm: false,
   },
   // Nothing is wrong and nothing needs doing, so this is muted rather than a
-  // warning — and it never mentions the Conflicts folder, which stays empty.
+  // warning, and it never mentions the Conflicts folder, which stays empty.
   deferred: {
     icon: 'clock',
     label: 'Waiting to apply',

@@ -484,7 +484,7 @@ describe('deny-by-default auth-routes', () => {
 
   it('still authenticates correctly on a route outside the rate limiter scope', async () => {
     // A custom `clientKey` (as used by most fixtures here) never populates
-    // the stash, so the preHandler must fall back to its own lookup — this
+    // the stash, so the preHandler must fall back to its own lookup, this
     // is the same fallback a route registered outside the limited scope
     // would hit. Exactly one lookup still happens, just from the preHandler.
     const fixture = makeFixture();
@@ -505,14 +505,14 @@ describe('deny-by-default auth-routes', () => {
 /**
  * GAP-4: the long-poll wake endpoint `GET /vaults/:vaultId/wait` reconnects
  * roughly every 25s and is not a mutation, so it must be exempt from the
- * per-device rate-limit bucket the same way blob GET already is (AUD-08) —
+ * per-device rate-limit bucket the same way blob GET already is (AUD-08),
  * otherwise a reconnect storm (`/auth/refresh` + `/wait` + pull on every
  * iteration) can momentarily exhaust the 120-req/60s bucket and 429 the
  * held long-poll. There is no real Fastify route registered at this pattern
  * in this build (buildApp's test fixture never wires `deps.sync`, and the
- * route itself lives outside this module's scope), so — unlike the blob-GET
+ * route itself lives outside this module's scope), so, unlike the blob-GET
  * exemption test in `sync-routes.test.ts`, which drives a real registered
- * route through `app.inject` — these tests drive `defaultClientKey` and
+ * route through `app.inject`, these tests drive `defaultClientKey` and
  * `createRateLimiter` directly. `request.routeOptions?.url` reflects the
  * Fastify route *pattern* regardless of whether the handler exists, so this
  * exercises the exact production code path the real route would hit.

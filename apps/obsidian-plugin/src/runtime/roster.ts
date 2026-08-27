@@ -4,7 +4,7 @@
  * Presence here is CONNECTION STATE, not activity. Once the owner has invited
  * someone, set their display name and the approval succeeded, that member is a
  * PERSISTENT part of the roster with a green "connected" dot, and stays green
- * until the connection is explicitly torn down (a future `revoke` action — not
+ * until the connection is explicitly torn down (a future `revoke` action, not
  * built here). The dot is NEVER derived from recent sync activity and there is
  * NO inactivity timeout: an established connection reads as connected until an
  * explicit teardown (see `plan/01` and the owner's design decision).
@@ -12,7 +12,7 @@
  * Endpoint-free: the roster is sourced entirely from what the owner's client
  * already knows at approval time (each approved member's display name +
  * membershipId + role), persisted locally in `data.json`. It scales to N
- * members — a growing list, never hard-coded for two.
+ * members, a growing list, never hard-coded for two.
  *
  * This module is pure (no Obsidian/DOM/network) except for the persistence
  * boundary, which is injected. Colour comes from the shared `author-colors`
@@ -27,7 +27,7 @@ export type MemberRole = 'owner' | 'editor';
 
 /** A persistent, connected member of the vault (roster row source of truth). */
 export interface RosterMember {
-  /** Server membership id — the stable key for colour and identity. */
+  /** Server membership id, the stable key for colour and identity. */
   readonly membershipId: string;
   /** Display name the owner set for this member (e.g. "Magda"), or the owner. */
   readonly displayName: string;
@@ -41,9 +41,9 @@ export interface RosterRowView {
   readonly membershipId: string;
   readonly displayName: string;
   readonly role: MemberRole;
-  /** Persistent connection state — always true here (green until teardown). */
+  /** Persistent connection state, always true here (green until teardown). */
   readonly connected: true;
-  /** Text/aria label paired with the colour dot — never colour alone. */
+  /** Text/aria label paired with the colour dot, never colour alone. */
   readonly statusLabel: 'connected';
   /** Deterministic, stable colour token for this member. */
   readonly colorToken: string;

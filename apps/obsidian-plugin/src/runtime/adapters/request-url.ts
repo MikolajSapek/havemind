@@ -28,7 +28,7 @@ export function createRequestUrlFn(): RequestUrlFn {
     // HTML was misclassified as thrown/offline and retried forever. Expose it as a
     // guarded lazy accessor instead: the transport reads `.json` only AFTER its
     // status check passes, and a non-JSON body yields `undefined` rather than a
-    // throw — so status-based classification (ensureOk / isPermanentStatus) always
+    // throw, so status-based classification (ensureOk / isPermanentStatus) always
     // runs. `.text` is a plain field that never throws and is forwarded eagerly.
     return {
       status: response.status,

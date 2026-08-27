@@ -19,7 +19,7 @@ function base64ToBytes(base64: string): Uint8Array {
   return bytes;
 }
 
-describe('buildRevisionEnvelope — binary', () => {
+describe('buildRevisionEnvelope, binary', () => {
   it('round-trips raw bytes exactly through encode → decode', async () => {
     const bytes = new Uint8Array([0x00, 0x10, 0xff, 0x80, 0x7f, 0x00, 0xab]);
 

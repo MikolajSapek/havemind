@@ -1,12 +1,12 @@
 /**
- * F6-authorship — two-device end-to-end coverage for the AUTHOR OVERLAY's data
+ * F6-authorship, two-device end-to-end coverage for the AUTHOR OVERLAY's data
  * path: after a device applies a peer's revision, does the overlay name the right
  * person for that exact file?
  *
  * The overlay is honest-by-construction and that is precisely what needs an
  * end-to-end check. The claim it makes is per FILE ("this note was last changed
  * by X at T", see `attribution/overlay-source.ts`), resolved from the Activity
- * feed, whose remote entries carry NO author id — the pull stream has none — so a
+ * feed, whose remote entries carry NO author id, the pull stream has none, so a
  * remote revision is attributed to the sole other roster member (the two-person
  * pilot) by `activityEntriesToRecords`. Three separate modules therefore have to
  * agree about one path, and until now nothing checked them against a revision that
@@ -17,7 +17,7 @@
  * payload decode, then `remoteAppliedToActivityEntryOrNull` → `ActivityLog` →
  * `activityEntriesToRecords` → `buildFileOverlayInput` → `buildLivePreviewOverlay`.
  * The path, fileId and revisionId fed into that chain are the ones the receiving
- * device genuinely decoded from the server's relayed payload — never test
+ * device genuinely decoded from the server's relayed payload, never test
  * literals.
  *
  * HARNESS GLUE, on the record:
@@ -32,7 +32,7 @@
  * Rows:
  *  1. B applies A's note → the overlay names A, for that path only, over the whole
  *     document.
- *  2. A path with nothing recorded — and the toggle switched off — draw nothing
+ *  2. A path with nothing recorded, and the toggle switched off, draw nothing
  *     rather than guessing.
  *  3. A second revision for the same path wins: the overlay follows the newest
  *     applied revision, not the first.
@@ -99,7 +99,7 @@ afterEach(async () => {
 /**
  * Feeds everything this device has applied from the peer into a real
  * `ActivityLog` through the production mapper, exactly as the runtime does on the
- * apply path — see the harness-glue note in the module docstring for the two
+ * apply path, see the harness-glue note in the module docstring for the two
  * values the runtime owns and the test therefore supplies.
  */
 function activityFromApplies(client: HarnessClient): ActivityLog {
@@ -133,7 +133,7 @@ function overlayFor(
   return input === null ? null : buildLivePreviewOverlay(input);
 }
 
-describe('F6-authorship — the author overlay over a revision that really crossed the wire', () => {
+describe('F6-authorship, the author overlay over a revision that really crossed the wire', () => {
   it('row 1: after B applies A’s note, the overlay names A across the whole document', async () => {
     const { server, alice, bob, bobRoster } = await makeHarness();
     const content = 'Shared plan\n\nSecond paragraph\n';
@@ -227,7 +227,7 @@ describe('F6-authorship — the author overlay over a revision that really cross
     expect(overlay?.segments[0]?.author.displayName).toBe('Alice');
   });
 
-  it('row 4: two notes, two authors — each device attributes each path to whoever sent it', async () => {
+  it('row 4: two notes, two authors, each device attributes each path to whoever sent it', async () => {
     const { server, alice, bob, aliceRoster, bobRoster } = await makeHarness();
 
     await alice.edit(NOTE_PATH, 'Alice plan\n');
@@ -246,14 +246,14 @@ describe('F6-authorship — the author overlay over a revision that really cross
     );
     expect(overlayFor(bob, bobRoster, OTHER_NOTE_PATH)).toBeNull();
 
-    // On A: mirror image — the arrived note is Bob's, its own note is silent.
+    // On A: mirror image, the arrived note is Bob's, its own note is silent.
     const arrived = overlayFor(alice, aliceRoster, OTHER_NOTE_PATH);
     expect(arrived?.segments[0]?.author.displayName).toBe('Bob');
     expect(arrived?.segments[0]?.author.actorId).toBe(server.bob.membershipId);
     expect(overlayFor(alice, aliceRoster, NOTE_PATH)).toBeNull();
 
     // Each author is drawn in the colour the roster and the Activity rows draw
-    // them in — one shared, id-keyed source of truth, never a per-surface guess.
+    // them in, one shared, id-keyed source of truth, never a per-surface guess.
     expect(overlayFor(bob, bobRoster, NOTE_PATH)?.segments[0]?.colorToken).toBe(
       authorColorToken(server.alice.membershipId),
     );

@@ -4,7 +4,7 @@
  * The design draws a conflict or a failed send as a single bordered region: an
  * accent rule down the left edge, a tinted ground, a heading, its rows, and a
  * hairline closing it off. The implementation drew the heading and the rows as
- * siblings of the pane, each carrying its own margin — so the tint stopped
+ * siblings of the pane, each carrying its own margin, so the tint stopped
  * short of the heading, nothing closed the block off underneath, and the accent
  * rule appeared beside the rows only.
  *
@@ -61,7 +61,7 @@ const TWO_CONFLICTS: readonly ConflictCopy[] = [
   },
 ];
 
-describe('alarm block — conflicts', () => {
+describe('alarm block, conflicts', () => {
   it('wraps the heading and every row in one block', () => {
     const root = pane({ conflictsProvider: () => TWO_CONFLICTS, onResolveConflict: () => {} });
 
@@ -74,7 +74,7 @@ describe('alarm block — conflicts', () => {
     if (block === undefined) throw new Error('no alarm block rendered');
     const inside = flatten(block);
     // The heading and both rows must be descendants of the block, not siblings
-    // of it — that containment is what lets one border enclose the whole alarm.
+    // of it, that containment is what lets one border enclose the whole alarm.
     expect(
       inside.some((el) => el.classes.includes('havemind-conflict-header')),
     ).toBe(true);
@@ -92,7 +92,7 @@ describe('alarm block — conflicts', () => {
   });
 });
 
-describe('alarm block — failed sends', () => {
+describe('alarm block, failed sends', () => {
   it('wraps a failed send in the same block as conflicts use', () => {
     // One vocabulary for both alarms: a user who has learned to read the
     // conflict block should not have to learn a second shape for a failed send.
@@ -103,7 +103,7 @@ describe('alarm block — failed sends', () => {
           {
             revisionId: 'r1',
             label: 'Attachments/scan-04.png',
-            reason: 'Rejected by the server — too large',
+            reason: 'Rejected by the server, too large',
           },
         ],
       }),

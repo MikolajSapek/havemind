@@ -8,7 +8,7 @@ import {
 } from './author-colors';
 
 describe('authorColorToken', () => {
-  it('is deterministic — the same member id always maps to the same token', () => {
+  it('is deterministic, the same member id always maps to the same token', () => {
     expect(authorColorToken('member-magda')).toBe(
       authorColorToken('member-magda'),
     );
@@ -17,7 +17,7 @@ describe('authorColorToken', () => {
     );
   });
 
-  it('is stable per member — adding more members never shifts an existing colour', () => {
+  it('is stable per member, adding more members never shifts an existing colour', () => {
     const magdaAlone = authorColorToken('member-magda');
     // Resolving other members first must not change Magda's assignment.
     authorColorToken('member-owner');

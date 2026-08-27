@@ -24,7 +24,7 @@ describe('mergeText (line diff3)', () => {
   });
 
   it('merges non-overlapping edits on distinct lines (top vs bottom)', () => {
-    // Local edits the first line, remote edits the last — two untouched lines
+    // Local edits the first line, remote edits the last, two untouched lines
     // between them, so they merge independently.
     expect(mergedText('A\nB\nC\nD\n', 'A1\nB\nC\nD\n', 'A\nB\nC\nD1\n')).toBe(
       'A1\nB\nC\nD1\n',

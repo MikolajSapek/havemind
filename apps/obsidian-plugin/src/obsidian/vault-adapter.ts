@@ -9,7 +9,7 @@ import { normalizeConfigContent } from '../sync/config-normalize';
  * imported from its single definition in `runtime/conflict-resolution.ts` rather
  * than re-typed here: the name is load-bearing in three places (this exclusion,
  * the resolution flow, and the apply adapter's `conflictFolder`), and a
- * divergence would make every conflict copy sync back as an ordinary note — an
+ * divergence would make every conflict copy sync back as an ordinary note, an
  * endless echo. `conflict-resolution.ts` has no runtime imports of its own
  * (Obsidian types only), so this direction introduces no cycle.
  */
@@ -32,7 +32,7 @@ export const SYNCABLE_BINARY_EXTENSIONS = [
 
 /**
  * Hard per-file byte ceiling for a binary attachment. A file above this is
- * excluded-with-notice by reconciliation and skipped by the live observer — it
+ * excluded-with-notice by reconciliation and skipped by the live observer, it
  * is intentionally NOT an error, so a single oversized asset never aborts a scan
  * or wedges the loop. The base64 payload of a file this size (~33 MB) is covered
  * by the raised payload ceiling in `outbox-repository.ts`.
@@ -60,7 +60,7 @@ export type LocalChangeKind = 'create' | 'update' | 'rename' | 'delete';
 export interface LocalFileMapping {
   collisionKey: string;
   /**
-   * Canonical markdown text, or — for a binary attachment (F9) — the base64 of
+   * Canonical markdown text, or, for a binary attachment (F9), the base64 of
    * the raw file bytes. Optional discriminator `contentKind` says which; absent
    * means markdown, so every legacy mapping keeps its meaning unchanged.
    */
@@ -98,7 +98,7 @@ export interface LocalChangeOperation {
    * change (`OutboxLocalChangeRepository`'s `built.revisionId`), or `null`
    * when the commit never produced a revision (a delete of a file that was
    * never pushed). This is the id that must be recorded in the Activity feed
-   * and used for local/remote-echo dedup — `operationId` is a client-only
+   * and used for local/remote-echo dedup, `operationId` is a client-only
    * idempotency key, never a revision id.
    */
   revisionId: string | null;
@@ -112,7 +112,7 @@ export interface LocalChangeCommit {
 
 export interface VaultSnapshotPort {
   /**
-   * Every syncable path — markdown notes AND allowlisted binary attachments
+   * Every syncable path, markdown notes AND allowlisted binary attachments
    * (F9). Renamed from the markdown-only `listMarkdownPaths`; callers must
    * classify each path with `classifyVaultPath` to learn its `kind`.
    */
@@ -139,7 +139,7 @@ export interface VaultSnapshotPort {
 export interface LocalChangeRepository {
   /**
    * Commits the change and returns the real revision id it enqueued (or
-   * `null` when no revision was created — a delete with no prior push). The
+   * `null` when no revision was created, a delete with no prior push). The
    * caller (the observer below) attaches this to the returned
    * `LocalChangeOperation.revisionId` so callers never fall back to the
    * client-only `operationId` for revision identity.
@@ -186,7 +186,7 @@ export function classifyVaultPath(path: string): VaultPathClassification {
   // vault API normally yields forward slashes, but a backslash path (from a
   // Windows path join, a plugin, or an OS quirk) would otherwise be classified
   // eligible here and then throw inside `canonicalizeVaultPath` at envelope-build
-  // time — a throw that kills the entire push cycle and latches the device
+  // time, a throw that kills the entire push cycle and latches the device
   // "Offline" forever (the Windows field bug). Normalising first keeps the wire
   // path forward-slash and self-consistent with the peer's collision key. The
   // on-disk read (see `resolveReadPath`) tries this canonical form FIRST and
@@ -208,7 +208,7 @@ export function classifyVaultPath(path: string): VaultPathClassification {
 
 /**
  * Extension of a path, lowercased, without the dot; `''` when there is none.
- * A dotfile like `.gitignore` has no extension by this definition — its leading
+ * A dotfile like `.gitignore` has no extension by this definition, its leading
  * dot is caught by the dotpath guard, never mistaken for an attachment.
  */
 export function pathExtension(canonicalPath: string): string {
@@ -228,7 +228,7 @@ const SYNCABLE_BINARY_EXTENSION_SET: ReadonlySet<string> = new Set(
  * config asset (an extension in {@link SYNCABLE_BINARY_EXTENSION_SET}) rides the
  * existing base64 + size-cap path instead; that set is checked FIRST so a
  * genuinely binary format is never routed through the text path (which would
- * corrupt it). An extension in NEITHER set stays excluded-with-notice — kept as
+ * corrupt it). An extension in NEITHER set stays excluded-with-notice, kept as
  * defence in depth even though the scope allowlist admits no such extension
  * today, so widening the allowlist can never silently corrupt a new format.
  */
@@ -243,7 +243,7 @@ const CONFIG_TEXT_EXTENSIONS: ReadonlySet<string> = new Set([
 /**
  * Content kind for a `.obsidian/` config path already admitted by
  * {@link isSyncableConfigPath}. Binary formats first (exact bytes, size cap),
- * then text formats, else `null` (excluded-with-notice — never forced through
+ * then text formats, else `null` (excluded-with-notice, never forced through
  * the text path).
  */
 function configContentKind(canonicalPath: string): SyncContentKind | null {
@@ -261,18 +261,18 @@ function configContentKind(canonicalPath: string): SyncContentKind | null {
  */
 function eligibleKind(canonicalPath: string): SyncContentKind | null {
   // `.obsidian/` APPEARANCE ALLOWLIST (theme CSS, snippets, hotkeys,
-  // appearance/app settings) — ONLY the explicit set named inside
+  // appearance/app settings), ONLY the explicit set named inside
   // `isSyncableConfigPath`. Third-party plugin code and state
   // (`.obsidian/plugins/**`), the enabled-plugins registry and per-machine
   // `workspace.json` are NOT in scope: mirroring a peer's plugin code let any
   // vault member overwrite another member's installed plugin, which Obsidian
   // then executes on reload (audit #3 finding 2).
-  // Admitted here — and ONLY here — BEFORE the dotpath guard below that
+  // Admitted here, and ONLY here, BEFORE the dotpath guard below that
   // (correctly) rejects every other dot-path. The content kind is chosen by
   // EXTENSION, not forced to text: a binary config asset uses the base64 path,
   // an unknown binary stays excluded-with-notice, only genuine text config is
   // canonicalised. The reserved `Havemind Conflicts/` exclusion below is
-  // untouched — no config path lives there — so no re-sync cycle is introduced.
+  // untouched, no config path lives there, so no re-sync cycle is introduced.
   if (isSyncableConfigPath(canonicalPath)) {
     return configContentKind(canonicalPath);
   }
@@ -369,7 +369,7 @@ export class VaultChangeObserver {
     const classified = classifyVaultPath(path);
     if (!classified.eligible) return null;
     // A create event for a path Havemind ALREADY maps must never mint a fresh
-    // fileId — that forks the file across devices. This is the reflected event a
+    // fileId, that forks the file across devices. This is the reflected event a
     // remote-apply write fires: the apply side has adopted the incoming fileId
     // into the producer mapping in lockstep, so this create resolves to that
     // mapping and dedupes to a no-op (content already matches) instead of a
@@ -386,7 +386,7 @@ export class VaultChangeObserver {
    * canonical (forward-slash, NFC) form matches Obsidian's own path index, so it
    * is tried first; the caller's original path is a belt-and-braces fallback for
    * an exotic filesystem where only the raw form resolves. Returns `null` when
-   * NEITHER variant exists on disk — a genuine miss. Reading via the original
+   * NEITHER variant exists on disk, a genuine miss. Reading via the original
    * (possibly backslash) path alone would miss on real Obsidian and either drop a
    * live edit or read '' and push a phantom empty file over the peer's copy.
    */
@@ -408,9 +408,9 @@ export class VaultChangeObserver {
    * Reads a file's content and content hash according to its sync kind: markdown
    * is canonicalised text hashed with SHA-256; a binary attachment is read as raw
    * bytes, carried as base64 in `content`, and hashed over the RAW bytes
-   * (`hashBlob`) — never a canonicalised form (F9). The read uses the canonical
+   * (`hashBlob`), never a canonicalised form (F9). The read uses the canonical
    * path first, falling back to the original (FINDING 3). Returns `null` when the
-   * file resolves at neither path (a genuine miss — never push a phantom '') or
+   * file resolves at neither path (a genuine miss, never push a phantom '') or
    * when a binary file is over {@link MAX_BINARY_FILE_BYTES} (excluded, not an
    * error).
    */
@@ -430,7 +430,7 @@ export class VaultChangeObserver {
     // (`config-normalize.ts`): `.obsidian/graph.json` carries the graph view's
     // current zoom and panel-fold flags, which Obsidian rewrites merely because
     // the view was opened. Hashing the NORMALIZED form is what makes such a
-    // rewrite compare EQUAL to the mapping, so it produces no revision at all —
+    // rewrite compare EQUAL to the mapping, so it produces no revision at all,
     // and it is the normalized form that is pushed, so a peer never adopts this
     // machine's zoom level. Identity for every other path.
     const content = normalizeContent(
@@ -490,7 +490,7 @@ export class VaultChangeObserver {
       // deleted (the debounce cancel is the primary guard; this is the cheap
       // safety net). `commitCreate` reads canonical-first and returns null when
       // the file resolves at NEITHER the canonical nor the original path, so a
-      // vacated path never pushes a phantom empty create — while a genuinely
+      // vacated path never pushes a phantom empty create, while a genuinely
       // new, unmapped file that IS on disk (at its canonical path) still creates.
       // Resolving via `readContentForKind` (not a raw `exists(path)` on the
       // possibly-backslash original) is what stops a real Windows edit being
@@ -706,7 +706,7 @@ export class VaultChangeObserver {
 function normalizeContent(text: string): string {
   // Single canonical content transform shared with every other hashing/diff
   // site (protocol `canonicalizeMarkdown`): CRLF/CR→LF, strip BOM, exactly one
-  // trailing newline. Hash-side only — the user's file on disk is never
+  // trailing newline. Hash-side only, the user's file on disk is never
   // rewritten. See AUD-03.
   return canonicalizeMarkdown(text);
 }

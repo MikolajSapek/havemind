@@ -629,7 +629,7 @@ describe('plugin lifecycle', () => {
       classes.includes('havemind-pending-row'),
     );
     const cells = flatten(row as MockElement);
-    // The owner types the code in — an input exists, prompting for the code.
+    // The owner types the code in, an input exists, prompting for the code.
     expect(cells.some(({ tag }) => tag === 'input')).toBe(true);
     expect(
       cells.some(
@@ -786,13 +786,13 @@ describe('plugin lifecycle', () => {
   it('wires a default Restore action during onload that appends a new activity entry', async () => {
     // Regression: onload's activityOptions never set onRestore, so the Restore
     // button never rendered at all (F9 bug #2). This exercises the DEFAULT
-    // wiring — not a caller-supplied override via setActivityOptions — so it
+    // wiring, not a caller-supplied override via setActivityOptions, so it
     // actually proves the onload path, not just the ActivityView's rendering.
     const app = new App();
     const plugin = new HavemindPlugin(app, manifest);
     await plugin.onload();
 
-    // Seed the roster (self) and an existing activity entry directly — there
+    // Seed the roster (self) and an existing activity entry directly, there
     // is no live layout-ready hook in the headless mock (see Workspace mock),
     // so this mirrors what loadRoster()/recordActivity would have populated.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -977,7 +977,7 @@ describe('plugin lifecycle', () => {
     // No paste form is drawn (re-pasting would re-redeem a single-use invite).
     expect(all.some(({ tag }) => tag === 'textarea')).toBe(false);
 
-    // Reopening the pane keeps the phrase — the wait resumes, not a blank form.
+    // Reopening the pane keeps the phrase, the wait resumes, not a blank form.
     await view.onOpen();
     all = flatten(view.containerEl as unknown as MockElement);
     expect(all.some(({ text }) => text.includes('7 tiger lamp'))).toBe(true);
@@ -1298,7 +1298,7 @@ describe('plugin lifecycle', () => {
 
     const content = (view.containerEl as unknown as MockElement).children[1];
     const all = flatten(content as MockElement);
-    // Everyone is connected, so no Rejoin yet — only the owner-assert affordance.
+    // Everyone is connected, so no Rejoin yet, only the owner-assert affordance.
     expect(all.some(({ text }) => text === 'Rejoin')).toBe(false);
     all.find(({ text }) => text === 'Mark offline')?.triggerClick();
     expect(marked).toEqual(['m-magda']);
@@ -1321,7 +1321,7 @@ describe('plugin lifecycle', () => {
 
     const content = (view.containerEl as unknown as MockElement).children[1];
     const all = flatten(content as MockElement);
-    // Exactly one Remove button — on the non-self member, never the owner self row.
+    // Exactly one Remove button, on the non-self member, never the owner self row.
     // (Everyone is connected, so Remove is offered independent of the dead set.)
     expect(all.filter(({ text }) => text === 'Remove')).toHaveLength(1);
     // The destructive treatment, never the primary-action class.
@@ -1351,7 +1351,7 @@ describe('plugin lifecycle', () => {
     );
     expect(remove).toBeDefined();
 
-    // First click only arms the confirm step — nothing is removed yet.
+    // First click only arms the confirm step, nothing is removed yet.
     remove?.triggerClick();
     expect(removed).toEqual([]);
     expect(remove?.text).toBe('Confirm remove');
@@ -1375,7 +1375,7 @@ describe('plugin lifecycle', () => {
     plugin.unload();
 
     // Obsidian's plugin guidelines say never to detach your own leaves in
-    // onunload — the workspace owns view lifecycle, and detaching here wiped
+    // onunload, the workspace owns view lifecycle, and detaching here wiped
     // the user's layout on every plugin update.
     expect(app.workspace.detachedTypes).toEqual([]);
     expect(ribbon?.removed).toBe(true);

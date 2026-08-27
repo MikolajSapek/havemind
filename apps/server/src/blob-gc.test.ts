@@ -112,7 +112,7 @@ describe('sweepOrphanedBlobs', () => {
       idempotencyKey: 'k1',
     });
 
-    // An orphaned blob left on disk with no referencing revision at all — the
+    // An orphaned blob left on disk with no referencing revision at all, the
     // scenario a rejected push used to (unsafely) clean up from the request
     // hot path.
     const orphanBytes = Buffer.from('orphan-content', 'utf8');

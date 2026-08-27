@@ -58,8 +58,8 @@ describe('hasVolatileConfigFields', () => {
 describe('normalizeConfigContent', () => {
   it('SPLIT CONTRACT: every named setting syncs, only the six view-state keys do not', () => {
     // USER DECISION, 2026-08-13, stated key by key. Everything the user can
-    // choose in the graph view — colour groups, the size multipliers, the filter
-    // toggles, the force sliders — is a SETTING and must reach the other device.
+    // choose in the graph view, colour groups, the size multipliers, the filter
+    // toggles, the force sliders, is a SETTING and must reach the other device.
     // Only the six keys that describe the current view's shape on this screen
     // stay behind. Enumerated here so a future edit to the volatile set cannot
     // quietly demote a setting (or start syncing a zoom level) without a red test.
@@ -136,7 +136,7 @@ describe('normalizeConfigContent', () => {
     expect(normalized).toEqual(SEMANTIC_GRAPH);
   });
 
-  it('keeps an UNKNOWN key — forward compatibility with a newer Obsidian', () => {
+  it('keeps an UNKNOWN key, forward compatibility with a newer Obsidian', () => {
     // An unrecognised key is kept on purpose: dropping it would silently stop
     // syncing a setting a future Obsidian release adds.
     const text = graphJson({ scale: 2, futureGraphSetting: 'keep-me' });
@@ -146,7 +146,7 @@ describe('normalizeConfigContent', () => {
     expect(normalized).toEqual({ futureGraphSetting: 'keep-me' });
   });
 
-  it('is a no-op when only volatile keys change — the same output for both reads', () => {
+  it('is a no-op when only volatile keys change, the same output for both reads', () => {
     // This is the whole point of the filter: opening the graph view rewrites
     // `scale`/`collapse-*` and must hash EQUAL to the previous read.
     const before = graphJson({ ...SEMANTIC_GRAPH, scale: 1, 'collapse-filter': true });
@@ -162,7 +162,7 @@ describe('normalizeConfigContent', () => {
     );
   });
 
-  it('is idempotent — normalising an already-normalised payload changes nothing', () => {
+  it('is idempotent, normalising an already-normalised payload changes nothing', () => {
     const once = normalizeConfigContent(
       GRAPH_PATH,
       graphJson({ ...VOLATILE_GRAPH, ...SEMANTIC_GRAPH }),
@@ -245,7 +245,7 @@ describe('mergeConfigContent', () => {
   });
 
   it('drops a semantic key the remote no longer carries', () => {
-    // A colour group the peer DELETED must disappear here too — an overlay that
+    // A colour group the peer DELETED must disappear here too, an overlay that
     // only ever adds keys would keep a removed group alive forever.
     const local = graphJson({ scale: 2, colorGroups: [{ query: 'gone' }], showTags: true });
     const remote = normalizeConfigContent(GRAPH_PATH, graphJson({ showTags: true }));
@@ -289,7 +289,7 @@ describe('mergeConfigContent', () => {
     });
   });
 
-  it('re-normalises to exactly the remote payload — the write can never echo back', () => {
+  it('re-normalises to exactly the remote payload, the write can never echo back', () => {
     // The producer re-reads what was written and normalises it. That result MUST
     // equal the payload the peer pushed, or the poller would enqueue a revision
     // for a file it just received (the ping-pong this fix removes).
@@ -304,7 +304,7 @@ describe('mergeConfigContent', () => {
     expect(normalizeConfigContent(GRAPH_PATH, merged)).toBe(remote);
   });
 
-  it('passes a non-volatile path straight through — the remote content wins whole', () => {
+  it('passes a non-volatile path straight through, the remote content wins whole', () => {
     const remote = '{"accentColor":"#7c3aed"}';
 
     expect(

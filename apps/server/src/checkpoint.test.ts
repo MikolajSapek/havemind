@@ -615,7 +615,7 @@ describe('retention (keep-N, verify before forget)', () => {
     await expect(
       pruneCheckpoints({ checkpointsDir, keep: 1 }),
     ).rejects.toBeInstanceOf(CheckpointError);
-    // All three still present — nothing was forgotten.
+    // All three still present, nothing was forgotten.
     expect(await listCheckpoints(checkpointsDir)).toHaveLength(3);
   });
 });

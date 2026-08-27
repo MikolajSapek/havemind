@@ -15,7 +15,7 @@ import type { GettingStartedViewModel } from '../runtime/getting-started-render'
  * footnote. Content comes from the pure `buildGettingStartedViewModel` helper so
  * the wording, ordering and doc link stay unit-tested; this function only maps
  * that data onto the panel's existing list-and-hint visual language. Presentation
- * only — it wires to no backend call.
+ * only, it wires to no backend call.
  */
 export function renderGettingStarted(
   content: HTMLElement,

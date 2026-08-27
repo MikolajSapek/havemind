@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Havemind — restore files from Restic (SRV-04 single-file, SRV-05 full-service).
+# Havemind, restore files from Restic (SRV-04 single-file, SRV-05 full-service).
 # Sudo-free: runs as the ordinary user over the SFTP backend. NEVER restores over
 # the live data directory: it always restores into an explicit, empty target you
 # pass on the command line, so a mistake cannot clobber existing data.
 #
 # This recovers FILES. Turning a recovered artifact back into a running instance
-# is `havemind backup restore` — see restore-drill.sh, which does both.
+# is `havemind backup restore`, see restore-drill.sh, which does both.
 #
 # Usage:
 #   restore.sh <target-dir> [snapshot-id] [--include <path>]

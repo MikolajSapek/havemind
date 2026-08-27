@@ -290,7 +290,7 @@ function makeHarness() {
 
   /** Simulate the local user authoring a note (fires a create event). A real
    * local author already has the containing folder (they created the note in
-   * it), so seed the parent-folder chain first — the double now throws on a
+   * it), so seed the parent-folder chain first, the double now throws on a
    * create into a missing folder, exactly like real Obsidian. */
   async function userCreate(
     path: string,
@@ -382,7 +382,7 @@ describe('two-person steady-state sync (integration)', () => {
     // PRODUCTION REALITY: the live transport delivers pulled events with NO
     // parentRevisionIds (they are not surfaced through the pull path), so the
     // causal fast-forward check cannot fire. The only thing standing between a
-    // concurrent peer edit and a silent overwrite is the on-disk-vs-base guard —
+    // concurrent peer edit and a silent overwrite is the on-disk-vs-base guard,
     // which is only safe if the base was NOT advanced by this device's own push.
     const h = makeHarness();
     await h.userCreate('Notes/note.md', 'V1\n', FILE_A);
@@ -406,7 +406,7 @@ describe('two-person steady-state sync (integration)', () => {
     const outcome = await h.adapter.applyRemote(h.remoteEvent('r5', FILE_A));
     await h.drainEvents();
 
-    // It must become a conflict artifact — never overwrite the local V2 edit.
+    // It must become a conflict artifact, never overwrite the local V2 edit.
     expect(outcome).toBe('conflict');
     expect(h.vault.contents.get('Notes/note.md')).toBe('V2\n');
     expect(h.vault.contents.get('Havemind Conflicts/note (conflict Peer 2026-07-22 2156).md')).toBe(
@@ -554,7 +554,7 @@ describe('two-person steady-state sync (integration)', () => {
     const REMOTE_B = 'L1\nL2\nL3\nL4\nB5\n'; // B edits the last line
     const MERGED = 'A1\nL2\nL3\nL4\nB5\n'; // both edits combined
 
-    // Relayed revision ids must be valid UUIDs — an adopted remote revision id
+    // Relayed revision ids must be valid UUIDs, an adopted remote revision id
     // becomes the local head and is later validated as a revision parent.
     const REV_BASE = '10000000-0000-4000-8000-000000000000';
     const REV_B = '20000000-0000-4000-8000-000000000000';
@@ -600,7 +600,7 @@ describe('two-person steady-state sync (integration)', () => {
     expect(b.vault.contents.get(NOTE)).toBe(MERGED);
 
     // The merged revision each device pushes round-trips to the peer and
-    // converges as a no-op (content already equal) — never a conflict, never a
+    // converges as a no-op (content already equal), never a conflict, never a
     // ping-pong.
     a.setRemote(REV_BMERGE, update(MERGED));
     const aConverge = await a.adapter.applyRemote(a.remoteEvent(REV_BMERGE, FILE_A));

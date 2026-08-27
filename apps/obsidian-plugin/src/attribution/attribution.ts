@@ -20,7 +20,7 @@
  *    if a provenance source cannot be resolved to an author, the whole overlay
  *    is hidden rather than showing a partial or false signal (rule 4).
  *  - Reading view stays silent for any block whose section `getSectionInfo()`
- *    did not resolve — no marker at all, never a guessed range (anti-spec S5).
+ *    did not resolve, no marker at all, never a guessed range (anti-spec S5).
  *  - Reduced motion removes the highlight animation only; the static colour and
  *    underline are shown immediately.
  *  - Colours live purely in the editor layer as CSS custom-property tokens and
@@ -93,7 +93,7 @@ export interface AttributionSegment {
   readonly from: number;
   readonly to: number;
   readonly colorToken: string;
-  /** Always true — colour is never the only signal. */
+  /** Always true, colour is never the only signal. */
   readonly underline: true;
   /** Hover tooltip: author name + revision time, or the import label. */
   readonly tooltip: string;
@@ -132,7 +132,7 @@ export interface SectionInfo {
 
 /**
  * A rendered Reading-view block. `section` is `null` when `getSectionInfo()`
- * did not resolve a mapping — the overlay stays silent for such blocks.
+ * did not resolve a mapping, the overlay stays silent for such blocks.
  */
 export interface ReadingBlock {
   readonly blockId: string;

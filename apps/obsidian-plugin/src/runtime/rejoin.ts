@@ -2,14 +2,14 @@
  * F9 Rejoin (client side). A pairing is persistent: once the owner has approved
  * a contact, that contact can be re-admitted after a terminal auth failure
  * (refresh family burned by reuse detection, 401 terminal, quarantine) WITHOUT
- * re-running the full pairing flow — no new PIN, nothing for the invitee to read
+ * re-running the full pairing flow, no new PIN, nothing for the invitee to read
  * aloud.
  *
  * Two roles, both dependency-injected and free of Obsidian/DOM so they unit
  * test in isolation:
  *
  * - Owner: `requestRejoinGrant` calls `POST /owner/rejoin-grants` for a known
- *   contact and reports "waiting" — the owner UI then shows "waiting for <name>
+ *   contact and reports "waiting", the owner UI then shows "waiting for <name>
  *   to reconnect". Nothing secret is returned.
  * - Invitee: `RejoinController` drives the terminal-auth → rejoining → syncing
  *   transition. On the terminal-auth state the plugin polls `POST /auth/rejoin`
@@ -18,7 +18,7 @@
  *   has issued a grant the redemption succeeds, a fresh refresh token is stored
  *   and sync resumes under the SAME membership (attribution/colours unchanged).
  *
- * The refresh token is generated locally and only its SHA-256 hash is sent — the
+ * The refresh token is generated locally and only its SHA-256 hash is sent, the
  * raw secret never reaches the server (mirrors `/owner/pair` and the invitee
  * redeem contract). The hash function is injected so this module stays pure.
  */
@@ -131,7 +131,7 @@ export interface RejoinResumed {
  * connection that has terminally failed starts here; each `attempt()` presents
  * the persisted (membershipId, deviceId) binding. Until the owner has clicked
  * Rejoin the server has no grant, so the attempt returns to `terminal-auth` and
- * the caller retries later — never a user-visible pairing.
+ * the caller retries later, never a user-visible pairing.
  */
 export class RejoinController {
   private readonly options: RejoinControllerOptions;
@@ -171,7 +171,7 @@ export class RejoinController {
         }),
       });
     } catch {
-      // A transport/network failure is transient — stay terminal and retry.
+      // A transport/network failure is transient, stay terminal and retry.
       this.state = 'terminal-auth';
       return this.state;
     }
@@ -196,7 +196,7 @@ export class RejoinController {
     // single-use and burned server-side on this 200, so a persistence failure
     // (SecretStorage/keychain write can throw) is terminal: the grant can never
     // be redeemed again. Surface it as 'rejoin-failed' rather than letting the
-    // throw escape with the state frozen at 'rejoining' — a permanent, invisible
+    // throw escape with the state frozen at 'rejoining', a permanent, invisible
     // wedge where the 30 s poll early-returns 'rejoining' forever (FIX C1).
     try {
       await this.options.saveRefreshToken(refreshToken);

@@ -1,4 +1,4 @@
-// GENERATED from dc-runtime/src/*.ts — do not edit. Rebuild with `cd dc-runtime && bun run build`.
+// GENERATED from dc-runtime/src/*.ts, do not edit. Rebuild with `cd dc-runtime && bun run build`.
 "use strict";
 (() => {
   var __defProp = Object.defineProperty;
@@ -894,7 +894,7 @@
         __publicField(this, "__name");
         __publicField(this, "__sub");
         __publicField(this, "__needsDidMount", false);
-        /** Snapshot of the registry's streaming flags taken at render time —
+        /** Snapshot of the registry's streaming flags taken at render time,
          *  builders read it off the RenderCtx (this) to pick placeholder vs
          *  render-nothing for unresolved values. */
         __publicField(this, "__streamingNow", false);
@@ -907,7 +907,7 @@
         __publicField(this, "__failedLogic", null);
         __publicField(this, "__failedUserProps", null);
         __publicField(this, "__failedVer", -1);
-        /** Per-instance constructor error — kept here (not on the registry entry)
+        /** Per-instance constructor error, kept here (not on the registry entry)
          *  so one instance's successful construct can't hide a sibling's failure,
          *  and a construct can never wipe an eval error `updateJs` recorded on
          *  `r.logicError`. */
@@ -936,7 +936,7 @@
         );
       }
       /** Instantiate the logic class (or the no-op base) and adopt `prevState`
-       *  over its initial state — used both at mount and on hot-swap. */
+       *  over its initial state, used both at mount and on hot-swap. */
       __makeLogic(Logic, prevState) {
         const L = Logic || StreamableLogic;
         try {
@@ -958,7 +958,7 @@
         if (prevState)
           this.logic.state = { ...this.logic.state || {}, ...prevState };
       }
-      /** The props the author's logic + template see — internal __-prefixed
+      /** The props the author's logic + template see, internal __-prefixed
        *  wiring stripped. */
       __userProps() {
         const { __name, __hintSize, __tplId, __hostStyle, ...rest } = this.props;
@@ -1876,16 +1876,16 @@
       },
       __dcStreaming: (name) => streams.live(name),
       __dcSetProps: (name, overrides) => runtime.setProps(name, overrides),
-      /** Name of the component currently mounted as the page root — DC tools
+      /** Name of the component currently mounted as the page root, DC tools
        *  push their template-stream here when targeting "the open page". */
       __dcRootName: () => rootName,
-      /** Editor bridge — the encoded, `data-dc-tpl`-annotated template source.
+      /** Editor bridge, the encoded, `data-dc-tpl`-annotated template source.
        *  The host editor parses this into its own template DOM so it can map a
        *  rendered node (carrying the same `data-dc-tpl`) back to the source
        *  node that emitted it. Returns the encoded form (`sc-camel-*` attrs,
        *  `<sc-raw-*>`/`<sc-helmet>` tags); the editor decodes on serialize. */
       __dcAnnotatedTemplate: (name) => runtime.annotatedTemplate(name),
-      /** Editor bridge — the *original* (decoded) template source. */
+      /** Editor bridge, the *original* (decoded) template source. */
       __dcTemplateSource: (name) => runtime.templateSource(name),
       __dcBoot: () => {
         rootName = boot(runtime, document) ?? rootName;

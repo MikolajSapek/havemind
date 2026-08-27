@@ -3,12 +3,12 @@
  *
  * A single source of truth so the same person is drawn in the same colour
  * everywhere the client shows attribution: the presence roster, the Activity
- * log rows and the F6 author overlay. Colour is NEVER the only signal — every
+ * log rows and the F6 author overlay. Colour is NEVER the only signal, every
  * caller pairs the token with the author's name/label (see the roster, activity
  * and overlay renderers) per the project accessibility rule.
  *
  * "Stable" means a member's colour depends only on their id, never on how many
- * other members exist or the order they appear in — so Magda keeps her colour
+ * other members exist or the order they appear in, so Magda keeps her colour
  * when a third member joins. Assignment is a stable hash of the member id onto a
  * fixed palette; the concrete light/dark CSS values live in `styles.css` under
  * the tokens listed here.
@@ -53,7 +53,7 @@ export const INITIAL_IMPORT_LABEL = 'Initial import';
 
 /**
  * 32-bit FNV-1a hash of a string. Deterministic and dependency-free (no crypto),
- * used only to spread member ids across the palette — never for anything
+ * used only to spread member ids across the palette, never for anything
  * security-sensitive.
  */
 function fnv1a(value: string): number {

@@ -45,7 +45,7 @@ describe('buildRosterView', () => {
     expect(magdaRow?.colorToken).toBe(authorColorToken('m-magda'));
   });
 
-  it('is a persistent connection state — never derived from activity, no timeout', () => {
+  it('is a persistent connection state, never derived from activity, no timeout', () => {
     // The only input is the stored membership list; there is no activity or
     // timestamp parameter. Every rendered member reads as connected.
     const view = buildRosterView([owner(), magda()]);

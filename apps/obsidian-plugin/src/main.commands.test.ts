@@ -2,7 +2,7 @@
  * Command-palette coverage for the three actions that used to be mouse-only.
  *
  * Audit finding: `syncNow`, `disconnect()` and `resetConnection()` were reachable
- * only by clicking a button in the panel — no command, therefore no hotkey and no
+ * only by clicking a button in the panel, no command, therefore no hotkey and no
  * palette entry. These tests pin the ids, the names, the availability guard
  * (`checkCallback` greys an action out rather than letting it fail), and the fact
  * that Reset connection stays available in exactly the state it exists for.
@@ -190,7 +190,7 @@ describe('command palette actions', () => {
   it('closes the owner composer on Done, so the status indicator returns', async () => {
     // The onboarding view gives the composer priority and returns before it
     // draws the status row. Leaving `connectionActive` set after Done therefore
-    // hides "Connected — synced" for as long as the pane stays open, which
+    // hides "Connected, synced" for as long as the pane stays open, which
     // reads as a dropped connection on a vault that is in fact synced.
     const plugin = newPlugin();
     await plugin.onload();

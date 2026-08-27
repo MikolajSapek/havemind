@@ -4,11 +4,11 @@
  * never re-observed as a fresh LOCAL change. Without this bridge a two-person
  * steady state loops forever: applying the peer's edit fires a vault event, the
  * producer re-pushes it as a new local revision, records it as local activity,
- * and — for a remote-only create — mints a brand-new random fileId (a duplicate
+ * and, for a remote-only create, mints a brand-new random fileId (a duplicate
  * fileId for the same path across devices).
  *
  * The producer is created after the vault-apply adapter (see
- * `obsidian-adapters.ts`), so the binding is late — resolved through a getter
+ * `obsidian-adapters.ts`), so the binding is late, resolved through a getter
  * that returns null until the producer exists. This module is deliberately
  * platform-free (no Obsidian imports) so it is unit-tested directly.
  */
@@ -55,7 +55,7 @@ export function createRemoteApplyProducerSync(
         contentHash,
         // Carry the binary discriminator into the durable producer mapping so a
         // RECEIVED binary is persisted (and rebased) as binary, never markdown.
-        // Absent/markdown is omitted — an absent contentKind already means
+        // Absent/markdown is omitted, an absent contentKind already means
         // markdown, keeping the mapping shape unchanged for text notes.
         ...(contentKind === 'binary' ? { contentKind: 'binary' } : {}),
         fileId,

@@ -13,17 +13,17 @@
  * deleted files, and fully drained outboxes.
  *
  * DETERMINISM: the script uses a seeded mulberry32 PRNG derived from a fixed
- * SEED constant — never Math.random and never the wall clock — so a failure is
+ * SEED constant, never Math.random and never the wall clock, so a failure is
  * reproducible and minimisable. Three seeds are run.
  *
  * CONVERGENCE SOUNDNESS (why the byte-identity invariant is legitimate):
  * Havemind's three-way merge (MRG-01) is a base-snapshot merge whose ancestor
- * is each device's AGREED base — and that base advances ONLY on remote apply /
+ * is each device's AGREED base, and that base advances ONLY on remote apply /
  * convergence, never on a local push (rule 3, anti-silent-overwrite). So a
  * merge is guaranteed clean only when both edits (a) touch disjoint line
  * regions AND (b) branch from the SAME base-aligned content. A single-sided
  * edit would leave the author's base stale, and a later merge would count the
- * peer's inherited line as a change and spuriously conflict — a property of the
+ * peer's inherited line as a change and spuriously conflict, a property of the
  * base model, not a defect. This script therefore exercises merges ONLY via
  * symmetric edit ROUNDS: each markdown file is partitioned into a device-A line
  * and a device-B line around a stable anchor, and an "edit round" has BOTH
@@ -33,7 +33,7 @@
  * (fully-drained) file. The binary attachment is single-writer (its base never
  * self-advances). Renames and deletes run only from full quiescence and relay
  * to a fixpoint. Under these rules every merge is clean, so ANY conflict
- * artifact is itself a real defect (the conflict-cascade class) — which the
+ * artifact is itself a real defect (the conflict-cascade class), which the
  * test asserts against. Genuine overlapping edits legitimately produce conflict
  * copies that leave the main files divergent until a human resolves them
  * (MRG-03); that path's CONTENT validity is covered by the separate
@@ -68,7 +68,7 @@ const MEMBER_ID = '33333333-3333-4333-8333-333333333333';
 const CONFLICT_FOLDER = 'Havemind Conflicts';
 
 // ---------------------------------------------------------------------------
-// Deterministic PRNG (mulberry32). Seeded from a fixed constant — no
+// Deterministic PRNG (mulberry32). Seeded from a fixed constant, no
 // Math.random, no wall clock. Documented per the task brief.
 // ---------------------------------------------------------------------------
 function mulberry32(seed: number): () => number {
@@ -353,7 +353,7 @@ function makeDevice(tag: DeviceTag) {
   }
 
   function remoteEvent(revisionId: string, fileId: string): RemoteEvent {
-    // No parentRevisionIds — production pulls do not surface parentage, so the
+    // No parentRevisionIds, production pulls do not surface parentage, so the
     // on-disk-vs-base guard is the only overwrite protection (the real regime).
     return {
       serverSequence: 1,
@@ -593,11 +593,11 @@ function runScenario(seed: number, ops: number): { run: () => Promise<void> } {
    * anchor), branching from the file's current converged content. This is the
    * ONLY sound way to exercise the three-way merge here: the merge ancestor is
    * each device's AGREED base (which, by rule 3, advances only on remote apply /
-   * convergence — never on a local push), so edits are only guaranteed disjoint
+   * convergence, never on a local push), so edits are only guaranteed disjoint
    * relative to that base when both branch from the SAME aligned base. A
    * completed round realigns both bases to the merged result, so the next round
    * is sound too. A single-sided edit would leave the author's base stale and a
-   * later merge would spuriously conflict — that is a base-model property, not a
+   * later merge would spuriously conflict, that is a base-model property, not a
    * defect, so the script never issues one.
    *
    * Only runs when the file is idle (its previous round fully drained), which is
@@ -680,7 +680,7 @@ function runScenario(seed: number, ops: number): { run: () => Promise<void> } {
       cov.renames += 1;
     }
     // Relay the rename so BOTH vaults (and `models`) reflect the move before the
-    // next op — a rename is a quiescent sync point, so draining after is clean.
+    // next op, a rename is a quiescent sync point, so draining after is clean.
     await fullDrain();
   }
 
@@ -814,9 +814,9 @@ describe('randomized two-device convergence (integration)', () => {
 
   it('a genuine overlapping edit yields conflict copies whose content is valid (no invention/loss)', async () => {
     // This scenario deliberately overlaps (both edit the SAME line) so a
-    // conflict copy MUST appear. It validates conflict-copy CONTENT — every
+    // conflict copy MUST appear. It validates conflict-copy CONTENT, every
     // copy holds a version one side actually produced, and per device the union
-    // {main, copy} covers both versions — and does NOT assert byte-identity of
+    // {main, copy} covers both versions, and does NOT assert byte-identity of
     // the main files, which legitimately differ until a human resolves them.
     const a = makeDevice('A');
     const b = makeDevice('B');

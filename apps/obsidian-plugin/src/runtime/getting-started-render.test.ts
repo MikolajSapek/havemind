@@ -49,7 +49,7 @@ describe('buildGettingStartedViewModel', () => {
 
   it('gives the self-hosting guide an absolute URL, not a bare repo-relative path', () => {
     // Obsidian's desktop shell resolves a relative <a href> against its own
-    // internal origin, not GitHub — a bare "docs/self-hosting.md" is a dead
+    // internal origin, not GitHub, a bare "docs/self-hosting.md" is a dead
     // click. The link must carry a scheme and host.
     expect(SELF_HOSTING_DOC_PATH).toMatch(/^https:\/\//);
   });

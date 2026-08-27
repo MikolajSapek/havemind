@@ -6,7 +6,7 @@
  * injection so unit tests are fully deterministic (they load and await the real
  * WASM module once, then pass it in). We depend on the STRUCTURAL surface below
  * rather than the whole `@types/libsodium-wrappers-sumo` namespace so the DI
- * contract is explicit and small — the real libsodium object satisfies it.
+ * contract is explicit and small, the real libsodium object satisfies it.
  *
  * The sumo build is required because Argon2id (`crypto_pwhash`) is NOT present
  * in the standard `libsodium-wrappers` build; only the sumo build carries it.
@@ -53,7 +53,7 @@ export interface Sodium {
   // --- Anonymous public-key encryption (sealed box, X25519) ----------------
   // Used by the encrypted-checkpoint layer (plans/006): the server holds ONLY
   // the recipient public key, so it can SEAL a new checkpoint but can never
-  // OPEN any — only the owner's secret key (kept off-server in a recovery kit)
+  // OPEN any, only the owner's secret key (kept off-server in a recovery kit)
   // decrypts. `crypto_box_seal` uses a fresh ephemeral sender keypair per call
   // and appends a Poly1305 tag, so it provides confidentiality + integrity to
   // the secret-key holder (a tampered sealed box makes `crypto_box_seal_open`

@@ -425,7 +425,7 @@ describe('sync push/pull routes', () => {
     // DEFAULT_MAX_PAYLOAD_BYTES ceiling base64-inflates to a wire size that
     // exceeds the Fastify body limit first. This is accepted, pre-existing
     // behaviour (see app.test.ts "rejects JSON bodies above the configured
-    // limit") — the transport layer's 413 is as valid a rejection as the
+    // limit"), the transport layer's 413 is as valid a rejection as the
     // application layer's 422, per the two limits' documented headroom.
     const fixture = makeFixture();
     const app = createApp(fixture);
@@ -551,7 +551,7 @@ describe('sync push/pull routes', () => {
 
     // Validate-before-write: the rejected revision is caught by the read-only
     // feasibility check BEFORE its payload is persisted, so no orphan bytes
-    // reach the content-addressed store (audit fix #7 — the disk-fill vector).
+    // reach the content-addressed store (audit fix #7, the disk-fill vector).
     const orphanHash = await hashBlob(Buffer.from(rejectedContent, 'utf8'));
     expect(existsSync(fixture.blobStore.pathForHash(orphanHash))).toBe(false);
 
@@ -561,7 +561,7 @@ describe('sync push/pull routes', () => {
     const acceptedHash = await hashBlob(Buffer.from('opaque-2', 'utf8'));
     expect(existsSync(fixture.blobStore.pathForHash(originalHash))).toBe(true);
     expect(existsSync(fixture.blobStore.pathForHash(acceptedHash))).toBe(true);
-    // Only the two referenced blobs exist on disk — nothing orphaned.
+    // Only the two referenced blobs exist on disk, nothing orphaned.
     expect(await fixture.blobStore.listHashes()).toHaveLength(2);
 
     const pulled = await app.inject({
@@ -581,7 +581,7 @@ describe('sync push/pull routes', () => {
     const app = createApp(fixture);
 
     // The core audit vector: a member repeatedly pushes a large payload that
-    // names a nonexistent parent. Each push is rejected MISSING_PARENT — and
+    // names a nonexistent parent. Each push is rejected MISSING_PARENT, and
     // must persist NO blob, or the shared data-root grows without bound.
     const rejected = await push(app, fixture.accessTokenA, VAULT_A, [
       revisionInput(REVISION_2, [REVISION_1], 'k-missing', 'orphan-payload'),
@@ -824,7 +824,7 @@ describe('sync push/pull routes', () => {
     // A cursor "from the future" (after > highest committed sequence) can arise
     // when restoreInstance rotates server_epoch back to an older backup whose
     // max sequence is lower than the cursor a client still holds. The client
-    // pulls WITHOUT the epoch param, so the epoch guard never fires — this must
+    // pulls WITHOUT the epoch param, so the epoch guard never fires, this must
     // still fail closed rather than silently return an empty page and skip
     // re-issued sequences.
     const future = await app.inject({
@@ -917,7 +917,7 @@ describe('sync push/pull routes', () => {
       expect(blobHash).toBeDefined();
 
       // Three blob GETs from the same authenticated device, one more than the
-      // configured maxRequests of 2 — none should be rate limited because a
+      // configured maxRequests of 2, none should be rate limited because a
       // blob GET with a valid session never consumes the bucket.
       const responses = await Promise.all(
         Array.from({ length: 3 }, async () =>

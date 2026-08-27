@@ -5,7 +5,7 @@ import { randomInt } from 'node:crypto';
  * the joining device to the vault owner over an out-of-band human channel. It is
  * generated once per invitation with the platform CSPRNG (never `Math.random`)
  * and stored verbatim, so the value the invitee sees and the value the server
- * compares are byte-identical — there is no derivation step that could diverge.
+ * compares are byte-identical, there is no derivation step that could diverge.
  *
  * Six digits is low entropy on its own; the server-authoritative 3-attempt cap
  * (`MAX_APPROVAL_ATTEMPTS`) bounds guessing, so no extra complexity is added.

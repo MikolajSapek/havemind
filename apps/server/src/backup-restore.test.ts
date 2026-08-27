@@ -484,8 +484,8 @@ describe('backup retention', () => {
   /**
    * Rewrites the artifact's database snapshot so it keeps a valid SQLite header
    * and the EXACT byte length the manifest recorded, while every page after the
-   * header is garbage. The old structural check — "the file exists and is
-   * non-empty" — passes on this file; `PRAGMA integrity_check` does not.
+   * header is garbage. The old structural check, "the file exists and is
+   * non-empty", passes on this file; `PRAGMA integrity_check` does not.
    */
   async function corruptDatabaseAfterHeader(backupDir: string): Promise<void> {
     const path = join(backupDir, DB_FILENAME);
@@ -498,7 +498,7 @@ describe('backup retention', () => {
   }
 
   /**
-   * Same size, valid header AND valid page 1 — only interior pages are garbage.
+   * Same size, valid header AND valid page 1, only interior pages are garbage.
    * This is the variant where `PRAGMA integrity_check` returns a non-`ok`
    * report instead of throwing, so it pins the "result is not exactly ok" arm.
    */

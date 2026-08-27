@@ -11,7 +11,7 @@ import {
   type ConflictVaultPort,
 } from './conflict-resolution';
 
-/** A recording fake of the vault port — no Obsidian, fully headless. */
+/** A recording fake of the vault port, no Obsidian, fully headless. */
 function fakePort(
   overrides: Partial<{
     conflictFiles: ConflictVaultFile[];
@@ -21,7 +21,7 @@ function fakePort(
     existingPaths: string[];
     /**
      * Paths whose `readText` returns null (absent) even though `exists` may
-     * report present — models the exists→read TOCTOU (MINOR 6).
+     * report present, models the exists→read TOCTOU (MINOR 6).
      */
     nullReads: string[];
   }> = {},
@@ -243,7 +243,7 @@ describe('createConflictResolver', () => {
     expect(port.writes).toEqual([]);
   });
 
-  it('keepTheirs aborts as "vanished" when the sweep already deleted the copy — never blanks the note', async () => {
+  it('keepTheirs aborts as "vanished" when the sweep already deleted the copy, never blanks the note', async () => {
     // The copy is gone (the auto-sweep resolved and deleted it): `exists`
     // reports absent, so keepTheirs must NOT read '' and overwrite the good,
     // merged live note with an empty string (the data-loss bug).
@@ -286,7 +286,7 @@ describe('createConflictResolver', () => {
 
   it('keepTheirs writes a verifiably-empty copy that still exists', async () => {
     // A genuinely empty copy (present on disk, empty content) is a legitimate
-    // "make the note empty" — it must still apply because the copy exists.
+    // "make the note empty", it must still apply because the copy exists.
     const port = fakePort({
       contents: { [newCopy.copyPath]: '' },
       existingPaths: [newCopy.copyPath],

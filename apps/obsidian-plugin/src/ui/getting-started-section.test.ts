@@ -5,7 +5,7 @@
  * resolved against its own origin, then as an absolute href that still did
  * nothing, because a bare <a> inside a plugin view does not reliably reach the
  * OS browser. `getting-started-render.test.ts` only pins the URL *value*, which
- * both broken versions satisfied — so these tests pin the click *behaviour*.
+ * both broken versions satisfied, so these tests pin the click *behaviour*.
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest';

@@ -1,6 +1,6 @@
 /**
  * One-time startup rebase of persisted hashes after the AUD-03 canonicalization
- * change (PART 2 — CRITICAL MIGRATION, live pilot with real user data).
+ * change (PART 2, CRITICAL MIGRATION, live pilot with real user data).
  *
  * Two devices are already live-synced with base hashes and producer-mapping
  * content hashes computed under the OLD canonicalization (CRLF-only). The new
@@ -8,10 +8,10 @@
  * hashes for any file whose bytes differ only by a trailing newline or a BOM.
  * Without a rebase, the first sync cycle after the upgrade would see every such
  * file as "changed" (stored old hash ≠ freshly canonicalized hash) and push a
- * spurious revision — the exact false-conflict cascade the pilot must avoid.
+ * spurious revision, the exact false-conflict cascade the pilot must avoid.
  *
  * So on the first startup under the new code, BEFORE the first sync cycle, we
- * recompute — from the current on-disk bytes, under the NEW canonicalization —
+ * recompute, from the current on-disk bytes, under the NEW canonicalization,
  * the stored producer-mapping `content`/`contentHash` and the `baseHashes` for
  * every entry whose file still exists on disk, and overwrite the stored value.
  * A version marker persisted in plugin data guarantees this runs exactly once.
@@ -21,7 +21,7 @@
  * create/rename will reconcile them; leaving the stale hash cannot cause a
  * silent overwrite because no on-disk content exists to compare against.
  *
- * This is hash-side only — no user file is ever rewritten by the rebase.
+ * This is hash-side only, no user file is ever rewritten by the rebase.
  */
 
 import { pathExtension, SYNCABLE_BINARY_EXTENSIONS } from '../obsidian/vault-adapter';
@@ -29,13 +29,13 @@ import { pathExtension, SYNCABLE_BINARY_EXTENSIONS } from '../obsidian/vault-ada
 /** The current rebase schema version; bump only if the canonical form changes. */
 export const CANONICALIZATION_REBASE_VERSION = 1;
 
-/** Allowlisted binary extensions (F9), lowercased, no dot — for the fallback below. */
+/** Allowlisted binary extensions (F9), lowercased, no dot, for the fallback below. */
 const BINARY_EXTENSION_SET: ReadonlySet<string> = new Set(SYNCABLE_BINARY_EXTENSIONS);
 
 /**
  * Whether a stored mapping refers to a binary attachment (F9). Prefers the
  * durable `contentKind` discriminator, but ALSO treats any path with an
- * allowlisted binary extension as binary — so even a legacy, kind-less mapping
+ * allowlisted binary extension as binary, so even a legacy, kind-less mapping
  * (persisted before the discriminator was durable) is never markdown-rebased
  * and its raw-byte hash never corrupted. Belt-and-braces for the BLOCKER.
  */
@@ -70,9 +70,9 @@ export interface RebaseKeys {
 export interface RebaseDependencies {
   readonly data: RebaseDataPort;
   readonly vault: RebaseVaultPort;
-  /** SHA-256 over the canonical content — the plugin's `hashPlaintext`. */
+  /** SHA-256 over the canonical content, the plugin's `hashPlaintext`. */
   readonly hash: (content: string) => Promise<string>;
-  /** The canonical content transform — the plugin's `canonicalizeMarkdown`. */
+  /** The canonical content transform, the plugin's `canonicalizeMarkdown`. */
   readonly canonicalize: (content: string) => string;
   readonly keys: RebaseKeys;
   /** Defaults to `CANONICALIZATION_REBASE_VERSION`. */
@@ -145,7 +145,7 @@ export async function rebaseCanonicalizedHashes(
   // fileId → on-disk path, so a base hash keyed only by fileId can be resolved.
   const pathByFileId = new Map<string, string>();
   // Binary attachments (F9) are hashed over RAW bytes, which are
-  // canonicalisation-independent, so they must NOT be rebased — recomputing them
+  // canonicalisation-independent, so they must NOT be rebased, recomputing them
   // via the markdown `canonicalize`/`hash` path would corrupt their byte hash.
   const binaryFileIds = new Set<string>();
 
@@ -194,7 +194,7 @@ export async function rebaseCanonicalizedHashes(
     }
     const nextBaseHashes: Record<string, unknown> = {};
     for (const [fileId, hash] of Object.entries(persist.baseHashes)) {
-      // A binary attachment's base hash is over raw bytes (F9) — leave it exactly
+      // A binary attachment's base hash is over raw bytes (F9), leave it exactly
       // as stored, never recompute it through the markdown canonicalise path.
       if (binaryFileIds.has(fileId)) {
         nextBaseHashes[fileId] = hash;

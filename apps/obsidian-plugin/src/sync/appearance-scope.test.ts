@@ -3,13 +3,13 @@ import fc from 'fast-check';
 
 import { isSyncableConfigPath } from './appearance-scope';
 
-describe('isSyncableConfigPath — explicit appearance allowlist', () => {
+describe('isSyncableConfigPath, explicit appearance allowlist', () => {
   it.each([
     '.obsidian/appearance.json',
     '.obsidian/app.json',
     '.obsidian/hotkeys.json',
     '.obsidian/core-plugins.json',
-    // Graph view settings, node colour groups included — a stated user
+    // Graph view settings, node colour groups included, a stated user
     // requirement, and settings-only JSON with no code path.
     '.obsidian/graph.json',
     '.obsidian/snippets/my-theme.css',
@@ -32,10 +32,10 @@ describe('isSyncableConfigPath — explicit appearance allowlist', () => {
   });
 });
 
-describe('isSyncableConfigPath — plugin code and state are never in scope', () => {
+describe('isSyncableConfigPath, plugin code and state are never in scope', () => {
   it('rejects EVERY foreign plugin file, code included (audit #3 finding 2)', () => {
     // Mirroring a peer's plugin code would let any vault member overwrite
-    // another member's installed plugin — remote code execution on reload.
+    // another member's installed plugin, remote code execution on reload.
     expect(isSyncableConfigPath('.obsidian/plugins/dataview/main.js')).toBe(false);
     expect(isSyncableConfigPath('.obsidian/plugins/dataview/manifest.json')).toBe(
       false,
@@ -111,7 +111,7 @@ describe('isSyncableConfigPath — plugin code and state are never in scope', ()
   });
 });
 
-describe('isSyncableConfigPath — out of scope', () => {
+describe('isSyncableConfigPath, out of scope', () => {
   it('returns false for anything not under .obsidian/', () => {
     expect(isSyncableConfigPath('notes/Daily.md')).toBe(false);
     expect(isSyncableConfigPath('README.md')).toBe(false);
@@ -120,7 +120,7 @@ describe('isSyncableConfigPath — out of scope', () => {
   });
 });
 
-describe('isSyncableConfigPath — property tests', () => {
+describe('isSyncableConfigPath, property tests', () => {
   it('NO path under .obsidian/plugins/ ever returns true', () => {
     fc.assert(
       fc.property(

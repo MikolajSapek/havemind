@@ -8,7 +8,7 @@
  * The server is opaque (rule 3): the client only ships pre-built revision
  * envelopes (protected header + base64 payload) and reads back ordered receipts
  * and events. It never asks the server to diff, merge or resolve provenance. All
- * responses are validated defensively — a malformed or non-2xx response raises a
+ * responses are validated defensively, a malformed or non-2xx response raises a
  * transport error so the runner treats the cycle as offline and backs off,
  * rather than advancing its cursor on garbage.
  */
@@ -63,7 +63,7 @@ export interface RequestUrlTransportOptions {
   /**
    * The current connection identity. When present, the transport re-stamps
    * `vaultId`/`expectedMemberId`/`expectedDeviceId` onto every outbound header
-   * just before it ships — so a revision that was built (or enqueued) under a
+   * just before it ships, so a revision that was built (or enqueued) under a
    * prior-session identity can never carry a stale actor into the request. This
    * is the single choke point every revision passes through, so it guarantees
    * rule 3 (every outbound revision carries the current actor identity)
@@ -76,7 +76,7 @@ export interface RequestUrlTransportOptions {
 export class RequestUrlTransportError extends Error {
   override readonly name = 'RequestUrlTransportError';
 
-  /** True on HTTP 401 — the session was refused; the loop must stop, not retry. */
+  /** True on HTTP 401, the session was refused; the loop must stop, not retry. */
   readonly authDenied: boolean;
 
   /**
@@ -102,7 +102,7 @@ export class RequestUrlTransportError extends Error {
  * Server error codes (returned per revision on a 200, or as the whole-request
  * error code) that will never be satisfied by re-sending the identical bytes, so
  * the runner dead-letters them. HEAD_SET_CHANGED and MISSING_PARENT are
- * deliberately excluded — they are retryable once the client pulls the newer
+ * deliberately excluded, they are retryable once the client pulls the newer
  * head or the missing parent lands, so they stay in the outbox.
  */
 const PERMANENT_SYNC_CODES: ReadonlySet<string> = new Set([
@@ -133,8 +133,8 @@ function isPermanentStatus(status: number): boolean {
  * The stored header froze whatever identity was live when the revision was built
  * or enqueued; a prior-session producer (or a replayed outbox entry) can carry a
  * stale `expectedMemberId`/`expectedDeviceId`, which the server 403s on the whole
- * request. Overwriting the three identity fields here — the one point every
- * revision passes through on its way to the wire — guarantees no revision ever
+ * request. Overwriting the three identity fields here, the one point every
+ * revision passes through on its way to the wire, guarantees no revision ever
  * ships a stale actor. Non-identity header fields are preserved untouched. When
  * no identity is configured the header is passed through unchanged.
  */
@@ -298,7 +298,7 @@ function parsePullResponse(response: RequestUrlResponseLike): PullResult {
     // Surface the incoming revision's DAG parents (relayed on the receipt) so
     // the apply side can prove a causal fast-forward from the local head instead
     // of falling back to the permissive no-parents path (rule 3). Absent or
-    // malformed parents decode to `undefined` — the pre-existing best-effort
+    // malformed parents decode to `undefined`, the pre-existing best-effort
     // behaviour, never a hard failure.
     const rawParents = raw.receipt.parentRevisionIds;
     const parentRevisionIds =

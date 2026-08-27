@@ -351,7 +351,7 @@ describe('VaultChangeObserver', () => {
   it('dedupes a create event for an already-mapped path (reflected remote write, no re-push)', async () => {
     // A remote apply adopts the incoming fileId into the mapping and writes the
     // file; Obsidian then fires a 'create' event. That reflected create must NOT
-    // mint a new fileId — it dedupes to a no-op because the content matches.
+    // mint a new fileId, it dedupes to a no-op because the content matches.
     const vault = new MemoryVault();
     vault.contents.set('Notes/Shared.md', 'SHARED\n');
     const repository = new MemoryRepository();
@@ -361,7 +361,7 @@ describe('VaultChangeObserver', () => {
     await observer.observeCreate('Notes/Shared.md');
     expect(repository.commits).toHaveLength(1);
 
-    // A second create for the same unchanged path is a no-op — never a fork.
+    // A second create for the same unchanged path is a no-op, never a fork.
     const reflected = await observer.observeCreate('Notes/Shared.md');
     expect(reflected).toBeNull();
     expect(repository.commits).toHaveLength(1);
@@ -463,7 +463,7 @@ describe('VaultChangeObserver folder events (AUD-04)', () => {
     // Obsidian (or another plugin) can move a whole folder and emit only a
     // TFolder rename event. Without folder-level handling the child notes keep
     // their OLD paths, so a later edit of a moved child fails to resolve and
-    // mints a fresh fileId — forking the note on the peer.
+    // mints a fresh fileId, forking the note on the peer.
     const vault = new MemoryVault();
     vault.contents.set('Archive/Sub/a.md', 'A');
     vault.contents.set('Archive/Sub/b.md', 'B');
@@ -537,7 +537,7 @@ describe('VaultChangeObserver folder events (AUD-04)', () => {
 
     expect(childA).toBeNull();
     expect(childB).toBeNull();
-    // Exactly one rename per child — the late per-child events are no-ops.
+    // Exactly one rename per child, the late per-child events are no-ops.
     expect(repository.commits).toHaveLength(2);
     expect(repository.mappings.get('file-a')?.path).toBe('Archive/Sub/a.md');
     expect(repository.mappings.get('file-b')?.path).toBe('Archive/Sub/b.md');
@@ -597,7 +597,7 @@ describe('VaultChangeObserver folder events (AUD-04)', () => {
 
     expect(ops).toHaveLength(1);
     expect(repository.mappings.get('file-x')?.path).toBe('Notes/Moved/x.md');
-    // Notes/Subtle is a sibling, not a child — it must be untouched.
+    // Notes/Subtle is a sibling, not a child, it must be untouched.
     expect(repository.mappings.get('file-y')?.path).toBe('Notes/Subtle/y.md');
   });
 
@@ -674,7 +674,7 @@ function mapping(
 }
 
 /**
- * A vault whose `readText` returns '' for a missing path — exactly how the real
+ * A vault whose `readText` returns '' for a missing path, exactly how the real
  * Obsidian snapshot adapter behaves (`file === null ? '' : …`). This is what
  * turns a stale settled modify into a phantom EMPTY create, so it is the fixture
  * that reproduces AUD phantom-create bug faithfully.
@@ -760,7 +760,7 @@ describe('settled modify vs rename/delete of the same path (phantom-create guard
     timer.advance(2000);
     await flush();
 
-    // Assert: exactly one create (the setup) and one rename — no phantom create
+    // Assert: exactly one create (the setup) and one rename, no phantom create
     // for the vacated old path.
     const kinds = repo.commits.map((commit) => commit.operation.kind);
     expect(kinds).toEqual(['create', 'rename']);
@@ -801,7 +801,7 @@ describe('settled modify vs rename/delete of the same path (phantom-create guard
     timer.advance(2000);
     await flush();
 
-    // Assert: create (setup) then delete only — the deleted note never resurrects
+    // Assert: create (setup) then delete only, the deleted note never resurrects
     // as a phantom empty create.
     const kinds = repo.commits.map((commit) => commit.operation.kind);
     expect(kinds).toEqual(['create', 'delete']);
@@ -809,7 +809,7 @@ describe('settled modify vs rename/delete of the same path (phantom-create guard
 
   it('a settled modify for a path no longer on disk never becomes a phantom create (safety net)', async () => {
     // Belt-and-braces: even without the debounce cancel, an observeModify for a
-    // path that is neither mapped nor on disk must resolve to nothing — never a
+    // path that is neither mapped nor on disk must resolve to nothing, never a
     // fresh fileId + empty create pushed to the peer.
     const vault = new PhantomVault(); // 'Notes/Gone.md' is absent
     const repo = new MemoryRepository();
@@ -827,7 +827,7 @@ describe('reserved conflict folder exclusion', () => {
     // Drift regression: the folder name used to be a private literal here, a
     // second literal in `conflict-resolution.ts` and a third in
     // `obsidian-adapters.ts`. Renaming one would have started re-syncing every
-    // conflict copy — an infinite echo. Assert the exclusion tracks the ONE
+    // conflict copy, an infinite echo. Assert the exclusion tracks the ONE
     // exported constant instead of a copy of its current value.
     expect(classifyVaultPath(`${CONFLICT_FOLDER}/copy.md`).eligible).toBe(false);
     expect(

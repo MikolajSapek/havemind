@@ -1,4 +1,4 @@
-# Multi-vault support — implementation plan
+# Multi-vault support, implementation plan
 
 Status: proposed (awaiting go). Owner: Mikolaj. Date: 2026-07-26.
 
@@ -8,7 +8,7 @@ One Havemind server hosts several **independent, isolated vaults** on a single
 container. Example: Mikolaj + Hubert share vault A; Janek + Maciek share vault B;
 neither team can see, wake, or write the other's data.
 
-## Key finding — this is additive, not a rewrite
+## Key finding, this is additive, not a rewrite
 
 The server is already vault-scoped end to end. Every sync path keys on `vault_id`:
 
@@ -35,7 +35,7 @@ Nothing else in the model needs to change. No sessions table exists (auth is
 per-request via tokens + membership check), so there is no global session state
 to leak across vaults.
 
-## Design decision — Model B (independent owners per vault)  ✅ chosen
+## Design decision, Model B (independent owners per vault)  ✅ chosen
 
 Every vault has its **own owner**, independent of the others. Janek owns vault B
 and administers it (invites/approves/revokes his own members) without any relation
@@ -50,8 +50,8 @@ How this maps onto the existing model:
   owner-only route already checks `requireOwnerMembership(membershipId, vaultId)`.
   So "different owner per vault" is natively supported at the authorization layer.
 - The only true singleton is `users.is_instance_owner = 1` (unique index
-  `one_active_instance_owner`). We keep **exactly one instance owner** — the person
-  who bootstrapped the server (Mikolaj) — purely as the server bootstrap admin.
+  `one_active_instance_owner`). We keep **exactly one instance owner**, the person
+  who bootstrapped the server (Mikolaj), purely as the server bootstrap admin.
   **Additional vault owners are ordinary users** (`is_instance_owner = 0`) that
   hold an `owner`-role membership in their own vault. No schema change, no conflict
   with the unique index.
@@ -64,7 +64,7 @@ Future note: if we ever want the instance owner to have zero special status, dro
 the `is_instance_owner` flag entirely and make bootstrap just "create the first
 owner + vault". Not required now.
 
-## Client model — no client change needed
+## Client model, no client change needed
 
 One Havemind connection = one vault = one Obsidian vault, which is already how the
 plugin works (it stores a single `vaultId` per connection and sends it in every
@@ -101,7 +101,7 @@ verify membership for that `vaultId` before returning events.
   vault you are not a member of → 403, no events leaked.
 
 ### 4. Cross-vault isolation hardening + tests  ("zabezpiecz")
-No new mechanism — prove and lock the existing isolation with adversarial tests,
+No new mechanism, prove and lock the existing isolation with adversarial tests,
 and audit that every vault route enforces membership.
 - Add tests: a member of vault A receives 401/403 (never data) on vault B's
   `/revisions`, `/wait`, `/events`, `/blobs/:hash`, and invitation approve/reject.
@@ -130,7 +130,7 @@ new query paths.
 
 ## TDD order (red → green → refactor, per item)
 
-1. Isolation tests first (item 4) against the CURRENT code — they should already
+1. Isolation tests first (item 4) against the CURRENT code, they should already
    pass for sync routes (proves the base is sound) and FAIL where the
    single-vault shortcuts leak (items 2–3). This is our safety net before any change.
 2. `create-vault` (item 1): red test for a second isolated vault → implement.
@@ -152,7 +152,7 @@ new query paths.
   1. deploy new image, 2. `create-vault --vault TeamB`, 3. hand the token to the
   second team, 4. they onboard into vault B; vault A is untouched.
 
-## Workstream 2 — run Havemind on any server (portable deploy)
+## Workstream 2, run Havemind on any server (portable deploy)
 
 Goal: stand up a Havemind instance on a rented VPS or a friend's box, not only the
 home server, with a clean one-command deploy.
@@ -161,23 +161,23 @@ What this actually needs (it is mostly packaging, not new server logic):
 
 - **No hardcoded host.** Audit for any baked-in home-server hostname / IP / paths;
   everything host-specific must come from env/config (`PORT`, data dir, instance
-  name). (A private hostname once leaked into a plugin placeholder — re-grep to be
+  name). (A private hostname once leaked into a plugin placeholder, re-grep to be
   sure none remains in server or plugin.)
 - **Self-contained deploy bundle:** a `docker-compose.yml` + `.env.example` + a
   short `DEPLOY.md` (create data volume, `docker compose up -d`, run
   `havemind setup`, then `create-vault` per team). One named volume for the SQLite
   DB + blobs; non-root, read-only, cap-dropped container (as today).
-- **Tailnet-only — no other networking model.** Every Havemind instance is
+- **Tailnet-only, no other networking model.** Every Havemind instance is
   reached exclusively over Tailscale: the box (VPS or a friend's machine) **joins
   the tailnet** and is fronted by `tailscale serve`. Nothing is ever exposed to
   the public internet. Running on a VPS is just "a different machine on the
-  tailnet" — almost no code change. Public/internet exposure is permanently out of
+  tailnet", almost no code change. Public/internet exposure is permanently out of
   scope for this project; do not design or build it.
 - **Privileged steps stay with the operator.** Installing Docker/Tailscale, `sudo`,
   and `tailscale serve` on the new box are done by whoever owns that box, not the
   agent. The agent ships the bundle + exact commands.
 
-## Workstream 3 — self-hoster onboarding guide (ships with the plugin)
+## Workstream 3, self-hoster onboarding guide (ships with the plugin)
 
 Anyone who downloads the plugin must be able to go from zero to a working shared
 vault without prior context. Deliverable: a complete, accurate getting-started
@@ -185,25 +185,25 @@ guide in the README + `docs/self-hosting.md`, plus a short pointer from the
 plugin's onboarding panel.
 
 Must cover, in order, as copy-paste steps:
-1. **Requirements** — a machine you control (home box or VPS), Docker, a Tailscale
+1. **Requirements**, a machine you control (home box or VPS), Docker, a Tailscale
    account; everyone who will join installs Tailscale and is on the same tailnet.
-2. **Stand up your server** — pull/run the Havemind container via the deploy
+2. **Stand up your server**, pull/run the Havemind container via the deploy
    bundle (`docker-compose.yml` + `.env.example`), front it with `tailscale serve`.
    (This reuses Workstream 2's bundle.)
-3. **Become the owner** — run `havemind setup --owner <you> --vault <name>`; it
+3. **Become the owner**, run `havemind setup --owner <you> --vault <name>`; it
    prints your single-use pairing token. Explain what "instance owner" means.
-4. **Create more vaults** — `havemind create-vault --owner <name> --vault <name>`
+4. **Create more vaults**, `havemind create-vault --owner <name> --vault <name>`
    for each separate team/vault (Model B: each vault gets its own owner + token).
    Show the Piotrek+Kuba vs Maciek+Janek example explicitly.
-5. **Connect the plugin** — install plugin, open the Havemind panel, paste the
+5. **Connect the plugin**, install plugin, open the Havemind panel, paste the
    Server URL + pairing token, Connect.
-6. **Invite people** — how the owner issues an invitation and approves the 6-digit
+6. **Invite people**, how the owner issues an invitation and approves the 6-digit
    code read aloud by the joiner.
-7. **Safety notes** — dedicated vault (not your main one), don't run another sync
+7. **Safety notes**, dedicated vault (not your main one), don't run another sync
    tool on the same vault, tailnet-only (never public).
 
 Accuracy gate: every command in the guide must match the SHIPPED CLI and be run
-once against a real local instance before publishing — no invented flags, no dead
+once against a real local instance before publishing, no invented flags, no dead
 steps. Therefore this workstream lands AFTER Workstream 1 (`create-vault`) and the
 deploy bundle are implemented and verified.
 
@@ -216,5 +216,5 @@ because vault A keeps working exactly as today (it is just "the first vault").
 ## Open questions for sign-off
 
 - Model A (single admin owns all vaults) confirmed, or do you want Model B
-  (independent owners) — bigger, later?
+  (independent owners), bigger, later?
 - OK to keep the client model "one Obsidian vault per team" (no plugin change)?

@@ -4,13 +4,13 @@ import fc from 'fast-check';
 import { isSyncableConfigPath } from './appearance-scope.js';
 import { canonicalizeVaultPath, isReservedVaultPath } from './canonicalization.js';
 
-describe('isSyncableConfigPath — explicit appearance allowlist', () => {
+describe('isSyncableConfigPath, explicit appearance allowlist', () => {
   it.each([
     '.obsidian/appearance.json',
     '.obsidian/app.json',
     '.obsidian/hotkeys.json',
     '.obsidian/core-plugins.json',
-    // Graph view settings, node colour groups included — a stated user
+    // Graph view settings, node colour groups included, a stated user
     // requirement, and settings-only JSON with no code path.
     '.obsidian/graph.json',
     '.obsidian/snippets/tweaks.css',
@@ -27,7 +27,7 @@ describe('isSyncableConfigPath — explicit appearance allowlist', () => {
   });
 
   it.each([
-    // FINDING 2 — foreign plugin CODE must never cross the boundary: mirroring
+    // FINDING 2, foreign plugin CODE must never cross the boundary: mirroring
     // it lets any member replace another member's installed plugin, which is
     // remote code execution on the next Obsidian reload.
     '.obsidian/plugins/dataview/main.js',
@@ -84,7 +84,7 @@ describe('isSyncableConfigPath — explicit appearance allowlist', () => {
   });
 });
 
-describe('canonicalizeVaultPath — .obsidian appearance-allowlist exception', () => {
+describe('canonicalizeVaultPath, .obsidian appearance-allowlist exception', () => {
   it.each([
     '.obsidian/appearance.json',
     '.obsidian/core-plugins.json',

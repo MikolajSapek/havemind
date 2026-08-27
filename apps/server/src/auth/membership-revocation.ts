@@ -73,14 +73,14 @@ function requireUuid(value: string): string {
  * Permanently revokes a member's connection to the vault. Revocation is
  * APPEND-ONLY: the membership row is never deleted, only its `status` flips to
  * `revoked` (with `revoked_at` stamped once). The member's past revisions and
- * their attribution stay intact and remain pullable by the remaining members —
+ * their attribution stay intact and remain pullable by the remaining members,
  * this is a status change, not a history rewrite.
  *
  * In a single write transaction it: flips the membership to `revoked`, and for
  * every device the member owns IN THAT VAULT burns the device row plus every
  * refresh family and access token bound to it (via the session repository's
  * in-transaction primitive). Devices scoped to the member's OTHER vaults are
- * untouched — losing one vault never locks a member out of another (AUD2-04).
+ * untouched, losing one vault never locks a member out of another (AUD2-04).
  * The member is therefore terminally locked out of this vault: their next
  * sync/refresh resolves to no active session and fails closed with the terminal
  * 401 path, and a revoked membership can no longer be rejoined or re-admitted
@@ -130,7 +130,7 @@ export class MembershipRevocationService {
 
       // Scoped to the revoked vault (AUD2-04): a member who also belongs to
       // another vault keeps that vault's devices and sessions. `vault_id IS
-      // NULL` is the legacy fallback — a device onboarded before the scope
+      // NULL` is the legacy fallback, a device onboarded before the scope
       // column cannot prove its vault, so it is still burned (fail closed,
       // exactly the pre-fix behaviour). NULL never spares a device.
       const devices = this.#database

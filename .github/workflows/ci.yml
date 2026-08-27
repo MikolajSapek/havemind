@@ -50,7 +50,7 @@ jobs:
         run: npm run test:coverage
 
       # The pane's geometry is transcribed from a design that uses no classes
-      # and no stylesheet — 350 elements styled inline — so every value in
+      # and no stylesheet, 350 elements styled inline, so every value in
       # styles.css was once copied across by hand, and hand-copying drifted.
       # `design-tokens.test.ts` holds the stylesheet to tokens.json; this step
       # holds tokens.json to the design itself, so neither half can go stale
@@ -69,14 +69,14 @@ jobs:
 
       # --- Acceptance tests AT1–AT4 (plan 003); AT5–AT6 run in release.yml ---
 
-      - name: AT1 — three-file artifact present
+      - name: AT1, three-file artifact present
         working-directory: apps/obsidian-plugin
         run: |
           npm run build
           test -f main.js && test -f manifest.json && test -f styles.css || { echo FAIL; exit 1; }
           echo "PASS: three-file artifact present"
 
-      - name: AT2 — manifest.json.version == package.json.version
+      - name: AT2, manifest.json.version == package.json.version
         working-directory: apps/obsidian-plugin
         run: |
           MANIFEST_V=$(node -p "require('./manifest.json').version")
@@ -84,7 +84,7 @@ jobs:
           [ "$MANIFEST_V" = "$PKG_V" ] || { echo "FAIL: manifest=$MANIFEST_V pkg=$PKG_V mismatch"; exit 1; }
           echo "PASS: versions aligned at $MANIFEST_V"
 
-      - name: AT3 — versions.json entry matches manifest minAppVersion
+      - name: AT3, versions.json entry matches manifest minAppVersion
         run: |
           V=$(node -p "require('./apps/obsidian-plugin/manifest.json').version")
           MIN=$(node -p "require('./apps/obsidian-plugin/manifest.json').minAppVersion")
@@ -92,7 +92,7 @@ jobs:
           [ "$GOT" = "$MIN" ] || { echo "FAIL: versions.json['$V']=$GOT expected $MIN"; exit 1; }
           echo "PASS: versions.json entry matches manifest"
 
-      - name: AT4 — manifest-beta.json consistent superset of manifest
+      - name: AT4, manifest-beta.json consistent superset of manifest
         working-directory: apps/obsidian-plugin
         run: |
           test -f manifest-beta.json || { echo "FAIL: manifest-beta.json missing"; exit 1; }
@@ -110,11 +110,11 @@ jobs:
       # guard (audit #3 finding 1): docs/plans must stay scrubbed of real
       # tailnet hostnames/IPs and home LAN addresses on every push, not just at
       # tag time. Keep this pattern identical to AT6 in release.yml.
-      - name: AT6 — no private-infra markers in publishable files
+      - name: AT6, no private-infra markers in publishable files
         run: |
           if grep -rInE 'tail[0-9a-f]{4,}\.ts\.net|100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.[0-9]{1,3}\.[0-9]{1,3}|Documents/[^/]*Private|NOPASSWD|192\.168\.[0-9]{1,3}\.[0-9]{1,3}' \
             --include='*.md' --include='*.json' --include='*.ts' --include='*.mjs' --include='*.sh' --include='*.sql' \
             --exclude-dir=node_modules --exclude-dir=.git .; then
-            echo "REVIEW: matches found — must be scrubbed or justified before public tag"; exit 1
+            echo "REVIEW: matches found, must be scrubbed or justified before public tag"; exit 1
           fi
           echo "PASS: no private-infra markers in publishable files"

@@ -1,7 +1,7 @@
 /**
  * Every field has a name, and every message is announced.
  *
- * The pane's forms were built as a `<label>` followed by an `<input>` — visually
+ * The pane's forms were built as a `<label>` followed by an `<input>`, visually
  * a labelled field, programmatically two unrelated elements. A screen reader
  * reaching the textarea announced "edit text, blank": the word "Invitation" sat
  * beside it in a different element with nothing joining them. That affects the
@@ -9,7 +9,7 @@
  * and reading back an approval code.
  *
  * The second half is the status line. "Connecting…", "That code did not match",
- * "Copied" — all written into a plain div, so a sighted user saw the result and
+ * "Copied", all written into a plain div, so a sighted user saw the result and
  * a screen-reader user got silence. A live region announces the change without
  * moving focus, which matters most here: the user is mid-form and moving focus
  * would lose their place.
@@ -105,7 +105,7 @@ describe('form fields carry an accessible name', () => {
 
   it('gives every field a distinct id', () => {
     // Two fields sharing an id makes `label[for]` ambiguous, so the second
-    // silently loses its name — the failure this test exists to prevent.
+    // silently loses its name, the failure this test exists to prevent.
     const root = pane(CONNECT);
     const ids = fields(root)
       .map((field) => field.attrs['id'])
@@ -148,7 +148,7 @@ describe('the minted invitation cannot be edited', () => {
   it('renders the envelope readonly', () => {
     // The field is described as something to copy, and Copy sends the ORIGINAL
     // value. A user who edited it would copy something other than what they
-    // see — a silent mismatch in the one string that has to be exact.
+    // see, a silent mismatch in the one string that has to be exact.
     const root = pane({
       panelProvider: () => buildConnectionPanel({ status: 'synced' }),
       composerProvider: () => ({

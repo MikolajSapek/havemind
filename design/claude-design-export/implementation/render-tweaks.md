@@ -1,4 +1,4 @@
-# Havemind — direction 2 implementation notes
+# Havemind, direction 2 implementation notes
 
 Target: `apps/obsidian-plugin`. **No behaviour changes.** Drop-in
 `styles.css`, plus a short list of presentation-only tweaks in the render
@@ -9,7 +9,7 @@ icon-name assertions noted at the bottom.
 ## 1. styles.css
 
 Replace `apps/obsidian-plugin/styles.css` with `implementation/styles.css`.
-It is a full replacement, same class vocabulary, no new DOM requirements — the
+It is a full replacement, same class vocabulary, no new DOM requirements, the
 plugin renders correctly with only this file changed. Everything below is
 optional polish on top.
 
@@ -20,7 +20,7 @@ Notable points:
   `Approve`, `Retry now`, `Rejoin`, `Restore`, `Copy`, `Resolve`. Nothing else
   is accented.
 - Semantic status colour arrives inline from `status.ts` (`--text-success`,
-  `--text-error`, `--text-muted`) — unchanged.
+  `--text-error`, `--text-muted`), unchanged.
 - Cards became rows: `.havemind-roster-row`, `.havemind-activity-row`,
   `.havemind-conflict-row` and `.havemind-pending-row` are hairline-separated,
   transparent, and the roster keeps a 44px minimum height.
@@ -28,7 +28,7 @@ Notable points:
   drawn with `::before` from the same `--havemind-row-color` custom property
   main.ts already sets. No render change needed.
 
-## 2. Sync glyph — `status.ts` (two words)
+## 2. Sync glyph, `status.ts` (two words)
 
 `PANEL_STYLES.syncing.icon` is the only value to change; the animation is CSS.
 
@@ -50,7 +50,7 @@ this helper and call it instead of `setIcon` for the syncing state only. It is
 pure presentation; the surrounding row, label and colour token are unchanged.
 
 ```ts
-/** Six hexagon edges that scatter and merge — the Havemind syncing glyph. */
+/** Six hexagon edges that scatter and merge, the Havemind syncing glyph. */
 const COMB_EDGES: readonly [number, number, number, number][] = [
   [12, 3, 19.79, 7.5],
   [19.79, 7.5, 19.79, 16.5],
@@ -86,7 +86,7 @@ In `renderIndicator`:
 +    }
 ```
 
-## 3. Status dot for synced / conflict — `main.ts`, one class
+## 3. Status dot for synced / conflict, `main.ts`, one class
 
 `synced` and `conflict` read better as a small filled dot than a 16px glyph.
 Add one class in `renderIndicator`; the icon name, label and colour stay as
@@ -101,7 +101,7 @@ Add one class in `renderIndicator`; the icon name, label and colour stay as
 +    }
 ```
 
-## 4. Roster row — name/role on two lines, shorter action label
+## 4. Roster row, name/role on two lines, shorter action label
 
 Purely cosmetic, in `renderRejoinRoster`. Today the row is one text span; the
 mockup stacks the name over `role · status`. Same strings, same order.
@@ -144,7 +144,7 @@ And render your own membership in the accent instead of an author colour:
 +    );
 ```
 
-## 5. Activity row — path on its own line
+## 5. Activity row, path on its own line
 
 `activity-render.ts` builds `label` as `kind · path · actor`. To match the
 mockup (`Magda edited` over `Roadmap Q3.md`) add a second, presentational field
@@ -154,9 +154,9 @@ breaks:
 ```diff
  export interface ActivityRowView {
    readonly label: string;
-+  /** `author verb` — the row's first line. `label` stays the full string. */
++  /** `author verb`, the row's first line. `label` stays the full string. */
 +  readonly headline: string;
-+  /** Vault path — the row's second line. */
++  /** Vault path, the row's second line. */
 +  readonly pathLabel: string;
 ```
 
@@ -180,7 +180,7 @@ and in the activity view:
 `Restore` stays the first child after the text block, so the F5 restore contract
 is unchanged.
 
-## 6. Status bar — hexagon glyph before the text
+## 6. Status bar, hexagon glyph before the text
 
 `formatStatusBar` keeps producing `Havemind: Synced` and the same tooltip. Only
 the item gains a leading glyph; note `setText` clobbers children, so set the
@@ -194,7 +194,7 @@ text first, then prepend the icon (as the code already does for its class).
 ```
 
 If a later `setText` call wipes it, re-prepend in the same place the text is
-updated — no other logic changes.
+updated, no other logic changes.
 
 ## 7. Ribbon icon
 
@@ -208,9 +208,9 @@ this.addRibbonIcon('hexagon', 'Open Havemind', () => { /* unchanged */ });
 
 Only string/icon assertions, no logic:
 
-1. `status.test.ts` — `syncing` icon is now `hexagon`.
-2. `rejoin-roster.test.ts` / `main.*` — `Mark disconnected` → `Mark offline`.
+1. `status.test.ts`, `syncing` icon is now `hexagon`.
+2. `rejoin-roster.test.ts` / `main.*`, `Mark disconnected` → `Mark offline`.
 3. Any test asserting the roster row's single concatenated text now finds the
    name and `role · status` in two child divs.
-4. `activity-render.test.ts` — new `headline` / `pathLabel` fields (existing
+4. `activity-render.test.ts`, new `headline` / `pathLabel` fields (existing
    `label` assertions still pass).

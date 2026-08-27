@@ -5,7 +5,7 @@
  * `resolveRevision` reads the opaque payload back from the server's byte-exact
  * blob endpoint (`GET /vaults/:vaultId/blobs/:blobHash`) and decodes it with
  * `@havemind/sync-core` into the operation + canonical path + content the vault
- * adapter materializes. The server stays opaque — it only returns bytes; the
+ * adapter materializes. The server stays opaque, it only returns bytes; the
  * client alone decodes them.
  */
 
@@ -44,14 +44,14 @@ export class BlobFetchError extends Error {
 /**
  * The downloaded blob bytes did not hash to the `blobHash` the receipt/revision
  * promised. The server is opaque and does NOT re-hash on read (a deliberate
- * read-hot-path perf choice — see `apps/server/src/blob-store.ts`), so the
+ * read-hot-path perf choice, see `apps/server/src/blob-store.ts`), so the
  * CLIENT is the only party that can detect corrupted, tampered, or wrong-blob
  * responses. The bytes are rejected BEFORE decode, so bad content is never
  * materialised into the vault.
  *
  * `permanent` marks this as a per-item failure the same bytes will never
  * satisfy: it must be quarantined/dead-lettered rather than retried forever
- * (mirrors the `permanent` contract on the push path — see `isPermanentError`
+ * (mirrors the `permanent` contract on the push path, see `isPermanentError`
  * in `sync/sync-runner.ts`).
  */
 export class BlobIntegrityError extends Error {

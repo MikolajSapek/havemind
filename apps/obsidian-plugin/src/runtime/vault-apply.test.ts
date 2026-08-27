@@ -318,7 +318,7 @@ describe('VaultApplyAdapter', () => {
     const { adapter, files } = build(() => content('Notes/a.md', 'C\n'));
     files.owners.set('Notes/a.md', 'other-file');
     await adapter.applyRemote(event('rev-9', 'file-1'));
-    // The foreign owner is untouched — Havemind never claims the path.
+    // The foreign owner is untouched, Havemind never claims the path.
     expect(files.owners.get('Notes/a.md')).toBe('other-file');
   });
 
@@ -351,7 +351,7 @@ describe('VaultApplyAdapter', () => {
 
     it('never overwrites on-disk content diverged from base: routes to conflict', async () => {
       // The exact blocker: owner and guest both edited a shared file while it was
-      // closed. The guest pulls the owner revision — no open buffer — but the
+      // closed. The guest pulls the owner revision, no open buffer, but the
       // on-disk content diverges from the last synced base and differs from the
       // incoming content. It must become a conflict artifact, never a write.
       const { adapter, files } = build(() => content('Notes/a.md', 'OWNER-EDIT\n'));
@@ -536,13 +536,13 @@ describe('VaultApplyAdapter', () => {
     // whose revision does NOT descend from this device's head slipped through
     // the base-equality guard and silently overwrote the local edit. Causality
     // must gate this branch: a fast-forward applies, a concurrent divergence
-    // conflicts — never a silent overwrite.
+    // conflicts, never a silent overwrite.
 
     it('CONCURRENT: a shared-file revision that does not descend from the local head becomes a conflict, never overwriting on-disk', async () => {
       // Both devices converged at H0 (head R0). This device edited P→HA and
       // pushed RA (base seeded to HA, local head → RA). The peer concurrently
       // edited P→HB and pushed RB whose parent is R0 (it never saw RA). On pull,
-      // on-disk (HA) equals the base (HA) — but RB does NOT descend from RA, so
+      // on-disk (HA) equals the base (HA), but RB does NOT descend from RA, so
       // it is a concurrent divergence and MUST conflict, preserving HA on disk.
       const { adapter, files } = build(() => content('Notes/a.md', 'HB\n'), 'RA');
       files.owners.set('Notes/a.md', 'file-1');
@@ -595,7 +595,7 @@ describe('VaultApplyAdapter', () => {
     it('adopts the remote fileId when a foreign-owned path holds byte-identical content', async () => {
       // Both devices already held this note and each minted an independent random
       // fileId for it. When the peer's revision arrives, the path is "owned" by a
-      // fileId that is not the incoming one, but the on-disk content is identical —
+      // fileId that is not the incoming one, but the on-disk content is identical,
       // it is genuinely the same file, so adopt the remote fileId in place.
       const { adapter, files } = build(() => content('Notes/Shared.md', 'SHARED\n'));
       files.owners.set('Notes/Shared.md', 'device-b-random');
@@ -613,7 +613,7 @@ describe('VaultApplyAdapter', () => {
 
     it('writes a conflict artifact when a foreign-owned path holds diverged content', async () => {
       // Same canonical path, but the local content genuinely differs from the
-      // incoming revision — this is the F2 conflict path, never a silent overwrite.
+      // incoming revision, this is the F2 conflict path, never a silent overwrite.
       const { adapter, files } = build(() => content('Notes/Shared.md', 'A-EDIT\n'));
       files.owners.set('Notes/Shared.md', 'device-b-random');
       files.onDisk.set('Notes/Shared.md', 'B-EDIT\n');
@@ -635,9 +635,9 @@ describe('VaultApplyAdapter', () => {
       // Path 'Notes/Shared.md' was previously owned (and pushed) by this
       // device's own random fileId 'file-b-local' with a recorded base. The
       // peer's revision arrives under a DIFFERENT fileId 'file-a' for the same,
-      // byte-identical content — the F3 adopt branch. After adopting, exactly
+      // byte-identical content, the F3 adopt branch. After adopting, exactly
       // one fileId ('file-a') must own the path, and the superseded fileId's
-      // apply-side base hash AND producer-side head must both be gone — no
+      // apply-side base hash AND producer-side head must both be gone, no
       // orphaned heads[file-b-local]/baseHashes[file-b-local] left behind.
       const producerDeletes: Array<{ fileId: string; path: string }> = [];
       const producerWrites: Array<{ fileId: string; path: string }> = [];
@@ -670,7 +670,7 @@ describe('VaultApplyAdapter', () => {
       // No orphaned base hash left for the superseded fileId.
       expect(files.baseHashes.has('file-b-local')).toBe(false);
       // The superseded fileId's producer mapping/head was forgotten BEFORE the
-      // new fileId was adopted (order matters — see the implementation note).
+      // new fileId was adopted (order matters, see the implementation note).
       expect(producerDeletes).toEqual([
         { fileId: 'file-b-local', path: 'Notes/Shared.md' },
       ]);
@@ -821,7 +821,7 @@ describe('VaultApplyAdapter', () => {
       expect(files.binaryWrites).toHaveLength(1);
       expect(files.binaryWrites[0]?.path).toBe('Attachments/img.png');
       // Byte-exact: every byte, including the boundary/high values, round-trips
-      // unchanged (never canonicalised — that would corrupt a binary file).
+      // unchanged (never canonicalised, that would corrupt a binary file).
       expect(files.binaryWrites[0]?.bytes).toEqual(bytes);
       expect(files.conflicts).toEqual([]);
       expect(files.writes).toEqual([]);
@@ -905,7 +905,7 @@ describe('VaultApplyAdapter', () => {
     it('applies a remote edit over an unchanged local file via merge (local == ancestor)', async () => {
       // On-disk still equals the base but the incoming revision is not a provable
       // fast-forward (no local head). The merge collapses to the remote change
-      // since the local side is unchanged — a clean apply, not a conflict.
+      // since the local side is unchanged, a clean apply, not a conflict.
       const ancestor = 'A\nB\nC\n';
       const { adapter, files } = build(() => content('Notes/a.md', 'A\nB2\nC\n'));
       await seedBase(files, ancestor);
@@ -975,7 +975,7 @@ describe('VaultApplyAdapter', () => {
     });
 
     it('falls back to a conflict when the stored ancestor no longer matches the base hash', async () => {
-      // Base hash points at one content, but the persisted ancestor is stale —
+      // Base hash points at one content, but the persisted ancestor is stale,
       // inconsistent state, so no merge is attempted (fail safe).
       const { adapter, files } = build(() => content('Notes/a.md', 'REMOTE\n'));
       files.owners.set('Notes/a.md', 'file-1');
@@ -1011,7 +1011,7 @@ describe('VaultApplyAdapter', () => {
       await adapter.applyRemote(event('rev-9', 'file-1'));
       await adapter.applyRemote(event('rev-9', 'file-1'));
 
-      // Two writes, but to the SAME path — no timestamped cascade.
+      // Two writes, but to the SAME path, no timestamped cascade.
       expect(files.conflicts).toHaveLength(2);
       expect(files.conflicts[0]?.path).toBe(
         'Havemind Conflicts/a (conflict Windows 2026-07-22 2156).md',
@@ -1166,7 +1166,7 @@ describe('VaultApplyAdapter', () => {
     it('forgets the superseded owner base content on F3 adoption', async () => {
       // Two devices independently minted a fileId for the same note. The incoming
       // revision (file-1) is byte-identical to on-disk, so the old owner is
-      // superseded — its base hash AND base content must both be forgotten.
+      // superseded, its base hash AND base content must both be forgotten.
       const { adapter, files } = build(() => content('Notes/a.md', 'SAME\n'));
       files.owners.set('Notes/a.md', 'old-file');
       files.onDisk.set('Notes/a.md', 'SAME\n');
@@ -1240,7 +1240,7 @@ describe('VaultApplyAdapter', () => {
       // content-match branch.
       const adoptOutcome = await adapter.applyRemote(event('rev-a', 'file-a'));
       expect(adoptOutcome).toBe('noop');
-      // Base CONTENT, not just base hash, must be seeded at adoption — the fix
+      // Base CONTENT, not just base hash, must be seeded at adoption, the fix
       // under test.
       expect(files.baseContents.get('file-a')).toBe(adoptedContent);
       expect(files.baseHashes.get('file-a')).toBe(await fakeHash(adoptedContent));
@@ -1252,7 +1252,7 @@ describe('VaultApplyAdapter', () => {
 
       const outcome = await adapter.applyRemote(event('rev-b', 'file-a'));
 
-      // A clean merge, NOT a conflict copy — proves the base content seeded at
+      // A clean merge, NOT a conflict copy, proves the base content seeded at
       // adoption served as the merge ancestor.
       expect(outcome).toBe('applied');
       expect(files.conflicts).toEqual([]);
@@ -1274,7 +1274,7 @@ describe('VaultApplyAdapter', () => {
       expect(outcome).toBe('noop');
       expect(files.owners.get('Assets/pic.png')).toBe('file-1');
       expect(files.baseHashes.get('file-1')).toBe(await hashBlob(bytes));
-      // Binaries never merge, so base CONTENT must not be recorded for them —
+      // Binaries never merge, so base CONTENT must not be recorded for them,
       // contrast with the markdown adoption test above.
       expect(files.baseContents.has('file-1')).toBe(false);
     });
@@ -1288,7 +1288,7 @@ describe('VaultApplyAdapter', () => {
  * per-file lock, so the local revision survives (merge/conflict), never a
  * clobber.
  */
-describe('VaultApplyAdapter — pre-write re-read (TOCTOU)', () => {
+describe('VaultApplyAdapter, pre-write re-read (TOCTOU)', () => {
   /** Injects a divergent local write on the Nth `readByPath` for a path. */
   class ToctouFiles extends FakeFiles {
     private reads = 0;
@@ -1396,7 +1396,7 @@ describe('VaultApplyAdapter — pre-write re-read (TOCTOU)', () => {
  * SAME file run strictly one-after-another, while two applies for DIFFERENT
  * files overlap (no global lock).
  */
-describe('VaultApplyAdapter — per-file apply serialisation', () => {
+describe('VaultApplyAdapter, per-file apply serialisation', () => {
   class GatedFiles extends FakeFiles {
     started: string[] = [];
     private readonly gates = new Map<string, Promise<void>>();
@@ -1476,18 +1476,18 @@ describe('VaultApplyAdapter — per-file apply serialisation', () => {
 });
 
 /**
- * FIX 2 — an allowlisted `.obsidian/` settings file resolves a divergence
+ * FIX 2, an allowlisted `.obsidian/` settings file resolves a divergence
  * LAST-WRITER-WINS instead of spawning a conflict copy (user decision,
  * 2026-08-12). `Havemind Conflicts/graph (conflict …).md` is not a file Obsidian
  * ever reads, so the copy protected nothing while the churn it came with stopped
  * the user's colour groups from ever landing on the second device.
  *
  * The port hands this adapter the SYNCED form of a config file (see
- * `vault-file-port.ts`), so the on-disk strings below are already semantic —
+ * `vault-file-port.ts`), so the on-disk strings below are already semantic,
  * the volatile-key overlay is the port's job and is covered in
  * `obsidian-adapters.test.ts`.
  */
-describe('VaultApplyAdapter — config divergence is last-writer-wins', () => {
+describe('VaultApplyAdapter, config divergence is last-writer-wins', () => {
   const GRAPH = '.obsidian/graph.json';
   const SNIPPET = '.obsidian/snippets/custom.css';
 
@@ -1612,7 +1612,7 @@ describe('VaultApplyAdapter — config divergence is last-writer-wins', () => {
   // last-writer-wins branches. They were untested: only the markdown rows above
   // and the `.css` snippet exercised the decision, and a `.obsidian/…png`
   // divergence would have kept depositing `Havemind Conflicts/preview (conflict
-  // …).png` — a file Obsidian never reads, for a value one click restores.
+  // …).png`, a file Obsidian never reads, for a value one click restores.
   const THEME_PREVIEW = '.obsidian/themes/Minimal/preview.png';
 
   it('overwrites a divergent theme preview image instead of writing a conflict copy', async () => {

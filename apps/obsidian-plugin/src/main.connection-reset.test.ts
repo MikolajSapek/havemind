@@ -1,5 +1,5 @@
 /**
- * P1 #5 — a corrupt or half-paired persisted connection must be REPORTED, never
+ * P1 #5, a corrupt or half-paired persisted connection must be REPORTED, never
  * looped as "server offline".
  *
  * Field incident this pins: on a second computer the persisted `ownerConnection`
@@ -93,7 +93,7 @@ describe('connect-time corruption gate (P1 #5)', () => {
     resetObsidianMock();
   });
 
-  it('reports reset-required for a persisted ownerConnection missing vaultId — never onboarding, never an offline loop', async () => {
+  it('reports reset-required for a persisted ownerConnection missing vaultId, never onboarding, never an offline loop', async () => {
     // The exact field shape: a record was written but `vaultId` never landed.
     // Old behaviour conflated this with "absent" and fell through to the invitee
     // onboarding resume, which then reported disconnected/offline forever.
@@ -129,7 +129,7 @@ describe('connect-time corruption gate (P1 #5)', () => {
     );
     expect(sidecarKeys).toHaveLength(1);
     expect(disk.value[sidecarKeys[0] as string]).toEqual(corrupt);
-    // Detection alone never destroys the primary — only an explicit reset does.
+    // Detection alone never destroys the primary, only an explicit reset does.
     expect(disk.value.ownerConnection).toEqual(corrupt);
   });
 
@@ -184,7 +184,7 @@ describe('connect-time corruption gate (P1 #5)', () => {
     expect(gate.kind).toBe('absent');
   });
 
-  it('fails OPEN when the secret probe itself throws — a SecretStorage outage never fakes a broken pairing', async () => {
+  it('fails OPEN when the secret probe itself throws, a SecretStorage outage never fakes a broken pairing', async () => {
     const throwingStorage = {
       getSecret(): string {
         throw new Error('SecretStorage unavailable');
@@ -253,11 +253,11 @@ describe('Reset connection action (P1 #5)', () => {
     expect(keys.some((key) => key.startsWith('ownerConnectionCorrupt.'))).toBe(
       true,
     );
-    // Nothing else remains — no half-paired record to loop on.
+    // Nothing else remains, no half-paired record to loop on.
     expect(keys.filter((key) => !key.includes('Corrupt.'))).toEqual([]);
     // The secret is gone too, so a stale refresh token can never resurrect the
     // dead pairing. Obsidian's SecretStorage exposes no delete, so "cleared"
-    // means an empty write — which the secrets port reads back as absent.
+    // means an empty write, which the secrets port reads back as absent.
     expect(plugin.app.secretStorage.getSecret(REFRESH_SECRET_KEY)).toBe('');
     const secrets = new ObsidianOnboardingSecrets({
       clientInstanceId: CLIENT_INSTANCE_ID,
@@ -314,7 +314,7 @@ describe('Reset connection action (P1 #5)', () => {
     expect(reset).toBe(1);
   });
 
-  it('never renders "Retry now" in the reset-required panel — retrying a broken record just loops', async () => {
+  it('never renders "Retry now" in the reset-required panel, retrying a broken record just loops', async () => {
     const view = new HavemindOnboardingView(new WorkspaceLeaf(), {
       panelProvider: () => buildConnectionPanel({ status: 'reset-required' }),
       onRetry: () => undefined,

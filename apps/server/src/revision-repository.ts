@@ -74,7 +74,7 @@ export interface CommitRevisionResult {
  * Unlike {@link CommitRevisionInput} it carries the blob's `blobSize` directly
  * so the check needs NO on-disk blob: callers run it BEFORE persisting bytes to
  * the content-addressed store, so a request that would be rejected never writes
- * a blob (audit fix #7 — no orphaned CAS bytes from a rejected commit).
+ * a blob (audit fix #7, no orphaned CAS bytes from a rejected commit).
  */
 export interface CommitFeasibilityInput extends CommitRevisionInput {
   readonly blobSize: number;
@@ -274,7 +274,7 @@ function receiptFromStoredRevision(
     // Recover the stored header's DAG parents so a replayed receipt is
     // byte-identical to the receipt returned when the revision was first
     // accepted (both now relay parentRevisionIds). Parsing the stored protected
-    // header is metadata relay only — the server computes no lineage.
+    // header is metadata relay only, the server computes no lineage.
     const header = protectedRevisionHeaderSchema.parse(
       JSON.parse(stored.protectedHeader.toString('utf8')),
     );
@@ -428,10 +428,10 @@ export class RevisionRepository {
 
   /**
    * Read-only pre-commit feasibility check. Runs exactly the reject conditions
-   * of {@link commitRevision} — actor authorisation, vault existence, revision
+   * of {@link commitRevision}, actor authorisation, vault existence, revision
    * id / idempotency consistency, per-vault quota and the file-graph checks
    * (MISSING_PARENT, PARENT_FILE_MISMATCH, FILE_ALREADY_EXISTS,
-   * HEAD_SET_CHANGED) — WITHOUT mutating anything and WITHOUT needing the blob
+   * HEAD_SET_CHANGED), WITHOUT mutating anything and WITHOUT needing the blob
    * on disk. Throws the same {@link RevisionRepositoryError} codes a real
    * commit would.
    *
@@ -441,7 +441,7 @@ export class RevisionRepository {
    * check under the `BEGIN IMMEDIATE` write lock as the authoritative,
    * TOCTOU-safe pass. A rare interleave where this check passes but the
    * authoritative commit then rejects can still leave a blob; that residual
-   * orphan is bounded by quota and reclaimed by the startup sweep — it is not
+   * orphan is bounded by quota and reclaimed by the startup sweep, it is not
    * the attacker-amplifiable unbounded vector this check closes.
    */
   public async assertCommittable(input: CommitFeasibilityInput): Promise<void> {
@@ -645,7 +645,7 @@ export class RevisionRepository {
   /**
    * Read-only mirror of {@link #commitPrepared}'s reject conditions, run inside
    * a snapshot by {@link assertCommittable}. It performs NO inserts and NO
-   * cursor advance — it only throws the codes a real commit would. An
+   * cursor advance, it only throws the codes a real commit would. An
    * already-committed matching revision (idempotent replay) references its own
    * blob, so it is treated as committable.
    */

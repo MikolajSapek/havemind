@@ -148,7 +148,7 @@ interface OwnerContextRow {
 /**
  * Resolves an active `owner`-role membership. Without `vaultId` this is the
  * single instance owner (backward-compatible default). With `vaultId` it is the
- * active owner of THAT vault — whether or not that owner is the instance owner —
+ * active owner of THAT vault, whether or not that owner is the instance owner,
  * so a `create-vault` secondary owner can be serviced by the CLI.
  */
 function resolveOwnerContext(
@@ -442,7 +442,7 @@ function runApprove(
         stdout: '',
       };
     }
-    // Approve using the owner membership of THIS invitation's vault — which may
+    // Approve using the owner membership of THIS invitation's vault, which may
     // be a create-vault secondary owner, not the instance owner. Using the
     // instance owner's membership here would fail authz for any other vault.
     const approvalOwner = resolveOwnerContext(session.database, match.vaultId);
@@ -454,7 +454,7 @@ function runApprove(
       };
     }
     // The PIN is a secret only the joining device displays; it must be typed
-    // in explicitly from that channel. There is no server-derived default —
+    // in explicitly from that channel. There is no server-derived default,
     // that would let anyone with shell access approve without knowing it.
     const verificationPhrase = parsed.flags.get('pin') ?? parsed.flags.get('phrase');
     if (verificationPhrase === undefined) {

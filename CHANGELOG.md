@@ -5,7 +5,7 @@ All notable changes to this project are documented here. The format is based on
 follows independent [Semantic Versioning](https://semver.org) for the plugin
 and the server.
 
-## [1.2.0] — 2026-08-24 — Panel Redesign & Connection Reliability
+## [1.2.0], 2026-08-24, Panel Redesign & Connection Reliability
 
 ### Added
 
@@ -25,24 +25,24 @@ and the server.
 - Unexpected connect-flow errors are reported in the panel rather than leaving
   an unhandled asynchronous error.
 
-## [1.1.8] — 2026-08-20
+## [1.1.8], 2026-08-20
 
 ### Added
 
 - The distribution repository now attests its own release artifacts. The
   monorepo already attested the same bundle, but that attestation is recorded
-  against the monorepo — someone installing from the distribution repo could
+  against the monorepo, someone installing from the distribution repo could
   not verify it there. The release people actually install is now attested
   against the repository it is served from.
 
-## [1.1.7] — 2026-08-18
+## [1.1.7], 2026-08-18
 
 ### Added
 
 - First release built and attested by the release workflow, so `main.js` and
   `styles.css` carry verifiable build provenance.
 
-## [1.1.6] — 2026-08-18
+## [1.1.6], 2026-08-18
 
 ### Added
 
@@ -56,7 +56,7 @@ and the server.
   (needed to pair files with revisions and detect renames) and clipboard writes
   (the invitation Copy button; the clipboard is never read).
 
-## [1.1.5] — 2026-08-18
+## [1.1.5], 2026-08-18
 
 ### Fixed
 
@@ -66,23 +66,23 @@ and the server.
   Obsidian's `external-link` class. Covered by a test that asserts the click
   behaviour, not just the URL value.
 
-## [1.1.4] — 2026-08-18
+## [1.1.4], 2026-08-18
 
 ### Changed
 
 - Plugin description rewritten to lead with what it does, matching the
   convention of the community catalogue.
 
-## [1.1.3] — 2026-08-18
+## [1.1.3], 2026-08-18
 
 ### Fixed
 
 - Selecting **Done** in the owner's Create-connection panel returns to the
   connection view instead of leaving the composer open. The composer takes
   render priority over the status row, so a connected vault previously showed
-  no "Connected — synced" anywhere and read as if sync had dropped.
+  no "Connected, synced" anywhere and read as if sync had dropped.
 
-## [1.1.2] — 2026-08-18
+## [1.1.2], 2026-08-18
 
 ### Fixed
 
@@ -103,7 +103,7 @@ and the server.
   had been left describing `0.9.0` across four subsequent releases, including
   claiming a supported-version range that matched no published build.
 
-## [1.1.1] — 2026-08-13
+## [1.1.1], 2026-08-13
 
 ### Added
 
@@ -117,7 +117,7 @@ and the server.
   producing conflict copies. Configuration is not prose; a conflict artifact
   for a settings file was noise, not safety.
 
-## [1.1.0] — 2026-08-11
+## [1.1.0], 2026-08-11
 
 ### Added
 
@@ -146,21 +146,21 @@ and the server.
 - Home LAN addresses redacted from the public tree; the privacy scan widened to
   cover RFC1918 `192.168.x.x` ranges, not only Tailscale CGNAT.
 
-## [1.0.1] — 2026-08-08
+## [1.0.1], 2026-08-08
 
 ### Fixed
 
 - The plugin no longer detaches its own leaves in `onunload`, per the Obsidian
   community catalogue guidelines.
 
-## [1.0.0] — 2026-08-08
+## [1.0.0], 2026-08-08
 
 First stable release. The seven-day pilot closed on 2026-08-07 with zero data
 loss across real two-device use from 2026-07-25.
 
 > **Still disposable vaults only.** Content is stored on the server in
 > plaintext; the trust boundary is the machine running the server. End-to-end
-> encryption remains out of scope — see the README security model.
+> encryption remains out of scope, see the README security model.
 
 ### Added
 
@@ -176,7 +176,7 @@ loss across real two-device use from 2026-07-25.
 ### Fixed
 
 - **Breaking:** configuration sync is an explicit appearance allowlist. Plugin
-  code never syncs under any circumstance — `.obsidian/plugins/` is excluded in
+  code never syncs under any circumstance, `.obsidian/plugins/` is excluded in
   full, enforced at two independent layers.
 - Backup integrity is verified (`PRAGMA integrity_check`) and prune verifies
   all retained snapshots; unsafe backup ids are rejected.
@@ -188,13 +188,13 @@ loss across real two-device use from 2026-07-25.
 - CI scrubs private infrastructure values, gates releases, and pins actions.
 - Dependency advisories for `fast-uri` and `find-my-way` patched.
 
-## [0.9.0] — 2026-07-24
+## [0.9.0], 2026-07-24
 
 First feature-complete build for the two-person technical alpha. Distributed as
 a three-file Obsidian artifact (`main.js`, `manifest.json`, `styles.css`) via
 GitHub Releases and BRAT.
 
-> **Alpha — disposable vaults only.** The pilot payload format is plaintext and
+> **Alpha, disposable vaults only.** The pilot payload format is plaintext and
 > has no end-to-end encryption. Do not connect a vault with real or sensitive
 > notes.
 

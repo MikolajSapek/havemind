@@ -1,8 +1,8 @@
 /**
  * Registration and teardown of the four Obsidian vault-change listeners the push
  * producer reacts to. A deliberately small, exported seam: the teardown contract
- * — exactly the listeners we added are removed on stop, via `vault.offref` rather
- * than plugin-unload registration — is what stops a re-pair from leaving a
+ *, exactly the listeners we added are removed on stop, via `vault.offref` rather
+ * than plugin-unload registration, is what stops a re-pair from leaving a
  * prior-session observer attached, and keeping it here makes that contract unit
  * testable without the full Obsidian runtime.
  */

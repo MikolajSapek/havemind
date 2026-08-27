@@ -4,7 +4,7 @@
  * Extracted from `activity-view.ts` when the feed became a section of the main
  * pane as well as its own view (plans/007 Stage 0). Both surfaces call this, so
  * a change to row wording, ordering, restore or author colour lands in exactly
- * one place — two copies would drift on the first edit.
+ * one place, two copies would drift on the first edit.
  */
 
 import type { RevisionRecord } from '../activity/activity';
@@ -57,7 +57,7 @@ export function renderActivityRows(
     path.addClass('havemind-hint');
     path.addClass('havemind-activity-path');
     // Author colour as a left accent, paired with the author name already in
-    // the headline — colour is never the only signal (accessibility rule).
+    // the headline, colour is never the only signal (accessibility rule).
     entry.style.setProperty('--havemind-row-color', `var(${row.colorToken})`);
     // The trailing column owns the compact timestamp and Restore action. It is
     // deliberately a non-shrinking sibling of the wrapping text column, so a

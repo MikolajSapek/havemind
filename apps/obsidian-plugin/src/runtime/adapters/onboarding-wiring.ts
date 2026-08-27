@@ -1,7 +1,7 @@
 /**
  * Assembly of the onboarding controller from the real Obsidian-backed ports, and
  * the single resolver that answers "which vault is this device connected to?"
- * across BOTH connection shapes — an owner paired via `/owner/pair` (a persisted
+ * across BOTH connection shapes, an owner paired via `/owner/pair` (a persisted
  * `ownerConnection` record) and an invitee whose pairing lives in its connected
  * onboarding state. Every owner-only action funnels through that resolver, so the
  * two shapes are reconciled in exactly one place.

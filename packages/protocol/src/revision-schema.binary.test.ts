@@ -34,7 +34,7 @@ function header(parentRevisionIds: readonly string[]) {
   } as const;
 }
 
-describe('innerRevisionPayloadSchema — binary variant', () => {
+describe('innerRevisionPayloadSchema, binary variant', () => {
   it('parses a binary create payload with base64 content and a raw-byte hash', () => {
     const payload = {
       schemaVersion: 1,
@@ -95,7 +95,7 @@ describe('innerRevisionPayloadSchema — binary variant', () => {
   });
 });
 
-describe('validateRevisionPayloadAgainstHeader — binary', () => {
+describe('validateRevisionPayloadAgainstHeader, binary', () => {
   it('accepts a binary create with no parents', () => {
     const payload = {
       schemaVersion: 1,

@@ -1,7 +1,7 @@
-/* Havemind — Apache-2.0 */
+/* Havemind, Apache-2.0 */
 
 /*
- * Havemind plugin styles — visual direction 2 (minimalist, mono + accent).
+ * Havemind plugin styles, visual direction 2 (minimalist, mono + accent).
  *
  * Principles this file encodes:
  *   · No own ground. Every surface colour comes from Obsidian's semantic
@@ -12,7 +12,7 @@
  *     Havemind hexagon. Change the accent in Obsidian's appearance settings and
  *     the plugin follows.
  *   · Semantic colour is confined to a small dot or a 12px glyph, and is always
- *     accompanied by its word — colour is never the only signal.
+ *     accompanied by its word, colour is never the only signal.
  *   · Rows, not cards: hairline separators, generous vertical air, 44px hit
  *     targets in the roster.
  *
@@ -33,7 +33,7 @@
  */
 
 /* =========================================================================
-   1. Local tokens — thin aliases over Obsidian's semantic variables
+   1. Local tokens, thin aliases over Obsidian's semantic variables
    ========================================================================= */
 .havemind-view,
 .havemind-status-bar {
@@ -49,7 +49,7 @@
 /* =========================================================================
    2. Author colour tokens
    Back `author-colors.ts`; always paired with the author's name in the DOM.
-   The orange token is gone — it competed with the accent.
+   The orange token is gone, it competed with the accent.
    ========================================================================= */
 .theme-light,
 :root {
@@ -92,7 +92,7 @@
   font-size: var(--font-ui-small);
 }
 
-/* Air between the top-level blocks of a view — the main lever of the redesign. */
+/* Air between the top-level blocks of a view, the main lever of the redesign. */
 .havemind-view > * + * {
   margin-top: var(--havemind-gap);
 }
@@ -129,7 +129,7 @@
   stroke-width: 1.6;
 }
 
-/* Section captions: quiet, spaced, uppercase — they carry no colour. */
+/* Section captions: quiet, spaced, uppercase, they carry no colour. */
 .havemind-view h4 {
   margin: 0;
   color: var(--text-faint);
@@ -365,7 +365,7 @@
   color: var(--text-normal);
 }
 
-/* Rejoin is the row's affordance — the accent, still text-only. */
+/* Rejoin is the row's affordance, the accent, still text-only. */
 .havemind-view button.havemind-roster-action.mod-cta {
   background: transparent;
   color: var(--havemind-accent);
@@ -544,7 +544,7 @@
 
 /* =========================================================================
    10. Send queue, recovery, conflicts
-   Warnings are a 2px leading rule plus a very low-opacity wash — no filled
+   Warnings are a 2px leading rule plus a very low-opacity wash, no filled
    panels, no badges in colour.
    ========================================================================= */
 .havemind-send-waiting {

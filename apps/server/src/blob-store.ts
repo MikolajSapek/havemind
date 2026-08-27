@@ -103,8 +103,8 @@ export class BlobStore {
    * Reads a content-addressed blob WITHOUT recomputing its hash. Blobs are
    * verified against their hash at write time (see `#verifyExisting`, invoked
    * from `#putSerialized`, and `readVerified` on the commit path), so a GET on
-   * the read hot path only needs an O(1) structural check — reject symlinks
-   * (O_NOFOLLOW) and non-regular files — never a full-file SHA-256 that would
+   * the read hot path only needs an O(1) structural check, reject symlinks
+   * (O_NOFOLLOW) and non-regular files, never a full-file SHA-256 that would
    * read up to 36 MiB per request.
    */
   public async read(hash: BlobHash): Promise<Buffer> {
@@ -116,7 +116,7 @@ export class BlobStore {
    * Like `read`, but re-hashes the bytes and rejects any mismatch. Reserved
    * for the write/commit path (`RevisionRepository`), which double-checks a
    * freshly-`put` blob before durably committing the revision that references
-   * it. Never call this from the read hot path — see `read`.
+   * it. Never call this from the read hot path, see `read`.
    */
   public async readVerified(hash: BlobHash): Promise<Buffer> {
     const path = this.pathForHash(hash);
@@ -139,7 +139,7 @@ export class BlobStore {
    * Enumerates every blob hash currently materialised on disk by walking the
    * two-level shard directory layout. Used only by the startup orphan sweep
    * (see `blob-gc.ts`), which is the sole place blob deletion by liveness is
-   * decided — never from the request hot path.
+   * decided, never from the request hot path.
    */
   public async listHashes(): Promise<readonly BlobHash[]> {
     let shardNames: string[];
@@ -245,7 +245,7 @@ export class BlobStore {
   /**
    * Opens and reads the on-disk bytes for a blob, enforcing only the O(1)
    * structural invariants (reject symlinks via O_NOFOLLOW, reject non-regular
-   * files). Does NOT recompute the hash — callers that need integrity
+   * files). Does NOT recompute the hash, callers that need integrity
    * verification wrap this in `#verifyExisting`.
    */
   async #readExisting(

@@ -7,14 +7,14 @@
  * sync burst does not rotate on every request.
  *
  * Retry- and concurrency-safety (the server burns a family on any refresh that
- * is not a byte-exact retry — `session-repository.ts` exact-retry guard and
+ * is not a byte-exact retry, `session-repository.ts` exact-retry guard and
  * `#markReuse`, both irreversible):
  *
  *   1. Idempotent retry (GAP-5). Before sending, the in-flight `{rotationId,
  *      successor}` is persisted durably against the exact refresh token it was
  *      minted for. A dropped response, transient 5xx, or crash mid-rotation
  *      leaves the old refresh token in place AND the in-flight record intact,
- *      so the next attempt — even after a process restart — replays the
+ *      so the next attempt, even after a process restart, replays the
  *      identical triple, reaching the server's exact-retry path instead of
  *      burning the family. The record is cleared only after a confirmed 200
  *      commits the successor, or on a terminal 401 (the family is already dead).
@@ -22,7 +22,7 @@
  *   2. Single-flight. Concurrent callers that all see the access token expired
  *      share one in-flight rotation promise (in memory), so the same refresh
  *      token is never rotated twice in parallel (which would trip the same
- *      reuse-burn). This complements — does not replace — the durable record:
+ *      reuse-burn). This complements, does not replace, the durable record:
  *      it only covers concurrency within one live process.
  *
  * A failed rotation throws and leaves the stored refresh token untouched, so a
@@ -77,7 +77,7 @@ export class AccessTokenError extends Error {
   override readonly name = 'AccessTokenError';
 
   /**
-   * True when the server refused the credential (HTTP 401) — a terminal state
+   * True when the server refused the credential (HTTP 401), a terminal state
    * that must halt the sync loop until the user reconnects, never a retry. A
    * missing token or a transient 5xx/network failure is not auth-denied.
    */
@@ -157,7 +157,7 @@ export class RefreshTokenAccessProvider {
     if (response.status < 200 || response.status >= 300) {
       if (response.status === 401) {
         // Terminal: the server refused the credential (auth denied / reuse
-        // detected). The family is dead, so the in-flight pair is useless —
+        // detected). The family is dead, so the in-flight pair is useless,
         // drop it and surface the denial so the loop stops for reconnect.
         await this.clearPendingRotation();
         throw new AccessTokenError(
@@ -195,7 +195,7 @@ export class RefreshTokenAccessProvider {
    * Returns the in-flight pair to present: a persisted record that matches the
    * current refresh token (a replay), or a freshly minted pair that is
    * persisted before it is returned. A stored record whose `refreshToken` does
-   * not match the current token is never replayed — it is overwritten by the
+   * not match the current token is never replayed, it is overwritten by the
    * fresh pair.
    */
   private async resolvePendingRotation(

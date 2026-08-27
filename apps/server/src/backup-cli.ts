@@ -22,12 +22,12 @@ import type { CliResult } from './setup/cli.js';
  * `ops/sapserver/restic`: the server's scheduled timer writes them into a host
  * bind mount, a sudo-free user cron ships them to the owner's Mac inside a
  * restic-encrypted repository, and `restore-drill.sh` pulls one back and runs
- * `backup restore` against a scratch directory — the 1.0 release gate.
+ * `backup restore` against a scratch directory, the 1.0 release gate.
  *
  * Confidentiality note: an artifact is a byte-for-byte copy of data the live
  * volume already stores unencrypted, so it must be treated exactly like the data
  * directory. For an artifact that is encrypted AT REST on the host, use
- * `havemind checkpoint create` instead — that path seals every part to an
+ * `havemind checkpoint create` instead, that path seals every part to an
  * off-server public key, at the cost of needing the owner's secret key to
  * restore (and therefore to drill).
  */

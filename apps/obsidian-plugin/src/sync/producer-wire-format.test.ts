@@ -1,16 +1,16 @@
 /**
  * Windows wire-format hardening for the push producer (field bug: a Windows
  * device paired, its empty create synced, but its first two-line modify never
- * reached the server — the request never went out, the outbox wedged, the device
- * latched "Offline — will retry").
+ * reached the server, the request never went out, the outbox wedged, the device
+ * latched "Offline, will retry").
  *
  * The wire contract is LF-only content and forward-slash paths
  * (`packages/protocol`). A Windows note carries CRLF line endings and, in the
  * worst case, a backslash path separator. These tests route a CRLF-authored /
  * backslash-pathed change through the SAME production wiring the plugin uses at
- * runtime — the real `VaultChangeObserver` on top of the real
+ * runtime, the real `VaultChangeObserver` on top of the real
  * `OutboxLocalChangeRepository` (which builds the actual opaque envelope via
- * `buildRevisionEnvelope`) — so they cannot go false-green against a
+ * `buildRevisionEnvelope`), so they cannot go false-green against a
  * reimplemented producer (see the sync/conflict integration-test convention).
  */
 
@@ -48,10 +48,10 @@ class MemoryStore {
 
 /**
  * The forward-slash / NFC key form Obsidian indexes files under. The test vault
- * stores content under this normalised key — exactly like the real vault — so a
+ * stores content under this normalised key, exactly like the real vault, so a
  * lookup with a raw backslash path MISSES, faithfully reproducing what
  * `getAbstractFileByPath` does on real Obsidian. (The previous fixture keyed on
- * the exact raw string, so a backslash read "worked" — a false green that hid
+ * the exact raw string, so a backslash read "worked", a false green that hid
  * the silent-drop / phantom-empty bug this suite is meant to catch.)
  */
 function normaliseKey(path: string): string {
@@ -68,7 +68,7 @@ class MemoryVault implements VaultSnapshotPort {
     return [...this.contents.keys()];
   }
   async readText(path: string): Promise<string> {
-    // Resolve by the EXACT path given — no normalisation. A raw backslash path
+    // Resolve by the EXACT path given, no normalisation. A raw backslash path
     // is not an index key, so it misses and reads '' just as the real snapshot
     // adapter does (`getAbstractFileByPath(path) === null ? '' : …`).
     return this.contents.get(path) ?? '';
@@ -141,7 +141,7 @@ describe('push producer wire-format (Windows)', () => {
     expect(enqueued).toHaveLength(2);
     const update = enqueued[1] as OutboxEnvelope;
     const payload = decodePayload(update);
-    // Wire content is LF-only — never the raw CRLF from disk.
+    // Wire content is LF-only, never the raw CRLF from disk.
     expect(payload).toMatchObject({
       operation: 'update',
       content: 'line one\nline two\n',
@@ -168,7 +168,7 @@ describe('push producer wire-format (Windows)', () => {
 
   it('ships a backslash-separated Windows path as a forward-slash wire path without wedging the cycle', async () => {
     // If a backslash path ever reaches the producer, the wire contract
-    // (forward-slash only) must be satisfied by normalisation — never by an
+    // (forward-slash only) must be satisfied by normalisation, never by an
     // envelope-build throw that kills the whole push cycle and latches Offline.
     const vault = new MemoryVault();
     vault.set('Notes\\Sub\\Deep.md', 'line one\r\nline two\r\n');
@@ -189,7 +189,7 @@ describe('push producer wire-format (Windows)', () => {
   it('ships a backslash-pathed modify by reading the REAL content at the normalised path (FINDING 3)', async () => {
     // The live modify event arrives with a Windows backslash separator, but the
     // content lives under the forward-slash key Obsidian indexes it by. The
-    // observer must read via the NORMALISED path (canonical-first) — reading via
+    // observer must read via the NORMALISED path (canonical-first), reading via
     // the raw backslash path alone MISSES on real Obsidian and would either push
     // an empty '' body (blanking the peer's copy) or drop the edit entirely.
     const vault = new MemoryVault();
@@ -211,14 +211,14 @@ describe('push producer wire-format (Windows)', () => {
       path: 'Notes/File.md',
       content: 'first\nsecond\n',
     });
-    // The shipped body is the real content — never an empty '' from a missed read.
+    // The shipped body is the real content, never an empty '' from a missed read.
     expect(payload.content).toBe('first\nsecond\n');
   });
 
   it('reconciles a mix of good, backslash-pathed and poison files without wedging the scan', async () => {
     // The whole-vault reconcile enumeration is a producer entry point too. A
     // single poison file (here: one over the payload ceiling) must be isolated
-    // per-item — skipped, not fatal — while every other file (CRLF-authored and
+    // per-item, skipped, not fatal, while every other file (CRLF-authored and
     // backslash-pathed alike) still enqueues a clean LF/forward-slash envelope.
     // This routes through the production `reconcileVaultState` + real observer +
     // real outbox repository, so it cannot go false-green against a reimplemented

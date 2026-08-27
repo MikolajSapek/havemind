@@ -3,20 +3,20 @@
  *
  * The stylesheet grew by accretion: each round of the redesign appended a block
  * at the end rather than editing the rule that already existed. `.havemind-view`
- * ended up declared in four places — one setting `height: 100%`, a later one
+ * ended up declared in four places, one setting `height: 100%`, a later one
  * `min-height: 100%` without clearing it, a third re-declaring `display: flex`.
  * `.havemind-view > .havemind-pane-header + *` was declared three times, twice
  * saying `margin-top: 0` and once `12px`.
  *
  * None of those were decisions. Which value won came down to source order, so
- * moving a block within the file could silently change the layout — and that is
+ * moving a block within the file could silently change the layout, and that is
  * exactly what made the pane so hard to debug: the file said one thing and the
  * screen showed another, with nothing wrong at either end.
  *
  * This test does not forbid a selector appearing twice. Shared-then-specific is
  * ordinary CSS (`.a, .b { color }` then `.b { width }`), and container queries
  * exist to override a base rule. What it forbids is the same selector setting
- * the same property to two different values at the same specificity — a
+ * the same property to two different values at the same specificity, a
  * contradiction rather than an override.
  */
 
@@ -88,7 +88,7 @@ function topLevelDeclarations(): Declaration[] {
   return out;
 }
 
-describe('stylesheet — no selector contradicts itself', () => {
+describe('stylesheet, no selector contradicts itself', () => {
   it('never sets the same property to two different values', () => {
     const byKey = new Map<string, Declaration[]>();
     for (const declaration of topLevelDeclarations()) {
@@ -111,13 +111,13 @@ describe('stylesheet — no selector contradicts itself', () => {
   });
 });
 
-describe('stylesheet — design geometry has one source of truth', () => {
+describe('stylesheet, design geometry has one source of truth', () => {
   it('never sets a tokenised property from a non-token value as well', () => {
     // The narrower trap behind the same bug. `.havemind-status-detail` had its
     // font-size set twice: once as `var(--font-ui-smaller)` in a rule shared
     // with `.havemind-hint`, and once as the design token in the status block.
     // Both applied; specificity picked the winner. That is not a contradiction
-    // the test above can see — the selectors differ — but it is still two
+    // the test above can see, the selectors differ, but it is still two
     // sources of truth for one number, and the design token is the one that is
     // checked against the handoff.
     //
@@ -157,14 +157,14 @@ describe('stylesheet — design geometry has one source of truth', () => {
   });
 });
 
-describe('stylesheet — the resize ladder measures something other than itself', () => {
+describe('stylesheet, the resize ladder measures something other than itself', () => {
   it('declares the container above .havemind-view, never on it', () => {
     // This one bug survived four rounds of fixes, so it gets a test.
     //
     // `.havemind-view` and `.view-content` are the SAME element: the view adds
     // its class to `containerEl.children[1]`, which is what Obsidian calls
     // `.view-content`. Putting `container-type: inline-size` there made the
-    // element both the container and the content being measured — and a
+    // element both the container and the content being measured, and a
     // container never matches a query against its own contents. Every width
     // fell through to the widest rung, so the tabs stacked icon-over-label in a
     // 300px sidebar: the exact opposite of what the ladder exists to do.
@@ -178,7 +178,7 @@ describe('stylesheet — the resize ladder measures something other than itself'
     for (const selector of containerRules) {
       expect(
         selector,
-        'container-type must sit on the leaf, not on .havemind-view — the view ' +
+        'container-type must sit on the leaf, not on .havemind-view, the view ' +
           'is the same element as .view-content, so it cannot measure itself',
       ).not.toMatch(/\.havemind-view\s*$/);
     }
@@ -192,7 +192,7 @@ describe('stylesheet — the resize ladder measures something other than itself'
   });
 });
 
-describe('stylesheet — activity rows stay inside the sidebar', () => {
+describe('stylesheet, activity rows stay inside the sidebar', () => {
   it('makes the activity copy the only shrinkable, wrapping column', () => {
     const copyRule = css.match(/\.havemind-activity-copy\s*\{([^}]*)\}/)?.[1] ?? '';
 
@@ -202,7 +202,7 @@ describe('stylesheet — activity rows stay inside the sidebar', () => {
   });
 });
 
-describe('stylesheet — every class it styles is one the code renders', () => {
+describe('stylesheet, every class it styles is one the code renders', () => {
   it('has no rules for elements that no longer exist', () => {
     // `.havemind-comb` styled a `renderCombGlyph()` that was never written, and
     // `.havemind-nav-bar` outlived the footer it belonged to by a whole round.

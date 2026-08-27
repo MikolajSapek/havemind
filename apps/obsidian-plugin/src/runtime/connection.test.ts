@@ -22,7 +22,7 @@ const payloadJson = JSON.stringify({
 // stores; its content-addressed hash (the receipt `blobHash`, surfaced on the
 // pull side as `revision.contentHash`) is `sha256Hex(payloadJson)`. Precomputed
 // so a test locks the exact on-wire hash FORMAT (64-char lowercase hex, no
-// prefix) the server and protocol use — see `hashBlob`/`sha256Hex`.
+// prefix) the server and protocol use, see `hashBlob`/`sha256Hex`.
 const PAYLOAD_JSON_SHA256 =
   'fd4f96b102b6b1c8b42dd7e187f9fababe548ae69b19a54e318781681dcb427b';
 
@@ -88,7 +88,7 @@ describe('buildConnectionResolvers', () => {
 
   it('rejects a blob whose bytes do not hash to the receipt blobHash, before decoding', async () => {
     // Server returns bytes that decode fine on their own but do NOT hash to the
-    // expected blobHash — a corrupted / tampered / wrong-blob response.
+    // expected blobHash, a corrupted / tampered / wrong-blob response.
     const tampered = payloadJson.replace('Remote body', 'Tampered body');
     let decodeReached = false;
     const { resolvers } = build((options) => {
@@ -124,7 +124,7 @@ describe('buildConnectionResolvers', () => {
 
   it('verifies against the exact on-wire hash format used by the protocol', async () => {
     // Locks the hash encoding: the receipt blobHash for these exact envelope
-    // bytes is sha256Hex(bytes) — 64-char lowercase hex, no prefix.
+    // bytes is sha256Hex(bytes), 64-char lowercase hex, no prefix.
     const { resolvers } = build(() => ({ status: 200, text: payloadJson }));
     // Correct hash accepts.
     await expect(resolvers.resolveRevision(event)).resolves.toBeDefined();

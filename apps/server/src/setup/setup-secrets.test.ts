@@ -75,7 +75,7 @@ describe('owner setup secret storage (AC: >=256-bit, hash-only)', () => {
     const dump = dumpAllTables(database);
     // The raw token appears nowhere in persisted state.
     expect(dump).not.toContain(result.pairingToken);
-    // Its hash does — that is the only server-side representation.
+    // Its hash does, that is the only server-side representation.
     const expectedHash = createHash('sha256')
       .update(result.pairingToken, 'utf8')
       .digest('hex');

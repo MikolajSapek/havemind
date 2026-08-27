@@ -85,7 +85,7 @@ describe('DurableSyncState', () => {
   it('does not drop an enqueue that races a concurrent cold-cache load (BLOCKER)', async () => {
     // Two concurrent operations both find a cold cache and each fire `load`.
     // Before the dedup fix the later-resolving load re-parsed the persisted blob
-    // and clobbered the cache mutation the enqueue had already made — a silent
+    // and clobbered the cache mutation the enqueue had already made, a silent
     // dropped push at connect (rule 3). Gate the load so both callers enter
     // `ensureLoaded` while the cache is still null, then release.
     let releaseLoad!: () => void;
@@ -131,7 +131,7 @@ describe('DurableSyncState', () => {
     // cache (`{...state, field}` spread). On a warm cache `ensureLoaded` reads
     // synchronously, so two sections launched without an intervening await both
     // capture the SAME snapshot and the later `mutate` clobbers the earlier one's
-    // write — dropping, e.g., the base content while keeping the base hash, which
+    // write, dropping, e.g., the base content while keeping the base hash, which
     // later makes the three-way merge (needing the ancestor content) fail and
     // spawn a SPURIOUS conflict copy. All three writes must survive together.
     await state.loadCursor(); // warm the cache so both sections race on it
@@ -159,7 +159,7 @@ describe('DurableSyncState', () => {
   it('enqueues envelopes and returns runner-shaped outbox rows', async () => {
     await state.enqueue(envelope());
     expect(await state.listOutbox()).toEqual([
-      // 'AAAA' base64 decodes to 3 bytes — the size that drives push batching.
+      // 'AAAA' base64 decodes to 3 bytes, the size that drives push batching.
       { revisionId: 'rev-1', fileId: 'file-1', contentHash: 'hash-1', payloadBytes: 3 },
     ]);
     expect(await state.getEnvelope('rev-1')).toEqual({
@@ -236,7 +236,7 @@ describe('DurableSyncState', () => {
       pathOwners: { 'Notes/A.md': 'file-1' },
       baseHashes: { 'file-1': 'hash-1' },
       // A malformed stash entry (missing required envelope fields) must NOT
-      // nuke cursor/pathOwners/baseHashes — it degrades to an empty stash.
+      // nuke cursor/pathOwners/baseHashes, it degrades to an empty stash.
       quarantinedEnvelopes: { 'rev-1': { revisionId: 'rev-1' } },
     };
     const recovered = new DurableSyncState({ persist: new MemoryPersist(blob) });
@@ -348,7 +348,7 @@ describe('DurableSyncState', () => {
       // A present blob whose CORE cursor is corrupt but whose outbox still holds
       // a queued-but-unsent revision. The salvage path keeps the readable outbox,
       // resets only the unrecoverable field (cursor→0), preserves the raw blob to
-      // the sidecar and writes the CLEANED state as the new primary — nothing is
+      // the sidecar and writes the CLEANED state as the new primary, nothing is
       // dropped and nothing is wedged.
       const corruptBlob = {
         version: 1,
@@ -372,7 +372,7 @@ describe('DurableSyncState', () => {
       expect(recovered.isRecoveryRequired()).toBe(false);
 
       // The original bytes are preserved under a corrupt sidecar, timestamped
-      // from the injected clock — nothing is discarded.
+      // from the injected clock, nothing is discarded.
       expect(persist.corrupt).toHaveLength(1);
       expect(persist.corrupt[0]?.raw).toEqual(corruptBlob);
       expect(persist.corrupt[0]?.timestamp).toBe(4242);
@@ -399,7 +399,7 @@ describe('DurableSyncState', () => {
       await first.loadCursor(); // salvages + rewrites the primary
 
       // A fresh instance over the SAME persistence reads the cleaned primary as a
-      // normal 'ok' state — it must not re-detect corruption and re-lock.
+      // normal 'ok' state, it must not re-detect corruption and re-lock.
       const reopened = new DurableSyncState({ persist });
       expect(reopened.isRecoveryRequired()).toBe(false);
       expect((await reopened.listOutbox()).map((r) => r.revisionId)).toEqual([
@@ -431,7 +431,7 @@ describe('DurableSyncState', () => {
       expect(persist.corrupt[0]?.raw).toEqual(corruptBlob);
       expect(recovered.isRecoveryRequired()).toBe(true);
 
-      // The state is writable — a mutation persists (never wedged).
+      // The state is writable, a mutation persists (never wedged).
       await recovered.enqueue(envelope({ revisionId: 'rev-new' }));
       expect((await recovered.listOutbox()).map((r) => r.revisionId)).toEqual([
         'rev-new',
@@ -454,7 +454,7 @@ describe('DurableSyncState', () => {
       expect(fresh.isRecoveryRequired()).toBe(false);
       expect(persist.corrupt).toEqual([]);
 
-      // A genuine first run is fully writable — the empty state persists normally.
+      // A genuine first run is fully writable, the empty state persists normally.
       await fresh.saveCursor(3);
       expect(persist.saveCalls).toBe(1);
       expect(await fresh.loadCursor()).toBe(3);
@@ -510,7 +510,7 @@ describe('DurableSyncState', () => {
 
     it('flags recovery when a corrupt primary recovered from .bak had a newer queued revision the backup lacks', async () => {
       // The primary's CORE cursor is corrupt, but its outbox is intact and holds
-      // 'rev-newer' — a revision the one-generation-behind .bak does not have
+      // 'rev-newer', a revision the one-generation-behind .bak does not have
       // (e.g. it was enqueued after the last save() rotated .bak). The backup is
       // a valid, parseable snapshot, so hydrate prefers it as the live state
       // (never auto-merges), but the newer delta the salvage would have kept
@@ -531,7 +531,7 @@ describe('DurableSyncState', () => {
       };
       const recovered = new DurableSyncState({ persist, now: () => 7 });
 
-      // The backup snapshot is preferred as the live state — not a merge.
+      // The backup snapshot is preferred as the live state, not a merge.
       expect(await recovered.loadCursor()).toBe(12);
       expect(await recovered.isLocallyAuthored('rev-x')).toBe(true);
       expect(await recovered.listOutbox()).toEqual([]);
@@ -547,7 +547,7 @@ describe('DurableSyncState', () => {
 
     it('does NOT flag recovery when the .bak-recovered outbox already matches the corrupt primary salvage (no newer delta)', async () => {
       // Same corrupt-primary-with-intact-outbox shape, but this time the queued
-      // revision is ALSO present in the backup snapshot — the salvage carries
+      // revision is ALSO present in the backup snapshot, the salvage carries
       // nothing the backup lacks, so no spurious recovery signal should fire.
       persist = new MemoryPersist({
         version: 1,
@@ -600,7 +600,7 @@ describe('DurableSyncState', () => {
       expect(outbox[0]?.revisionId).toBe('rev-1');
       expect(await state.listQuarantine()).toEqual([]);
 
-      // A second retry is inert — the stash is gone, so no double-enqueue.
+      // A second retry is inert, the stash is gone, so no double-enqueue.
       await state.requeueQuarantined('rev-1');
       expect(await state.listOutbox()).toHaveLength(1);
     });
@@ -612,7 +612,7 @@ describe('DurableSyncState', () => {
       await state.discardQuarantined('rev-1');
       expect(await state.listQuarantine()).toEqual([]);
 
-      // Retry after discard is a no-op — nothing re-enters the outbox.
+      // Retry after discard is a no-op, nothing re-enters the outbox.
       await state.requeueQuarantined('rev-1');
       expect(await state.listOutbox()).toEqual([]);
     });
@@ -672,7 +672,7 @@ describe('DurableSyncState', () => {
       await bounded.quarantineOutboxItem('rev-1', 'server-rejected');
       await bounded.quarantineOutboxItem('rev-2', 'server-rejected');
 
-      // Both rows stay visible in the panel — nothing is silently dropped.
+      // Both rows stay visible in the panel, nothing is silently dropped.
       const rows = await bounded.listQuarantine();
       expect(rows.map((r) => r.revisionId).sort()).toEqual(['rev-1', 'rev-2']);
 
@@ -682,7 +682,7 @@ describe('DurableSyncState', () => {
       // Retry still re-enqueues the exact bytes.
       expect(await bounded.requeueQuarantined('rev-1')).toBe(false);
       expect(await bounded.requeueQuarantined('rev-2')).toBe(true);
-      // The evicted row remains after its inert retry — visibility is preserved.
+      // The evicted row remains after its inert retry, visibility is preserved.
       expect(
         (await bounded.listQuarantine()).some((r) => r.revisionId === 'rev-1'),
       ).toBe(true);
@@ -940,7 +940,7 @@ describe('DurableSyncState outbox payload externalization (arch P1)', () => {
   });
 
   it('still recovers a corrupt blob from backup with a payload store present (GAP-1)', async () => {
-    // Seed a good backup, then a corrupt primary — the GAP-1 path must still win.
+    // Seed a good backup, then a corrupt primary, the GAP-1 path must still win.
     const good = new DurableSyncState({ persist, payloadStore: store });
     await good.saveCursor(11);
     await good.saveCursor(12); // primary=12, backup=11

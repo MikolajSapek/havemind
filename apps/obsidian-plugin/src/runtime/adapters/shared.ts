@@ -3,7 +3,7 @@
  * owns: the runtime `App`'s Vault shape (Obsidian's ambient stub models only the
  * surface we use) and the plain-record guard that validates untrusted
  * plugin-data blobs before they are read. Kept in its own leaf module so no
- * adapter has to import a sibling — or the `obsidian-adapters.ts` façade — just
+ * adapter has to import a sibling, or the `obsidian-adapters.ts` façade, just
  * to reach them, which is what keeps the adapter graph acyclic.
  */
 

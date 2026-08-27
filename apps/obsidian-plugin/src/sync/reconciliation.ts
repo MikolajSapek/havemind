@@ -43,11 +43,11 @@ export interface SkippedFileDetail {
 
 export interface ReconcileResult {
   /**
-   * Count of vault files whose type the pilot never syncs — anything that is
+   * Count of vault files whose type the pilot never syncs, anything that is
    * neither a markdown note nor an allowlisted binary attachment (F9). Narrowed
    * from the old "every non-markdown file": images/PDFs in the allowlist are now
    * synced, so this figure is the honest "still excluded" count for the notice.
-   * Enumerated for visibility only — never read or enqueued.
+   * Enumerated for visibility only, never read or enqueued.
    */
   attachmentsExcluded: number;
   /**
@@ -70,8 +70,8 @@ export interface ReconcileResult {
   skipped: number;
   /**
    * The first {@link MAX_SKIPPED_DETAILS} skipped files, each with the reason its
-   * observation failed. A bare count is undiagnosable — neither the user nor a
-   * maintainer reading the console could tell which file was dropped or why — so
+   * observation failed. A bare count is undiagnosable, neither the user nor a
+   * maintainer reading the console could tell which file was dropped or why, so
    * every failure records its path and message. Bounded on purpose: the count
    * above stays exact, but this list never grows with the vault.
    */
@@ -84,7 +84,7 @@ const MAX_BINARY_FILE_MB = MAX_BINARY_FILE_BYTES / (1024 * 1024);
 
 /**
  * Renders the two exclusion counts from a {@link ReconcileResult} as
- * user-facing notice strings — pure, so the wording can be unit-tested without
+ * user-facing notice strings, pure, so the wording can be unit-tested without
  * an `App`/`Notice` in scope. Each reason gets its OWN sentence: an unsupported
  * file type and an oversized allowlisted binary (F9) are distinct causes, and
  * conflating them (or the old "markdown only" phrasing, stale since binary
@@ -110,7 +110,7 @@ export function formatReconcileNotices(result: ReconcileResult): string[] {
  * Writes one console line per skipped file behind the count-only Notice, so the
  * failure is diagnosable after the fact. Deliberately NOT a Notice: a 40-file
  * toast storm is worse than no toast at all, whereas the console is where the
- * rest of this plugin already reports per-item failures. Inherently bounded —
+ * rest of this plugin already reports per-item failures. Inherently bounded,
  * {@link ReconcileResult.skippedPaths} is capped at {@link MAX_SKIPPED_DETAILS}.
  */
 export function warnSkippedPaths(result: ReconcileResult): void {
@@ -130,7 +130,7 @@ interface EligibleVaultFile {
  * binary attachment (F9) is compared over its RAW bytes (hashed with `hashBlob`,
  * carried as base64) so a byte-identical asset reads as unchanged; markdown is
  * canonicalised text. A binary file over {@link MAX_BINARY_FILE_BYTES} returns
- * `'too-large'` — excluded-with-notice, never an error.
+ * `'too-large'`, excluded-with-notice, never an error.
  */
 async function readEligibleContent(
   vault: VaultSnapshotPort,
@@ -144,7 +144,7 @@ async function readEligibleContent(
   }
   // Same volatile-field filter the observer applies when it hashes a config file
   // (`config-normalize.ts`), so a graph.json whose zoom changed since the last
-  // scan reads as UNCHANGED here instead of being handed to `observeModify` —
+  // scan reads as UNCHANGED here instead of being handed to `observeModify`,
   // the mapping it is compared against holds the normalized form.
   return {
     content: normalizeContent(
@@ -267,7 +267,7 @@ export async function reconcileVaultState(
  * Runs a single per-file observation, isolating its failure so one bad file can
  * never abort the whole scan. Returns true if the observation committed, false
  * if it was skipped for a per-file reason (an oversized payload or an envelope
- * build error). A structural vault collision stays fatal — it is a data-integrity
+ * build error). A structural vault collision stays fatal, it is a data-integrity
  * problem the user must resolve, matching the enumeration-phase collision guard.
  *
  * Every skip reports `path` and the failure's message through `onSkip`: dropping

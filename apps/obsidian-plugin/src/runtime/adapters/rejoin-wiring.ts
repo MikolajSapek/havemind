@@ -2,7 +2,7 @@
  * Invitee-side rejoin (F9): reading back this device's own persisted
  * (membershipId, deviceId, apiBaseUrl) binding and building the `RejoinController`
  * that polls for a grant after a terminal auth failure. An OWNER identity is
- * deliberately refused — completing a rejoin needs an authenticated owner session
+ * deliberately refused, completing a rejoin needs an authenticated owner session
  * the burned owner no longer has, so arming that poll could only spin forever.
  * The controller is handed pre-computed synchronous token ports because the
  * browser bundle's only hashing primitive is async and no new crypto may be added.
@@ -36,7 +36,7 @@ interface RejoinIdentity {
 }
 
 /**
- * Reads back this device's own rejoin identity from plugin data — the same
+ * Reads back this device's own rejoin identity from plugin data, the same
  * (membershipId, deviceId) binding it holds from onboarding/pairing. An owner
  * device carries them in its `ownerConnection` record; an invitee carries them
  * in its connected onboarding state (`memberId` is the active membership id).
@@ -87,7 +87,7 @@ async function readRejoinIdentity(
  * when no identity is stored (nothing to rejoin with).
  *
  * The `hashRefreshToken` port is synchronous, but the only hashing primitive
- * available in the browser-platform bundle (`crypto.subtle.digest`) is async —
+ * available in the browser-platform bundle (`crypto.subtle.digest`) is async,
  * and the build forbids `node:crypto`. So we generate ONE candidate refresh
  * token up front, hash it once here with the same SHA-256 hex helper every other
  * token uses (zero new crypto), then hand the controller stable synchronous
@@ -103,7 +103,7 @@ export async function buildRejoinControllerForInvitee(
   // completing a rejoin needs an authenticated owner session to issue the grant,
   // which the burned owner no longer has (the documented self-grant dead-end).
   // Building a controller here would only arm a /auth/rejoin poll that can never
-  // succeed, so skip it — the surfaced reconnect-required/connectionError state
+  // succeed, so skip it, the surfaced reconnect-required/connectionError state
   // already drives the correct owner recovery (retry / re-paste pairing token).
   // sweep-P1.
   if (identity === null || identity.role === 'owner') {

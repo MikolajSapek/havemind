@@ -62,7 +62,7 @@ export interface BootstrapPageRequest extends RedirectSafeRequest {
    * that membership's bootstrap instead of its first-active-vault fallback
    * (multi-vault 9b, server-side contract added in 3c91a3d). `null` before a
    * connection record exists (the server's first-active-vault fallback
-   * covers that case) — unreachable once a connection record exists, since
+   * covers that case), unreachable once a connection record exists, since
    * `ConnectionMetadata.vaultId` is set at invitation review, well before any
    * bootstrap request is made.
    */
@@ -481,7 +481,7 @@ export class OnboardingController {
       // The owner rejected this device or the 3-attempt cap was reached. Drop
       // the spent pending credential and leave the poll loop with a terminal,
       // non-durable 'rejected' view state so the guest sees a clear "invitation
-      // no longer valid" screen — never offline, never a silent forever-wait.
+      // no longer valid" screen, never offline, never a silent forever-wait.
       await this.clearSecretBestEffort(() =>
         this.secrets.clearPendingCredential(),
       );
@@ -589,7 +589,7 @@ export class OnboardingController {
   /**
    * The device's rejoin secret, persisted at confirmInvitation. If a redemption
    * that began before this feature is resumed without a stored secret, mint and
-   * persist a fresh one — the server stores whatever hash it receives, so this
+   * persist a fresh one, the server stores whatever hash it receives, so this
    * still provisions a valid rejoin capability for the device.
    */
   private async requireRejoinSecret(): Promise<string> {
@@ -801,7 +801,7 @@ type ApprovalResponse =
       deviceId: string;
       // The invitee's active membership id (the server's memberships.id), which
       // POST /revisions authorises push against. It becomes the connection's
-      // push member id — see pollApproval.
+      // push member id, see pollApproval.
       membershipId: string;
       status: 'approved';
     }>;

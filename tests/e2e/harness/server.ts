@@ -76,7 +76,7 @@ export interface ServerHarnessOptions {
   /**
    * Overrides the per-device auth/sync rate limit (default: production's
    * 120 requests/60s). Only intended for tests deliberately exercising a
-   * request volume the default limit would otherwise gate — e.g. a
+   * request volume the default limit would otherwise gate, e.g. a
    * multi-page pull backlog that also fetches one blob per applied
    * revision. Tests exercising the rate limiter itself should not set this.
    */
@@ -246,7 +246,7 @@ export class ServerHarness {
     const blobStore = new BlobStore(join(dataDir, BLOBS_DIRNAME));
     const revisions = new RevisionRepository(database, blobStore, { now });
     // `invitations` gates registration of the pre-auth onboarding scope
-    // (registerAuthRoutes), which is where `/auth/refresh` lives — without it
+    // (registerAuthRoutes), which is where `/auth/refresh` lives, without it
     // that route (and the rest of the invite/redeem/refresh surface) 404s.
     const invitations = new InvitationService(database, { now });
     const app = buildApp({
@@ -294,7 +294,7 @@ export class ServerHarness {
 
 /**
  * Reopens a server runtime over an existing data directory. Used by both
- * restart (same directory) and restore (fresh directory) — in each case the
+ * restart (same directory) and restore (fresh directory), in each case the
  * durable state already exists and is not re-derived.
  */
 function openRuntime(

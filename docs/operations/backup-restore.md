@@ -2,7 +2,7 @@
 
 Havemind keeps everything that matters in one place: a SQLite database plus a
 content-addressed blob store under the server's data directory. This page covers
-how copies of that state are made, where they go, and how a restore is proven —
+how copies of that state are made, where they go, and how a restore is proven,
 not assumed.
 
 Status: the production backup pipeline is active and the initial restore drill
@@ -25,7 +25,7 @@ group, or physical access to the machine.
 ## Why the server writes its own artifacts
 
 The pilot operator account is deliberately unprivileged: no `docker` group, no
-non-interactive `sudo`. That rules out the obvious design — a cron job calling
+non-interactive `sudo`. That rules out the obvious design, a cron job calling
 `docker exec havemind backup`. So the server itself runs the timer and writes
 into a host bind mount, and the cron job only ever reads finished files.
 
@@ -57,7 +57,7 @@ loop cannot fill the disk. Seed the first artifact by hand instead (see below).
 
 The container runs as uid `1000` with `cap_drop: [ALL]`, so it cannot `chown`
 anything from the inside. Docker creates a missing bind-mount source **root
-owned**, and every backup would then fail with `EACCES` — logged each cycle,
+owned**, and every backup would then fail with `EACCES`, logged each cycle,
 never fatal. Create the directory and hand it to uid 1000 once, before `up -d`:
 
 ```bash
@@ -65,7 +65,7 @@ mkdir -p deploy/backups && chmod 700 deploy/backups
 docker run --rm -v "$PWD/deploy/backups:/backups" alpine chown -R 1000:1000 /backups
 ```
 
-This is the same one-off fix the named data volume needs — see
+This is the same one-off fix the named data volume needs, see
 `docs/self-hosting.md`, "One-time volume ownership fix".
 
 ## Operator commands
@@ -111,16 +111,16 @@ it into a fact, using user-level permissions only and touching nothing live:
 3. the newest artifact inside it is byte-exact against its manifest;
 4. that artifact rebuilds a scratch data directory that passes
    `PRAGMA integrity_check` and contains an `instance_state` row;
-5. the rebuilt directory contains `havemind.db` — the exact filename the server
+5. the rebuilt directory contains `havemind.db`, the exact filename the server
    opens.
 
 It prints one verdict, `RESTORE DRILL: PASS` or `FAIL`, and exits non-zero on
 failure. Two verification modes:
 
-- **cli** — runs `havemind backup verify` and `havemind backup restore`, i.e. the
+- **cli**, runs `havemind backup verify` and `havemind backup restore`, i.e. the
   shipped restore code path. Requires a Havemind CLI reachable outside the
   container; point `HAVEMIND_CLI` at it.
-- **offline** — the same checks (SHA-256 per blob, size, `integrity_check`,
+- **offline**, the same checks (SHA-256 per blob, size, `integrity_check`,
   `instance_state` present) re-implemented with `python3` stdlib only, so the
   drill runs on a bare host with no node, no build and no container.
 
@@ -135,7 +135,7 @@ Record the date of the last passing run in `docs/pilot/known-limitations.md`.
 ## What is protected, and what is not
 
 - **Protected:** notes, attachments, revision history, memberships, devices and
-  invitations — everything in the database and blob store.
+  invitations, everything in the database and blob store.
 - **Not protected by this pipeline:** `/srv/secrets/havemind_db_key`, the restic
   repository password and the SSH key. Those live in the owner recovery kit; a
   repository whose password is lost is unrecoverable, by design.
@@ -143,11 +143,11 @@ Record the date of the last passing run in `docs/pilot/known-limitations.md`.
   data the live volume already stores unencrypted, so treat the bind mount
   exactly like the data directory (0700, uid 1000, tailnet-only host). If
   host-side encryption at rest is required, use `havemind checkpoint create`
-  instead — it seals every part to an off-server public key, and every restore
+  instead, it seals every part to an off-server public key, and every restore
   (including every drill) then needs the owner's secret key.
 
 ## Related
 
-- `ops/sapserver/restic/README.md` — the activation checklist and cron lines.
-- `docs/self-hosting.md` — first deployment, volume ownership.
-- `docs/pilot/known-limitations.md` — AUD-10 status.
+- `ops/sapserver/restic/README.md`, the activation checklist and cron lines.
+- `docs/self-hosting.md`, first deployment, volume ownership.
+- `docs/pilot/known-limitations.md`, AUD-10 status.

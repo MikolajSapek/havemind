@@ -120,12 +120,12 @@ function loadTargetVault(
  * Registers the F9 rejoin surface as a self-contained encapsulated plugin so it
  * does not touch the auth-routes module. Two endpoints:
  *
- * - `POST /owner/rejoin-grants` — owner-authenticated. Self-authenticates the
+ * - `POST /owner/rejoin-grants`, owner-authenticated. Self-authenticates the
  *   bearer session (the protected-scope preHandler lives inside auth-routes and
  *   does not reach here), then requires the caller to be an active owner in the
  *   target membership's vault. Returns non-secret binding metadata only. Rate
  *   limited before the handler runs, so a flood costs no session lookup.
- * - `POST /auth/rejoin` — pre-auth. The invitee's terminal connection has no
+ * - `POST /auth/rejoin`, pre-auth. The invitee's terminal connection has no
  *   valid session, so no bearer is required; the grant is matched server-side by
  *   the (membershipId, deviceId) binding the invitee presents from its own
  *   data.json. Any failure is a flat 401 so a caller cannot distinguish cases.
@@ -139,7 +139,7 @@ export function registerRejoinRoutes(
     deps.rejoin ??
     new RejoinGrantService(deps.database, { now });
   // Pre-auth traffic: no session exists yet, so per-device keying (as used by
-  // the authenticated auth-routes surface) doesn't apply — key by IP, same as
+  // the authenticated auth-routes surface) doesn't apply, key by IP, same as
   // /auth/refresh and /owner/pair. Reuses the auth-routes limiter factory
   // rather than a bespoke one.
   const rejoinRateLimit = createRateLimiter(
@@ -242,8 +242,8 @@ export function registerRejoinRoutes(
             vaultId: result.vaultId,
           };
         } catch {
-          // Any redemption failure — no grant, expired, consumed, wrong
-          // device, inactive membership, malformed — is a flat 401 so a
+          // Any redemption failure, no grant, expired, consumed, wrong
+          // device, inactive membership, malformed, is a flat 401 so a
           // caller cannot distinguish the cases (mirrors /auth/refresh and
           // /owner/pair).
           return sendError(reply, 401, 'UNAUTHENTICATED');

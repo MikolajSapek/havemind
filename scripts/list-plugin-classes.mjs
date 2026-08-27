@@ -10,7 +10,7 @@
  *
  * Deliberately over-inclusive: it greps identifier-shaped strings rather than
  * tracking `addClass` calls, so a class built at runtime still lands in the
- * list. A name here that styles.css never mentions is fine — the test only
+ * list. A name here that styles.css never mentions is fine, the test only
  * looks the other way.
  *
  * Usage: node scripts/list-plugin-classes.mjs

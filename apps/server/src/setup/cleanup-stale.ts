@@ -9,13 +9,13 @@ import type Database from 'better-sqlite3';
  *
  * What it removes:
  *   - invitations that are expired (`expires_at` in the past) or already
- *     consumed (`consumed_at` set) — the invitation row itself is never a
+ *     consumed (`consumed_at` set), the invitation row itself is never a
  *     foreign-key target, so deleting it is always safe.
  *   - devices stuck in `status = 'pending'` older than a threshold (default
  *     24h), *unless* another table still holds an `ON DELETE RESTRICT`
  *     reference to that device (`revisions.device_id`,
  *     `invitations.inviter_device_id`, `owner_pairings.consumed_by_device_id`)
- *     — those are skipped and reported rather than deleted, so this command
+ *, those are skipped and reported rather than deleted, so this command
  *     can never violate a foreign-key constraint or silently orphan data.
  *
  * It never touches approved/active devices, memberships, revisions, vault

@@ -56,7 +56,7 @@ describe('ActivityLog', () => {
 
   it('collapses a local push and its remote echo when both carry the same real revisionId', () => {
     // Regression: local entries used to be recorded under `operationId`, which
-    // never matches the revisionId a remote echo of the SAME push carries — so
+    // never matches the revisionId a remote echo of the SAME push carries, so
     // the two never collapsed into one row. With both keyed by the real
     // revisionId, the later remote echo replaces the local placeholder.
     const log = new ActivityLog();
@@ -75,7 +75,7 @@ describe('ActivityLog', () => {
     );
 
     expect(log.snapshot()).toHaveLength(1);
-    // The later record wins — here that happens to be the remote echo, which
+    // The later record wins, here that happens to be the remote echo, which
     // is fine: the runner suppresses truly-local echoes before they ever
     // reach applyRemote, so in the live path only the local entry ever
     // records for a self-authored push.

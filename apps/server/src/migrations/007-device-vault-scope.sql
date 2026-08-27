@@ -4,7 +4,7 @@
 -- family and access token bound to those devices. The device row carried no
 -- vault, so the burn was selected with `WHERE user_id = ?` alone: a member who
 -- belongs to two vaults and loses access to one was locked out of BOTH. That is
--- a silent, unrecoverable over-reach — the member's other vault is intact, its
+-- a silent, unrecoverable over-reach, the member's other vault is intact, its
 -- membership still active, yet the device can no longer authenticate.
 --
 -- This column records the vault a device was onboarded into, so revocation can
@@ -16,7 +16,7 @@
 --   1. SQLite requires an added column with a REFERENCES clause to default to
 --      NULL while `PRAGMA foreign_keys = ON`.
 --   2. A device onboarded before this migration whose vault cannot be proven
---      stays NULL, and revocation treats NULL as "unknown scope" — it keeps
+--      stays NULL, and revocation treats NULL as "unknown scope", it keeps
 --      burning such a device, i.e. fails closed exactly as it did before. NULL
 --      never widens access; it only preserves the old, stricter behaviour.
 -- No ON DELETE action on purpose: nothing in the server hard-deletes a vault
@@ -28,7 +28,7 @@ ALTER TABLE devices
 
 -- Conservative backfill: only a user with exactly ONE membership row has an
 -- unambiguous vault, so only those devices are scoped. A user with zero or
--- several memberships stays NULL rather than being guessed at — an incorrect
+-- several memberships stays NULL rather than being guessed at, an incorrect
 -- guess would either miss a burn (too permissive) or burn the wrong vault's
 -- device (the very bug being fixed). Membership status is deliberately ignored:
 -- the question is which vault the device belongs to, not whether access is live.

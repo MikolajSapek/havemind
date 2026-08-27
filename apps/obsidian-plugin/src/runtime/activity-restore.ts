@@ -1,12 +1,12 @@
 /**
  * Bridges the Activity feed's "Restore" action to the append-only
  * `restoreRevision` in `activity/activity.ts`. Kept separate from `main.ts` so
- * the restore-wiring logic is unit-testable without the Obsidian runtime — the
+ * the restore-wiring logic is unit-testable without the Obsidian runtime, the
  * plugin's lifecycle tests assert exact DOM content and must not entangle
  * with this (mirrors the existing `activity-render.ts` seam).
  *
  * Known MVP limitation: the Activity feed never carries real note content
- * (only a `hasContent` marker — rule: never log note contents), so a restore
+ * (only a `hasContent` marker, rule: never log note contents), so a restore
  * driven purely from the feed reconstructs from that marker content, not the
  * historical bytes. Full-fidelity restore needs the client to keep the actual
  * revision content available locally, which is a larger follow-up.
@@ -30,7 +30,7 @@ export interface RestoreActivityEntryOptions {
 /**
  * Runs the append-only restore and maps the result to an Activity log entry
  * attributed to the restorer, or returns `null` when the restore could not be
- * performed (unknown/deleted target, unreconciled history) — the caller
+ * performed (unknown/deleted target, unreconciled history), the caller
  * decides how to surface that (e.g. a `Notice`).
  */
 export function restoreActivityEntry(
@@ -44,7 +44,7 @@ export function restoreActivityEntry(
       now: options.now,
       newRevisionId: options.newRevisionId,
       // Non-cryptographic: this hash only feeds the in-memory Activity DAG's
-      // append validation for this restore call — never the server, never
+      // append validation for this restore call, never the server, never
       // durable sync state, never a security boundary.
       hashContent: nonCryptoHash,
     });

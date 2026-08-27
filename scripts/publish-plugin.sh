@@ -30,7 +30,7 @@ echo "==> Building plugin"
 
 echo "==> Secret scan (AT5)"
 if grep -nE '\.ts\.net|100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.[0-9]{1,3}\.[0-9]{1,3}|refresh_token|BEGIN [A-Z]* PRIVATE KEY|invitation_secret' "$PLUGIN_SRC/main.js"; then
-  echo "FAIL: secret-like content in main.js — aborting"; exit 1
+  echo "FAIL: secret-like content in main.js, aborting"; exit 1
 fi
 
 VERSION="$(node -p "require('$PLUGIN_SRC/manifest.json').version")"

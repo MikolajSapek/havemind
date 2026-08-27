@@ -3,7 +3,7 @@
  * per conflict copy found in the vault, each offering a Resolve button that opens
  * the diff modal. Kept separate from the modal it opens (`ui/conflict-modal.ts`)
  * because this section is a read-only list drawn inside the onboarding panel,
- * while the modal owns the destructive resolution choices. Presentation only —
+ * while the modal owns the destructive resolution choices. Presentation only,
  * the vault scan happens in the caller's provider.
  */
 
@@ -23,8 +23,8 @@ export interface ConflictSectionActions {
  * Renders the "Conflicts" panel section: a header (git-merge icon + count
  * badge) and one row per conflict copy. The section is drawn only when copies
  * exist, so the caller must skip it for an empty list. Each row shows the target
- * note, author and timestamp — or the manual-resolution hint when the target is
- * unknown — plus a Resolve button opening the diff modal.
+ * note, author and timestamp, or the manual-resolution hint when the target is
+ * unknown, plus a Resolve button opening the diff modal.
  */
 export function renderConflictSection(
   content: HTMLElement,
@@ -43,7 +43,7 @@ export function renderConflictSection(
   const icon = header.createEl('span', { attr: DECORATIVE });
   icon.addClass('havemind-conflict-icon');
   setIcon(icon, 'git-merge');
-  // The design states the count in the heading — "2 conflicts" — rather than
+  // The design states the count in the heading, "2 conflicts", rather than
   // parking a bare numeral at the far edge, where it read as a badge for
   // something else on the row.
   header.createEl('span', {

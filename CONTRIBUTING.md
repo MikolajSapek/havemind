@@ -29,7 +29,7 @@ npm test
 - **Test-driven.** Write a failing test first, then the implementation. New
   logic ships with tests.
 - **The server stays opaque.** It stores content-addressed blobs and revision
-  headers only — it never computes diffs, merges, or provenance. Keep that
+  headers only, it never computes diffs, merges, or provenance. Keep that
   boundary intact.
 - **No new heavy dependencies.** React, Redis, PostgreSQL, message brokers,
   ORMs, custom cryptography, and Kubernetes are out of scope by design.

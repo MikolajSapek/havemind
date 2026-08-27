@@ -1,17 +1,17 @@
 /**
- * F-config-apply — two-device end-to-end coverage for the VISIBILITY half of the
+ * F-config-apply, two-device end-to-end coverage for the VISIBILITY half of the
  * `.obsidian/` appearance mirror: what the RECEIVING device does once the bytes
  * have landed.
  *
  * `config-mirror-two-device.test.ts` proves the bytes cross (allowlist, poll
- * tick, byte-identical materialisation). It stops there — and stopping there is
+ * tick, byte-identical materialisation). It stops there, and stopping there is
  * exactly the field bug: Obsidian caches its own config in memory, so a synced
  * snippet, theme or accent colour sat on disk and stayed invisible until the next
  * restart ("the graph colours did not change on the other device"). These rows
  * carry the same real path one step further and assert the EFFECT:
  *
  *  1. an allowlisted CSS-backed file (`.obsidian/snippets/…`, `themes/…`,
- *     `appearance.json`) refreshes the custom CSS on the receiver — one
+ *     `appearance.json`) refreshes the custom CSS on the receiver, one
  *     `css-change`, no toast;
  *  2. a settings file Obsidian has no live re-read signal for (`graph.json`,
  *     `hotkeys.json`, `app.json`, `core-plugins.json`) produces exactly one
@@ -21,11 +21,11 @@
  *  4. a snippet the peer DELETED also refreshes the CSS (otherwise it keeps
  *     styling this vault after it is gone);
  *  5. an ordinary markdown apply fires neither effect, and a device's OWN config
- *     write fires neither — only what arrives from a peer is refreshed.
+ *     write fires neither, only what arrives from a peer is refreshed.
  *
  * Production code under test: `classifyConfigApplyEffect` +
  * `createConfigApplyReloader` (`runtime/adapters/config-apply.ts`, re-exported
- * from `runtime/obsidian-adapters.ts`), driven by the real wire path — real
+ * from `runtime/obsidian-adapters.ts`), driven by the real wire path, real
  * poller, real outbox, real opaque server, real pull + decode. HARNESS GLUE, so
  * it is on the record: the live plugin notifies the reloader from
  * `createVaultFilePort`'s `.obsidian/` branch (write/delete), and that port needs
@@ -38,7 +38,7 @@
  * ─── DOCUMENTED GAP: the command-palette actions (sync-now / disconnect /
  * reset-connection) ────────────────────────────────────────────────────────────
  * Not covered here, and deliberately not forced. The e2e harness does not
- * instantiate `HavemindPlugin` at all — it assembles the sync stack (observer,
+ * instantiate `HavemindPlugin` at all, it assembles the sync stack (observer,
  * poller, outbox, `SyncRunner`, apply path) directly over harness-owned ports.
  * Driving those three commands END-TO-END (as opposed to the existing unit
  * coverage in `main.commands.test.ts` and `main.connection-reset.test.ts`, which
@@ -151,7 +151,7 @@ afterEach(async () => {
   cleanupHarnessDirectories();
 });
 
-describe('F-config-apply — a received `.obsidian/` change becomes visible on the peer', () => {
+describe('F-config-apply, a received `.obsidian/` change becomes visible on the peer', () => {
   it('row 1: a snippet written on device A lands byte-identical on B and refreshes the custom CSS exactly once, with no toast', async () => {
     const { server, alice, bob, aliceEffects, bobEffects } = await makeHarness();
 
@@ -175,7 +175,7 @@ describe('F-config-apply — a received `.obsidian/` change becomes visible on t
 
     bobEffects.flush();
     expect(bobEffects.cssChanges()).toBe(1);
-    // A snippet applies in place — the user is never told to restart for one.
+    // A snippet applies in place, the user is never told to restart for one.
     expect(bobEffects.notices()).toEqual([]);
     expect(classifyConfigApplyEffect(SNIPPET_PATH)).toBe('css-reload');
   });
@@ -193,14 +193,14 @@ describe('F-config-apply — a received `.obsidian/` change becomes visible on t
     // it syncs its SEMANTIC part only, so what lands here is the normalised
     // settings object, not Alice's formatting or her machine-local view state
     // (`sync/config-normalize.ts`, covered in
-    // `config-semantic-sync-two-device.test.ts`). The colours — the point of
-    // syncing this file — are what must arrive intact.
+    // `config-semantic-sync-two-device.test.ts`). The colours, the point of
+    // syncing this file, are what must arrive intact.
     expect(JSON.parse(bob.readConfig(GRAPH_PATH) ?? '')).toEqual({
       colorGroups: [{ color: { rgb: 8087286 } }],
     });
 
     bobEffects.flush();
-    // Exactly the message the user sees, once — and no CSS refresh pretending
+    // Exactly the message the user sees, once, and no CSS refresh pretending
     // graph settings re-read themselves.
     expect(bobEffects.notices()).toEqual([CONFIG_RELOAD_NOTICE]);
     expect(bobEffects.cssChanges()).toBe(0);
@@ -220,7 +220,7 @@ describe('F-config-apply — a received `.obsidian/` change becomes visible on t
     await alice.sync();
     expect(server.revisionCount()).toBe(4);
 
-    // Four applies, ONE armed batch — the window is armed by the first path and
+    // Four applies, ONE armed batch, the window is armed by the first path and
     // never re-armed or extended by the rest.
     await bob.sync();
     expect(bob.configPaths()).toEqual(

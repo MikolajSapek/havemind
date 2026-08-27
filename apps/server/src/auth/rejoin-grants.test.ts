@@ -254,7 +254,7 @@ describe('RejoinGrantService.redeemGrant', () => {
     expect(session?.userId).toBe(INVITEE_USER);
     expect(session?.deviceId).toBe(INVITEE_DEVICE);
 
-    // Push authorises expectedMemberId against the active membership — unchanged.
+    // Push authorises expectedMemberId against the active membership, unchanged.
     const membership = fixture.database
       .prepare(
         `SELECT id AS membershipId FROM memberships

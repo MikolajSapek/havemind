@@ -20,8 +20,8 @@ import {
  * artifacts on a timer into a HOST bind mount, and the (sudo-free) user cron job
  * only has to copy already-written files off the box (ops/sapserver/restic).
  *
- * Server-opaque by construction: this composes `createBackup` — a consistent
- * SQLite snapshot plus a byte-hash-pinned copy of the content-addressed blobs —
+ * Server-opaque by construction: this composes `createBackup`, a consistent
+ * SQLite snapshot plus a byte-hash-pinned copy of the content-addressed blobs,
  * and never inspects, diffs or merges payload contents (plans/001 §3).
  */
 
@@ -90,7 +90,7 @@ function defaultBackupId(now: () => Date): string {
  * publish it with a single `rename`, then apply keep-N retention.
  *
  * Publication is a rename precisely so a crash mid-write can never leave a
- * directory that *looks* like a complete artifact — `listBackups` ignores
+ * directory that *looks* like a complete artifact, `listBackups` ignores
  * dot-prefixed directories, so an interrupted run is invisible to both retention
  * and restore.
  *
@@ -193,7 +193,7 @@ const SILENT_LOGGER: BackupSchedulerLogger = {
  *
  * A failing cycle is logged and swallowed: a backup must never take the sync
  * server down, and it must never leave an unhandled rejection behind. Overlapping
- * runs are impossible — a tick that arrives while a run is in flight is dropped.
+ * runs are impossible, a tick that arrives while a run is in flight is dropped.
  */
 export function startBackupScheduler(
   options: BackupSchedulerOptions,

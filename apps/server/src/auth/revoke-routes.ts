@@ -116,7 +116,7 @@ const REVOKE_CODE_BY_ERROR: Readonly<
  * Resolves a revoke-path error to its HTTP status and error code. A domain
  * {@link MembershipRevocationError} carries its own status and a 4xx code; any
  * OTHER (unexpected) error is a server fault, so it maps to a 500-flavoured
- * `INTERNAL` code — never the client-facing `INVALID_REQUEST`, which would
+ * `INTERNAL` code, never the client-facing `INVALID_REQUEST`, which would
  * mislabel a server bug as a bad request (MINOR 10, matching sibling routes).
  */
 export function resolveRevokeError(error: unknown): {
@@ -139,12 +139,12 @@ function sendRevokeError(reply: FastifyReply, error: unknown): FastifyReply {
  * encapsulated plugin so it does not touch the auth-routes module (mirrors the
  * rejoin surface). One endpoint:
  *
- * - `POST /owner/memberships/:membershipId/revoke` — owner-authenticated. Self-
+ * - `POST /owner/memberships/:membershipId/revoke`, owner-authenticated. Self-
  *   authenticates the bearer session (the protected-scope preHandler lives
  *   inside auth-routes and does not reach here), then requires the caller to be
  *   an active owner in the target membership's vault. The owner may never revoke
  *   their own membership. On success the membership and every device the member
- *   owns are permanently revoked (append-only — a status change, never a delete)
+ *   owns are permanently revoked (append-only, a status change, never a delete)
  *   in one transaction, so the member's past revisions and attribution survive
  *   while their sessions are burned and they are terminally locked out.
  *

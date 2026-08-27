@@ -5,7 +5,7 @@
  * client-instance id repository, the onboarding store's raw port, the
  * out-of-band outbox payload store, and the one-time AUD-03 hash rebase that
  * migrates the blob in place. They belong together because they all share one
- * serialising mutex and one key namespace — a write that bypassed either would
+ * serialising mutex and one key namespace, a write that bypassed either would
  * clobber a sibling subsystem's top-level key.
  */
 
@@ -67,9 +67,9 @@ export function createPersistPort(plugin: Plugin): SyncStatePersistPort {
       // can never destroy the previous good primary, and a concurrent write to
       // another top-level key (producer, roster, onboarding, …) is never
       // clobbered (via the shared mutex):
-      //   Phase 1 — stage the new blob under the staging key, leaving the
+      //   Phase 1, stage the new blob under the staging key, leaving the
       //             primary and its `.bak` untouched.
-      //   Phase 2 — promote: demote the current primary to `.bak`, install the
+      //   Phase 2, promote: demote the current primary to `.bak`, install the
       //             staged blob as the new primary, and clear the staging slot.
       // If phase 2's write is torn, the disk still holds the prior primary plus
       // the staged copy, so load() keeps returning the last good primary.
@@ -150,7 +150,7 @@ export async function runCanonicalizationRebase(plugin: Plugin): Promise<void> {
 /**
  * Plugin-data load/save for the onboarding store, serialized through the shared
  * per-plugin mutex so its whole-blob save re-reads the latest on-disk snapshot
- * and only its own top-level key is written — a concurrent save to another key
+ * and only its own top-level key is written, a concurrent save to another key
  * (sync state, producer, roster) is never clobbered (MAJOR).
  */
 export function createRawPersistPort(plugin: Plugin): OnboardingPersistPort {
@@ -182,7 +182,7 @@ export function createClientInstanceRepo(
  * mobile-safe: the returned adapter's construction never throws; the underlying
  * IndexedDB connection is opened lazily on first access and, if it is
  * unavailable (or any call fails), the adapter degrades so {@link
- * DurableSyncState} keeps the payload inline — sync is never broken. The client
+ * DurableSyncState} keeps the payload inline, sync is never broken. The client
  * instance id + the open both happen once behind a cached promise.
  */
 export function createOutboxPayloadStore(plugin: Plugin): OutboxPayloadStore {

@@ -27,7 +27,7 @@ import {
 /**
  * Cross-vault isolation for a member who legitimately belongs to TWO vaults on
  * one server (roadmap P2 #9d). `sync/vault-isolation.test.ts` proves an outsider
- * of vault B cannot reach into it; this suite proves the harder case — an
+ * of vault B cannot reach into it; this suite proves the harder case, an
  * INSIDER of both vaults must still see two separate vaults, and every
  * per-member operation (bootstrap, revocation, rejoin) must act on exactly the
  * vault it names.
@@ -48,7 +48,7 @@ const VAULT_B_TIME = '2026-07-28T04:00:00.000Z';
 /**
  * The member's vault-B device is approved AFTER their vault-A device. Any
  * "most recently approved device wins" selection therefore picks the vault-B
- * device — which is exactly the bug the rejoin tests below pin down.
+ * device, which is exactly the bug the rejoin tests below pin down.
  */
 const LATER_APPROVAL_TIME = '2026-07-28T05:00:00.000Z';
 const ACCESS_TTL_SECONDS = 600;
@@ -71,7 +71,7 @@ const MEMBER_B_DEVICE = 'c1000000-0000-4000-8000-0000000000b3';
 const MEMBER_A_MEMBERSHIP = 'c1000000-0000-4000-8000-0000000000b4';
 const MEMBER_B_MEMBERSHIP = 'c1000000-0000-4000-8000-0000000000b5';
 
-// A member of vault B and nothing else — the first-active-vault fallback case.
+// A member of vault B and nothing else, the first-active-vault fallback case.
 const SOLO_USER = 'c1000000-0000-4000-8000-0000000000e1';
 const SOLO_DEVICE = 'c1000000-0000-4000-8000-0000000000e2';
 const SOLO_MEMBERSHIP = 'c1000000-0000-4000-8000-0000000000e4';
@@ -622,7 +622,7 @@ describe('multi-vault isolation: membership revocation over HTTP', () => {
     const afterInA = await getEvents(app, fixture.memberInA, VAULT_A);
     expect(afterInA.statusCode).toBe(401);
 
-    // Vault B is untouched — the complement of the AUD2-04 service test, proven
+    // Vault B is untouched, the complement of the AUD2-04 service test, proven
     // end to end: the same person still syncs their other vault.
     expect(membershipStatus(fixture, MEMBER_B_MEMBERSHIP)).toBe('active');
     expect(deviceStatus(fixture, MEMBER_B_DEVICE)).toBe('approved');
@@ -652,7 +652,7 @@ describe('multi-vault isolation: rejoin grants bind within their own vault', () 
     expect(body.membershipId).toBe(MEMBER_A_MEMBERSHIP);
     // Owner A administers vault A only. Binding the member's vault-B device
     // would let a vault-A grant hand out a session on a device owner A has no
-    // authority over — and the vault-B device is the most recently approved, so
+    // authority over, and the vault-B device is the most recently approved, so
     // an unscoped "newest device wins" selection picks exactly the wrong one.
     expect(body.boundDeviceId).toBe(MEMBER_A_DEVICE);
     expect(body.boundDeviceId).not.toBe(MEMBER_B_DEVICE);

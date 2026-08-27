@@ -13,7 +13,7 @@
  * // reaches waiters registered in THIS process. If the server ever runs more
  * // than one process/replica, swap this class for a real pub/sub fan-out
  * // (e.g. Postgres LISTEN/NOTIFY, or a shared bus) so a commit on one process
- * // wakes waiters on another — NOT Redis or a dedicated message broker, which
+ * // wakes waiters on another, NOT Redis or a dedicated message broker, which
  * // this project explicitly forbids adding.
  */
 export type VaultWakeListener = (cursor: number) => void;

@@ -8,7 +8,7 @@
  * enqueue) could observe and record a concurrent local edit to the SAME file,
  * so a naive apply would clobber a revision the producer just captured. Routing
  * both remote apply AND the producer's per-file observe through ONE shared
- * KeyedMutex — keyed by the file's canonical collision key — means a single file
+ * KeyedMutex, keyed by the file's canonical collision key, means a single file
  * can never be produced and applied at the same time: the two critical sections
  * for one key run strictly one-after-another, while unrelated files still sync
  * in parallel (no global lock).

@@ -13,7 +13,7 @@
  * travels in both `title` (hover) and `aria-label` (no mouse needed).
  *
  * `@codemirror/state` and `@codemirror/view` are provided BY Obsidian at
- * runtime and are declared external in `build.mjs` — they must never be bundled,
+ * runtime and are declared external in `build.mjs`, they must never be bundled,
  * or the plugin would run a second, private copy of CodeMirror.
  */
 
@@ -55,7 +55,7 @@ export function pathForEditorView(view: EditorView): string | null {
 
 /**
  * Maps overlay segments onto CodeMirror marks. Segments are clamped to the live
- * document and a span that collapses to nothing is dropped — CodeMirror rejects
+ * document and a span that collapses to nothing is dropped, CodeMirror rejects
  * an empty mark range outright, so a stale offset must never reach it.
  */
 export function buildAuthorDecorations(
@@ -84,7 +84,7 @@ export function buildAuthorDecorations(
           title: segment.tooltip,
           'aria-label': segment.ariaLabel,
           'data-havemind-author': segment.author.displayName,
-          // The token name only — the concrete light/dark value lives in
+          // The token name only, the concrete light/dark value lives in
           // `styles.css`, never in the note or the decoration.
           style: `--havemind-overlay-color: var(${segment.colorToken});`,
         },

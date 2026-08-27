@@ -1,14 +1,14 @@
 /**
  * The tab strip has to work without a mouse.
  *
- * The strip was built as a proper `role="tablist"` — roving tabindex, one tab
- * stop, `aria-selected` on the open tab — and its own comment said "arrow keys
+ * The strip was built as a proper `role="tablist"`, roving tabindex, one tab
+ * stop, `aria-selected` on the open tab, and its own comment said "arrow keys
  * move within the strip". Nothing listened for a key. A keyboard user reached
  * the open tab with Tab and then had nowhere to go: Activity and People were
  * unreachable, because `tabindex="-1"` had removed them from the tab order on
  * the promise of a handler that did not exist.
  *
- * That is worse than not having implemented the pattern at all — plain buttons
+ * That is worse than not having implemented the pattern at all, plain buttons
  * would at least have been reachable. These tests pin the contract the markup
  * was already advertising.
  */
@@ -46,7 +46,7 @@ function press(tab: MockElement, key: string): { defaultPrevented: boolean } {
   return { defaultPrevented };
 }
 
-describe('tab strip — arrow keys', () => {
+describe('tab strip, arrow keys', () => {
   it('moves to the next tab on ArrowRight', () => {
     const { tabs, selected } = strip('status');
     press(tabs[0] as MockElement, 'ArrowRight');
@@ -94,7 +94,7 @@ describe('tab strip — arrow keys', () => {
   });
 });
 
-describe('tab strip — focus follows selection', () => {
+describe('tab strip, focus follows selection', () => {
   it('focuses the newly opened tab', () => {
     // Selecting re-renders the strip, so the tab that gains focus is the one in
     // the NEW tree. Without this the screen reader announces "Activity
@@ -119,14 +119,14 @@ describe('tab strip — focus follows selection', () => {
   });
 });
 
-describe('tab strip — roving tabindex', () => {
+describe('tab strip, roving tabindex', () => {
   it('gives exactly one tab stop', () => {
     const { tabs } = strip('activity');
     expect(tabs.map((tab) => tab.attrs['tabindex'])).toEqual(['-1', '0', '-1', '-1']);
   });
 });
 
-describe('tab strip — tab and panel are linked', () => {
+describe('tab strip, tab and panel are linked', () => {
   it('points each tab at the panel it controls', () => {
     const { tabs } = strip('status');
     for (const tab of tabs) {

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Havemind — initialise the Restic repository on the Mac over SFTP (SRV-03).
+# Havemind, initialise the Restic repository on the Mac over SFTP (SRV-03).
 # Idempotent: an existing repo is reported, not overwritten. Sudo-free: runs as
 # the ordinary user with ~/bin/restic and the 0600 password file.
 #

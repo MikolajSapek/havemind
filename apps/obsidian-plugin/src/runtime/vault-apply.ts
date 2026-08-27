@@ -1,6 +1,6 @@
 /**
  * Bridges the runner's `VaultApplyPort` to the real Obsidian Vault, materializing
- * remote revisions — including files that only ever existed on the other device.
+ * remote revisions, including files that only ever existed on the other device.
  *
  * The remote payload is decoded (`@havemind/sync-core` `decodeRevisionPayload`)
  * into an operation + canonical path + content by the injected `resolveRevision`,
@@ -43,7 +43,7 @@ import type {
  * hierarchy cannot be created. It is a PERMANENT, per-item failure (retrying
  * will never succeed), so the apply side catches it and diverts the incoming
  * content to a conflict artifact rather than letting it bubble to the sync
- * cycle — a bubble there is misread as 'offline' and wedges the whole pull loop
+ * cycle, a bubble there is misread as 'offline' and wedges the whole pull loop
  * in infinite backoff (the same class of field outage this file guards against
  * for the conflict-folder writer). A transient write error (disk full, IO)
  * still throws normally so the cycle retries it.
@@ -131,21 +131,21 @@ const MAX_CONFLICT_BASENAME_LENGTH = 60;
 
 /**
  * Whether a divergence at `path` is resolved LAST-WRITER-WINS instead of by a
- * conflict copy — true for the allowlisted `.obsidian/` settings files, false for
+ * conflict copy, true for the allowlisted `.obsidian/` settings files, false for
  * every note and vault attachment.
  *
  * USER DECISION, 2026-08-12. Rule 3 ("zero silent overwrites") is a guarantee
  * about NOTES: a divergent note is preserved in `Havemind Conflicts/` because
  * prose a person typed can never be reconstructed. A settings file is different
- * on both counts. There is nothing to reconstruct — the losing side is a value the
- * user can set again in one click — and the conflict copy was actively harmful:
+ * on both counts. There is nothing to reconstruct, the losing side is a value the
+ * user can set again in one click, and the conflict copy was actively harmful:
  * `Havemind Conflicts/graph (conflict …).md` is not a settings file Obsidian will
  * ever read, so the copy protected nothing while the colour groups the user wanted
  * synced kept losing to the churn and never landed on the second device. So a
  * config divergence resolves by RECENCY: revisions are pulled and applied in the
  * server's total order (ascending `serverSequence`), so the last revision applied
  * for a file is the last writer, and its content wins. A local settings change
- * already sitting in the outbox is not discarded by this — it keeps its place in
+ * already sitting in the outbox is not discarded by this, it keeps its place in
  * the queue and, once the server accepts it, becomes the later writer in turn.
  *
  * Notes and attachments keep the conflict-copy behaviour byte-identical.
@@ -170,7 +170,7 @@ export interface RemoteAppliedEvent {
    * that. The Activity feed collapses `bootstrap` applies to silence so the
    * bootstrap does not flood the feed with one row per pre-existing file, while
    * `live` applies still record a normal entry. Materialisation is identical
-   * either way — only the Activity presentation depends on this.
+   * either way, only the Activity presentation depends on this.
    */
   readonly origin: RemoteAppliedOrigin;
 }
@@ -179,8 +179,8 @@ export interface RemoteAppliedEvent {
  * Keeps the push producer's fileId↔path↔content map in lockstep with what the
  * apply side writes to the vault. Without it, the vault event a remote-apply
  * write triggers is re-observed by the producer and (a) re-pushed as a fresh
- * local revision, (b) recorded as LOCAL activity, and (c) — for a remote-only
- * create — given a brand-new random fileId (a duplicate fileId across devices).
+ * local revision, (b) recorded as LOCAL activity, and (c), for a remote-only
+ * create, given a brand-new random fileId (a duplicate fileId across devices).
  * Adopting the incoming fileId + content into the producer mapping BEFORE the
  * write dedupes that reflected event to a no-op.
  */
@@ -189,7 +189,7 @@ export interface RemoteApplyProducerSync {
    * `revisionId`. `contentHash` is the SHA-256 hex of the note text for
    * markdown, or the raw-byte hash for a binary attachment. `contentKind`
    * carries the decoded payload's kind so the adopted producer mapping keeps
-   * the binary/markdown discriminator — without it a RECEIVED binary would be
+   * the binary/markdown discriminator, without it a RECEIVED binary would be
    * persisted as markdown and later corrupted by the canonicalization rebase.
    * Absent means markdown (legacy callers unchanged). */
   onRemoteWrite(input: {
@@ -210,7 +210,7 @@ export interface RemoteApplyProducerSync {
    * authored or adopted), or null if none is known. Read by the apply-vs-conflict
    * decision to tell a causal fast-forward (the incoming revision descends from
    * our head → the peer had our version) from a concurrent divergence (never a
-   * silent overwrite — rule 3). Optional so unit tests that don't exercise the
+   * silent overwrite, rule 3). Optional so unit tests that don't exercise the
    * causal path can omit it.
    */
   localHeadFor?(fileId: string): Promise<string | null>;
@@ -228,7 +228,7 @@ export interface VaultApplyAdapterOptions {
   readonly hashContent: (content: string) => Promise<string>;
   /**
    * Called once per remote revision this adapter actually wrote or deleted on
-   * disk — the 'applied' outcome only. Never called for 'noop' (already
+   * disk, the 'applied' outcome only. Never called for 'noop' (already
    * converged, nothing written) or 'conflict' (diverted to a conflict
    * artifact, the live file untouched). Lets the Activity feed record a
    * remote-attributed entry without this adapter knowing anything about
@@ -309,7 +309,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
    * The per-file lock key: the file's canonical collision key, so remote apply
    * and the local producer (which keys on the same collision key) share ONE
    * critical section per file. Falls back to the raw path for a non-syncable
-   * path (never reached in practice — apply only sees syncable revisions).
+   * path (never reached in practice, apply only sees syncable revisions).
    */
   private lockKey(path: string): string {
     const classified = classifyVaultPath(path);
@@ -368,7 +368,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
     // Binary attachments (F9) are whole-file byte replaces: a separate path that
     // compares/hashes RAW bytes (never `canonicalizeMarkdown`, which is
     // markdown-only) and writes through the byte vault API. It preserves every
-    // data-safety invariant of the markdown path below — divergent on-disk bytes
+    // data-safety invariant of the markdown path below, divergent on-disk bytes
     // become a conflict artifact (with the original extension), never an
     // overwrite; the base advances only on a clean apply or convergence.
     if (decoded.kind === 'binary') {
@@ -410,7 +410,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
       // `forgetLocalMaterialization` wipes the base HASH and CONTENT for the
       // still-live renamed fileId (keyed by fileId, not path). The merge ancestor
       // then vanishes and the next edit round on the renamed file spuriously
-      // conflicts (the base advances only on remote apply — nothing re-seeds it).
+      // conflicts (the base advances only on remote apply, nothing re-seeds it).
       // Whether that forget lands before or after this apply's own base re-record
       // is pure microtask timing, so the corruption surfaced only under load. The
       // write path below re-adopts the mapping at the new path via onRemoteWrite.
@@ -434,15 +434,15 @@ export class VaultApplyAdapter implements VaultApplyPort {
       // is not this revision's. If the on-disk content is byte-identical to the
       // incoming revision it is genuinely the same logical file: adopt the remote
       // fileId for this path and seed the shared base (a REMOTE convergence, the
-      // only safe moment to seed a base — never on a local push). Both peers
+      // only safe moment to seed a base, never on a local push). Both peers
       // already hold the content, so this converges in place with no write and no
       // conflict artifact.
       if (onDisk !== null && contentMatches(onDisk, text)) {
         const contentHash = await this.hashContent(text);
         // The path is switching from the superseded local fileId (`owner`) to
         // the incoming remote fileId. Forget the superseded fileId's state
-        // FIRST — its producer mapping/head (keyed by fileId, not path) and its
-        // apply-side base hash — so exactly one fileId ends up owning this path
+        // FIRST, its producer mapping/head (keyed by fileId, not path) and its
+        // apply-side base hash, so exactly one fileId ends up owning this path
         // and no orphaned heads[owner]/baseHashes[owner] survives the adopt.
         // Order matters: this must run before onRemoteWrite below, since that
         // call's own upsert would otherwise be undone by a later same-collision
@@ -473,7 +473,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
         });
         return 'noop';
       }
-      // The path holds genuinely different content — a real divergence. Never
+      // The path holds genuinely different content, a real divergence. Never
       // overwrite it and never claim ownership: preserve both via a conflict
       // artifact (the F2 conflict path). No shared ancestor exists across two
       // independently-minted fileIds, so a three-way merge is not attempted here.
@@ -501,7 +501,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
     //  - on-disk equals the recorded base → no local divergence, safe to write;
     //  - on-disk differs from BOTH the base and the incoming content → a genuine
     //    concurrent divergence: divert to a conflict artifact so both survive.
-    //    (A null base with divergent on-disk content is treated the same way —
+    //    (A null base with divergent on-disk content is treated the same way,
     //    we cannot prove the local file is clean, so we never overwrite it.)
     // This is the on-disk analogue of the open-buffer check. Before falling back
     // to a conflict copy, an on-disk divergence FIRST attempts a line-level
@@ -531,7 +531,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
       // A divergence is either: on-disk drifted from the shared base, OR on-disk
       // still equals the base but the incoming revision is not a provable causal
       // fast-forward (the 7b22b61 concurrent-overwrite window). Both cases take
-      // the same path: try to merge, else preserve both in a conflict copy —
+      // the same path: try to merge, else preserve both in a conflict copy,
       // never a silent overwrite (rule 3).
       const diverged = base === null || onDiskHash !== base;
       if (diverged || !(await this.isCausalFastForward(fileId, event))) {
@@ -572,7 +572,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
     // TOCTOU close (rule 3): re-read the file's CURRENT on-disk content
     // immediately before the write. The first `readByPath` above happened
     // several awaits ago; a local edit to the (closed) file could have landed on
-    // disk since — the shared per-file lock keeps OUR producer out, but an
+    // disk since, the shared per-file lock keeps OUR producer out, but an
     // external editor save is only caught here. If the disk now diverges from
     // the recorded base, this is a genuine concurrent edit: roll back the
     // pre-write producer adoption and merge (or preserve both in a conflict
@@ -611,7 +611,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
     } catch (error) {
       // A settings file never lands in the conflict folder, so it is not diverted
       // here either. Config writes go through the DataAdapter, which tolerates an
-      // existing directory and cannot raise this error at all — the guard is kept
+      // existing directory and cannot raise this error at all, the guard is kept
       // so that a future config write path can only ever throw (and be retried),
       // never quietly deposit a settings file among the conflict copies.
       if (error instanceof ParentFolderOccupiedError && !lastWriterWins) {
@@ -619,7 +619,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
         // hierarchy cannot be created. Roll back the pre-write producer
         // adoption and preserve the incoming content in a conflict artifact.
         // Per-item: this single revision is diverted and the pull cycle
-        // continues to the next event — never a cycle-killing throw.
+        // continues to the next event, never a cycle-killing throw.
         await this.producerSync?.onRemoteDelete({ fileId, path: decoded.path });
         await this.writeConflict(event, decoded);
         return 'conflict';
@@ -646,7 +646,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
    * before any conflict copy. Returns `'applied'` when it merged and wrote the
    * combined content in place, or `null` when no merge is possible (no shared
    * base, the ancestor text is not locally persisted, the stored ancestor no
-   * longer matches the base hash, or the changes overlap) — the caller then
+   * longer matches the base hash, or the changes overlap), the caller then
    * writes a conflict copy.
    *
    * ANCESTOR is the locally-persisted base content; LOCAL is the current on-disk
@@ -655,7 +655,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
    * content is deliberately NOT adopted into the producer mapping: it is a NEW
    * local revision this device authored, so letting the reflected vault write
    * flow through the normal local-edit path pushes the merged result to the peer
-   * (who converges by content-equality — no ping-pong).
+   * (who converges by content-equality, no ping-pong).
    */
   private async tryMergeApply(
     event: RemoteEvent,
@@ -714,12 +714,12 @@ export class VaultApplyAdapter implements VaultApplyPort {
    * revision is either provably a fast-forward from this device's current
    * head for `fileId`, or when causality simply cannot be evaluated because
    * the incoming revision carries no `parentRevisionIds` at all (a transport
-   * that does not yet surface causal parentage — see `RemoteRevision`).
+   * that does not yet surface causal parentage, see `RemoteRevision`).
    *
    * When `parentRevisionIds` IS present, this only returns true if a
    * `producerSync` is wired with `localHeadFor`, that lookup resolves to a
    * known (non-null) local head, AND the incoming revision's parents include
-   * it — i.e. the peer built its revision directly on top of (or through)
+   * it, i.e. the peer built its revision directly on top of (or through)
    * what we last knew. Any missing piece there means causality cannot be
    * established, so this fails SAFE (false) rather than risk a silent
    * overwrite of a concurrent peer edit.
@@ -752,7 +752,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
    * `applyRemote` above but operates on RAW bytes: comparison and base hashing
    * use `hashBlob`/byte-equality (never `canonicalizeMarkdown`), writes go
    * through the byte vault API, and any conflict artifact keeps the original
-   * file extension. Every data-safety invariant is preserved — diverged on-disk
+   * file extension. Every data-safety invariant is preserved, diverged on-disk
    * bytes become a conflict artifact, never an overwrite (rule 3); the base
    * advances only on a clean apply or convergence, never on a divergence.
    */
@@ -764,7 +764,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
   ): Promise<RemoteApplyOutcome> {
     const bytes = decoded.binaryContent ?? new Uint8Array(0);
     const incomingHash = await hashBlob(bytes);
-    // Producer-mapping content for a binary file is base64 of the raw bytes —
+    // Producer-mapping content for a binary file is base64 of the raw bytes,
     // the same form the observer stores, so a reflected vault event dedupes.
     const incomingBase64 = bytesToBase64(bytes);
     // A binary appearance asset (a theme's preview image) is still a settings
@@ -788,7 +788,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
       }
       // Move the producer mapping off the OLD path before deleting it (F9), so the
       // reflected vault 'delete' event for the vacated path is not observed as a
-      // local delete that forgets the still-live renamed fileId's base — the same
+      // local delete that forgets the still-live renamed fileId's base, the same
       // re-entrancy guard as the markdown rename branch above.
       await this.producerSync?.onRemoteDelete({
         fileId,
@@ -866,7 +866,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
     });
     // TOCTOU close (rule 3), binary analogue of the markdown path: re-read the
     // current on-disk bytes immediately before the write. A local edit that
-    // landed since the first read above (external editor) is caught here —
+    // landed since the first read above (external editor) is caught here,
     // diverged bytes are preserved in a conflict artifact, never overwritten
     // (binaries never merge). No `await` separates this read from the write.
     const preWriteOnDisk = await this.files.readBinaryByPath(decoded.path);
@@ -913,7 +913,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
    * The runner's separate open-BUFFER divergence path: the incoming revision is
    * preserved as a conflict copy without touching the live file. Unreachable for
    * an allowlisted `.obsidian/` settings file, which is why it needs no
-   * last-writer-wins branch — Obsidian never opens a hidden config file as an
+   * last-writer-wins branch, Obsidian never opens a hidden config file as an
    * editor buffer, so `openBuffers` can never report one for a config fileId.
    */
   async recordConflict(event: RemoteEvent): Promise<void> {

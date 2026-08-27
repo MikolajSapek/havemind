@@ -121,7 +121,7 @@ export class InvitationError extends Error {
 
 /**
  * The owner may try the code a bounded number of times before the pending
- * device is locked out — a server-authoritative brute-force ceiling. A fresh
+ * device is locked out, a server-authoritative brute-force ceiling. A fresh
  * invitation is required after a lockout.
  */
 export const MAX_APPROVAL_ATTEMPTS = 3;

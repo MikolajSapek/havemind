@@ -1,4 +1,4 @@
-# Havemind — hardened single-service Compose stack for the sapserver pilot.
+# Havemind, hardened single-service Compose stack for the sapserver pilot.
 #
 # Conventions (plan/08-sapserver-operations.md, plan/02-fundamenty.md):
 #   * lives at /srv/compose/havemind/compose.yaml on the target host
@@ -31,7 +31,7 @@ services:
     environment:
       # Inside the container the server binds all interfaces via IPv6 dual-stack
       # ("::"), so Docker's loopback publish above can reach it. The literal
-      # public-any address is deliberately never written here — the security
+      # public-any address is deliberately never written here, the security
       # boundary is the 127.0.0.1 host publish, not the container-internal bind.
       HAVEMIND_HOST: "::"
       HAVEMIND_ALLOW_NON_LOOPBACK: "true"
@@ -65,7 +65,7 @@ services:
       #     chown -R 1000:1000 /backups
       # (or plain `sudo chown -R 1000:1000 deploy/backups` as the operator).
       # Docker would otherwise create it root-owned and every backup would fail
-      # with EACCES — logged, never fatal.
+      # with EACCES, logged, never fatal.
       - ./backups:/backups
     secrets:
       - havemind_db_key

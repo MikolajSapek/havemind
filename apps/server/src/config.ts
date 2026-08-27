@@ -311,7 +311,7 @@ const HEX32_PATTERN = /^[0-9a-f]{64}$/u;
 /**
  * Validates the checkpoint recipient PUBLIC key from the environment. The
  * server only ever holds the public key (it can seal a new checkpoint but never
- * open any — plans/006 "Key management"). Returns null when unset so the
+ * open any, plans/006 "Key management"). Returns null when unset so the
  * CLI can require it only for `checkpoint create`.
  */
 export function parseCheckpointPublicKeyHex(

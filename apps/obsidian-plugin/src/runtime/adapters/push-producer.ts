@@ -69,7 +69,7 @@ import { registerVaultChangeListeners } from './vault-change-listeners';
 /**
  * Maps a local-change kind onto the Activity feed's kind vocabulary. Binary
  * attachment ops (F9) carry the same change kinds (create/update/rename/delete),
- * so they are recorded and attributed here EXACTLY like markdown ops — the
+ * so they are recorded and attributed here EXACTLY like markdown ops, the
  * activity wiring is content-kind agnostic. Restore-from-feed remains a
  * markdown-only affordance (it reconstructs text from provenance ranges, which a
  * whole-file binary revision has none of); a binary entry still appears in the
@@ -85,10 +85,10 @@ function toActivityKind(kind: LocalChangeKind): ActivityKind {
  * existed before pairing are enumerated and pushed, and triggers a sync cycle
  * after each detected change. Never logs note contents.
  *
- * Returns a handle exposing `dispose()` — which detaches every registered
+ * Returns a handle exposing `dispose()`, which detaches every registered
  * vault listener (the connection handle's `stop()` must call it on teardown/
  * re-pair so a prior-session producer never lingers and double-enqueues under a
- * stale identity, see the `stop()` comment in `startSyncLoop`) — and
+ * stale identity, see the `stop()` comment in `startSyncLoop`), and
  * `retryFailedCommit(path)`, which re-runs the commit chain for a failed-to-
  * queue row against the current on-disk content (MAJOR 2).
  */
@@ -119,7 +119,7 @@ export function startPushProducer(
       const result = parseProducerStateResult(raw);
       // GAP-3: preserve unparseable producer bytes to a sidecar so a lost mapping
       // can't silently fork a duplicate fileId. Connect-safety: the persist may
-      // fail (loadData/mutex), but that must NEVER abort producer setup — degrade
+      // fail (loadData/mutex), but that must NEVER abort producer setup, degrade
       // defensively and fall through to the (empty-or-partial) parsed state.
       try {
         if (result.status === 'corrupt') {
@@ -157,7 +157,7 @@ export function startPushProducer(
     // artifact. A rename also forgets the stale owner of the previous path.
     //
     // DATA-SAFETY (rule 3): the base is SEEDED only on first authorship and is
-    // NEVER advanced by a local push — advancing it here reopened the silent-
+    // NEVER advanced by a local push, advancing it here reopened the silent-
     // overwrite window (a concurrent peer revision matching the just-authored
     // base slips past the on-disk guard). The single source of truth for that
     // rule lives in `local-base-lifecycle.ts`, shared with the integration
@@ -177,7 +177,7 @@ export function startPushProducer(
       // extensions; `classifyVaultPath` still applies the dotpath/reserved
       // exclusions downstream (so reserved-folder files are counted as ignored,
       // exactly as the old markdown-only listing did). The `.obsidian/` config
-      // MIRROR is appended from the DataAdapter walk — Obsidian never exposes
+      // MIRROR is appended from the DataAdapter walk, Obsidian never exposes
       // hidden files through `getFiles()`, so the config tree must be enumerated
       // separately. This is what makes the connect-time reconcile cover config.
       const notes = vault
@@ -263,22 +263,22 @@ export function startPushProducer(
         // and reconcile chains (which have no debounce entry to re-arm) at least
         // surface a Notice pointing at the panel rather than swallowing it.
         new Notice(
-          'Havemind: a change could not be queued — see the Havemind panel.',
+          'Havemind: a change could not be queued, see the Havemind panel.',
         );
       },
     );
   };
 
   // Record a genuine local change (a non-null observe result) into the Activity
-  // feed, attributed to the local member. A no-op observe (null) — e.g. a
-  // remote-applied write that matches the synced base — is never recorded, so
+  // feed, attributed to the local member. A no-op observe (null), e.g. a
+  // remote-applied write that matches the synced base, is never recorded, so
   // remote edits are not mislabelled as the local user's work.
   const recordActivity = (op: LocalChangeOperation | null): void => {
     if (op === null || hooks?.onLocalActivity === undefined) return;
     hooks.onLocalActivity({
       // The real revision id the outbox repository generated and enqueued
       // (`OutboxLocalChangeRepository.commitLocalChange`'s `built.revisionId`,
-      // surfaced here as `op.revisionId`) — never `op.operationId`, which is
+      // surfaced here as `op.revisionId`), never `op.operationId`, which is
       // only a client-side idempotency key and would break restore + the
       // local-push/remote-echo dedup in `ActivityLog`. Falls back to the
       // operationId only when no revision was created (a delete of a file
@@ -323,14 +323,14 @@ export function startPushProducer(
   // swallowed silently (the debouncer deletes the pending entry before firing,
   // so nothing re-triggered). This path-aware handler gives every failing path
   // one bounded re-arm; if the retry also fails the change is recorded durably
-  // as a failed-to-queue row in the send-queue panel — never silently dropped.
+  // as a failed-to-queue row in the send-queue panel, never silently dropped.
   const commitPathRecovery = new CommitPathRecovery({
     notify: (message) => new Notice(message),
     rearm: (path) => modifyDebouncer.trigger(path),
     recordFailedToQueue: async (path) => {
       await state.recordFailedToQueue(path);
       // MINOR 7: commit-recovery has already surfaced a Notice for this row, so
-      // mark it notified — the panel's quarantine-notice check must not fire a
+      // mark it notified, the panel's quarantine-notice check must not fire a
       // second Notice for the same failed-to-queue event.
       hooks?.onFailedToQueueNotified?.(failedToQueueRevisionId(path));
     },
@@ -410,8 +410,8 @@ export function startPushProducer(
           new Notice(
             `Havemind: ${result.skipped} file(s) could not be synced and were skipped.`,
           );
-          // The Notice carries the count only — a per-file toast storm would be
-          // worse than no toast — so the console gets the names and reasons a
+          // The Notice carries the count only, a per-file toast storm would be
+          // worse than no toast, so the console gets the names and reasons a
           // count alone can never supply (bounded by the reconcile detail cap).
           warnSkippedPaths(result);
         }
@@ -428,13 +428,13 @@ export function startPushProducer(
 
   // `.obsidian/` config sync (theme, colours, hotkeys, snippets, foreign plugin
   // code). Obsidian emits NO vault events for hidden files, so this cannot use
-  // the watchers above — a POLLER re-walks the config tree via the DataAdapter on
+  // the watchers above, a POLLER re-walks the config tree via the DataAdapter on
   // a modest interval and feeds each change through the SAME observer + outbox as
   // `.md` (the connect-time enumeration is already covered by the reconcile above,
   // whose `listSyncablePaths` now includes the config walk). Every observe is
   // routed through `lockedObserve` so it is mutually exclusive with a remote
   // config apply, and each genuine change is recorded in Activity and triggers a
-  // sync — exactly as a watcher-driven change is.
+  // sync, exactly as a watcher-driven change is.
   const configObserver = {
     observeModify: (path: string) =>
       lockedObserve(path, () => observer.observeModify(path)),
@@ -443,7 +443,7 @@ export function startPushProducer(
   };
   // A config poll must never wedge sync: a bad tick is skipped and the next
   // interval retries. But it must not hide a PERSISTENT fault either (audit #3
-  // finding 5) — every failure warns to the console and a throttled Notice fires
+  // finding 5), every failure warns to the console and a throttled Notice fires
   // on the first failure of a streak and every Nth after it. Per-file commit
   // failures are already surfaced by the observe path's own handling.
   const runConfigPollTick = createConfigPollTick({
@@ -473,7 +473,7 @@ export function startPushProducer(
       disposeListeners();
     },
     // MAJOR 2: a failed-to-queue row has no stashed envelope, so its Retry
-    // re-runs the commit chain against the current on-disk content — routed
+    // re-runs the commit chain against the current on-disk content, routed
     // through the SAME debouncer trigger the bounded re-arm uses. Tri-state
     // (FINDING 1): `file-missing` when the file is gone (drop the row),
     // `unavailable` when the debouncer no-op'd the re-arm because it was disposed

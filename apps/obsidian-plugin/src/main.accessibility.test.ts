@@ -212,7 +212,7 @@ describe('panel glyph accessibility', () => {
     const decorative = glyphs(content).filter(
       (glyph) => (glyph.attrs['aria-label'] ?? '') === '',
     );
-    // The panel does draw glyphs (title hexagon, status icon, roster dots) —
+    // The panel does draw glyphs (title hexagon, status icon, roster dots),
     // otherwise this test would pass vacuously.
     expect(decorative.length).toBeGreaterThan(2);
     for (const glyph of decorative) {

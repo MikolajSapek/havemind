@@ -16,7 +16,7 @@ import { describe, expect, it } from 'vitest';
  * This test closes that gap from the outside: it reads BOTH declaration files
  * from disk and asserts that every identifier the ambient file declares still
  * occurs, as a whole word, in the installed `obsidian` typings. It is a
- * name-level presence check, not a structural one — it will not catch a changed
+ * name-level presence check, not a structural one, it will not catch a changed
  * signature, but it does catch the failure mode that matters most, a member
  * that has simply gone away.
  */
@@ -28,12 +28,12 @@ const AMBIENT_PATH = fileURLToPath(new URL('./obsidian.d.ts', import.meta.url));
 /**
  * Identifiers the ambient file declares that upstream deliberately does NOT,
  * because they are Havemind's own inventions rather than Obsidian API names.
- * Every entry needs a justification — this list is not a place to silence a
+ * Every entry needs a justification, this list is not a place to silence a
  * genuine drift failure.
  *
  * - `EditorExtension`: our own alias. Obsidian declares
  *   `registerEditorExtension(extension: Extension): void`, where `Extension`
- *   comes from `@codemirror/state` — an upstream peer dependency this plugin
+ *   comes from `@codemirror/state`, an upstream peer dependency this plugin
  *   does not install. `EditorExtension = readonly unknown[]` is the local
  *   stand-in for that type, so the NAME belongs to us; only the method it is
  *   passed to (`registerEditorExtension`, which is checked) belongs to Obsidian.
@@ -126,7 +126,7 @@ function declarationName(chunk: string): string | undefined {
 /**
  * Reads a member name off a flattened `name(...): T` / `readonly name: T`
  * chunk. Index signatures (`[key: string]: string`) never match, which is
- * intended — their key type is not an API name.
+ * intended, their key type is not an API name.
  */
 function memberName(chunk: string): string | undefined {
   let rest = chunk.trim();
@@ -138,7 +138,7 @@ function memberName(chunk: string): string | undefined {
 }
 
 /**
- * Pragmatic parser for our own 260-line ambient file — no new dependency, and
+ * Pragmatic parser for our own 260-line ambient file, no new dependency, and
  * no need for the generality of the TypeScript compiler API. Walks the
  * comment-stripped source tracking parenthesis depth, so that a `{`, `}` or `;`
  * only ends a chunk when it is not inside a parameter list; parameter names
@@ -229,7 +229,7 @@ describe('hand-written obsidian.d.ts', () => {
 
   if (installed === undefined) {
     it.skip(
-      'declares no API absent from the installed obsidian typings — SKIPPED: ' +
+      'declares no API absent from the installed obsidian typings, SKIPPED: ' +
         'the obsidian package is not installed, run `npm ci` at the repo root ' +
         'to enable this drift guard',
       () => undefined,
@@ -247,7 +247,7 @@ describe('hand-written obsidian.d.ts', () => {
     expect(
       missing,
       `hand-written obsidian.d.ts declares an API absent from ` +
-        `obsidian@${installed.version} — update the ambient declaration. ` +
+        `obsidian@${installed.version}, update the ambient declaration. ` +
         `Missing (${String(missing.length)} of ${String(names.length)} ` +
         `checked): ${missing.join(', ')}. Compared against ${installed.path}.`,
     ).toEqual([]);

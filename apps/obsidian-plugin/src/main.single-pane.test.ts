@@ -8,7 +8,7 @@
  * path to connecting anything.
  *
  * These tests pin the collapse to a single ribbon icon and a single registered
- * view — and, just as importantly, that collapsing it did not take the keyboard
+ * view, and, just as importantly, that collapsing it did not take the keyboard
  * and screen-reader path down with it (F8-02d).
  */
 
@@ -67,7 +67,7 @@ describe('single pane', () => {
   it('sends every entry point to the same pane', async () => {
     // The goal is one destination, not one registered class. The legacy
     // activity view stays registered so a leaf someone already has open keeps
-    // resolving after the upgrade — but nothing routes users there any more.
+    // resolving after the upgrade, but nothing routes users there any more.
     const app = new App();
     const plugin = new HavemindPlugin(app, manifest);
     await plugin.onload();

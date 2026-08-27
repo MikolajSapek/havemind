@@ -4,10 +4,10 @@
  * The apply-side on-disk overwrite guard (`VaultApplyAdapter`) compares the
  * current on-disk content against the last synced BASE to decide apply-vs-
  * conflict. That guard is only sound if the base means "the last content BOTH
- * peers agreed on" — never "the last content THIS peer wrote". Advancing the
+ * peers agreed on", never "the last content THIS peer wrote". Advancing the
  * base on a local push is exactly what reopened the silent-overwrite window:
- * after this device pushes HA (base←HA) a CONCURRENT peer revision HB — built on
- * an older head, never having seen HA — arrives with on-disk == base == HA and
+ * after this device pushes HA (base←HA) a CONCURRENT peer revision HB, built on
+ * an older head, never having seen HA, arrives with on-disk == base == HA and
  * is misread as a clean fast-forward, silently overwriting HA.
  *
  * So on a local push we:
@@ -17,7 +17,7 @@
  *    advance an existing base.
  *
  * The base advances only on a clean remote apply or on convergence (incoming
- * content already equals on-disk) — both handled in `VaultApplyAdapter`, the
+ * content already equals on-disk), both handled in `VaultApplyAdapter`, the
  * only two moments both peers are known to share the content.
  *
  * This module is the single source of truth for that rule, shared by the live
@@ -71,7 +71,7 @@ export async function applyLocalMaterialization(
     await store.forgetPath(input.previousPath);
   }
   await store.recordPathOwner(input.fileId, input.path);
-  // Seed on first authorship only — never advance an existing base on a push.
+  // Seed on first authorship only, never advance an existing base on a push.
   if (store.baseHashFor(input.fileId) === null) {
     await store.recordBaseHash(input.fileId, input.contentHash);
     // Seed the merge ancestor too (markdown only; a binary file passes null).

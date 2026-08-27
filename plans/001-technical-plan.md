@@ -308,55 +308,55 @@ A disposable plaintext pilot vault is never upgraded in place into a real encryp
 
 ## 11. Implementation sequence and verification gates
 
-### Phase 0 — repository and contracts
+### Phase 0, repository and contracts
 
 Create the npm workspace, strict TypeScript configuration, lint/build/test commands, protocol package and CI-ready coverage configuration.
 
 Gate: clean install, build, lint and one deliberately red-then-green protocol test work from the repository root.
 
-### Phase 1 — high-risk sync-core spike
+### Phase 1, high-risk sync-core spike
 
 Implement canonicalization, content/path hashes, provenance-run transformation and deterministic line/character diff fixtures. Evaluate a small maintained diff dependency against golden cases before adopting it.
 
 Gate: deterministic results for Unicode, repeated text, multiline edits, insert/replace/delete and normalization; 80%+ coverage.
 
-### Phase 2 — DAG, offline state machine and conflicts
+### Phase 2, DAG, offline state machine and conflicts
 
 Implement immutable revisions, head tracking, two-client simulation, idempotent queues, clean three-way merges, explicit conflicts, tombstones, restore and manual resolution recipes.
 
 Gate: property/model tests with shuffled delivery, duplicate retries, partitions and process restarts show no lost accepted revision and convergence after conflict resolution.
 
-### Phase 3 — server vertical slice
+### Phase 3, server vertical slice
 
 Implement migrations, blobs, discovery, local owner setup, sessions, one vault and batched envelope/blob push/pull.
 
 Gate: Fastify integration tests prove auth isolation, idempotency, restart durability, spoofed-actor rejection and no missing-blob commit.
 
-### Phase 4 — plugin connection vertical slice
+### Phase 4, plugin connection vertical slice
 
 Build a loadable plugin shell, SecretStorage adapter, IndexedDB store, connection wizard and one-file initial import/download between two fake vault adapters.
 
 Gate: plugin build produces valid `main.js` and `manifest.json`; adapter integration test joins with a one-time invitation and resumes a crashed bootstrap.
 
-### Phase 5 — full Markdown operations
+### Phase 5, full Markdown operations
 
 Connect real Vault events and implement create, update, rename, delete, restore, offline restart, echo suppression and conflict materialization.
 
 Gate: two disposable Obsidian vaults pass the destructive operation matrix without silent overwrite.
 
-### Phase 6 — Activity and author overlay
+### Phase 6, Activity and author overlay
 
 Build Activity and diffs locally from validated payloads plus authenticated receipts, then add notices, filters and CodeMirror/Reading View provenance UI. Restore creates a new client revision referencing historical source content; the server has no content-aware restore route.
 
 Gate: overlay never changes Markdown hashes; Unicode attribution and accessible light/dark behavior pass automated and manual tests.
 
-### Phase 7 — private `sapserver` pilot
+### Phase 7, private `sapserver` pilot
 
 Package the server, deploy it through the private ingress, run diagnostics, configure off-host backup and connect two disposable vaults.
 
 Gate: seven-day pilot, forced network outages, service restart, client restart and clean-machine restore complete successfully.
 
-### Phase 8 — gated follow-up plans
+### Phase 8, gated follow-up plans
 
 After the disposable pilot passes, write separate implementation plans for (a) public GitHub/BRAT alpha packaging, (b) E2EE/device recovery, (c) attachments/quota and (d) encrypted checkpoints/retention. Execute them sequentially rather than combining four high-risk changes.
 

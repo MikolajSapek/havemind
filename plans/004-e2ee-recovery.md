@@ -1,8 +1,8 @@
-# Havemind — vault content E2EE encryption and recovery path
+# Havemind, vault content E2EE encryption and recovery path
 
 - Status: **Plan draft (pending approval)**
 - Date: 2026-07-24
-- Implements the gate: `specs/003-open-source-release.md` → **Stage 3 — general beta** (`0.5.x`)
+- Implements the gate: `specs/003-open-source-release.md` → **Stage 3, general beta** (`0.5.x`)
 - Fulfils the hard public-access requirement from: `specs/002-public-access.md`
 - Extends: `plans/001-technical-plan.md` §7 (revision envelope), §10 (E2EE compatibility path)
 - Subject to: `plan/01-zasady-i-slownik.md` (hard rules), `CLAUDE.md` (hard-rules summary)
@@ -20,32 +20,32 @@ this file and `specs/`/`plans/001` → `specs/`/`plans/001` win (`plan/01` rule 
 
 E2EE for vault content and a recovery history are a hard gate in `specs/002-public-access.md`
 (without E2EE there is no public access to real vaults) and an explicit requirement of
-**Stage 3 — general beta** from `specs/003-open-source-release.md` "## Release stages and gates":
+**Stage 3, general beta** from `specs/003-open-source-release.md` "## Release stages and gates":
 
 > "End-to-end encryption for note contents and attachments passes multi-device recovery tests."
 
 This plan delivers the design that satisfies this gate. The first real vault comes into being as
-E2EE from its first revision — `plans/001-technical-plan.md` §10: "A disposable plaintext pilot
+E2EE from its first revision, `plans/001-technical-plan.md` §10: "A disposable plaintext pilot
 vault is never upgraded in place into a real encrypted vault."
 
-### Hard constraints (MUST hold — repeated here explicitly)
+### Hard constraints (MUST hold, repeated here explicitly)
 
 1. **The server remains opaque.** The Havemind server stores only content-addressed bytes
    (`blob_hash` = SHA-256 of the stored bytes), byte size, and a monotonic `server_sequence`. It
    never sees plaintext, never computes a diff, provenance, or a merge. This is a boundary from
-   `plan/01` rule 3 and `plans/001` §2.7 — E2EE does not violate it, because diff/merge/provenance
+   `plan/01` rule 3 and `plans/001` §2.7, E2EE does not violate it, because diff/merge/provenance
    are already computed exclusively by the client (`sync-core`) on plaintext, locally.
 2. **ZERO custom cryptography.** No cryptographic primitive is invented or hand-implemented
    (`plan/01` rule 6, `CLAUDE.md` rule 6, `plans/001` §10: "No custom cryptographic primitive
    will be invented."). We use only a proven, audited library (candidates below). All the
    "cryptography" on our side is composing documented AEAD/KDF/keywrap calls from that library.
 3. **Forbidden dependencies.** React, Redis, PostgreSQL, message broker, ORM, Kubernetes, custom
-   cryptography — none of these are used (`CLAUDE.md`, `plans/001` §5).
+   cryptography, none of these are used (`CLAUDE.md`, `plans/001` §5).
 4. **Zero silent overwrites and identity trust only from the server session** remain in force
    (`plan/01` rules 4–5). A broken AEAD tag / wrong key epoch → quarantine, never overwriting the
    local file (`plans/001` §10).
 5. **Secrets never in the repo/logs/reports.** The vault key, device keys, recovery code, phrase
-   — never in Markdown, commits, application logs, or in a subagent's report
+, never in Markdown, commits, application logs, or in a subagent's report
    (`plan/01` rule 6). Logs redact encryption material (`specs/003` "Security and privacy
    baseline": "logs ... redacts ... encryption material").
 
@@ -58,7 +58,7 @@ decrypts nothing). Alternative allowed by `plans/001` §5/§10: native **WebCryp
 so the KDF and keywrap would need libsodium or `argon2-browser` anyway. Hence libsodium by default
 for consistency of primitives.
 
-> **Note — knowledge may be outdated.** Before implementation, verify current versions and audit
+> **Note, knowledge may be outdated.** Before implementation, verify current versions and audit
 > status: `libsodium-wrappers-sumo` (check the latest published version and changelog),
 > compatibility with Obsidian's `minAppVersion` from `plans/001` §5 (≥ 1.11.4), and whether
 > WebCrypto on the target platforms (macOS + Windows, including the user's second, Windows
@@ -66,7 +66,7 @@ for consistency of primitives.
 > document as authoritative.
 
 Choosing the specific suite (cipher, device-key algorithm, recovery-code encoding) requires a
-dedicated spike with test vectors — as mandated by `plans/001` §10. This plan sets the shape, not
+dedicated spike with test vectors, as mandated by `plans/001` §10. This plan sets the shape, not
 the frozen numbers, without tests.
 
 ### Vault key derivation (KDF)
@@ -81,14 +81,14 @@ the frozen numbers, without tests.
   the exact values are set by a spike against the target hardware. The `salt` (16 B random) is
   plaintext.
 - The `vault_key` is encrypted ("wrapped") under the `passphrase_key` (AEAD, e.g.
-  `crypto_secretbox`/`crypto_aead_xchacha20poly1305`). The result = **`wrapped_vault_key`** — it
+  `crypto_secretbox`/`crypto_aead_xchacha20poly1305`). The result = **`wrapped_vault_key`**, it
   can safely sit alongside the `salt` and Argon2id parameters in the local device configuration
   (NOT in the synchronized vault, NOT on the server as plaintext).
 - The passphrase NEVER leaves the device; the `vault_key` NEVER reaches the server.
 
 ### What is encrypted, and what the server still legitimately sees
 
-The `revision envelope` structure (`plans/001` §7) does not change — only the contents of
+The `revision envelope` structure (`plans/001` §7) does not change, only the contents of
 `opaque_payload` change:
 
 - **Encrypted (AEAD ciphertext under `vault_key`, inside `opaque_payload`):** the operation, the
@@ -97,24 +97,24 @@ The `revision envelope` structure (`plans/001` §7) does not change — only the
   is exactly the "inner schema" from `plans/001` §7 point 2, now as authenticated ciphertext.
   Binary attachments (F9, already implemented as plaintext blobs) are encrypted with the same
   `vault_key` before upload.
-- **Visible to the opaque server (metadata, openly — this is NOT a leak to be fixed, it's the
+- **Visible to the opaque server (metadata, openly, this is NOT a leak to be fixed, it's the
   contract):** `blob_hash` (SHA-256 of the ciphertext), the exact byte size, `server_sequence`,
   acceptance time (`server_receipt`), and the plaintext fields of `client_protected_header`:
   `revision_id`, `vault_id`, `file_id` (stable, NOT a path), sorted parent IDs, member/device IDs,
   `payload_format`, semantic versions, cipher suite, `key_epoch`, `nonce`. The header is AEAD
-  associated data (`plans/001` §7, §10) — the server sees it but cannot swap it without breaking
+  associated data (`plans/001` §7, §10), the server sees it but cannot swap it without breaking
   the tag.
 - **Deliberately NOT hidden (a model limitation, disclosed honestly in the threat model):**
   revision counts, sizes, timestamps, and the parent-child graph (DAG). This is metadata that the
-  opaque coordinator needs. `file_id` is an opaque identifier, not a path — the path is inside the
-  encrypted payload — so the server doesn't know file names or the directory tree, but it does
+  opaque coordinator needs. `file_id` is an opaque identifier, not a path, the path is inside the
+  encrypted payload, so the server doesn't know file names or the directory tree, but it does
   know the number of files and the rate of change per `file_id`.
 
 ### Key exchange between devices during pairing (2–3 devices)
 
 We reuse the existing, voice-verified 6-digit-code channel (`specs/002` "Owner bootstrap"/
 "Collaborator invitation"; project preference: the code is shown only on the joining device, read
-aloud, the owner types it in on their end — a voice channel makes impersonation harder). E2EE adds
+aloud, the owner types it in on their end, a voice channel makes impersonation harder). E2EE adds
 a key transfer on top of this:
 
 1. The new device generates an ephemeral key pair (libsodium `crypto_kx` / `crypto_box`).
@@ -123,22 +123,22 @@ a key transfer on top of this:
    owner approval and phrase comparison"), the owner's device **wraps `vault_key`** under the new
    device's public key (sealed/`crypto_box`) and hands over the `wrapped_vault_key` for that
    device.
-3. The server may relay this wrapped value in transit (it's ciphertext — the opaque server
+3. The server may relay this wrapped value in transit (it's ciphertext, the opaque server
    doesn't read it), but **the transfer's authorization rests on the server session and a human
    phrase comparison**, not on trusting the server about the content.
 4. The 6-digit code / verification phrase binds the channel: it confirms the joining device's
    public key was not swapped by a man-in-the-middle (defense against MITM during pairing).
 5. The policy of "does a new member get the full history or just a checkpoint" is disclosed at
-   invitation time (`plans/001` §10) — for the 2-person pilot, full history by default.
+   invitation time (`plans/001` §10), for the 2-person pilot, full history by default.
 
 ### Key rotation and epochs (`key_epoch`)
 
 - Rotation and member removal use explicit `key_epoch` values; the server enforces the vault's
   `minimum_write_epoch` from the protected header (`plans/001` §10). This is the only
-  cryptographic "decision" the opaque server makes — a purely numeric epoch comparison, with no
+  cryptographic "decision" the opaque server makes, a purely numeric epoch comparison, with no
   insight into content.
 - Rotation protects future content, but does NOT retract plaintext already fetched by a former
-  member (`plans/001` §10) — this is disclosed honestly to the user.
+  member (`plans/001` §10), this is disclosed honestly to the user.
 
 ### Interaction with base-hash and 3-way merge (crucial, so nothing breaks)
 
@@ -149,13 +149,13 @@ a key transfer on top of this:
 - Before materializing, the receiving client verifies: the AEAD tag, the inner schema,
   `plaintext_content_hash`, the recipe, the binding to the parent, and vault/file/revision as AAD
   (`plans/001` §10). Only afterwards does `sync-core` compute the merge on the decrypted
-  snapshots. The common ancestor for the 3-way merge is a decrypted revision from history — it is
+  snapshots. The common ancestor for the 3-way merge is a decrypted revision from history, it is
   available locally, because the client keeps decrypted history.
 - Conclusion: E2EE is transparent to the merge/provenance layer. `blob_hash` (server-side, over
   the ciphertext) and `plaintext_content_hash` (inside the payload) remain two different values
-  as before — E2EE changes nothing here beyond the fact that the blob's bytes are now ciphertext.
+  as before, E2EE changes nothing here beyond the fact that the blob's bytes are now ciphertext.
 
-### Recovery — honestly about the trade-offs
+### Recovery, honestly about the trade-offs
 
 E2EE means: **loss of the key = loss of data, unless a recovery secret exists.** The server
 cannot recover or decrypt content (`plans/001` §2.6: "The server cannot recover or decrypt
@@ -163,10 +163,10 @@ vault contents."). Therefore:
 
 - **A recovery kit is generated locally, once, on the owner's trusted device** (`plans/001`
   §2.6, §10: "a recovery kit can restore the vault key without server knowledge"). The kit
-  contains a second, independent copy of the `wrapped_vault_key` — wrapped under the **recovery
+  contains a second, independent copy of the `wrapped_vault_key`, wrapped under the **recovery
   key**, not the password.
 - The **recovery key** is a high-entropy random secret (e.g. 256-bit) shown to the user as a
-  human-readable recovery code (encoding to be settled in the spike — candidate: BIP39-style
+  human-readable recovery code (encoding to be settled in the spike, candidate: BIP39-style
   words or base32 with a checksum; ZERO custom cryptography, encoding only).
 - Recovery paths: (a) **lost passphrase, device still works** → the user sets a new passphrase,
   the `vault_key` is re-wrapped with a new `passphrase_key`; the recovery key is not needed.
@@ -174,7 +174,7 @@ vault contents."). Therefore:
   recovery kit, then sets a new passphrase. (c) **lost passphrase AND lost recovery key** → data
   unrecoverable; this is communicated explicitly when the vault is created, with no false
   promise.
-- **Escrow trade-off — deliberately REJECTED as the default:** storing the key (or a share of it)
+- **Escrow trade-off, deliberately REJECTED as the default:** storing the key (or a share of it)
   on the server/with the operator would break the opaque model and the hard rule in `specs/002`.
   It is permissible only as an *opt-in*, explicitly documented, outside the default path, and is
   not part of Stage 3 scope. By default: no escrow, full user responsibility for the recovery
@@ -187,7 +187,7 @@ vault contents."). Therefore:
 This is the heart of this plan. The model documents what the **server operator, network
 provider, and collaborator** can observe, per the `specs/003` requirement "## Security and privacy
 baseline" ("A threat model documents what the server administrator, network provider and
-collaborators can observe.") and it is one of the conditions of **Stage 3 — general beta**
+collaborators can observe.") and it is one of the conditions of **Stage 3, general beta**
 (`specs/003`: "A security review and documented threat-model review are complete.").
 
 ### 1. Malicious / curious server operator (honest-but-curious and active)
@@ -195,7 +195,7 @@ collaborators can observe.") and it is one of the conditions of **Stage 3 — ge
 - **Cannot read content.** `opaque_payload` is AEAD ciphertext under `vault_key`, which the
   server never possesses. File names and paths are inside the ciphertext (`file_id` is opaque).
 - **Cannot swap content undetected.** `client_protected_header` (including `vault_id`,
-  `file_id`, parent IDs, `key_epoch`, `nonce`) is AEAD AAD — changing it breaks the tag on
+  `file_id`, parent IDs, `key_epoch`, `nonce`) is AEAD AAD, changing it breaks the tag on
   decryption, and the client quarantines it (`plans/001` §10). A swapped/corrupted ciphertext
   never overwrites the local file (zero silent overwrites, `plan/01` rule 4).
 - **What it DOES see (plaintext metadata, the model's boundary):** `blob_hash`, byte sizes, the
@@ -203,7 +203,7 @@ collaborators can observe.") and it is one of the conditions of **Stage 3 — ge
   timestamps. It can infer activity (when and how much someone writes), not content. This is
   disclosed honestly, not hidden (`plan/01` "Honesty as a feature").
 - **Cannot forge identity from request data.** `actor_id`/`device_id` come from the server
-  session (`plan/01` rule 5) — but it is the server that assigns them; E2EE does not protect
+  session (`plan/01` rule 5), but it is the server that assigns them; E2EE does not protect
   against the server lying about attribution. Limitation disclosed: attribution is only as
   trustworthy as the server session, it is not cryptographically signed by the author in this
   scope.
@@ -224,18 +224,18 @@ collaborators can observe.") and it is one of the conditions of **Stage 3 — ge
 
 - On the device sit: decrypted history in cache, `wrapped_vault_key` + `salt` + Argon2id
   parameters, and the refresh token (Obsidian SecretStorage, `specs/002`).
-- **Defense:** the `vault_key` on disk exists only as `wrapped_vault_key` — you can't unwrap it
+- **Defense:** the `vault_key` on disk exists only as `wrapped_vault_key`, you can't unwrap it
   without the passphrase (Argon2id slows brute-force). However, the decrypted content cache is
-  accessible to anyone with an unlocked OS — this is an at-rest limitation, disclosed honestly;
+  accessible to anyone with an unlocked OS, this is an at-rest limitation, disclosed honestly;
   full local cache encryption is out of scope for Stage 3 (a future candidate).
 - **Response:** the owner revokes the device (`specs/002`: revoke device) and **rotates the
   `key_epoch`**; the server raises `minimum_write_epoch`, the removed device can no longer write
-  (`plans/001` §10). Rotation does not retract plaintext already fetched onto that device —
+  (`plans/001` §10). Rotation does not retract plaintext already fetched onto that device,
   communicated explicitly.
 
 ### 4. Lost passphrase
 
-- Without the passphrase and without the recovery key: **data unrecoverable** — inherent to E2EE
+- Without the passphrase and without the recovery key: **data unrecoverable**, inherent to E2EE
   by design, the server cannot help (`plans/001` §2.6). Communicated honestly when the vault is
   created.
 - With the recovery key: recovery via the recovery kit (see "Recovery" in `## Spec`).
@@ -249,12 +249,12 @@ collaborators can observe.") and it is one of the conditions of **Stage 3 — ge
   hints** (`plans/001` §7). A client that cannot meet the required E2EE semantics **fails closed**
   before uploading and before local application; an unknown mutating event remains quarantined,
   never silently treated as plaintext.
-- **Key-epoch downgrade:** the server enforces `minimum_write_epoch` — a revision under an old
+- **Key-epoch downgrade:** the server enforces `minimum_write_epoch`, a revision under an old
   epoch after rotation is rejected (`plans/001` §10).
 - **Protocol-version downgrade:** an incompatible client is rejected before upload/application
   with a clear upgrade instruction (`specs/003` "Versioning and compatibility").
 - **Key point:** a disposable plaintext vault is NEVER upgraded in place to E2EE
-  (`plans/001` §10) — the first real vault is E2EE from its first revision, so there is no
+  (`plans/001` §10), the first real vault is E2EE from its first revision, so there is no
   "mixed" state that could be downgraded to plaintext.
 
 ### 6. Metadata leakage
@@ -275,7 +275,7 @@ collaborators can observe.") and it is one of the conditions of **Stage 3 — ge
 ## Acceptance tests
 
 Functional and verifiable tests (TDD red-green-refactor, `plan/01` rule 2). Each addresses a
-specific property of the **Stage 3 — general beta** gate.
+specific property of the **Stage 3, general beta** gate.
 
 1. **Encryption round-trip (`sync-core`, unit).** For a random Markdown snapshot: encrypt →
    decrypt → identical plaintext; `plaintext_content_hash` matches; the recipe reconstructs the
@@ -292,7 +292,7 @@ specific property of the **Stage 3 — general beta** gate.
    the local file remains unchanged. Fulfils `plans/001` §10 (quarantine) and
    `plan/01` rule 4 (zero silent overwrites).
 
-4. **Multi-device recovery test — explicit Stage 3 requirement (e2e).** An E2EE vault is created
+4. **Multi-device recovery test, explicit Stage 3 requirement (e2e).** An E2EE vault is created
    on the owner's device; a second device joins via invitation + phrase comparison; both sync the
    same content after decryption. Then: (a) the second device restores the `vault_key` after
    pairing, (b) a third device joins analogously. The test proves:
@@ -336,11 +336,11 @@ specific property of the **Stage 3 — general beta** gate.
     on a clean machine").
 
 12. **Redaction of secrets in logs/diagnostics (unit).** `havemind doctor` and application logs
-    contain no `vault_key`, `wrapped_vault_key`, recovery key, passphrase, tokens, or plaintext —
+    contain no `vault_key`, `wrapped_vault_key`, recovery key, passphrase, tokens, or plaintext,
     verified automatically. Fulfils `specs/003` "Security and privacy baseline".
 
 13. **Library test vectors (unit).** Known test vectors for Argon2id, AEAD, and keywrap from the
-    chosen library pass — proof that we use the primitives correctly and have not introduced
+    chosen library pass, proof that we use the primitives correctly and have not introduced
     custom cryptography. Fulfils `plans/001` §10 ("test vectors"; "No custom cryptographic
     primitive will be invented.").
 
@@ -355,34 +355,34 @@ We implement E2EE **after** the plaintext pilot has proven the sync semantics
 the T033 gate). Step by step:
 
 1. **Cryptographic spike (no production use).** Choose and verify the library (versions, audit
-   status — see the "knowledge may be outdated" note), select the cipher suite, the device-key
+   status, see the "knowledge may be outdated" note), select the cipher suite, the device-key
    algorithm, Argon2id parameters, and the recovery-key encoding. Result: test vectors + a
    decision recorded in `DECISIONS.md`. This fulfils "dedicated threat-model spike and test
    vectors" (`plans/001` §10).
 2. **`sync-core`: the payload layer.** Implement encrypt/decrypt/verify around the existing
-   inner schema, with the header as AAD. Merge/provenance untouched — they operate on decrypted
+   inner schema, with the header as AAD. Merge/provenance untouched, they operate on decrypted
    plaintext. Tests 1, 3, 9, 13.
 3. **Key management and pairing.** Argon2id-wrap the `vault_key`, transfer at enrollment via the
    existing phrase/6-digit channel, `key_epoch` + `minimum_write_epoch`. Tests 4, 8.
 4. **Recovery kit.** Local generation, recovery key, paths (a)/(b)/(c). Tests 5, 6, 11.
 5. **Attachments + backup + diagnostics.** Tests 10, 11, 12.
-6. **Security review and threat-model review** (Stage 3 requirement) — only after tests 1–13 are
+6. **Security review and threat-model review** (Stage 3 requirement), only after tests 1–13 are
    green.
 
 **The first real vault is created as E2EE from its first revision.** The disposable plaintext
 pilot is NOT migrated in place (`plans/001` §10). This simplifies rollback: there is no data
 conversion to undo.
 
-### Gates requiring a user question (`plan/01` rule 9) — do NOT do without consent
+### Gates requiring a user question (`plan/01` rule 9), do NOT do without consent
 
-- **Changing the approved encryption/trust model** — explicitly requires a user question
+- **Changing the approved encryption/trust model**, explicitly requires a user question
   (`plan/01` rule 9). This plan is a draft; its approval and any later change to the suite is a
   user decision.
-- **Connecting a real (non-disposable) vault** — always a user question (`plan/01`
+- **Connecting a real (non-disposable) vault**, always a user question (`plan/01`
   rule 9). The first real E2EE vault = this gate.
 - **Enabling Tailscale Funnel / public exposure, `sudo` operations on `sapserver`,
-  irreversible operations on backups, `git push`/PR** — unchanged, always a user question.
-- **Key escrow** (if ever considered) — a change of trust model, requires explicit consent and a
+  irreversible operations on backups, `git push`/PR**, unchanged, always a user question.
+- **Key escrow** (if ever considered), a change of trust model, requires explicit consent and a
   separate review; out of scope for Stage 3.
 
 ### Rollback
@@ -390,21 +390,21 @@ conversion to undo.
 - **During development (before the first real E2EE vault):** the feature works only on
   disposable vaults; rollback = disabling the E2EE path / reverting commits. Zero production
   data to migrate, because the plaintext pilot was never upgraded to E2EE.
-- **After a real E2EE vault has been created:** downgrading to plaintext is **not allowed** —
+- **After a real E2EE vault has been created:** downgrading to plaintext is **not allowed**,
   it would break the hard requirement in `specs/002`. "Rollback" means solely: restoring the
   previous server version/image with the pre-upgrade backup (`specs/003` "For a self-hoster":
   backup + matching container image), where the backup contains ciphertext anyway. Downgrade
   database migrations are not promised (`specs/003`). Blobs are content-addressed and immutable,
   so restoring an image does not destroy revision history.
 - **Rotation as a "soft rollback" for compromise:** if a device/member is compromised, the right
-  response is not a downgrade, but rotating `key_epoch` + revoking the device (Test 8) — with the
+  response is not a downgrade, but rotating `key_epoch` + revoking the device (Test 8), with the
   honest caveat that plaintext already fetched cannot be retracted.
 
 ### Conditions for considering the gate satisfied
 
-Stage 3 — general beta, on the E2EE part, is closed when: acceptance tests 1–13 are green
+Stage 3, general beta, on the E2EE part, is closed when: acceptance tests 1–13 are green
 (≥ 80% coverage, `plans/001` §5), the spike has recorded the library choice and vectors in
 `DECISIONS.md`, the security review and threat-model review are closed, and the public
 documentation states explicitly who can read note content for this release (`specs/003`
-acceptance: "Public release documentation states exactly which party can read note contents") —
+acceptance: "Public release documentation states exactly which party can read note contents"),
 answer: only holders of the `vault_key`, never the server operator.

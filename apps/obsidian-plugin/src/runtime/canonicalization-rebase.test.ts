@@ -119,7 +119,7 @@ describe('rebaseCanonicalizedHashes', () => {
     expect(saved[MARKER_KEY]).toBe(CANONICALIZATION_REBASE_VERSION);
   });
 
-  it('runs exactly once — a second invocation is a no-op', async () => {
+  it('runs exactly once, a second invocation is a no-op', async () => {
     const path = 'A.md';
     const fileId = 'f';
     const port = dataPort({
@@ -251,7 +251,7 @@ describe('rebaseCanonicalizedHashes', () => {
 
     const reconciled = await reconcileVaultState({ observer, repository, vault: snapshot });
 
-    // Assert: the file is seen as unchanged — no revision, no conflict artifact.
+    // Assert: the file is seen as unchanged, no revision, no conflict artifact.
     expect(reconciled.unchanged).toBe(1);
     expect(reconciled.updated).toBe(0);
     expect(reconciled.created).toBe(0);
@@ -260,7 +260,7 @@ describe('rebaseCanonicalizedHashes', () => {
 
   it('leaves a binary attachment mapping and its base hash unchanged while rebasing a sibling markdown entry (F9)', async () => {
     // Binary attachments are hashed over RAW bytes, which are
-    // canonicalisation-independent — rebasing them through the markdown
+    // canonicalisation-independent, rebasing them through the markdown
     // canonicalize/hash path would corrupt the byte hash. Only the markdown
     // sibling should be touched.
     const markdownPath = 'Notes/Plan.md';
@@ -376,7 +376,7 @@ describe('rebaseCanonicalizedHashes', () => {
       'rev-bin',
     );
     // A later, unrelated persistence op reloads via parseProducerState (strip),
-    // then saves — this is the single edit that historically wiped contentKind.
+    // then saves, this is the single edit that historically wiped contentKind.
     await repository.adoptRemoteMapping(
       {
         collisionKey: 'notes/other.md',
@@ -426,7 +426,7 @@ describe('rebaseCanonicalizedHashes', () => {
             collisionKey: binaryPath.toLowerCase(),
             content: binaryBase64,
             contentHash: rawHash,
-            // NOTE: no contentKind — the legacy shape.
+            // NOTE: no contentKind, the legacy shape.
             fileId: binaryFileId,
             path: binaryPath,
           },

@@ -3,7 +3,7 @@
  * Vault file API. Obsidian never surfaces `.obsidian/` through `vault.getFiles()`
  * or its `create`/`modify`/`on(...)` events, so the config mirror must enumerate,
  * read and write through `vault.adapter.*` instead. Every discovered path is
- * filtered through `isSyncableConfigPath`, an EXPLICIT APPEARANCE ALLOWLIST — so
+ * filtered through `isSyncableConfigPath`, an EXPLICIT APPEARANCE ALLOWLIST, so
  * third-party plugin code and state (`.obsidian/plugins/**`), the
  * enabled-plugins registry, the per-machine `workspace.json` and any unvetted
  * config file never cross the boundary (audit #3 finding 2).
@@ -18,7 +18,7 @@ import { isSyncableConfigPath } from '@havemind/protocol';
 export const CONFIG_DIR = '.obsidian';
 
 /**
- * Our own plugin's folder — pruned from the walk entirely (its `data.json` is the
+ * Our own plugin's folder, pruned from the walk entirely (its `data.json` is the
  * pairing/session secret). `isSyncableConfigPath` also denies it, so this is a
  * belt-and-suspenders optimisation, not the sole guard.
  */
@@ -55,7 +55,7 @@ function isUnderHavemindPlugin(folder: string): boolean {
 /**
  * Walks `root` (`.obsidian/` by default) recursively via `adapter.list`, returning
  * every in-scope config file path (sorted). It keeps only what
- * `isSyncableConfigPath` admits — the appearance allowlist — so every file under
+ * `isSyncableConfigPath` admits, the appearance allowlist, so every file under
  * `.obsidian/plugins/` is dropped, foreign plugin code included, along with
  * `workspace.json`, `community-plugins.json` and any config file not on the
  * list. The walk still DESCENDS into `.obsidian/plugins/` (minus our own
@@ -118,7 +118,7 @@ export async function ensureConfigParentDirs(
     try {
       await adapter.mkdir(prefix);
     } catch {
-      // Already exists (or a concurrent create won): a mkdir race is benign —
+      // Already exists (or a concurrent create won): a mkdir race is benign,
       // the subsequent write is the operation that actually matters.
     }
   }
@@ -144,7 +144,7 @@ export async function writeConfigBinary(
   await adapter.writeBinary(path, data);
 }
 
-/** Deletes a config file if it exists (idempotent — a missing file is a no-op). */
+/** Deletes a config file if it exists (idempotent, a missing file is a no-op). */
 export async function removeConfig(
   adapter: Pick<ConfigAdapterPort, 'exists' | 'remove'>,
   path: string,

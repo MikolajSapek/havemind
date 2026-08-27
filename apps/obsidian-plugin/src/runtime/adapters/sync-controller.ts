@@ -2,7 +2,7 @@
  * Assembly of the full sync runtime for an already-connected vault: durable
  * state, transport, vault-apply adapter, runner, the optional real-time push
  * subscription and the controller that owns them. This is the one place the
- * pieces are wired together, so it is also where the connect-safety rules live —
+ * pieces are wired together, so it is also where the connect-safety rules live,
  * a push-setup failure degrades to poll-only rather than aborting the build, and
  * every optional seam (activity hooks, producer sync, per-file lock) is omitted
  * rather than passed as undefined so `exactOptionalPropertyTypes` holds.
@@ -80,7 +80,7 @@ export function buildSyncController(
 ): BuiltSyncController {
   const state = new DurableSyncState({
     persist: createPersistPort(plugin),
-    // Arch P1: keep large outbox payload bytes out of `data.json`. Best-effort —
+    // Arch P1: keep large outbox payload bytes out of `data.json`. Best-effort,
     // degrades to inline when IndexedDB is unavailable (see the factory).
     payloadStore: createOutboxPayloadStore(plugin),
   });
@@ -130,7 +130,7 @@ export function buildSyncController(
     // read compare on equal terms. Never the raw token digest below.
     hashContent: (content) => hashPlaintext(content),
     // FIX 1: a genuinely applied remote revision (never 'noop'/'conflict')
-    // reaches the Activity feed too, attributed to `remote` — previously only
+    // reaches the Activity feed too, attributed to `remote`, previously only
     // the local-change wrapper ever recorded an entry, so the other device's
     // edits never showed up.
     ...(hooks?.onRemoteActivity === undefined
@@ -151,7 +151,7 @@ export function buildSyncController(
     // re-attributed, or given a fresh fileId.
     ...(producerSync === undefined ? {} : { producerSync }),
     // MRG-05: signal a debounced auto-repair sweep whenever a NEW conflict copy
-    // lands (never on an idempotent rewrite — no self-retrigger).
+    // lands (never on an idempotent rewrite, no self-retrigger).
     ...(hooks?.onConflictWritten === undefined
       ? {}
       : { onConflictWritten: hooks.onConflictWritten }),
@@ -161,8 +161,8 @@ export function buildSyncController(
     ...(fileApplyLock === undefined ? {} : { lock: fileApplyLock }),
   });
 
-  // Late-bound so the runner can report every cycle — including the retries it
-  // drives itself through backoff — to the controller. Without this a recovery
+  // Late-bound so the runner can report every cycle, including the retries it
+  // drives itself through backoff, to the controller. Without this a recovery
   // reached only via backoff would never clear a stale offline status because
   // the controller re-observes on its own schedule only every few minutes.
   const controllerRef: { current?: HavemindSyncController } = {};
@@ -184,7 +184,7 @@ export function buildSyncController(
   //
   // CONNECT-SAFE: push is strictly additive to the poll. If constructing the
   // subscription throws for any reason, the connect/sync path must still proceed
-  // poll-only — a push-setup failure must never abort building the controller.
+  // poll-only, a push-setup failure must never abort building the controller.
   // So the construction is wrapped and, on failure, the controller is built with
   // no `wake` (poll-only fallback) and the reason is logged.
   let wake: WakeSubscription | undefined;

@@ -302,7 +302,7 @@ describe('POST /owner/memberships/:membershipId/revoke', () => {
     expect(device.status).toBe('revoked');
   });
 
-  it("kills the revoked member's sessions — their next authenticated request 401s", async () => {
+  it("kills the revoked member's sessions, their next authenticated request 401s", async () => {
     const fixture = makeFixture();
     const app = createApp(fixture);
 

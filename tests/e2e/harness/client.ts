@@ -14,7 +14,7 @@
  *  - `SyncRunner` (sync-runner) performs durable push/pull and the safe
  *    remote-apply decision.
  *
- * Only the transport and the vault/config/state ports are harness-owned glue —
+ * Only the transport and the vault/config/state ports are harness-owned glue,
  * the same seam the production plugin fills with HTTP + IndexedDB + Obsidian.
  * The transport speaks to the opaque server exactly over the wire routes, so the
  * server never computes a diff, provenance or merge on the client's behalf.
@@ -142,7 +142,7 @@ class InMemoryConfigAdapter implements ConfigAdapterPort {
 
   async write(path: string, data: string): Promise<void> {
     // Like the real adapter, a write into a directory that does not exist yet
-    // fails — which is exactly what makes `ensureConfigParentDirs` (production)
+    // fails, which is exactly what makes `ensureConfigParentDirs` (production)
     // load-bearing for a brand-new `.obsidian/plugins/<foreign>/` folder.
     this.#assertParentExists(path);
     this.files.set(path, data);
@@ -190,7 +190,7 @@ class InMemoryVault implements VaultSnapshotPort {
   /**
    * Writes a visible vault file. A `.obsidian/` path is REJECTED here: real
    * Obsidian cannot touch a hidden file through the Vault API, and letting one
-   * into `files` would make it visible to `getFiles()` — the exact fiction that
+   * into `files` would make it visible to `getFiles()`, the exact fiction that
    * would let a config-mirror test pass without the DataAdapter walk working.
    */
   setFile(path: string, content: string): void {
@@ -267,7 +267,7 @@ class InMemoryChangeRepository implements LocalChangeRepository {
     this.drained.push(commit.operation);
     // The harness's #stage() mints its own revisionId independently (it
     // models the full outbox, not just this repository seam), so this
-    // return value is unused here — kept null rather than duplicating that
+    // return value is unused here, kept null rather than duplicating that
     // id-generation logic.
     return null;
   }
@@ -278,7 +278,7 @@ class InMemoryChangeRepository implements LocalChangeRepository {
 
   /**
    * Registers the mapping for a remotely applied revision. Applying a remote
-   * revision is not a local edit to observe — it establishes the authoritative
+   * revision is not a local edit to observe, it establishes the authoritative
    * fileId↔path binding the server already owns, so it bypasses the observer
    * (which would otherwise mint a fresh, unrelated fileId).
    */
@@ -311,7 +311,7 @@ export interface HarnessClientOptions {
   /**
    * The production config-apply reloader
    * (`createConfigApplyReloader`), notified after every successful `.obsidian/`
-   * apply — write or delete — exactly as the live `createVaultFilePort` notifies
+   * apply, write or delete, exactly as the live `createVaultFilePort` notifies
    * it from its own `.obsidian/` branch. That port needs a real Obsidian `Vault`
    * with a DataAdapter, which this harness does not model, so the harness makes
    * the same call at the same point in its apply path; the port-side call site is
@@ -404,8 +404,8 @@ export class HarnessClient {
   /**
    * Every remote revision this device genuinely applied, in apply order, with the
    * facts DECODED from the server's relayed payload (path, operation) rather than
-   * anything a test supplied. This is what the runtime feeds the Activity feed —
-   * and through it the author overlay — on the apply path.
+   * anything a test supplied. This is what the runtime feeds the Activity feed,
+   * and through it the author overlay, on the apply path.
    */
   public appliedRemote(): readonly RemoteAppliedInfo[] {
     return [...this.#appliedRemote];
@@ -461,7 +461,7 @@ export class HarnessClient {
   }
 
   /**
-   * Every hidden config path on this device's disk — INCLUDING denylisted ones,
+   * Every hidden config path on this device's disk, INCLUDING denylisted ones,
    * so a test can prove no secret was ever materialised here.
    */
   public configPaths(): string[] {
@@ -472,7 +472,7 @@ export class HarnessClient {
    * Runs one production config poll tick (`pollConfigOnce`) over the DataAdapter
    * walk and stages every genuine change it enqueued, exactly as `edit()` stages
    * a note change. Returns the operations the tick produced (empty in steady
-   * state — the content-hash cycle guard).
+   * state, the content-hash cycle guard).
    */
   public async pollConfig(): Promise<readonly LocalChangeOperation[]> {
     let ops: readonly LocalChangeOperation[] = [];
@@ -596,7 +596,7 @@ export class HarnessClient {
     return new SyncRunner({
       random: () => 0,
       // The harness drives cycles explicitly, so a backoff retry never fires on
-      // a real timer — but the armed delay is recorded so a test can assert that
+      // a real timer, but the armed delay is recorded so a test can assert that
       // a failed cycle DID schedule a retry (see `scheduledBackoffs`).
       scheduler: (_callback, delayMs) => {
         this.#backoffDelays.push(delayMs);
@@ -808,7 +808,7 @@ export class HarnessClient {
     }
     // The canonical target path travels inside the opaque payload (the server
     // never sees it), so materialising a remote revision means DECODING it with
-    // the production codec — the same thing the plugin's apply adapter does.
+    // the production codec, the same thing the plugin's apply adapter does.
     const decoded = await this.#decodePayload(event);
     const collisionKey = decoded.path.normalize('NFC').toLowerCase();
 
@@ -826,7 +826,7 @@ export class HarnessClient {
     // base, so a later local edit produces a child revision of exactly this
     // remote revision instead of a spurious unrelated file. The adopted hash is
     // the CONTENT hash (what the producer computes when it re-reads the file),
-    // never the payload/blob hash — otherwise the next producer pass would see a
+    // never the payload/blob hash, otherwise the next producer pass would see a
     // mismatch and re-push the peer's own bytes back at it.
     const contentHash = await sha256Hex(content);
     this.#repository.setRemoteMapping({
@@ -848,7 +848,7 @@ export class HarnessClient {
   }
 
   /**
-   * Records a GENUINELY applied remote revision (never a conflict — those land in
+   * Records a GENUINELY applied remote revision (never a conflict, those land in
    * `#recordConflict` and are not this device learning a new head for the path).
    * The runtime records the same facts at the same point, plus a wall-clock
    * timestamp and the bootstrap/live origin the production apply adapter owns.
@@ -896,7 +896,7 @@ export class HarnessClient {
    */
   async #materialize(path: string, content: string): Promise<void> {
     if (isSyncableConfigPath(path)) {
-      // MERGE, never replace — the same production call `createVaultFilePort`
+      // MERGE, never replace, the same production call `createVaultFilePort`
       // makes from its own `.obsidian/` write branch, with the same arguments
       // (`mergeConfigContent`, real module). For `.obsidian/graph.json` the
       // incoming semantic keys are overlaid onto what is on disk, so this device
@@ -914,7 +914,7 @@ export class HarnessClient {
         path,
         mergeConfigContent(path, local, content),
       );
-      // The bytes alone change nothing the user can see — Obsidian caches its
+      // The bytes alone change nothing the user can see, Obsidian caches its
       // config in memory. Report the apply exactly as `createVaultFilePort` does
       // from its own `.obsidian/` write branch, so the batch can refresh the CSS
       // or tell the user a reload is needed.

@@ -14,7 +14,7 @@ export interface HavemindSettingsInfo {
   readonly status: string;
   readonly lastSync: string;
   readonly members: string;
-  /** Whether a live connection exists — gates the sync/disconnect actions. */
+  /** Whether a live connection exists, gates the sync/disconnect actions. */
   readonly connected: boolean;
 }
 
@@ -26,6 +26,6 @@ export interface HavemindConnectionActions {
   readonly syncNow: () => void;
   readonly disconnect: () => void;
   readonly resetConnection: () => void;
-  /** Availability of `syncNow`/`disconnect` — meaningless while disconnected. */
+  /** Availability of `syncNow`/`disconnect`, meaningless while disconnected. */
   readonly connected: () => boolean;
 }

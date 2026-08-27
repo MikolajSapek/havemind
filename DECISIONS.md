@@ -3,27 +3,27 @@
 Log of blockers, open questions and simpler-variant choices raised during
 `/loop` execution. One entry per decision; newest first.
 
-## 2026-08-18 — SRV-03/04/05 (Restic backup) closed as won't-fix, not deferred
+## 2026-08-18, SRV-03/04/05 (Restic backup) closed as won't-fix, not deferred
 
 **Decision:** the server backup work (SRV-03 Restic deployment, SRV-04
 single-file restore test, SRV-05 full-service restore test) is closed
 permanently, not merely deferred past the pilot.
 
-**Reasoning:** the server is an opaque relay, by design — it "never computes
+**Reasoning:** the server is an opaque relay, by design, it "never computes
 diffs, merges or provenance" (README, Architecture). Every vault's full
 content and history already lives on each member's local machine; the server
 only holds the content-addressed blob store and revision headers that pass
 through it. Losing the server's disk loses the sync bridge (Activity log
 detail, in-flight queued revisions, the DAG of who-changed-what) but not the
-notes themselves — those survive on both local vaults regardless. A backup
+notes themselves, those survive on both local vaults regardless. A backup
 whose only job is protecting data that already has two independent full
 copies elsewhere is not solving a real risk for this deployment shape.
 
-This reverses the pilot-era framing ("SRV-03/04/05 stop blocking F8-02 —
+This reverses the pilot-era framing ("SRV-03/04/05 stop blocking F8-02,
 explicit gate waiver by the user", 2026-07-16), which treated no-backup as a
 temporary risk accepted only for the 7-day trial. The user has now confirmed
 the local-vault-as-source-of-truth model is permanent, not pilot-specific, so
-the same reasoning applies indefinitely — this is not a "not yet" but a
+the same reasoning applies indefinitely, this is not a "not yet" but a
 "not needed under this architecture."
 
 **If this changes:** revisit if the server ever becomes anything other than a
@@ -32,14 +32,14 @@ local vault is not itself considered reliable). The sudo-free restic/rclone
 foundation built for SRV-03 (`ops/sapserver/restic`, `~/havemind-ops`) is left
 in place, dormant, in case that happens.
 
-## 2026-07-16 — F8-02b STOP: onboarding/auth HTTP surface (T019) is unimplemented
+## 2026-07-16, F8-02b STOP: onboarding/auth HTTP surface (T019) is unimplemented
 
 **Follow-up F8-02b** asked to (A) close the plugin live loop by wiring the
 onboarding→connected trigger, token, fileId↔path mapping and blob fetch into
 `buildSyncController`, plus a "Connect" flow (paste → redeem → pending approval
 → connected) against the server API; and (B) write a sapserver deploy runbook.
 
-**Part A — STOPPED (blocked, not attempted).** The Connect flow and the sync
+**Part A, STOPPED (blocked, not attempted).** The Connect flow and the sync
 loop's `getAuthToken` target server HTTP endpoints that do not exist. Verified
 by inspection (no implementation attempts spent):
 
@@ -49,31 +49,31 @@ by inspection (no implementation attempts spent):
   `/bootstrap`, and the transport needs a Bearer **access** token.
 - The server registers only `/.well-known/havemind`, `/healthz`, `/readyz`,
   `GET /vaults/:vaultId/members` and the sync routes (`POST …/revisions`,
-  `GET …/events`, `GET …/blobs/:blobHash`) — see `apps/server/src/app.ts` and
+  `GET …/events`, `GET …/blobs/:blobHash`), see `apps/server/src/app.ts` and
   `apps/server/src/auth/auth-routes.ts`. There is **no** HTTP route for
   invitation review/redeem, device approval, bootstrap, or refresh→access
   token issuance. `InvitationService` and `SessionRepository` implement the
   logic but nothing exposes it over HTTP.
 - `plans/002-pilot-tasks.md` **T019** ("Implement invitations and device
   approval", target files `apps/server/src/auth/context.ts`,
-  `apps/server/src/auth/routes.ts`) is `[ ]` — those files do not exist.
+  `apps/server/src/auth/routes.ts`) is `[ ]`, those files do not exist.
 
 Consequence: F8-02b as written presumes F2 auth endpoints exist ("check the
 real routes"); they do not. Wiring the plugin Connect UI + live loop against a
 non-existent server contract cannot be verified and cannot satisfy the AC, so
 no code was changed on the plugin side (lifecycle test left untouched/green).
-The one safe wiring the task named — `controller.start()` on
-`workspace.onLayoutReady` gated on a connected state — was also deferred,
+The one safe wiring the task named, `controller.start()` on
+`workspace.onLayoutReady` gated on a connected state, was also deferred,
 because with no token-issuance route the loop has no credential to present, so
 the wiring would connect to nothing exercisable.
 
-**Correct next step:** land **T019** first — the owner/device auth HTTP surface
+**Correct next step:** land **T019** first, the owner/device auth HTTP surface
 (review, redeem, approval polling, bootstrap, refresh→access token issuance)
 behind the deny-by-default authenticated guard, plus an owner-side
 generate-invitation route. Only then is the F8-02b plugin wiring (Connect flow
 + live-loop start) implementable and testable end to end.
 
-**Part B — DONE.** `docs/pilot/deploy.md` added: a paste-ready sapserver runbook
+**Part B, DONE.** `docs/pilot/deploy.md` added: a paste-ready sapserver runbook
 matched to the real `deploy/compose.yaml`, `deploy/.env.example`,
 `apps/server/Dockerfile` and the `havemind` CLI. Steps 1–4 (rsync/clone,
 secrets + env + `docker compose build/up`, `tailscale serve --https=443` on
@@ -91,14 +91,14 @@ caveat, and `funnel` is explicitly ruled out (tailnet-only).
 
 Nothing committed; no tasks checked off (per F8-02b instructions).
 
-## 2026-07-16 — security incident closed: sapserver password rotated
+## 2026-07-16, security incident closed: sapserver password rotated
 
 The sapserver user password was accidentally disclosed in a chat transcript.
 The agent refused to use it (plan/01 rule 9) and advised immediate rotation;
 the user confirmed the password has been changed. No secrets stored anywhere
 by the agent.
 
-## 2026-07-16 — F2-01: invitations table completed inside 001-initial.sql
+## 2026-07-16, F2-01: invitations table completed inside 001-initial.sql
 
 The `invitations` table (forward-declared in the initial schema) was completed
 in `apps/server/src/migrations/001-initial.sql` instead of adding a second
@@ -107,13 +107,13 @@ hardcodes exactly one migration, so a new file would force invasive test
 rewrites for zero benefit. Once any real deployment exists, schema changes go
 into new migration files.
 
-## 2026-07-16 — SRV-02: backup target = local NAS
+## 2026-07-16, SRV-02: backup target = local NAS
 
 User initially chose a local-network NAS (SMB share `backup` on
 `192.168.x.n`). REVISED 2026-07-16: that host turned out to be a UniFi
-Cloud Key (network controller, no file storage — SMB impossible). B2 was
+Cloud Key (network controller, no file storage, SMB impossible). B2 was
 briefly considered, then REJECTED by the user on principle: **files live only
-on the user's own hardware — no cloud storage of any kind.**
+on the user's own hardware, no cloud storage of any kind.**
 
 **FINAL (2026-07-16): backup deferred entirely for the pilot, by explicit user
 decision.** Consequences, stated and accepted:
@@ -121,15 +121,15 @@ decision.** Consequences, stated and accepted:
   overridden by the user, who owns that gate). Pilot data is disposable test
   vaults only, so the risk is confined to losing pilot telemetry, not notes.
 - Restore/epoch machinery remains verified by F7-01 unit tests and the F8-01
-  fault harness (restore row) — what is NOT verified is a real off-host backup
+  fault harness (restore row), what is NOT verified is a real off-host backup
   round-trip. This must be revisited before any real vault touches the system
   (Stage gates in specs/003; candidates honouring the only-my-hardware rule:
-  USB disk in sapserver, or restic-over-SFTP to the user's Mac — both local).
+  USB disk in sapserver, or restic-over-SFTP to the user's Mac, both local).
 - Sudo-free groundwork (static restic/rclone in ~/bin, scripts in
   ~/havemind-ops and ops/sapserver/restic) stays in place, dormant. Trade-off acknowledged: same physical location as
 the server (no offsite copy in the pilot).
 
-## 2026-07-16 — F0-01 (T002): AC #1 "all green" blocked by forward TDD stubs
+## 2026-07-16, F0-01 (T002): AC #1 "all green" blocked by forward TDD stubs
 
 **Context.** F0-01 requires `npm run typecheck && npm run lint && npm test`
 green for every package. The four config files named in the issue
@@ -155,7 +155,7 @@ issues that are not yet implemented, and they are RED:
 `npm run typecheck`: 5 errors, all in the above forward-stub test files
 (missing modules `./setup.js`, `./vault-adapter`, `./reconciliation`,
 missing export `HAVEMIND_ONBOARDING_VIEW`).
-`npm run lint`: 1 committed error — `vault-adapter.test.ts` `consistent-type-imports`
+`npm run lint`: 1 committed error, `vault-adapter.test.ts` `consistent-type-imports`
 (same forward stub). (A second lint error on `apps/obsidian-plugin/main.js` only
 appears on locally-built trees; that file is gitignored and absent on a clean
 checkout.)
@@ -168,7 +168,7 @@ F1/F2/F3 (explicitly other issues' scope) or deleting/quarantining their
 committed TDD stubs (outside F0-01's named file list and destructive to other
 issues' RED work). No change confined to the four config files can turn
 `npm test` green while the forward stubs execute. Per strict F0→F9 sequencing,
-these stubs are expected to stay RED until their issues ship — which makes AC #1
+these stubs are expected to stay RED until their issues ship, which makes AC #1
 "green for all packages" unsatisfiable at F0-01 time as literally written.
 
 **Simpler variant considered (not executed).** Quarantine the forward stubs
@@ -182,7 +182,7 @@ earlier unilateral attempt was correctly blocked by the permission classifier
 pending this approval). Applied:
 - 4 pure-stub files renamed with `git mv` to `*.test.ts.todo-<issue>`
   (`setup`/`session-repository` → `.todo-F1-01`; `vault-adapter`/`reconciliation`
-  → `.todo-F2-04`) — content untouched, out of tsc/vitest/eslint globs.
+  → `.todo-F2-04`), content untouched, out of tsc/vitest/eslint globs.
 - `main.lifecycle.test.ts`: 3 onboarding-dependent tests marked `it.skip` with
   `F3-01:` restore comments; `HAVEMIND_ONBOARDING_VIEW` import isolated behind
   `@ts-expect-error` that self-invalidates once F3-01 adds the export.
@@ -200,7 +200,7 @@ pending this approval). Applied:
 3. Revisit sequencing / the scaffold so forward stubs are not committed ahead of
    their issues.
 
-## 2026-07-16 — F8-02a plugin runtime integration (decisions/traps)
+## 2026-07-16, F8-02a plugin runtime integration (decisions/traps)
 
 Runtime integration of the tested port-based modules with the Obsidian runtime.
 All AC met; workspace gate green (build+typecheck+lint, 491 tests pass, branch
@@ -210,7 +210,7 @@ coverage 83.33%). Three scope decisions, none hit the 3-attempt limit:
    `plan/05` permits "IndexedDB lub plugin saveData". Chose saveData: a single
    non-secret JSON blob (cursor/outbox/deferred/locally-authored) is simpler and
    fully unit-testable, and avoids extending the tested `IndexedDbClientStore`.
-   Secrets never touch data.json — refresh tokens stay in SecretStorage
+   Secrets never touch data.json, refresh tokens stay in SecretStorage
    (`storage/secret-store.ts`), honouring rule 6 and plan/05.
 
 2. **`src/runtime/obsidian-adapters.ts` excluded from the coverage gate.** It is
@@ -231,7 +231,7 @@ coverage 83.33%). Three scope decisions, none hit the 3-attempt limit:
    convention for build output); `docs/pilot/install.md` documents `npm run
    build` to regenerate.
 
-## 2026-07-16 — F8-02b-A Connect / live-loop wiring (decisions/traps)
+## 2026-07-16, F8-02b-A Connect / live-loop wiring (decisions/traps)
 
 Wired the tested onboarding controller + `buildSyncController` into the F8-02c
 HTTP surface. All new logic TDD'd; workspace gate green (529 tests, plugin
@@ -252,7 +252,7 @@ branch coverage 86.85%). Two documented boundaries, none hit the 3-attempt limit
    because the path lives inside the opaque payload header whose sync-core decode
    pipeline is not yet exposed; `VaultApplyAdapter` then skips the write rather
    than guessing (rule 4). Locally-mapped files sync both ways. The owner-side
-   "create invitation" button is likewise UI follow-up — the route is documented
+   "create invitation" button is likewise UI follow-up, the route is documented
    in `docs/pilot/deploy.md` step 5 for manual issue meanwhile.
 
 New tested modules: `runtime/{onboarding-api,onboarding-secrets,onboarding-store,
@@ -261,7 +261,7 @@ access-token,connection,connect-driver}.ts` (+ tests). Glue assembly
 coverage-excluded `runtime/obsidian-adapters.ts`; `main.ts` gained a Connect
 command and an `onLayoutReady` resume-and-start, staying passive until connected.
 
-## 2026-07-16 — F8-02b-B remote-file materialization + owner invitation (decisions)
+## 2026-07-16, F8-02b-B remote-file materialization + owner invitation (decisions)
 
 Closed the two follow-ups from F8-02b-A. All new logic TDD'd. Two notes:
 
@@ -274,16 +274,16 @@ Closed the two follow-ups from F8-02b-A. All new logic TDD'd. Two notes:
    schema (recipe/hashes are validated by the producing client at creation).
    `connection.ts` now exposes `resolveRevision` (blob fetch → decode) and
    `VaultApplyAdapter` writes at the payload's own path. sync-core must be built
-   (`npm run build`) before the plugin — it resolves sync-core from `dist`.
+   (`npm run build`) before the plugin, it resolves sync-core from `dist`.
 
 2. **Conservative path-ownership in the glue.** `VaultApplyAdapter` routes to
    `Havemind Conflicts/` when a path is owned by a foreign fileId and overwrites
-   only same-fileId paths — unit-tested. The live Obsidian `createVaultFilePort`
+   only same-fileId paths, unit-tested. The live Obsidian `createVaultFilePort`
    currently reports any physically-existing path as foreign (a sentinel), so it
    never overwrites pre-existing local content: remote-only files create
    cleanly, and any path clash goes to Conflicts. A precise fileId↔path map
    (reconciliation store) can replace the sentinel to allow in-place updates of
-   already-synced files — that refinement is the only remaining nuance and does
+   already-synced files, that refinement is the only remaining nuance and does
    not affect the safety guarantee (rule 4, never overwrite/guess).
 
 Owner "create invitation": `create-invitation.ts` (`createVaultInvitation`,
@@ -293,7 +293,7 @@ returns a copyable `v1.…` envelope (never logged, 15-min TTL). Wired as the
 tested modules: `runtime/{create-invitation}.ts` + refactored
 `{connection,vault-apply}.ts`; `packages/sync-core/src/payload-codec.ts`.
 
-## 2026-07-16 — F8-02b-C durable fileId↔path map for in-place updates (decision)
+## 2026-07-16, F8-02b-C durable fileId↔path map for in-place updates (decision)
 
 Final pilot-wiring piece. Replaced F8-02b-B's conservative "any physical file =
 foreign" sentinel with a real ownership map so already-synced files update in
@@ -302,7 +302,7 @@ green (551 tests, workspace branch 81.84%).
 
 - **Source of truth: `DurableSyncState`** (not `PluginDataOnboardingStore`). The
   path→fileId map lives alongside cursor/outbox/deferred under `data.json`
-  `syncState`, updated on every apply — the natural home for live-loop
+  `syncState`, updated on every apply, the natural home for live-loop
   bookkeeping. Onboarding store stays scoped to the connect handshake.
 - **`VaultApplyAdapter` records/forgets ownership** after each write/delete/
   rename-move (new `VaultFilePort.recordPathOwner`/`forgetPath`). The glue's
@@ -317,7 +317,7 @@ green (551 tests, workspace branch 81.84%).
   diverted to conflicts`, `forgets ownership when a file is deleted`, plus the
   existing collision/delete-foreign cases.
 
-## 2026-07-16 — F8-02b-D interactive Connect form + owner pairing route (fix)
+## 2026-07-16, F8-02b-D interactive Connect form + owner pairing route (fix)
 
 First real Obsidian run showed the onboarding view was a dead placeholder (no
 input/button) and the owner had no HTTP path to redeem the `hm_pt_` pairing
@@ -325,7 +325,7 @@ token. Fixed both. TDD; full gate green (563 tests, plugin branch 86.3%,
 workspace gate clean). No commit; production server untouched (code only).
 
 1. **Server: added `POST /owner/pair`** (pre-auth, rate-limited, single-use).
-   F8-02c never exposed pairing redemption — `OwnerSetupService.pairOwnerDevice`
+   F8-02c never exposed pairing redemption, `OwnerSetupService.pairOwnerDevice`
    was CLI-only. The route generates the deviceId + a placeholder public key
    server-side (mirrors the invitee redeem flow, no client keypair in the pilot)
    and calls the existing `pairOwnerDevice`, returning `{ vaultId, deviceId,
@@ -347,7 +347,7 @@ workspace gate clean). No commit; production server untouched (code only).
 Server production instance (https://<server>.<tailnet>.ts.net) was not touched;
 these changes ship on next deploy of the built server + plugin dist.
 
-## 2026-07-16 — F8-02e production bootstrap wiring + rotate-pairing CLI
+## 2026-07-16, F8-02e production bootstrap wiring + rotate-pairing CLI
 
 Production returned 404 on /owner/pair: `index.ts` called `buildApp({ config })`
 with no `auth` deps, so `registerAuthRoutes` never ran. Fixed the bootstrap and
@@ -359,12 +359,12 @@ workspace branch 81.16%). No commit; live server untouched (code only).
    `SessionRepository`, `InvitationService`, `BlobStore(dataDir/blobs)`,
    `RevisionRepository` → `buildApp({ config, auth: { database, sessions,
    invitations, sync: { blobStore, database, revisions } } })`. Passing
-   `invitations` is required — onboarding routes (incl. `/owner/pair`) only
+   `invitations` is required, onboarding routes (incl. `/owner/pair`) only
    register when it is present. Graceful shutdown closes the DB after `app.close()`.
 
    - **DB key:** `db.ts`/`config.ts` do not read `/run/secrets/havemind_db_key`;
      the DB is plain WAL better-sqlite3 (no in-process cipher). `index.ts` opens
-     the file exactly as the setup CLI created it — no phantom key application.
+     the file exactly as the setup CLI created it, no phantom key application.
    - **Filename divergence (pre-existing, flagged not fixed):** the setup CLI and
      now `index.ts` use `havemind.db`, while `backup-restore.ts` and the e2e
      harness use `havemind.sqlite`. Production consistency (server reads what
@@ -376,20 +376,20 @@ workspace branch 81.16%). No commit; live server untouched (code only).
    leaving vault/membership data and already-consumed pairings untouched. Unconsumed
    rows are DELETEd rather than marked consumed, because the `owner_pairings` CHECK
    forbids `consumed_at` without `consumed_by_device_id`. Local-CLI capability
-   required; `NOT_INITIALIZED` when no owner exists. Reachable in the container —
+   required; `NOT_INITIALIZED` when no owner exists. Reachable in the container,
    the Dockerfile already copies `bin/`.
 
-## 2026-07-16 — F8-02f: owner refresh 401 storm + Connect panel redesign
+## 2026-07-16, F8-02f: owner refresh 401 storm + Connect panel redesign
 
 Two production bugs + a Connect-panel redesign. Full gate green (580 tests,
 workspace branch 81.06%); dist rebuilt. Live server untouched (code only).
 
-**Bug A — 401 on every /auth/refresh after owner pair.** Root cause was NOT a
+**Bug A, 401 on every /auth/refresh after owner pair.** Root cause was NOT a
 missing token-hash persist (the raw-token path already stored the correct gen-0
 hash via `parseRefreshForInitial` == the rotate lookup). The real cause: the
 client's `RefreshTokenAccessProvider` was wired with
 `generateRotationId: () => crypto.randomUUID()`, but the server's
-`prepareRotation` requires `parseRefreshRotationId` — an `hm_ri_…` token. A UUID
+`prepareRotation` requires `parseRefreshRotationId`, an `hm_ri_…` token. A UUID
 failed parsing → `INVALID_INPUT` → 401 on every refresh, forever. Fix: client
 generates a branded `hm_ri_` rotation id. Also hardened the pair contract per
 request: client sends only the SHA-256 hash of its refresh token to
@@ -398,14 +398,14 @@ request: client sends only the SHA-256 hash of its refresh token to
 approval); the raw secret never crosses the wire. Locked with a server
 integration test: pair → refresh → 200 (`accessToken` issued).
 
-**Bug B — 401 retry storm.** Auth denial is now terminal: `AccessTokenError`
+**Bug B, 401 retry storm.** Auth denial is now terminal: `AccessTokenError`
 and `RequestUrlTransportError` carry `authDenied` (true on HTTP 401); the runner
 returns a new `'unauthenticated'` cycle status WITHOUT scheduling backoff; the
 controller stops the scheduler and surfaces `reconnect-required`. Transient
 (5xx/network) failures still back off. Tests cover runner (no-retry vs backoff),
 access-token (authDenied flag), and controller (loop halts, no further requests).
 
-**Part C — live Connect panel.** New pure `buildConnectionPanel` model (icon +
+**Part C, live Connect panel.** New pure `buildConnectionPanel` model (icon +
 label + Obsidian colour token + spin, never colour alone per plan/06); states
 gray Not-connected / blue-spinner Syncing / green ✓ Synced / amber Offline /
 red Reconnect-required. The onboarding view renders a live indicator fed by the

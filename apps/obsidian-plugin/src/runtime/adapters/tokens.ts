@@ -23,7 +23,7 @@ export function generateRefreshTokenValue(): string {
 
 /**
  * A server-recognised refresh rotation id (`hm_ri_…`). The server rejects the
- * rotation unless `rotationId` parses as this branded token — a plain UUID here
+ * rotation unless `rotationId` parses as this branded token, a plain UUID here
  * caused `/auth/refresh` to 401 on every call (F8-02f bug A).
  */
 export function generateRotationIdValue(): string {

@@ -5,7 +5,7 @@ We take security seriously and welcome reports of vulnerabilities.
 ## Supported versions
 
 Only the latest published `1.1.x` release is supported. Older builds receive no
-fixes — please update before reporting.
+fixes, please update before reporting.
 
 Note that 1.1.0 closed a device-impersonation path in the rejoin flow. Devices
 paired before that release fail closed and must re-pair; running anything older
@@ -31,7 +31,7 @@ timeline with the reporter before any public detail is shared.
 
 This policy covers the Obsidian plugin and the open-source server code in this
 repository. It does not cover any private deployment, its hosting, or its
-network configuration — those are operated separately and are out of scope.
+network configuration, those are operated separately and are out of scope.
 
 ## Data-safety reminder
 
@@ -41,5 +41,5 @@ vault. Run it only on hardware you and your circle trust, keep it tailnet-only,
 and treat server access as vault access.
 
 This is a deliberate scope decision for a small, self-hosted, trusted-circle
-tool — not an oversight. If your threat model includes the server operator, this
+tool, not an oversight. If your threat model includes the server operator, this
 is not the right tool for that vault.

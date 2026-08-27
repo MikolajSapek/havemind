@@ -1,9 +1,9 @@
 /**
  * A single serialized read-modify-write queue over ONE plugin's `data.json`.
  *
- * MAJOR (concurrent-save clobber): every durable non-secret store — the sync
+ * MAJOR (concurrent-save clobber): every durable non-secret store, the sync
  * state, the push producer, the client-instance id, the owner connection, the
- * roster and the onboarding store — persists under its own top-level key by
+ * roster and the onboarding store, persists under its own top-level key by
  * reading the whole blob, merging its key and writing the whole blob back
  * (`saveData({ ...loadData(), [ownKey]: value })`). With no shared lock, two of
  * these racing on different keys clobber each other on disk: both read the same
@@ -74,7 +74,7 @@ export interface SerializedDataPort {
  * A `{ load, save }` port over a shared {@link PluginDataMutex}, for the stores
  * that split their read-modify-write across two calls (roster, onboarding).
  * `save` re-reads the latest on-disk snapshot under the lock and re-applies
- * ONLY the top-level keys this port actually changed since its own `load` — so
+ * ONLY the top-level keys this port actually changed since its own `load`, so
  * a concurrent save to a different key is preserved rather than clobbered.
  */
 export function createSerializedDataPort(

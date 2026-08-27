@@ -1,7 +1,7 @@
 /**
  * The pane header strip: hexagon, name, and an overflow menu (design 1a).
  *
- * The actions behind the menu — Disconnect, Reset, and the server address —
+ * The actions behind the menu, Disconnect, Reset, and the server address,
  * used to occupy a standing block in the pane. Nobody needs their own server
  * address daily, and a permanent Disconnect button spends a line on the one
  * action a connected user least wants to hit. They move here, one click away,
@@ -16,7 +16,7 @@ import { DECORATIVE } from './primitives';
 export interface PaneMenuItem {
   readonly label: string;
   readonly onSelect: () => void;
-  /** Rendered muted and non-interactive — used for the server address. */
+  /** Rendered muted and non-interactive, used for the server address. */
   readonly readOnly?: boolean;
 }
 
@@ -30,7 +30,7 @@ export interface PaneHeaderOptions {
    * View actions, rendered in the header itself rather than in a second row
    * below it (round 2, Q1). Two rows of icons is one row too many, and Obsidian
    * already has a place for view actions: the view header. Moving them costs no
-   * new chrome and removes the read of "eight equal buttons" — header icons are
+   * new chrome and removes the read of "eight equal buttons", header icons are
    * visibly chrome, tabs are visibly navigation.
    */
   readonly authorOverlayOn?: boolean;
@@ -38,7 +38,7 @@ export interface PaneHeaderOptions {
   readonly onInvite?: () => void;
   /**
    * True when something needs the user. Marks the pane's own hexagon, so a
-   * collapsed or background pane still signals it — the alarm block itself
+   * collapsed or background pane still signals it, the alarm block itself
    * renders below regardless.
    */
   readonly alarmed?: boolean;
@@ -62,7 +62,7 @@ export function renderPaneHeader(
   setIcon(mark, 'hexagon');
   if (options.alarmed === true) {
     // A dot on the mark itself, so a pane that is collapsed or behind another
-    // still signals. Paired with the alarm block below and a title attribute —
+    // still signals. Paired with the alarm block below and a title attribute,
     // never colour alone.
     const dot = markWrap.createEl('span', {
       attr: { title: 'Needs attention' },

@@ -1,5 +1,5 @@
 /**
- * F-config — two-device end-to-end coverage for the `.obsidian/` APPEARANCE
+ * F-config, two-device end-to-end coverage for the `.obsidian/` APPEARANCE
  * mirror (theme CSS, snippets, hotkeys, appearance/app settings). Plugin code
  * and plugin state are OUTSIDE the allowlist and must never cross.
  *
@@ -15,15 +15,15 @@
  *
  * Rows under test:
  *  1. A config file written behind the vault API's back reaches the peer and
- *     materialises at the SAME hidden path, byte-identical — and a steady-state
+ *     materialises at the SAME hidden path, byte-identical, and a steady-state
  *     poll on either device enqueues nothing (the content-hash cycle guard).
  *  2. Allowlist wins: a foreign plugin's CODE (`main.js`), its `data.json`, a
  *     theme's `data.json` and the per-machine `workspace.json` produce ZERO
  *     revisions and materialise nothing on the peer, while an allowlisted
- *     sibling in the same theme folder does sync — proving the walk descends
+ *     sibling in the same theme folder does sync, proving the walk descends
  *     there and the ALLOWLIST, not a blind spot, is what stops them.
  *  3. Fault variant: a config push interrupted by an offline transport backs
- *     off, and after recovery the revision lands EXACTLY ONCE — including when
+ *     off, and after recovery the revision lands EXACTLY ONCE, including when
  *     the receipt is lost and the identical batch is re-delivered.
  *
  * The second member is inserted straight into the shared vault (as
@@ -64,13 +64,13 @@ afterEach(async () => {
   cleanupHarnessDirectories();
 });
 
-describe('F-config `.obsidian/` mirror — two clients against a real opaque server', () => {
+describe('F-config `.obsidian/` mirror, two clients against a real opaque server', () => {
   it('row 1: a config file only the poller can see reaches the peer at the same hidden path, byte-identical, and settles', async () => {
     const { server, alice, bob } = await makeHarness();
     const appearance = '{\n  "accentColor": "#7b5cff",\n  "theme": "obsidian"\n}\n';
 
     // Obsidian fires NO vault event for a hidden file, so writing it queues
-    // nothing on its own — the mirror is poll-driven by construction.
+    // nothing on its own, the mirror is poll-driven by construction.
     await alice.writeConfig(APPEARANCE_PATH, appearance);
     expect(alice.outboxSize()).toBe(0);
     // And it is invisible to the vault file API (`getFiles()`), on both sides.
@@ -88,7 +88,7 @@ describe('F-config `.obsidian/` mirror — two clients against a real opaque ser
     expect(alice.outboxSize()).toBe(0);
 
     // The peer materialises it at the identical hidden path with identical
-    // bytes — through the DataAdapter, never as a visible vault file.
+    // bytes, through the DataAdapter, never as a visible vault file.
     await bob.sync();
     expect(bob.readConfig(APPEARANCE_PATH)).toBe(appearance);
     expect(bob.configPaths()).toEqual([APPEARANCE_PATH]);
@@ -97,7 +97,7 @@ describe('F-config `.obsidian/` mirror — two clients against a real opaque ser
 
     // Steady state (the cycle guard): the just-applied file hashes equal to the
     // adopted mapping, so the receiver's next poll enqueues nothing and no
-    // second revision is ever authored — on either device.
+    // second revision is ever authored, on either device.
     expect(await bob.pollConfig()).toEqual([]);
     expect(await alice.pollConfig()).toEqual([]);
     expect(bob.outboxSize()).toBe(0);
@@ -122,7 +122,7 @@ describe('F-config `.obsidian/` mirror — two clients against a real opaque ser
   it('row 2: foreign plugin CODE, plugin/theme `data.json` and per-machine `workspace.json` produce zero revisions and materialise nothing, while an allowlisted sibling in the same folder syncs', async () => {
     const { server, alice, bob } = await makeHarness();
 
-    // Foreign plugin code (audit #3 finding 2 — the remote-code-execution
+    // Foreign plugin code (audit #3 finding 2, the remote-code-execution
     // vector), secrets, and per-machine state, in the exact folders the walk
     // descends.
     await alice.writeConfig(PLUGIN_CODE_PATH, 'console.log("dataview");\n');
@@ -139,7 +139,7 @@ describe('F-config `.obsidian/` mirror — two clients against a real opaque ser
     expect(server.revisionCount()).toBe(0);
     expect(server.eventCount()).toBe(0);
 
-    // The peer materialises nothing at all — no plugin code is ever written to
+    // The peer materialises nothing at all, no plugin code is ever written to
     // a peer's `.obsidian/plugins/` tree.
     await bob.sync();
     expect(bob.configPaths()).toEqual([]);

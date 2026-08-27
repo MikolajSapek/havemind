@@ -17,7 +17,7 @@ Conventions (from `plan/08-sapserver-operations.md` and `plan/02-fundamenty.md`)
 - Secrets are files under `/srv/secrets/` (mode `0600`), never inline env values.
 - The host port is published on `127.0.0.1` only; the tailnet reaches it via
   `tailscale serve`. The server is **never** bound to a public/wildcard address.
-- Note data lives in the Docker-managed named volume `havemind-data` — this
+- Note data lives in the Docker-managed named volume `havemind-data`, this
   stack does **not** use a `/srv/appdata/havemind` bind mount.
 
 > **Steps marked `[sudo]` require the sapserver sudo password.** Per
@@ -39,8 +39,8 @@ Where each command runs is called out. If your shell prompt already shows
   it online). Tailscale 1.98.x is installed on sapserver.
 - Docker Engine + the Compose v2 plugin installed on sapserver (`docker
   compose version`). Installing Docker or adding your user to the `docker`
-  group is a `[sudo]` step — confirm with the user first (rule 5).
-- This repo checked out on sapserver (or rsynced there — step 1).
+  group is a `[sudo]` step, confirm with the user first (rule 5).
+- This repo checked out on sapserver (or rsynced there, step 1).
 
 ---
 
@@ -91,7 +91,7 @@ All commands in this section run **on sapserver**, in
 
 The key generator only prints random bytes; run it wherever Node ≥22.20 is
 available. **Trap:** `deploy/compose.yaml`'s runtime image does **not** include
-the `havemind` CLI wrapper (`bin/` is not copied in the Dockerfile — only
+the `havemind` CLI wrapper (`bin/` is not copied in the Dockerfile, only
 `dist/`, `package.json`, `healthcheck.js` and `node_modules`). So run the CLI
 one of these two ways, not `docker compose run … havemind`:
 
@@ -122,7 +122,7 @@ printf '%s' 'PASTE_KEY_VALUE_HERE' | [sudo] tee /srv/secrets/havemind_db_key >/d
 ### 2c. Fill in the environment file
 
 `compose.yaml` reads `deploy/.env`. Copy the template and set the public URL
-(this must be the exact HTTPS URL clients reach — it is baked into the
+(this must be the exact HTTPS URL clients reach, it is baked into the
 discovery document, so set it **before** starting the container):
 
 ```bash
@@ -144,7 +144,7 @@ HAVEMIND_API_BASE_URL=https://sapserver.<tailnet>.ts.net
 Leave the other values at their defaults unless you have a reason to change
 them (`HAVEMIND_PORT=8787`, `HAVEMIND_IMAGE_TAG=0.0.0-private`,
 `HAVEMIND_SERVER_NAME=Havemind`, `HAVEMIND_LOG_LEVEL=info`). `deploy/.env`
-holds no secret — the DB key is the file secret from step 2b.
+holds no secret, the DB key is the file secret from step 2b.
 
 ### 2d. Build and start
 
@@ -167,7 +167,7 @@ docker compose -f /srv/compose/havemind/deploy/compose.yaml logs --tail=50 havem
 
 `setup` writes to the database in the `havemind-data` volume, so it must run
 against the same data directory the server uses. Run it inside the running
-container (CLI via `dist`, since `bin/` is absent — see the 2b trap):
+container (CLI via `dist`, since `bin/` is absent, see the 2b trap):
 
 ```bash
 docker compose -f /srv/compose/havemind/deploy/compose.yaml \
@@ -184,7 +184,7 @@ stored server-side.
 ## 3. Expose over Tailscale (HTTPS on 443) `[sudo]`
 
 Run **on sapserver**. This fronts the loopback port `8787` with Tailscale's
-HTTPS on 443, on sapserver's own tailnet name — no public exposure, no Funnel:
+HTTPS on 443, on sapserver's own tailnet name, no public exposure, no Funnel:
 
 ```bash
 [sudo] tailscale serve --bg --https=443 http://127.0.0.1:8787
@@ -195,7 +195,7 @@ HTTPS on 443, on sapserver's own tailnet name — no public exposure, no Funnel:
 > --help` before relying on it. The `--https=<port> <target>` form above is the
 > current documented shape, but the `serve` CLI has changed across releases;
 > if 1.98 rejects it, `tailscale serve --help` shows the exact accepted form.
-> Do **not** use `tailscale funnel` — that would make the server public, which
+> Do **not** use `tailscale funnel`, that would make the server public, which
 > the pilot forbids (`plan/08`, tailnet-only).
 
 MagicDNS HTTPS also requires that HTTPS certificates are enabled for the
@@ -261,7 +261,7 @@ curl -fsS -X POST \
 ```
 
 The `invitationToken` is a secret. Wrap it in the canonical envelope the plugin
-expects (never put the token in a query string — `plan/05` anti-spec):
+expects (never put the token in a query string, `plan/05` anti-spec):
 
 ```
 envelope = "v1." + base64url(JSON.stringify({
@@ -276,7 +276,7 @@ channel. It expires in 15 minutes and is single-use.
 
 ### 5c. Second participant connects
 
-On the second MacBook (Obsidian + the Havemind plugin installed, same tailnet —
+On the second MacBook (Obsidian + the Havemind plugin installed, same tailnet,
 see `install.md`): command palette → **Havemind: Connect to Havemind**, paste
 the `v1.…` envelope, confirm the reviewed server/vault/inviter, and approve. The
 owner approves the matching **verification phrase** on their side; the second
@@ -295,6 +295,6 @@ docker compose -f /srv/compose/havemind/deploy/compose.yaml up -d      # restart
 ```
 
 The `havemind-data` volume persists across `down`/`up`. Removing it
-(`docker volume rm havemind_havemind-data`) destroys the pilot database — only
+(`docker volume rm havemind_havemind-data`) destroys the pilot database, only
 do this to reset the pilot, and note the pilot runs without off-host backup
 (see `DECISIONS.md`).

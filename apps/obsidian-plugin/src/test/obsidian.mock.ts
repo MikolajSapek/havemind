@@ -34,8 +34,8 @@ export type MockElement = {
   removed: boolean;
   /**
    * Records that focus was moved here. A tablist has to put focus on the tab
-   * it just selected — without that, arrow keys announce a new tab while the
-   * keyboard is still on the old one — so the tests need to observe it.
+   * it just selected, without that, arrow keys announce a new tab while the
+   * keyboard is still on the old one, so the tests need to observe it.
    */
   focus: () => void;
   /** True once `focus()` has been called on this element. */
@@ -92,7 +92,7 @@ export function setIcon(element: unknown, iconId: string): void {
 }
 
 /**
- * Minimal stand-in for Obsidian's `Notice` — records the message, no UI. Every
+ * Minimal stand-in for Obsidian's `Notice`, records the message, no UI. Every
  * message is also appended to `registrationState.notices` so a test can assert
  * what the user was told without holding the instance.
  */
@@ -284,7 +284,7 @@ export class Workspace {
   }
 
   /**
-   * Counts `updateOptions()` calls — how the plugin asks Obsidian to re-run
+   * Counts `updateOptions()` calls, how the plugin asks Obsidian to re-run
    * every registered editor extension after the author overlay is toggled.
    */
   updateOptionsCalls = 0;
@@ -617,7 +617,7 @@ export class Setting {
 }
 
 /**
- * Stand-in for Obsidian's `editorInfoField` — the CodeMirror `StateField` that
+ * Stand-in for Obsidian's `editorInfoField`, the CodeMirror `StateField` that
  * carries the file behind a live editor. The headless suites never build a real
  * `EditorView`, so nothing ever reads it; the export exists because the Live
  * Preview extension imports it and this module stands in for `obsidian`.

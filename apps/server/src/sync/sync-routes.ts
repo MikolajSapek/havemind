@@ -34,7 +34,7 @@ const DEFAULT_MAX_BATCH_SIZE = 64;
 // F9 binary attachments raise this from 512 KiB to 36 MiB: a 25 MB raw file
 // inflates to ~33.4 MB as base64 inside the revision payload, so 36 MiB covers
 // the inflation plus JSON envelope overhead. The server still never inspects
-// payload contents (see revisionInputSchema above) — only the byte ceiling
+// payload contents (see revisionInputSchema above), only the byte ceiling
 // changes.
 export const DEFAULT_MAX_PAYLOAD_BYTES = 36 * 1024 * 1024;
 const DEFAULT_PULL_LIMIT = 100;
@@ -359,7 +359,7 @@ function blobBelongsToVault(
  * DISTINCT blob (already-stored blobs and repeats within the batch cost
  * nothing), returning `true` as soon as the running total would exceed the
  * vault's effective quota. Runs before any `blobStore.put`, so a payload that
- * plainly will not fit never reaches disk. This is advisory only — the
+ * plainly will not fit never reaches disk. This is advisory only, the
  * authoritative check is inside the commit transaction.
  */
 async function precheckVaultQuota(
@@ -461,8 +461,8 @@ export function registerSyncRoutes(
     }
 
     // S6 free-disk guard: an O(1) statfs-style probe evaluated once per push,
-    // before any blob is written. Below the threshold — or if the probe itself
-    // fails — the whole push is rejected fail-closed with 507. Reads are never
+    // before any blob is written. Below the threshold, or if the probe itself
+    // fails, the whole push is rejected fail-closed with 507. Reads are never
     // gated (this hook lives only on the push route). This is the last line of
     // defence against filling the shared data-root, independent of quota.
     if (deps.freeDiskBytes !== undefined) {
@@ -499,7 +499,7 @@ export function registerSyncRoutes(
     // records the accepted prefix and isolates the single failure instead of
     // re-sending the whole batch forever (append-only liveness). Request-level
     // faults (bad body, unknown vault, identity mismatch, cyclic/oversized batch)
-    // are still whole-request 4xx above — only per-revision commit outcomes are
+    // are still whole-request 4xx above, only per-revision commit outcomes are
     // reported here.
     const results: Array<
       | {
@@ -560,7 +560,7 @@ export function registerSyncRoutes(
           // Revisions before this one may have already committed and advanced
           // the durable cursor. That accepted prefix must still wake any held
           // /wait peers now, or they'd only converge on the heartbeat instead
-          // of near-real-time — the early return below would otherwise bypass
+          // of near-real-time, the early return below would otherwise bypass
           // the notify block further down entirely. Best-effort, exactly like
           // the notify at the end of a fully-processed batch.
           if (
@@ -605,7 +605,7 @@ export function registerSyncRoutes(
     // Real-time push wake: if this batch durably committed at least one new
     // revision (pure replays and all-rejected batches advance nothing), wake
     // any held /wait requests for this vault EXACTLY ONCE with the final
-    // cursor. Wake is strictly best-effort — a failure here must never turn a
+    // cursor. Wake is strictly best-effort, a failure here must never turn a
     // successful commit into an error, so it is isolated in try/catch.
     if (
       deps.wakeRegistry !== undefined &&
@@ -657,7 +657,7 @@ export function registerSyncRoutes(
     }
 
     // Fast path: the server already has newer revisions than the client holds,
-    // or no registry is wired — return the current cursor without holding.
+    // or no registry is wired, return the current cursor without holding.
     const wakeRegistry = deps.wakeRegistry;
     if (current > clientCursor || wakeRegistry === undefined) {
       reply.header('cache-control', 'no-store');

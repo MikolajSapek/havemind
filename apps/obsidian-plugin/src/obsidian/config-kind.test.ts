@@ -6,9 +6,9 @@ import { classifyVaultPath } from './vault-adapter';
  * Kind selection for the `.obsidian/` APPEARANCE ALLOWLIST: an admitted config
  * path does not automatically ride the text path. Text config → text/'markdown'
  * kind, a binary theme asset → the base64 binary path. Anything the allowlist
- * does not admit — plugin code above all — is not eligible at all.
+ * does not admit, plugin code above all, is not eligible at all.
  */
-describe('classifyVaultPath — .obsidian config kind selection', () => {
+describe('classifyVaultPath, .obsidian config kind selection', () => {
   it.each([
     ['.obsidian/appearance.json', 'markdown'],
     ['.obsidian/app.json', 'markdown'],
@@ -45,7 +45,7 @@ describe('classifyVaultPath — .obsidian config kind selection', () => {
   );
 
   it.each([
-    // FINDING 2: plugin code and plugin state, in full — no exceptions.
+    // FINDING 2: plugin code and plugin state, in full, no exceptions.
     '.obsidian/plugins/dataview/main.js',
     '.obsidian/plugins/dataview/manifest.json',
     '.obsidian/plugins/dataview/styles.css',
@@ -57,7 +57,7 @@ describe('classifyVaultPath — .obsidian config kind selection', () => {
     '.obsidian/types.json',
     // FINDING 9: exact `data.json` segment, inside an allowed subtree.
     '.obsidian/themes/Minimal/data.json',
-    // Themes are CSS-only in Obsidian — never a JS drop site.
+    // Themes are CSS-only in Obsidian, never a JS drop site.
     '.obsidian/themes/Minimal/evil.js',
   ])('never classifies a non-allowlisted config path %s as eligible', (path) => {
     expect(classifyVaultPath(path).eligible).toBe(false);

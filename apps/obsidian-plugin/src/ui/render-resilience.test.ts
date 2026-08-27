@@ -8,8 +8,8 @@
  * `panelProvider`, `authorOverlayProvider` and `composerProvider` outside any
  * boundary, and `render()` has already called `content.empty()` by then.
  *
- * So a throw from any of those left an empty pane — no header, no tabs, no way
- * back — which is the exact failure the boundaries exist to prevent, arriving
+ * So a throw from any of those left an empty pane, no header, no tabs, no way
+ * back, which is the exact failure the boundaries exist to prevent, arriving
  * through the one path nothing guarded.
  *
  * These tests hold every provider to the same contract: the pane still renders,
@@ -102,7 +102,7 @@ describe('the tab body survives a throwing provider', () => {
 
 describe('a failure is reported, not swallowed', () => {
   it('shows the section fallback where the broken list would have been', () => {
-    // On the People tab, because that is where the roster renders — the same
+    // On the People tab, because that is where the roster renders, the same
     // provider throwing while Status is open costs nothing, which is the point
     // of scoping a boundary to a section rather than to the pane.
     const root = pane({

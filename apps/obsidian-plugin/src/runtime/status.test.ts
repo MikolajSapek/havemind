@@ -60,7 +60,7 @@ describe('buildConnectionPanel', () => {
     expect(buildConnectionPanel({ status: 'synced' }).spin).toBe(false);
   });
 
-  it('never relies on colour alone — always an icon and a label', () => {
+  it('never relies on colour alone, always an icon and a label', () => {
     for (const status of [
       'disconnected',
       'syncing',
@@ -125,7 +125,7 @@ describe('formatStatusBar', () => {
     );
   });
 
-  it('starts every label with a capital — one sentence-case convention', () => {
+  it('starts every label with a capital, one sentence-case convention', () => {
     for (const status of [
       'disconnected',
       'syncing',

@@ -3,7 +3,7 @@
  *
  * The feed lives in memory and rebuilds from the log, so it is empty on every
  * fresh start. The first cut of this section returned early on an empty feed,
- * which meant a freshly-reloaded pane showed no Activity row at all — the user
+ * which meant a freshly-reloaded pane showed no Activity row at all, the user
  * could not tell whether the section had moved, broken, or simply had nothing
  * to say. An empty feed is a state to render, not a reason to disappear.
  */

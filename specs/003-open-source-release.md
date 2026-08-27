@@ -78,14 +78,14 @@ The public alpha may synchronize only disposable test vaults and must display th
 
 ## Release stages and gates
 
-### Stage 1 — private pilot (`0.1.x`)
+### Stage 1, private pilot (`0.1.x`)
 
 - Two disposable local vaults and the private `sapserver` instance.
 - Markdown synchronization, offline queue, conflicts, deletion/restore, Activity and author overlay work end to end.
 - No claim that real notes are safe.
 - Backup and restore are exercised, not merely documented.
 
-### Stage 2 — public technical alpha (`0.2.x`)
+### Stage 2, public technical alpha (`0.2.x`)
 
 - Source repository becomes public with a clearly experimental label.
 - The plugin is installable through a documented GitHub/BRAT testing path.
@@ -93,7 +93,7 @@ The public alpha may synchronize only disposable test vaults and must display th
 - Automated tests cover two clients, retries, restarts, duplicate delivery, incompatible versions and failed migrations.
 - Alpha users are told to use disposable vaults only.
 
-### Stage 3 — general beta (`0.5.x`)
+### Stage 3, general beta (`0.5.x`)
 
 - End-to-end encryption for note contents and attachments passes multi-device recovery tests.
 - Attachment synchronization, quotas and retention behavior are implemented.
@@ -102,7 +102,7 @@ The public alpha may synchronize only disposable test vaults and must display th
 - `amd64` and `arm64` images, checksums, a software bill of materials and vulnerability scan results are published.
 - A security review and documented threat-model review are complete.
 
-### Stage 4 — stable/community release (`1.0.0`)
+### Stage 4, stable/community release (`1.0.0`)
 
 - The plugin satisfies the current Obsidian Community Plugin submission requirements.
 - Onboarding and recovery have been tested by people who did not develop the project.

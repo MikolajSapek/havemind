@@ -2,7 +2,7 @@ declare module 'obsidian' {
   /**
    * What `registerEditorExtension()` accepts. Obsidian passes it straight to
    * CodeMirror, so it is CodeMirror's own `Extension` union (a facet value, a
-   * view plugin, or a nested array of either) — not just an array, which is what
+   * view plugin, or a nested array of either), not just an array, which is what
    * this stub used to say when nothing but an empty placeholder was registered.
    */
   export type EditorExtension = import('@codemirror/state').Extension;
@@ -76,7 +76,7 @@ declare module 'obsidian' {
   /**
    * Low-level filesystem surface for a vault. Unlike the Vault file API, this
    * reaches HIDDEN paths (`.obsidian/`) that `getFiles()` and the `on(...)`
-   * events never expose — the only way to enumerate, read and write the config
+   * events never expose, the only way to enumerate, read and write the config
    * mirror.
    */
   export interface DataAdapter {
@@ -129,7 +129,7 @@ declare module 'obsidian' {
     on(name: string, callback: (...args: unknown[]) => unknown): unknown;
     /**
      * Fires a workspace event. Used for `css-change`, the signal that makes
-     * Obsidian re-read custom CSS (snippets and the active theme) — the only way
+     * Obsidian re-read custom CSS (snippets and the active theme), the only way
      * a synced appearance file becomes visible without a restart.
      *
      * The real runtime always provides it; declared OPTIONAL here because this
@@ -175,7 +175,7 @@ declare module 'obsidian' {
   export interface Command {
     /**
      * Unconditional action. Optional because a command that guards its own
-     * availability supplies `checkCallback` instead — Obsidian accepts either.
+     * availability supplies `checkCallback` instead, Obsidian accepts either.
      */
     callback?: () => unknown;
     /**
@@ -301,7 +301,7 @@ declare module 'obsidian' {
   /**
    * CodeMirror `StateField` holding the {@link MarkdownFileInfo} for an editor.
    * The only supported way for an editor extension to learn WHICH file the view
-   * in front of it is showing — which is what keeps per-file attribution
+   * in front of it is showing, which is what keeps per-file attribution
    * correct in split panes instead of following the active file.
    */
   export const editorInfoField: import('@codemirror/state').StateField<MarkdownFileInfo>;

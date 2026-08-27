@@ -122,7 +122,7 @@ describe('ModifyDebouncer', () => {
     expect(settled).toEqual(['B.md']);
   });
 
-  it('ignores trigger after dispose — no settle fires against a torn-down producer', () => {
+  it('ignores trigger after dispose, no settle fires against a torn-down producer', () => {
     // A re-arm (or a late vault event) reaching a disposed debouncer must not
     // schedule a fresh timer: the producer it would fire against is gone, and a
     // stale save could clobber the next producer's data.json after re-pair.
@@ -141,7 +141,7 @@ describe('ModifyDebouncer', () => {
     expect(settled).toEqual([]);
   });
 
-  it('reports whether trigger actually scheduled — true live, false once disposed (FINDING 3)', () => {
+  it('reports whether trigger actually scheduled, true live, false once disposed (FINDING 3)', () => {
     // The retry-from-disk recovery reads this return value to distinguish a
     // real re-arm from a no-op against a torn-down producer.
     const timer = new FakeTimer();

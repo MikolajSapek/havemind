@@ -54,7 +54,7 @@ function baseInput(overrides: Partial<OverlayInput> = {}): OverlayInput {
   };
 }
 
-describe('buildLivePreviewOverlay — hidden states (never guess)', () => {
+describe('buildLivePreviewOverlay, hidden states (never guess)', () => {
   it('hides the overlay when the document hash no longer matches the head revision', () => {
     const overlay = buildLivePreviewOverlay(
       baseInput({ contentHash: 'blob-locally-edited' }),
@@ -103,7 +103,7 @@ describe('buildLivePreviewOverlay — hidden states (never guess)', () => {
   });
 });
 
-describe('buildLivePreviewOverlay — decorations', () => {
+describe('buildLivePreviewOverlay, decorations', () => {
   it('emits one segment per provenance run with color AND underline AND tooltip together', () => {
     const overlay = buildLivePreviewOverlay(baseInput());
     expect(overlay.visible).toBe(true);
@@ -185,14 +185,14 @@ describe('buildLivePreviewOverlay — decorations', () => {
 
     const reduced = buildLivePreviewOverlay(baseInput({ reducedMotion: true }));
     expect(reduced.segments.every((segment) => segment.animate)).toBe(false);
-    // Underline is unconditional — reduced motion removes animation, not the
+    // Underline is unconditional, reduced motion removes animation, not the
     // non-colour signal.
     expect(reduced.segments.every((segment) => segment.underline)).toBe(true);
     expect(reduced.visible).toBe(true);
   });
 });
 
-describe('buildReadingViewOverlay — block-level markers, silence without getSectionInfo', () => {
+describe('buildReadingViewOverlay, block-level markers, silence without getSectionInfo', () => {
   const blocks: ReadingBlock[] = [
     { blockId: 'b-alpha', section: { lineStart: 0, lineEnd: 0 } },
     { blockId: 'b-beta', section: { lineStart: 1, lineEnd: 1 } },
@@ -207,7 +207,7 @@ describe('buildReadingViewOverlay — block-level markers, silence without getSe
       'b-alpha',
       'b-beta',
     ]);
-    // The unmapped block never receives a marker — silence beats a false guess.
+    // The unmapped block never receives a marker, silence beats a false guess.
     expect(
       overlay.markers.some((marker) => marker.blockId === 'b-unmapped'),
     ).toBe(false);

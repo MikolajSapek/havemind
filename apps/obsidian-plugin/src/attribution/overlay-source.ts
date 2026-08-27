@@ -2,24 +2,24 @@
  * Feeds the pure author-overlay model (`attribution.ts`) from what this client
  * actually knows about a file.
  *
- * HONEST DEGRADATION — read this before extending. The overlay model is built
+ * HONEST DEGRADATION, read this before extending. The overlay model is built
  * for PER-CHARACTER provenance: `OverlayInput.provenance` is a run list that
  * must cover the document byte-for-byte, so a segment can legitimately say
  * "Magda wrote these 40 characters". The client cannot produce that today. The
  * Activity feed (`runtime/activity-log.ts`) records one entry per revision with
- * no provenance at all — `activityEntriesToRecords` emits `provenance: []` — and
+ * no provenance at all, `activityEntriesToRecords` emits `provenance: []`, and
  * the pull stream carries no per-run source ids either. Synthesising runs would
  * be invented attribution, which `plan/01-zasady-i-slownik.md` rule 3 forbids.
  *
  * So this slice attributes PER FILE: one run spanning the whole document,
  * sourced from the most recent recorded revision for that path. The visible
- * claim is therefore "this note was last changed by X at T" — exactly what the
- * feed records — and never "X wrote this line". When real per-run provenance
+ * claim is therefore "this note was last changed by X at T", exactly what the
+ * feed records, and never "X wrote this line". When real per-run provenance
  * reaches the client, only this module changes: both overlay builders and both
  * renderers already speak runs.
  *
  * Silence is the default. No path, no recorded revision for the path, or an
- * empty document all produce `null` — no overlay rather than a guess.
+ * empty document all produce `null`, no overlay rather than a guess.
  *
  * Pure: no Obsidian, DOM or network.
  */
@@ -35,7 +35,7 @@ import type { RosterMember } from '../runtime/roster';
 /**
  * Stand-in for the pair of hashes the per-character guard compares. Whole-file
  * attribution makes no per-character claim, so there is no byte-for-byte head
- * revision to verify against — both fields carry this same value so the guard
+ * revision to verify against, both fields carry this same value so the guard
  * passes. The honest guard for this slice is the "is anything recorded for this
  * path" check below, not a hash.
  */
@@ -100,7 +100,7 @@ export function buildFileOverlayInput(
 
   const forPath = request.entries.filter((entry) => entry.path === path);
   if (forPath.length === 0) {
-    // Nothing recorded for this file — the overlay says nothing rather than
+    // Nothing recorded for this file, the overlay says nothing rather than
     // attributing the note to whoever happens to be in the roster.
     return null;
   }

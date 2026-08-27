@@ -64,11 +64,11 @@ describe('connection controls', () => {
   });
 });
 
-describe('priority column — calm state', () => {
+describe('priority column, calm state', () => {
   it('keeps a proof-of-life line so a stalled pane is distinguishable', () => {
     // The designer pushed back on "nearly empty": a pane showing only "Synced"
     // reads the same as one that stopped updating three days ago. The calm
-    // state keeps a detail line under the status word — recency when there is
+    // state keeps a detail line under the status word, recency when there is
     // any, and always the honest note about what the server can read.
     const root = pane();
     const detail = flatten(root).find((el) =>
@@ -114,7 +114,7 @@ describe('entry chooser', () => {
   });
 });
 
-describe('priority column — no duplicated sections', () => {
+describe('priority column, no duplicated sections', () => {
   it('lets the owner close the invite composer before creating an invitation', () => {
     let closed = 0;
     const root = pane({
@@ -137,7 +137,7 @@ describe('priority column — no duplicated sections', () => {
 
   it('draws the roster once when the composer is open', () => {
     // The composer carried its own roster from when it was a separate screen.
-    // Once it moved inside the People tab — which already draws the roster —
+    // Once it moved inside the People tab, which already draws the roster,
     // that left "Connected / You" rendered twice in one pane.
     //
     // An open composer selects People on its own, so no click is needed here:
@@ -171,7 +171,7 @@ describe('priority column — no duplicated sections', () => {
   });
 });
 
-describe('priority column — footer', () => {
+describe('priority column, footer', () => {
   it('carries the authorship toggle that lost its ribbon icon', () => {
     let toggled = 0;
     const root = pane({
@@ -182,7 +182,7 @@ describe('priority column — footer', () => {
     });
 
     // Icon-only in the action bar (design 2a), so its accessible name lives in
-    // aria-label rather than in visible text — which is precisely why the
+    // aria-label rather than in visible text, which is precisely why the
     // label has to exist.
     const toggle = flatten(root).find((el) =>
       /authorship/i.test(el.attrs['aria-label'] ?? ''),

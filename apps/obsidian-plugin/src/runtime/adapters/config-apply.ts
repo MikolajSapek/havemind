@@ -1,6 +1,6 @@
 /**
  * Making a remotely-applied `.obsidian/` config file VISIBLE. Writing the bytes
- * is only half the job — Obsidian caches its config in memory — so this module
+ * is only half the job, Obsidian caches its config in memory, so this module
  * owns the classification of which applied paths can be refreshed in place
  * (`css-change`) versus which honestly need a reload, and the batching reloader
  * that fires each distinct effect at most once per apply batch. Pure string logic
@@ -15,12 +15,12 @@
  * only re-reads it on specific signals, so a remotely-applied theme, snippet or
  * appearance change landed on disk and then stayed invisible until the next
  * restart. That is the whole of the "graph colours did not change on the other
- * device" report — the file WAS synced, it just never took effect.
+ * device" report, the file WAS synced, it just never took effect.
  *
- *  - `css-reload` — custom CSS. Obsidian re-reads snippets and the active theme
+ *  - `css-reload`, custom CSS. Obsidian re-reads snippets and the active theme
  *    when the workspace fires `css-change`, so these apply immediately with no
  *    restart and no user action.
- *  - `reload-notice` — settings Obsidian has no live re-read signal for
+ *  - `reload-notice`, settings Obsidian has no live re-read signal for
  *    (`app.json`, `graph.json`, `hotkeys.json`, `core-plugins.json`). Nothing can
  *    honestly be applied in place, so the user is told once per batch that a
  *    reload is needed. `graph.json` sits here on purpose: some graph colours do
@@ -56,11 +56,11 @@ export function classifyConfigApplyEffect(path: string): ConfigApplyEffect {
 
 /**
  * The single message shown when synced settings cannot be applied in place. One
- * per apply batch — never one per file, or a peer's first sync of a full config
+ * per apply batch, never one per file, or a peer's first sync of a full config
  * mirror would bury the user under a dozen identical toasts.
  */
 export const CONFIG_RELOAD_NOTICE =
-  'Havemind: settings synced — reload Obsidian to apply them.';
+  'Havemind: settings synced, reload Obsidian to apply them.';
 
 /**
  * How long a config-apply batch is collected before its effects fire. A remote

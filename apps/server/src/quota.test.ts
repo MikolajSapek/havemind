@@ -286,7 +286,7 @@ describe('readVaultQuotaBytes', () => {
     expect(readVaultQuotaBytes(fixture.database, VAULT_B)).toBeNull();
   });
 
-  it('returns 0 — not null — for a vault pinned to a zero quota', () => {
+  it('returns 0, not null, for a vault pinned to a zero quota', () => {
     const fixture = makeFixture();
     fixture.database
       .prepare(`UPDATE vaults SET quota_bytes = ? WHERE id = ?`)

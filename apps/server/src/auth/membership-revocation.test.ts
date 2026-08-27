@@ -246,7 +246,7 @@ describe('MembershipRevocationService', () => {
     expect(ownerDevice.status).toBe('approved');
   });
 
-  it('is idempotent — a second revocation is a harmless no-op', () => {
+  it('is idempotent, a second revocation is a harmless no-op', () => {
     const fixture = makeFixture();
     fixture.service.revokeMembership({ membershipId: INVITEE_MEMBERSHIP });
     const first = fixture.database
@@ -285,7 +285,7 @@ describe('MembershipRevocationService', () => {
     const fixture = makeFixture();
     // A device onboarded before the vault-scope column existed carries
     // vault_id IS NULL. Its vault cannot be proven, so revocation must keep
-    // burning it — failing closed exactly as it did before the fix.
+    // burning it, failing closed exactly as it did before the fix.
     insertDevice(
       fixture.database,
       LEGACY_DEVICE,

@@ -11,7 +11,7 @@ import {
  *
  * Hard rule (plan/01, plan/04 §"No forwarding of secrets"): this command
  * NEVER reveals a raw token, password, or the contents of any file under
- * `/srv/secrets`. It is built so leakage is structurally impossible — the
+ * `/srv/secrets`. It is built so leakage is structurally impossible, the
  * checks only ever receive metadata (path, byte length, permission bits),
  * never secret material.
  */
@@ -41,7 +41,7 @@ export interface PathStat {
 
 export interface DoctorDependencies {
   readonly env: ServerEnvironment;
-  /** Returns metadata only — never file contents. */
+  /** Returns metadata only, never file contents. */
   readonly stat?: (path: string) => PathStat | null;
 }
 

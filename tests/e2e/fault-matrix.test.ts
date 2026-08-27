@@ -1,5 +1,5 @@
 /**
- * F8-01 — two-client end-to-end fault harness (T031).
+ * F8-01, two-client end-to-end fault harness (T031).
  *
  * Each test drives two real clients against one real, opaque Fastify server and
  * asserts the exact reaction from the fault matrix in
@@ -59,13 +59,13 @@ afterEach(async () => {
   cleanupHarnessDirectories();
 });
 
-describe('F8-01 fault matrix — two clients against a real opaque server', () => {
+describe('F8-01 fault matrix, two clients against a real opaque server', () => {
   it('row 1: server restart mid-push does not duplicate the revision', async () => {
     const { server, alice } = await makeHarness();
 
     await alice.edit('note.md', 'first version\n');
     // Crash the client right after the server commits but before the receipt is
-    // durably recorded — the classic double-commit hazard on restart.
+    // durably recorded, the classic double-commit hazard on restart.
     alice.failNextReceiptRecord();
     await alice.sync();
 
@@ -184,8 +184,8 @@ describe('F8-01 fault matrix — two clients against a real opaque server', () =
     // Both open the file, then edit the same line divergently while concurrent.
     await alice.openEditor('shared.md');
     await bob.openEditor(bobPath);
-    await alice.edit('shared.md', 'line one — alice\n');
-    await bob.edit(bobPath, 'line one — bob\n');
+    await alice.edit('shared.md', 'line one, alice\n');
+    await bob.edit(bobPath, 'line one, bob\n');
 
     // Both push children of the same base, then each pulls the other's head.
     await alice.sync();
@@ -197,8 +197,8 @@ describe('F8-01 fault matrix — two clients against a real opaque server', () =
     expect(heads).toHaveLength(2); // both divergent heads preserved
 
     // Neither active buffer was silently overwritten.
-    expect(alice.read('shared.md')).toBe('line one — alice\n');
-    expect(bob.read(bobPath)).toBe('line one — bob\n');
+    expect(alice.read('shared.md')).toBe('line one, alice\n');
+    expect(bob.read(bobPath)).toBe('line one, bob\n');
 
     // Each divergence surfaced as a visible conflict artifact.
     expect(alice.conflictPaths().length).toBeGreaterThanOrEqual(1);
@@ -232,7 +232,7 @@ describe('F8-01 fault matrix — two clients against a real opaque server', () =
       paths.map((path, index) => [path, `content ${index}\n`]),
     );
 
-    // Bob never syncs while Alice authors the backlog — models the long
+    // Bob never syncs while Alice authors the backlog, models the long
     // offline gap. All edits land in Alice's outbox before any push.
     for (const path of paths) {
       await alice.edit(path, contents.get(path) as string);
@@ -263,7 +263,7 @@ describe('F8-01 fault matrix — two clients against a real opaque server', () =
     // Byte-identical final contents for every file, path for path. The
     // canonical vault path travels inside the opaque payload (the server never
     // sees it), so Bob materialises each never-before-seen file at Alice's own
-    // path after decoding it — which is what proves every revision landed
+    // path after decoding it, which is what proves every revision landed
     // byte-identical with none skipped, misfiled or double-applied.
     expect(bob.paths()).toEqual([...paths].sort());
     for (const path of paths) {
@@ -321,8 +321,8 @@ describe('F8-01 fault matrix — two clients against a real opaque server', () =
     });
     expect(forward.statusCode).toBe(200);
 
-    // A third call reusing the now-consumed OLD token — but with a *different*
-    // rotation/successor than the original exact retry — cannot be a retry of
+    // A third call reusing the now-consumed OLD token, but with a *different*
+    // rotation/successor than the original exact retry, cannot be a retry of
     // any prior request. The repository must classify this as reuse and burn
     // the whole family (session-repository.ts `#rotateInTransaction`).
     const reuseAttempt = createRefreshSuccessor();

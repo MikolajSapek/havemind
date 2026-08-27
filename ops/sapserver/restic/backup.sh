@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Havemind — ship the server's backup artifacts to the Mac (SRV-03).
+# Havemind, ship the server's backup artifacts to the Mac (SRV-03).
 #
 # Sudo-free and docker-free: the Havemind container writes finished artifacts
 # into the host bind mount, this script only reads them. It is the one command
 # the user crontab runs (see README "Activation checklist").
 #
-# Retention is NOT applied here — see prune.sh, which always runs `restic check`
+# Retention is NOT applied here, see prune.sh, which always runs `restic check`
 # first.
 set -euo pipefail
 
@@ -20,7 +20,7 @@ if ! mac_reachable; then
   exit 0
 fi
 
-# An empty source directory is a REAL failure — it is exactly how a backup can
+# An empty source directory is a REAL failure, it is exactly how a backup can
 # look green while protecting nothing.
 if ! source_has_artifact; then
   log "ERROR: no backup artifact found under ${HAVEMIND_BACKUP_SOURCE}."

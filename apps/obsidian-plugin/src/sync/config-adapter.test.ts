@@ -108,7 +108,7 @@ describe('listSyncableConfigPaths', () => {
 
   it('descends into foreign plugins yet mirrors NOTHING from them (audit #3 finding 2)', async () => {
     const paths = await listSyncableConfigPaths(seededAdapter());
-    // Foreign plugin CODE must never mirror — it would let a peer overwrite an
+    // Foreign plugin CODE must never mirror, it would let a peer overwrite an
     // installed plugin and get its code executed on the next reload.
     expect(paths).not.toContain('.obsidian/plugins/dataview/main.js');
     expect(paths).not.toContain('.obsidian/plugins/dataview/manifest.json');

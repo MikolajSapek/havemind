@@ -4,7 +4,7 @@
  * composer and the connected panel, so it lives in its own module rather than
  * inside either one. Presence here is connection state, never derived from
  * activity, and every colour dot is paired with a text status label so colour is
- * never the only signal. Presentation only — the destructive actions are
+ * never the only signal. Presentation only, the destructive actions are
  * two-step confirms that call back into the plugin.
  */
 
@@ -16,7 +16,7 @@ import { DECORATIVE } from './primitives';
 export interface RejoinRosterActions {
   /** Membership ids the owner has already asked to rejoin (awaiting reconnect). */
   readonly waiting: ReadonlySet<string>;
-  /** Owner clicked Rejoin on a disconnected contact — issue the grant. */
+  /** Owner clicked Rejoin on a disconnected contact, issue the grant. */
   readonly onRejoin?: (membershipId: string) => void;
   /** Owner asserts a connected contact fell off, arming its Rejoin affordance. */
   readonly onMarkDisconnected?: (membershipId: string) => void;
@@ -29,11 +29,11 @@ export interface RejoinRosterActions {
  * row pairs the member's stable colour dot with a text status label (never
  * colour alone): a green dot + "connected" for a live member, or a muted dot +
  * "disconnected" + a Rejoin button for a known-dead contact. Presence is
- * CONNECTION STATE — a member stays connected until an explicit teardown, never
+ * CONNECTION STATE, a member stays connected until an explicit teardown, never
  * derived from activity.
  *
  * Pilot heuristic (documented choice): no server-side liveness signal reaches
- * the owner's client yet, so "disconnected" is owner-asserted — the owner marks
+ * the owner's client yet, so "disconnected" is owner-asserted, the owner marks
  * a contact's row disconnected, which arms its Rejoin button. Clicking Rejoin
  * re-admits that exact contact without re-running pairing.
  */
@@ -53,7 +53,7 @@ export function renderRejoinRoster(
   for (const row of roster.rows) {
     const item = content.createDiv({ text: '' });
     item.addClass('havemind-roster-row');
-    // Colour dot coloured by the member's stable token — paired with the text
+    // Colour dot coloured by the member's stable token, paired with the text
     // status label below so colour is never the only signal.
     const dot = item.createEl('span', { attr: DECORATIVE });
     dot.addClass('havemind-roster-dot');
@@ -97,7 +97,7 @@ export function renderRejoinRoster(
     // Remove is offered on every non-self member regardless of connection
     // state. It is destructive (mod-warning, never mod-cta) and gated behind an
     // inline two-step confirm: the first click arms "Confirm remove", the second
-    // click within the same render executes. No window.confirm — it blocks
+    // click within the same render executes. No window.confirm, it blocks
     // Electron and would freeze the pane.
     if (row.removable && actions.onRemove) {
       let armed = false;

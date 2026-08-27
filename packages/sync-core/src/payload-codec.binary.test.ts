@@ -8,7 +8,7 @@ function encode(value: unknown): string {
 
 const byteHash = 'b'.repeat(64);
 
-describe('decodeRevisionPayload — binary', () => {
+describe('decodeRevisionPayload, binary', () => {
   it('decodes a binary revision to its raw bytes (0x00 and high bytes preserved)', () => {
     const bytes = new Uint8Array([0x00, 0x01, 0xff, 0x80, 0x00]);
     const contentBase64 = Buffer.from(bytes).toString('base64');
@@ -73,7 +73,7 @@ describe('decodeRevisionPayload — binary', () => {
           schemaVersion: 1,
           operation: 'create',
           kind: 'binary',
-          // Denylisted under the `.obsidian/` mirror (our own plugin folder) —
+          // Denylisted under the `.obsidian/` mirror (our own plugin folder),
           // stays reserved even though most `.obsidian/` config now syncs.
           path: '.obsidian/plugins/havemind-sync/evil.png',
           contentBase64: 'AAA=',

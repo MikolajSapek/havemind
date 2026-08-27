@@ -1,7 +1,7 @@
 /**
  * Integration coverage for the SAFE appearance-config sync scope (F-appearance).
- * It drives the REAL producer path — VaultChangeObserver +
- * OutboxLocalChangeRepository — against an in-memory vault that surfaces
+ * It drives the REAL producer path, VaultChangeObserver +
+ * OutboxLocalChangeRepository, against an in-memory vault that surfaces
  * `.obsidian/` config files, and asserts the scope decision end-to-end:
  *
  *  - an allowlisted config change (`.obsidian/appearance.json`) is classified,
@@ -130,7 +130,7 @@ describe('appearance-config sync scope (integration)', () => {
     expect(payload.path).toBe(APPEARANCE_PATH);
     expect(payload.content).toContain('"accentColor":"#7c3aed"');
 
-    // The config file is now a durable mapping — a later modify resolves it.
+    // The config file is now a durable mapping, a later modify resolves it.
     expect(await repository.listMappings()).toHaveLength(1);
   });
 
@@ -158,7 +158,7 @@ describe('appearance-config sync scope (integration)', () => {
 
   it("NEVER enqueues a foreign plugin's code file (.obsidian/plugins/dataview/main.js)", async () => {
     // Audit #3 finding 2: mirroring plugin code let any vault member replace
-    // another member's installed plugin — remote code execution on reload. The
+    // another member's installed plugin, remote code execution on reload. The
     // allowlist admits appearance settings only, so the producer path never even
     // classifies this file.
     const { vault, observer, repository, enqueued } = makeHarness();
@@ -244,7 +244,7 @@ describe('appearance-config sync scope (integration)', () => {
 
   it('enqueues NOTHING when opening the graph view rewrote only scale/collapse state', async () => {
     // The reported bug: merely OPENING the graph view makes Obsidian rewrite
-    // graph.json, which used to produce a revision on every open — two devices
+    // graph.json, which used to produce a revision on every open, two devices
     // then ping-ponged and spawned conflict copies of a settings file.
     const { vault, observer, enqueued } = makeHarness();
     const semantic = { colorGroups: [{ query: 'tag:#work' }], showTags: true };
@@ -295,7 +295,7 @@ describe('appearance-config sync scope (integration)', () => {
     // The observer is only one of the two producer entry points. The startup /
     // post-outage scan (`reconcileVaultState`) reads every eligible file itself
     // and compares it against the mapping, so it needs the same volatile-field
-    // filter — otherwise a device that merely had the graph view open before a
+    // filter, otherwise a device that merely had the graph view open before a
     // restart re-pushes a settings revision on every reconnect.
     const { vault, observer, repository, enqueued } = makeHarness();
     const semantic = {

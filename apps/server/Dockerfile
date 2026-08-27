@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 #
-# Havemind server image — hardened, reproducible build for the sapserver pilot.
+# Havemind server image, hardened, reproducible build for the sapserver pilot.
 # The base image is pinned by tag AND digest so the same bytes are pulled on
 # every host (see plan/07 "Anty-spec": no image without a pinned digest).
 #
@@ -49,7 +49,7 @@ FROM ${NODE_IMAGE} AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
 
-# The stock "node" user is UID/GID 1000:1000 — matches the Compose `user:` pin.
+# The stock "node" user is UID/GID 1000:1000, matches the Compose `user:` pin.
 COPY --from=build --chown=1000:1000 /app/node_modules ./node_modules
 COPY --from=build --chown=1000:1000 /app/packages/protocol/dist ./packages/protocol/dist
 COPY --from=build --chown=1000:1000 /app/packages/protocol/package.json ./packages/protocol/package.json

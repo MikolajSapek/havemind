@@ -4,7 +4,7 @@
  * `SyncStatePort` and additionally owns the full outbox envelopes, the set of
  * locally authored revisions (echo suppression) and any deferred remote events.
  *
- * Refresh tokens and invitation secrets never live here — those stay in
+ * Refresh tokens and invitation secrets never live here, those stay in
  * Obsidian SecretStorage (see `storage/secret-store.ts` and
  * `plan/05-plugin-polaczenie-i-sync.md`). Only non-secret sync bookkeeping is
  * persisted through this port, so `data.json` never carries a credential.
@@ -43,7 +43,7 @@ export interface OutboxEnvelope extends TransportEnvelope {
    */
   readonly enqueuedAt?: number;
   /**
-   * Arch P1: when true, the payload BYTES do not live in this record — they are
+   * Arch P1: when true, the payload BYTES do not live in this record, they are
    * stored out-of-band in the injected {@link OutboxPayloadStore} (IndexedDB)
    * keyed by `revisionId`, and `payloadBase64` is `''` on disk. This keeps a
    * 25 MB attachment out of `data.json`, which is re-serialised on every cursor
@@ -121,12 +121,12 @@ export interface PersistedSyncState {
   /**
    * Durable fileId→base CONTENT map: the exact canonical text of the last synced
    * base (the same content `baseHashes` holds the hash of). It is the ANCESTOR
-   * the three-way merge (MRG-01) needs on a divergence — the last content both
+   * the three-way merge (MRG-01) needs on a divergence, the last content both
    * peers agreed on. The producer mapping's `content` cannot serve this role
    * because a local edit overwrites it with the LOCAL version, so the agreed base
    * is persisted here separately. Cost: one extra copy of each synced note's
    * text; negligible for a two-person markdown vault and needs no server change
-   * (the alternative — fetching the base revision blob over the transport —
+   * (the alternative, fetching the base revision blob over the transport,
    * would need the base revision id and a reconstruction pass). Only markdown
    * bases are stored; a binary file never merges, so it records no base content.
    */
@@ -134,7 +134,7 @@ export interface PersistedSyncState {
   /**
    * Durable revisionId→conflict-artifact-path map. A conflict copy's readable
    * name (MRG-02) embeds a wall-clock timestamp, so a re-delivered revision would
-   * otherwise mint a fresh, differently-named copy on every retry — the exact
+   * otherwise mint a fresh, differently-named copy on every retry, the exact
    * conflict-cascade this guards against. Recording the path the first time a
    * revision conflicts lets a re-delivery reuse it (idempotent overwrite) instead
    * of spawning duplicates.
@@ -145,14 +145,14 @@ export interface PersistedSyncState {
    * push is dead-lettered its envelope is removed from the outbox; stashing it
    * here lets the "Retry" affordance re-enqueue the exact same bytes through the
    * normal outbox machinery. Cleared when the item is requeued or discarded. Not
-   * a parallel store — it lives in the same persisted blob as the quarantine.
+   * a parallel store, it lives in the same persisted blob as the quarantine.
    */
   readonly quarantinedEnvelopes: Readonly<Record<string, OutboxEnvelope>>;
 }
 
 /** Persistence boundary; wraps `Plugin.loadData`/`Plugin.saveData` in production. */
 export interface SyncStatePersistPort {
-  /** The current primary blob (null when absent — a normal first run). */
+  /** The current primary blob (null when absent, a normal first run). */
   load(): Promise<unknown>;
   /**
    * The previous-good backup blob (GAP-1), or null when none exists. Read only
@@ -204,7 +204,7 @@ const DEFAULT_MAX_LOCALLY_AUTHORED = 10_000;
  * stash keeps the full push payload so "Retry" can re-send the exact bytes, but
  * with F9 binary attachments up to 25 MB a run of rejected sends could otherwise
  * grow `data.json` without bound. When the sum of stashed payload bytes exceeds
- * this budget the OLDEST stashes are evicted — the quarantine ROW stays visible,
+ * this budget the OLDEST stashes are evicted, the quarantine ROW stays visible,
  * and its Retry degrades to re-committing the file from disk (the on-disk
  * content is the source of truth), so nothing is silently dropped.
  */
@@ -254,7 +254,7 @@ function emptyState(): PersistedSyncState {
 /**
  * Byte length of the payload a base64 string decodes to. The server measures the
  * decoded payload against its per-payload ceiling, so this is the effective size
- * that drives push batching — computed without `Buffer` so it also runs in the
+ * that drives push batching, computed without `Buffer` so it also runs in the
  * browser-flavoured Obsidian runtime.
  */
 /**
@@ -297,7 +297,7 @@ export class DurableSyncState implements SyncStatePort {
    * enqueue/requeue, on load rehydration, and on legacy-blob migration; pruned
    * on receipt/discard/eviction. A revisionId absent here keeps its bytes inline
    * (the fallback path), so the disk form only ever strips a payload the store
-   * actually holds — never one that would then be irrecoverable.
+   * actually holds, never one that would then be irrecoverable.
    */
   private readonly externalized = new Set<string>();
   private cache: PersistedSyncState | null = null;
@@ -306,7 +306,7 @@ export class DurableSyncState implements SyncStatePort {
    * outbox (the queue container itself could not be read), no usable `.bak`
    * existed, and the raw bytes were preserved to a sidecar for manual recovery
    * (GAP-1). It is a purely OBSERVABLE signal (see {@link isRecoveryRequired}),
-   * never a save lock — the instance resumes from a clean, writable empty state
+   * never a save lock, the instance resumes from a clean, writable empty state
    * and the primary is rewritten so a restart never re-locks. Surfaced to the UI
    * so the user sees "local queue needs recovery" rather than silently assuming
    * the queue drained. A salvageable corruption (readable outbox, only a
@@ -318,7 +318,7 @@ export class DurableSyncState implements SyncStatePort {
    * De-dupes concurrent cold-cache loads. Without it, two callers that both find
    * a null cache each `await persist.load()`; the later resolution re-parses the
    * on-disk blob and clobbers any cache mutation the first caller made during the
-   * await (an enqueued revision, an advanced cursor) — a silent dropped push at
+   * await (an enqueued revision, an advanced cursor), a silent dropped push at
    * connect (rule 3). All concurrent callers share this single in-flight load.
    */
   private loadPromise: Promise<void> | null = null;
@@ -328,7 +328,7 @@ export class DurableSyncState implements SyncStatePort {
    * writes it back (`mutate`) as a `{ ...state, field }` spread, with `await`
    * points in between. On a WARM cache `ensureLoaded` reads synchronously, so
    * two sections that overlap each capture the SAME snapshot and the later
-   * `mutate` silently drops the earlier one's write — a lost update. In the
+   * `mutate` silently drops the earlier one's write, a lost update. In the
    * two-device sync loop this dropped a file's base CONTENT while keeping its
    * base HASH, which then made the three-way merge (it needs the ancestor
    * content) fail and spawn a SPURIOUS conflict copy (rule 3: zero silent
@@ -398,7 +398,7 @@ export class DurableSyncState implements SyncStatePort {
       const outbox = state.outbox.filter(
         (envelope) => envelope.revisionId !== receipt.revisionId,
       );
-      // Arch P1: the revision is durably on the server — its externalized payload
+      // Arch P1: the revision is durably on the server, its externalized payload
       // is no longer needed anywhere, so free the store bytes (no leak).
       await this.dropPayload(receipt.revisionId);
       await this.mutate({
@@ -432,7 +432,7 @@ export class DurableSyncState implements SyncStatePort {
       ];
       // Stash the full envelope (SND-01) so a later "Retry" can re-enqueue the
       // exact bytes; without it the dead-lettered payload is unrecoverable. Only
-      // stashed when the outbox actually held the item — a quarantine with no
+      // stashed when the outbox actually held the item, a quarantine with no
       // envelope simply carries no stash and its Retry is inert.
       const quarantinedEnvelopes = { ...state.quarantinedEnvelopes };
       if (failed !== undefined) {
@@ -463,7 +463,7 @@ export class DurableSyncState implements SyncStatePort {
    * Returns a copy of `envelopes` trimmed to the byte budget (MAJOR 4). Object
    * key order is insertion order, so iterating from the front evicts the OLDEST
    * stashes until the summed decoded payload bytes fit. A single stash larger
-   * than the whole budget is evicted too — its row survives and Retry re-commits
+   * than the whole budget is evicted too, its row survives and Retry re-commits
    * from disk, which is the only recovery once the bytes are dropped.
    */
   private evictStashesOverBudget(
@@ -499,7 +499,7 @@ export class DurableSyncState implements SyncStatePort {
    * a failed-to-queue row has no stashed envelope (it never reached the outbox),
    * so `requeueQuarantined` is inert for it. Retry instead re-triggers the
    * commit chain for the path from disk (MAJOR 2, routed by the caller via
-   * {@link parseFailedToQueuePath}) — the on-disk content is the source of truth.
+   * {@link parseFailedToQueuePath}), the on-disk content is the source of truth.
    */
   async recordFailedToQueue(path: string): Promise<void> {
     return this.runExclusive(async () => {
@@ -666,7 +666,7 @@ export class DurableSyncState implements SyncStatePort {
   /**
    * Outbox items paired with their enqueue time (SND-01), read synchronously
    * against the warm cache. A missing `enqueuedAt` (legacy blob) is reported as
-   * 0 — "very old" — so a pre-upgrade item still counts as waiting. The runner
+   * 0, "very old", so a pre-upgrade item still counts as waiting. The runner
    * always warms the cache before it pushes, so the panel's synchronous read
    * finds a populated cache once connected; a cold cache reports no ages.
    */
@@ -695,7 +695,7 @@ export class DurableSyncState implements SyncStatePort {
    * Retry a quarantined send (SND-01): re-enqueue its stashed envelope through
    * the normal outbox machinery (fresh enqueue time), then drop it from the
    * quarantine and the stash. Returns true when it re-enqueued, false when
-   * nothing is stashed for `revisionId` — already requeued/discarded, or the
+   * nothing is stashed for `revisionId`, already requeued/discarded, or the
    * stash was evicted under the byte budget (MAJOR 4). A false return leaves the
    * quarantine row intact so the caller can degrade Retry to a re-commit from
    * disk; a double click cannot double-enqueue because the second call finds no
@@ -722,7 +722,7 @@ export class DurableSyncState implements SyncStatePort {
 
   /**
    * Permanently drop a quarantined send (SND-01): remove it from the quarantine
-   * and forget its stashed envelope. Idempotent — dropping an unknown id is a
+   * and forget its stashed envelope. Idempotent, dropping an unknown id is a
    * no-op.
    */
   async discardQuarantined(revisionId: string): Promise<void> {
@@ -739,7 +739,7 @@ export class DurableSyncState implements SyncStatePort {
       const quarantine = state.quarantine.filter(
         (item) => item.revisionId !== revisionId,
       );
-      // Arch P1: the send is permanently discarded — free its externalized
+      // Arch P1: the send is permanently discarded, free its externalized
       // payload bytes so a dead-lettered attachment cannot leak in the store.
       await this.dropPayload(revisionId);
       await this.mutate({ ...state, quarantine, quarantinedEnvelopes });
@@ -797,7 +797,7 @@ export class DurableSyncState implements SyncStatePort {
         .load()
         .then((raw) => this.hydrate(raw))
         // Arch P1: after the cache is settled (GAP-1 recovery included),
-        // reconcile outbox/stash payloads with the out-of-band store — rehydrate
+        // reconcile outbox/stash payloads with the out-of-band store, rehydrate
         // externalized bytes, fail-closed on a torn/missing payload, and migrate
         // any legacy inline payloads out of `data.json`. Part of the shared
         // in-flight load so every concurrent caller observes a settled cache.
@@ -815,7 +815,7 @@ export class DurableSyncState implements SyncStatePort {
    * Parse the loaded primary blob into the cache (GAP-1 fail-closed policy). A
    * mutation may have populated the cache while the load was in flight (e.g. an
    * enqueue that awaited this same shared promise and then wrote); never clobber
-   * it — re-check `this.cache === null` before each assignment.
+   * it, re-check `this.cache === null` before each assignment.
    *
    *  - ABSENT (null/undefined): a clean first run → empty, writable state.
    *  - OK: the parsed state (with bad outbox envelopes quarantined, not nuked).
@@ -843,7 +843,7 @@ export class DurableSyncState implements SyncStatePort {
     if (this.cache !== null) return;
     const backupOutcome = parsePersistedState(backup);
     if (backupOutcome.status === 'ok') {
-      // The last durable snapshot is intact — recover from it, but still stash
+      // The last durable snapshot is intact, recover from it, but still stash
       // the corrupt primary for forensics/manual recovery.
       await this.persist.preserveCorrupt(raw, this.now());
       if (this.cache === null) {
@@ -851,7 +851,7 @@ export class DurableSyncState implements SyncStatePort {
         // `.bak` is exactly one generation behind the primary (save() rotates
         // the prior primary into .bak). If the corrupt primary was damaged in a
         // NON-outbox field while its own outbox was intact and held revisions
-        // newer than the backup's, `outcome.salvage` preserved them — but this
+        // newer than the backup's, `outcome.salvage` preserved them, but this
         // branch prefers the consistent backup snapshot as the live state
         // (never auto-merge/union: riskier). Surface the observable recovery
         // signal so the user knows the live queue was rewound and the richer
@@ -865,7 +865,7 @@ export class DurableSyncState implements SyncStatePort {
     }
 
     // No usable backup. Preserve the bytes we could not parse to a sidecar, then
-    // recover forward — never wedge. Both branches rewrite the primary to the
+    // recover forward, never wedge. Both branches rewrite the primary to the
     // clean/salvaged state so a restart re-reads an 'ok' blob (the permanent-wedge
     // bug this fixes: the corrupt primary used to survive and re-lock every load).
     await this.persist.preserveCorrupt(raw, this.now());
@@ -891,13 +891,13 @@ export class DurableSyncState implements SyncStatePort {
     this.cache = next;
     // GAP-1: `recoveryRequired` is a purely OBSERVABLE signal (surfaced via
     // {@link isRecoveryRequired}), never a save lock. The earlier design blocked
-    // every future save while set — but nothing here ever cleared it and
+    // every future save while set, but nothing here ever cleared it and
     // `preserveCorrupt` only writes a sidecar (never rewrites the primary), so the
     // corrupt primary stayed on disk and re-locked the instance on every restart:
     // a permanent, silent wedge. The recovery paths in {@link hydrate} now rewrite
     // the primary to a clean/salvaged state before returning, so saves are always
     // safe (no queued-but-unsent revision is ever behind an un-rewritten primary).
-    // Arch P1: persist the DISK form — outbox/stash payloads whose bytes live in
+    // Arch P1: persist the DISK form, outbox/stash payloads whose bytes live in
     // the payload store are stripped to a reference so `data.json` stays small.
     // The in-memory `cache` keeps the full payloads (peekEnvelope drains them).
     await this.persist.save(this.toDiskForm(next));
@@ -909,7 +909,7 @@ export class DurableSyncState implements SyncStatePort {
    * i.e. the store durably holds the bytes), the inline `payloadBase64` is
    * replaced by `''` and marked `payloadExternalized: true`. A payload NOT in the
    * set (legacy, or an inline-fallback under an unavailable store) is written
-   * inline unchanged — so the disk form only ever strips bytes the store actually
+   * inline unchanged, so the disk form only ever strips bytes the store actually
    * holds, never bytes that would then be irrecoverable. Returns `state` itself
    * when nothing is externalized (the legacy path), so behaviour is identical to
    * before when no payload store is configured.
@@ -944,7 +944,7 @@ export class DurableSyncState implements SyncStatePort {
   /**
    * Fallible payload-store write. Returns true when the bytes are durably in the
    * store (so the caller marks the id externalized and the disk form strips it),
-   * false when there is no store or the write threw (keep the payload inline —
+   * false when there is no store or the write threw (keep the payload inline,
    * the graceful mobile/unavailable fallback).
    */
   private async safePutPayload(
@@ -1000,10 +1000,10 @@ export class DurableSyncState implements SyncStatePort {
     if (state === null) return;
 
     // `cacheChanged` tracks whether the in-memory outbox/stash changed (a payload
-    // was rehydrated, an item quarantined, or a stash dropped) — then the cache
+    // was rehydrated, an item quarantined, or a stash dropped), then the cache
     // must be swapped so `peekEnvelope` sees the real bytes. `persistNeeded`
     // tracks whether the DISK blob changed (a legacy inline payload migrated out,
-    // or an item quarantined) — then it is re-saved. Rehydrating an already-
+    // or an item quarantined), then it is re-saved. Rehydrating an already-
     // externalized payload changes only the cache, never the disk form.
     let cacheChanged = false;
     let persistNeeded = false;
@@ -1099,9 +1099,9 @@ export const CORRUPT_ENVELOPE_PREFIX = 'corrupt-envelope:';
 /** Outcome of parsing the untrusted persisted blob (GAP-1 recovery policy). */
 interface ParseResult {
   /**
-   *  - `absent`: null/undefined blob — a normal first run (clean, writable).
+   *  - `absent`: null/undefined blob, a normal first run (clean, writable).
    *  - `ok`: parsed successfully (bad outbox envelopes quarantined, not nuked).
-   *  - `corrupt`: present but a CORE field failed — recover forward (never wedge).
+   *  - `corrupt`: present but a CORE field failed, recover forward (never wedge).
    */
   readonly status: 'absent' | 'ok' | 'corrupt';
   /** `emptyState()` for `absent`/`corrupt`; the parsed value for `ok`. */
@@ -1116,7 +1116,7 @@ interface ParseResult {
   /**
    * Only meaningful for `corrupt` with `salvage === null`: the blob held an
    * outbox value we could not read (a non-array container), so queued-but-unsent
-   * revisions may be lost — set the observable recovery signal. An absent/empty
+   * revisions may be lost, set the observable recovery signal. An absent/empty
    * or already-readable outbox carries nothing extra at risk.
    */
   readonly outboxAtRisk: boolean;
@@ -1124,7 +1124,7 @@ interface ParseResult {
 
 /**
  * Parses an untrusted outbox array, keeping every readable envelope and
- * quarantining each unparseable sibling (GAP-1) — a single bad entry must never
+ * quarantining each unparseable sibling (GAP-1), a single bad entry must never
  * discard the good ones. Shared by the strict `ok` path and the salvage path.
  */
 function parseOutboxEntries(outbox: readonly unknown[]): {
@@ -1150,7 +1150,7 @@ function parseOutboxEntries(outbox: readonly unknown[]): {
 }
 
 function parsePersistedState(raw: unknown): ParseResult {
-  // A genuinely absent blob is a normal first run — a clean, writable state,
+  // A genuinely absent blob is a normal first run, a clean, writable state,
   // NOT corruption (GAP-1: distinguish null/absent from present-but-corrupt).
   if (raw === null || raw === undefined) {
     return { status: 'absent', state: emptyState(), salvage: null, outboxAtRisk: false };
@@ -1239,11 +1239,11 @@ function strictParse(raw: unknown): PersistedSyncState | null {
 
 /**
  * Best-effort SALVAGE for a corrupt blob (GAP-1). Returns a clean state that
- * KEEPS the readable outbox (the only truly irreplaceable data — queued-but-
+ * KEEPS the readable outbox (the only truly irreplaceable data, queued-but-
  * unsent revisions) and locally-authored ids, while resetting every damaged or
  * unreadable NON-outbox field to a safe default (cursor→0, deferred→[], the
  * re-derivable maps→{}). Returns `null` only when the outbox container itself is
- * unreadable (not an array), because then there is nothing to salvage — that is
+ * unreadable (not an array), because then there is nothing to salvage, that is
  * the UNRECOVERABLE case the caller resumes empty from.
  */
 function salvageState(raw: unknown): PersistedSyncState | null {
@@ -1310,7 +1310,7 @@ function outboxAtRisk(raw: unknown): boolean {
  * does not have. `.bak` is exactly one generation behind the primary (save()
  * rotates the prior primary into `.bak`), so when the primary was corrupted in
  * a non-outbox field while its outbox stayed intact, that intact outbox can
- * hold revisions newer than the backup's. This never merges the two — it only
+ * hold revisions newer than the backup's. This never merges the two, it only
  * answers "would the discarded salvage have kept something the backup does
  * not", by comparing revisionId sets (an id present in the salvage but absent
  * from the backup is a newer, at-risk queue delta).

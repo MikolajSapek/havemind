@@ -1,7 +1,7 @@
-/* Havemind — Apache-2.0 */
+/* Havemind, Apache-2.0 */
 
 /*
- * Havemind plugin styles — visual direction 2 (minimalist, mono + accent).
+ * Havemind plugin styles, visual direction 2 (minimalist, mono + accent).
  *
  * Principles this file encodes:
  *   · No own ground. Every surface colour comes from Obsidian's semantic
@@ -12,7 +12,7 @@
  *     Havemind hexagon. Change the accent in Obsidian's appearance settings and
  *     the plugin follows.
  *   · Semantic colour is confined to a small dot or a 12px glyph, and is always
- *     accompanied by its word — colour is never the only signal.
+ *     accompanied by its word, colour is never the only signal.
  *   · Rows, not cards: hairline separators, generous vertical air, 44px hit
  *     targets in the roster.
  *
@@ -33,7 +33,7 @@
  */
 
 /* =========================================================================
-   1. Local tokens — thin aliases over Obsidian's semantic variables
+   1. Local tokens, thin aliases over Obsidian's semantic variables
    ========================================================================= */
 .havemind-view,
 .havemind-status-bar {
@@ -49,7 +49,7 @@
      Geometry, transcribed from the round-2 design handoff.
 
      These are not free choices. The design uses no classes and no
-     stylesheet — 350 elements styled inline — so every number here was once
+     stylesheet, 350 elements styled inline, so every number here was once
      copied across by hand, and hand-copying drifted: the header, the tab
      strip and the alarm blocks each ended up with values the design never
      specified. `scripts/extract-design-tokens.mjs` now reads them out of the
@@ -58,7 +58,7 @@
 
      Change a value here and the test tells you it disagrees with the design.
      If the design is what changed, re-run the extractor. Do not "fix" the
-     test — it is the only thing standing between this file and another
+     test, it is the only thing standing between this file and another
      silent round of drift.
 
      Colour is deliberately absent: the design hardcodes a light palette so it
@@ -131,7 +131,7 @@
 /* =========================================================================
    2. Author colour tokens
    Back `author-colors.ts`; always paired with the author's name in the DOM.
-   The orange token is gone — it competed with the accent.
+   The orange token is gone, it competed with the accent.
    ========================================================================= */
 .theme-light,
 :root {
@@ -189,7 +189,7 @@
   height: 100%;
   min-height: 0;
   /* The frame the overflow menu positions against. The container query lives
-     one level up, on `.workspace-leaf-content` — see the note there. */
+     one level up, on `.workspace-leaf-content`, see the note there. */
   position: relative;
   background: var(--background-primary);
 }
@@ -206,7 +206,7 @@
  *
  * `.view-content` and `.havemind-view` are the SAME element: the view adds its
  * class to `containerEl.children[1]`, which is what Obsidian calls
- * `.view-content`. Anything set on one is set on the other — which is why the
+ * `.view-content`. Anything set on one is set on the other, which is why the
  * container query has to be declared on the leaf ABOVE this one (see the
  * `.workspace-leaf-content` rule below). An element cannot be both the
  * container being measured and the box the measurement sizes. */
@@ -221,7 +221,7 @@
  * It has to live here, on the leaf, rather than on `.havemind-view`. Declaring
  * `container-type: inline-size` on the view meant the view was both the
  * container and the thing inside it, and a container never matches a query
- * against its own contents — so every width fell through to the widest rung of
+ * against its own contents, so every width fell through to the widest rung of
  * the ladder and the tabs stacked icon-over-label in a 300px sidebar, which is
  * the opposite of what the ladder is for. */
 .workspace-leaf-content[data-type='havemind-onboarding'] {
@@ -230,7 +230,7 @@
   background: var(--background-primary);
 }
 
-/* Air between the top-level blocks of a view — the main lever of the redesign.
+/* Air between the top-level blocks of a view, the main lever of the redesign.
    The pane chrome opts out: the header, the alarm block and the tab strip are
    drawn flush against each other by design, and a blanket 16px between every
    pair of siblings was pulling them apart into a loose stack. */
@@ -286,7 +286,7 @@
   font-weight: var(--font-medium);
 }
 
-/* Shared: the quiet voice both use. The status detail's SIZE is not set here —
+/* Shared: the quiet voice both use. The status detail's SIZE is not set here,
    it is design geometry (`--havemind-status-detail-size`) and lives with the
    rest of the status block. Setting it in both places left two sources of
    truth for one number, decided by specificity rather than by intent. */
@@ -301,7 +301,7 @@
 }
 
 /* The indent that lines detail text up under the status word (rather than
-   under its dot) is set with the rest of the status geometry further down —
+   under its dot) is set with the rest of the status geometry further down,
    `--havemind-status-detail-indent`. It was declared here too, with a
    different variable, and the two disagreed. */
 
@@ -413,10 +413,10 @@
 
 /*
  * Keyboard focus. Every control here is created by the plugin, so nothing else
- * draws a focus ring for it — a keyboard user would otherwise have no idea where
+ * draws a focus ring for it, a keyboard user would otherwise have no idea where
  * they are. One shared accent ring keeps the panel, the modal and the status bar
  * item consistent. `:focus-visible` only, so a mouse click never leaves a ring
- * behind. Selectors stay inside the plugin's own class prefixes — no global
+ * behind. Selectors stay inside the plugin's own class prefixes, no global
  * Obsidian element is ever restyled. Rows are not listed because a row is not
  * itself focusable: each one delegates to the buttons it contains, which are.
  */
@@ -604,7 +604,7 @@
   color: var(--text-normal);
 }
 
-/* Rejoin is the row's affordance — the accent, still text-only. */
+/* Rejoin is the row's affordance, the accent, still text-only. */
 .havemind-view button.havemind-roster-action.mod-cta {
   background: transparent;
   color: var(--havemind-accent);
@@ -765,7 +765,7 @@
 }
 
 /* -------------------------------------------------------------------------
-   "Getting started" tutorial — numbered rows shown in the disconnected
+   "Getting started" tutorial, numbered rows shown in the disconnected
    state (above the connect form) and re-opened from the connected panel's
    help button. Numbers carry the accent; text stays in the normal ink.
    ------------------------------------------------------------------------- */
@@ -790,7 +790,7 @@
   line-height: 1.5;
 }
 
-/* A small accent-outlined number badge — the step's primary signal. */
+/* A small accent-outlined number badge, the step's primary signal. */
 .havemind-step-number {
   flex: none;
   display: inline-flex;
@@ -882,7 +882,7 @@
 
 /* =========================================================================
    10. Send queue, recovery, conflicts
-   Warnings are a 2px leading rule plus a very low-opacity wash — no filled
+   Warnings are a 2px leading rule plus a very low-opacity wash, no filled
    panels, no badges in colour.
    ========================================================================= */
 .havemind-send-waiting {
@@ -893,7 +893,7 @@
 }
 
 /* A row inside the alarm block. The rule and the wash belong to the block, so a
-   row carries neither — it is a line of text, not a warning of its own. */
+   row carries neither, it is a line of text, not a warning of its own. */
 .havemind-send-failed-row {
   padding: 3px 0;
   font-size: var(--havemind-alarm-label-size);
@@ -967,7 +967,7 @@
   padding: 3px 0;
 }
 
-/* Truncates from the left — see `.havemind-send-file` for why. */
+/* Truncates from the left, see `.havemind-send-file` for why. */
 .havemind-conflict-note {
   flex: 1;
   min-width: 0;
@@ -1069,7 +1069,7 @@
 /* never the only signal: the editor mark carries an underline and the reading */
 /* block a left border, and both carry the author's name in `title` plus       */
 /* `aria-label`. Every value below is an Obsidian variable or derived from the */
-/* overlay custom property — no literal colours.                              */
+/* overlay custom property, no literal colours.                              */
 /* ------------------------------------------------------------------------- */
 
 /* Live Preview: one attributed span inside the editor. */
@@ -1175,7 +1175,7 @@
 
 /* The overflow menu floats over the pane instead of pushing it down. Rendered
    in flow it added its own height to the column, so opening it shoved the tabs
-   and the content out of view — a menu is a temporary layer, not a section. */
+   and the content out of view, a menu is a temporary layer, not a section. */
 .havemind-pane-menu {
   position: absolute;
   top: 36px;
@@ -1279,7 +1279,7 @@
   background: var(--background-modifier-hover);
   color: var(--text-normal);
 }
-/* The open tab is marked by an underline AND weight AND aria-selected — never
+/* The open tab is marked by an underline AND weight AND aria-selected, never
    by colour alone. A real border, not an inset shadow: the design draws it as
    `border-bottom`, and a shadow sat 1px off the strip's own bottom rule. */
 .havemind-view button.havemind-tab.is-active {
@@ -1337,7 +1337,7 @@
 /* No margin under the header: the alarm block and the tab strip both sit flush
    against it by design, and each sets its own inner padding. This rule once
    said `12px` while two other rules in this file said `0` for the same
-   selector — the winner was whichever came last, which is not a decision. */
+   selector, the winner was whichever came last, which is not a decision. */
 
 /* View actions live in the header (round 2, Q1). Two rows of icons was one row
    too many; Obsidian already has a place for view actions, and moving them here
@@ -1381,7 +1381,7 @@
 }
 
 /* A dot on the mark itself, so a collapsed or backgrounded pane still signals.
-   Paired with the alarm block below and a title attribute — never colour
+   Paired with the alarm block below and a title attribute, never colour
    alone. */
 .havemind-pane-mark {
   position: relative;
@@ -1529,8 +1529,8 @@
   color: var(--text-normal);
 }
 
-/* The failure mode is stated where it is actionable — mid-handshake, with
-   another person waiting — not in documentation nobody opens just then. */
+/* The failure mode is stated where it is actionable, mid-handshake, with
+   another person waiting, not in documentation nobody opens just then. */
 .havemind-handshake-warning {
   color: var(--havemind-quiet);
   font-size: 0.9em;
@@ -1540,7 +1540,7 @@
 /* =========================================================================
    Urgency (design 1a / 1g)
    The calm pane carries no fill anywhere, so the first tinted block a user
-   ever sees IS the thing that needs them — no badge grammar to learn.
+   ever sees IS the thing that needs them, no badge grammar to learn.
 
    The treatment belongs to the BLOCK, not to the rows inside it. Applied per
    row (which is how this started) each row grew its own left rule and its own

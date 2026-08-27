@@ -15,14 +15,14 @@
  *    both sides changed the same span differently (or two changes touch/overlap)
  *    fails the WHOLE merge.
  *
- * On any failure the caller writes a conflict copy — this engine never
+ * On any failure the caller writes a conflict copy, this engine never
  * auto-resolves an overlapping hunk (the prose-degradation caveat from
  * `docs/research-conflicts.md`). It only ever COMBINES text; it can never drop
  * either side's change (zero-silent-overwrite, rule 3): a span only one side
  * touched is taken verbatim, and any contested span fails to a conflict copy.
  *
  * Lines are split on `\n` and re-joined on `\n`, which round-trips canonical
- * (LF, no CRLF) content exactly — including a trailing newline, which appears as
+ * (LF, no CRLF) content exactly, including a trailing newline, which appears as
  * a trailing empty line element. Callers pass already-canonicalised text.
  */
 
@@ -271,7 +271,7 @@ export function mergeText(
       merged.push(...localSegment);
     } else {
       // Both sides changed the same span differently, or two changes touch:
-      // never auto-resolve — fail the whole merge to a conflict copy.
+      // never auto-resolve, fail the whole merge to a conflict copy.
       return { status: 'conflict' };
     }
 

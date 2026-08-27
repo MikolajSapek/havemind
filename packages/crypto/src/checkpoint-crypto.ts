@@ -1,14 +1,14 @@
 /**
- * @havemind/crypto — checkpoint sealed-box helpers (asymmetric at-rest crypto).
+ * @havemind/crypto, checkpoint sealed-box helpers (asymmetric at-rest crypto).
  *
  * =============================== HARD CONSTRAINTS ===========================
  * - ZERO own cryptography. Every primitive is a documented call into libsodium
- *   (`libsodium-wrappers-sumo`). We invent no cipher and no key scheme — we only
+ *   (`libsodium-wrappers-sumo`). We invent no cipher and no key scheme, we only
  *   compose libsodium's `crypto_box_seal` / `crypto_box_seal_open` (anonymous
  *   public-key encryption, X25519 + XSalsa20-Poly1305). plans/006 "ZERO own
  *   cryptography"; plans/001 §10 "No custom cryptographic primitive".
  * - ASYMMETRIC by design. The Havemind server holds ONLY the recipient PUBLIC
- *   key, so it can SEAL a new checkpoint but can NEVER open any existing one —
+ *   key, so it can SEAL a new checkpoint but can NEVER open any existing one,
  *   only the owner's SECRET key (kept off-server in a recovery kit) decrypts
  *   (plans/006 "Key management"; T1; AC9). This is the counterpart to the
  *   symmetric vault-key crypto in `vault-crypto.ts`, which protects a different
@@ -42,7 +42,7 @@ export interface CheckpointKeypair {
 /**
  * Generate a fresh X25519 checkpoint recipient keypair. Losing the secret key
  * means every checkpoint sealed to the matching public key becomes permanently
- * unreadable — the honest, backdoor-free cost of the "no third party" model
+ * unreadable, the honest, backdoor-free cost of the "no third party" model
  * (plans/006 T3).
  */
 export function generateCheckpointKeypair(sodium: Sodium): CheckpointKeypair {
@@ -72,7 +72,7 @@ export function sealTo(
 
 /**
  * Open a sealed box with the owner's keypair. Throws (never returns garbage) on
- * any tampering, truncation or the wrong secret key — the caller MUST treat a
+ * any tampering, truncation or the wrong secret key, the caller MUST treat a
  * throw as an authentication failure and abort the restore fail-closed, never
  * materialising partial state (plans/006 T2; restore steps 1–4).
  */

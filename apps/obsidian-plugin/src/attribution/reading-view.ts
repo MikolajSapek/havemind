@@ -4,8 +4,8 @@
  *
  * Obsidian hands the processor one rendered block at a time plus a context that
  * can resolve the block back to its source lines. That resolution is the whole
- * basis of the marker: when `getSectionInfo()` returns null — which Obsidian
- * documents as common — the block gets NO marker at all rather than a guessed
+ * basis of the marker: when `getSectionInfo()` returns null, which Obsidian
+ * documents as common, the block gets NO marker at all rather than a guessed
  * range (`plan/06` anti-spec S5).
  *
  * Markers are block-level only, never character-level: Reading view renders

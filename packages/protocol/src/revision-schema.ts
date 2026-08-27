@@ -91,7 +91,7 @@ export const opaqueBlobReceiptSchema = z
      * protected header. Carried on the receipt so the client's apply side can
      * prove whether an incoming revision is a causal fast-forward from its local
      * head (rule 3, no silent overwrite of a concurrent fork). The server merely
-     * relays the metadata it already stored — it never computes lineage, so the
+     * relays the metadata it already stored, it never computes lineage, so the
      * opaque boundary is intact. Optional for backward compatibility: receipts
      * committed before this field existed decode with no parents, in which case
      * apply falls back to its pre-existing best-effort clean apply.
@@ -161,7 +161,7 @@ const sha256HexField = z.string().regex(/^[0-9a-f]{64}$/u);
  * Standard base64 (with padding). Accepts the empty string (an empty binary
  * file). This is DELIBERATELY the only encoding of binary content on the wire:
  * a JSON string cannot carry arbitrary bytes (NUL, lone surrogates), so binary
- * attachments are base64-encoded — a bijection that preserves every byte
+ * attachments are base64-encoded, a bijection that preserves every byte
  * exactly. No canonicalisation is applied to binary content (F9): the raw bytes
  * are hashed and shipped verbatim, keeping the binary path cleanly separate from
  * `canonicalizeMarkdown`.
@@ -169,7 +169,7 @@ const sha256HexField = z.string().regex(/^[0-9a-f]{64}$/u);
 /**
  * Linear, non-backtracking check that `value` is canonical standard base64 with
  * padding (accepting the empty string). This accepts EXACTLY the language the
- * previous regex did — the wire contract is unchanged — but without the regex's
+ * previous regex did, the wire contract is unchanged, but without the regex's
  * fatal flaw: `(?:[A-Za-z0-9+/]{4})*` overflows V8's regex stack on multi-MB
  * inputs (RangeError above ~3 MB), which made a real binary attachment (F9)
  * impossible to validate at the 25 MB cap. This O(n) scan has no such limit.
@@ -241,7 +241,7 @@ const contentRevisionPayloadSchema = z
   });
 
 /**
- * Binary attachment payload (F9). Whole-file replace only — there is no line
+ * Binary attachment payload (F9). Whole-file replace only, there is no line
  * diff or three-way merge for binary, so the recipe is always `null`. The raw
  * bytes are carried base64-encoded and identified by `blobByteHash` (SHA-256 of
  * the RAW bytes, never a canonicalised form). A legacy markdown payload carries
@@ -326,7 +326,7 @@ export function validateRevisionPayloadAgainstHeader(
   const parents = new Set(header.parentRevisionIds);
 
   // Binary payloads (kind 'binary') carry no recipe (whole-file replace only),
-  // as do delete tombstones and restores — none has source parts to validate.
+  // as do delete tombstones and restores, none has source parts to validate.
   if (
     payload.operation !== 'delete' &&
     payload.operation !== 'restore' &&

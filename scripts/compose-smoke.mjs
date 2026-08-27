@@ -1,4 +1,4 @@
-// `npm run compose:smoke` — configuration smoke test for the hardened Compose
+// `npm run compose:smoke`, configuration smoke test for the hardened Compose
 // package (issue F7-02 / task T030).
 //
 // Two layers of verification:

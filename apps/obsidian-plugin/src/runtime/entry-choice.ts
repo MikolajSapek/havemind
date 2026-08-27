@@ -3,7 +3,7 @@
  *
  * The connect screen used to open with a five-step tutorial that begins "install
  * Tailscale" and "set up your own server". About half of all users are joining a
- * vault someone else hosts and need only paste an invitation — they read that
+ * vault someone else hosts and need only paste an invitation, they read that
  * wall, concluded they had to run Docker, and left. This is the costliest defect
  * in the product: it loses people before any feature is reachable.
  *
@@ -13,7 +13,7 @@
  * before understanding the product. Each row states its own cost in time and
  * tools, so the expensive pick is visibly expensive before it is made.
  *
- * Pure content — no DOM, no Obsidian import — so the wording stays testable.
+ * Pure content, no DOM, no Obsidian import, so the wording stays testable.
  */
 
 /** Which entry path the user picked, or none yet. */
@@ -85,11 +85,11 @@ export function buildHostView(): HostViewModel {
       { text: 'Install Docker and Tailscale on that machine.' },
       { text: 'Sign both machines into the same tailnet.' },
       { text: 'Run the stack:', command: 'docker compose up -d' },
-      { text: "Copy its Tailscale address — that's your server URL." },
+      { text: "Copy its Tailscale address, that's your server URL." },
       { text: 'Connect below, then invite the others.' },
     ],
     guideLabel: 'Full self-hosting guide',
     guideUrl: SELF_HOSTING_GUIDE_URL,
-    primaryAction: "I've done this — connect",
+    primaryAction: "I've done this, connect",
   };
 }

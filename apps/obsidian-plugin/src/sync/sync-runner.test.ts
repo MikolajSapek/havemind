@@ -262,7 +262,7 @@ describe('SyncRunner poison-item isolation', () => {
 
     const result = await runner.trigger();
 
-    // The whole batch was pushed once — #1 is not re-sent forever.
+    // The whole batch was pushed once, #1 is not re-sent forever.
     expect(push).toHaveBeenCalledTimes(1);
     expect(result.pushed).toBe(1);
     expect(result.quarantined).toBe(1);
@@ -435,7 +435,7 @@ describe('SyncRunner lineage cascade', () => {
 
   it('keeps a MISSING_PARENT child retryable while its parent is still pending', async () => {
     // Healthy lineage: the parent is still in-flight (transiently rejected this
-    // cycle, left queued). The child’s MISSING_PARENT must NOT quarantine it — the
+    // cycle, left queued). The child’s MISSING_PARENT must NOT quarantine it, the
     // parent will land on a later cycle.
     const state = new FakeState({
       outbox: [
@@ -608,7 +608,7 @@ describe('SyncRunner stop (reconnect quiescence)', () => {
     retries[0]?.callback();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    // The stopped runner shipped no further push — the stale revision can no
+    // The stopped runner shipped no further push, the stale revision can no
     // longer escape after teardown/reconnect.
     expect(push).toHaveBeenCalledTimes(1);
   });
@@ -757,7 +757,7 @@ describe('SyncRunner remote apply', () => {
   });
 
   it('reports conflict, not deferred, when a cycle produces both', async () => {
-    // A conflict copy was written to disk, so the status must surface it — a
+    // A conflict copy was written to disk, so the status must surface it, a
     // deferred apply (nothing written, retried next cycle) must never hide it.
     const vault = new FakeVault();
     vault.buffers.set('file-a', [{ baseHash: 'base', currentHash: 'local-edit' }]);
@@ -882,7 +882,7 @@ describe('SyncRunner remote apply', () => {
 
 describe('SyncRunner bootstrap origin', () => {
   it('flags every apply at or below the connect-time head as bootstrap, and later live edits as not', async () => {
-    // Cycle 1: a fresh device catches up 1..3 with the server head at 3 — the
+    // Cycle 1: a fresh device catches up 1..3 with the server head at 3, the
     // whole initial bootstrap. Cycle 2: a live peer edit at 4 (head now 4).
     const pull = vi
       .fn()

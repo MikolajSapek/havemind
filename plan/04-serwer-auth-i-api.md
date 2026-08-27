@@ -1,7 +1,7 @@
-# 04 — Server: invites, auth-routes, sync API, backup/epoch
+# 04, Server: invites, auth-routes, sync API, backup/epoch
 
 Surface: `apps/server`. Source tasks: T019, T020, T021, T022 from `plans/002-pilot-tasks.md`.
-Token primitives: `03-systemy-przekrojowe.md`. Don't duplicate protocol content — cite
+Token primitives: `03-systemy-przekrojowe.md`. Don't duplicate protocol content, cite
 `plans/001-technical-plan.md` §7–8 when in doubt.
 
 ## Event → reaction table (the API as a "surface" with no UI, events = HTTP requests)
@@ -25,9 +25,9 @@ Token primitives: `03-systemy-przekrojowe.md`. Don't duplicate protocol content 
 
 ## Anti-spec (S5)
 
-- Never accept `actor_id` or `author` from the request body as binding on any endpoint — always
+- Never accept `actor_id` or `author` from the request body as binding on any endpoint, always
   take it from the session.
-- Never return different error codes for "vault doesn't exist" vs "exists, no access" — both
+- Never return different error codes for "vault doesn't exist" vs "exists, no access", both
   must look identical from the outside (protection against IDOR enumeration).
 - Never use a `Cache-Control` value other than `no-store` on endpoints with sensitive data.
 - Never expose the `sudo` password or secrets from `/srv/secrets` through any diagnostic
@@ -35,8 +35,8 @@ Token primitives: `03-systemy-przekrojowe.md`. Don't duplicate protocol content 
 
 ## Issues → BACKLOG mapping (full AC in `11-BACKLOG.md`)
 
-- F1-01 — token primitives and rotation (T018)
-- F2-01 — invites and device approval (T019)
-- F2-02 — deny-by-default auth-routes (T020)
-- F2-03 — sync push/pull API (T021)
-- F7-01 — backup, restore, server epoch (T022)
+- F1-01, token primitives and rotation (T018)
+- F2-01, invites and device approval (T019)
+- F2-02, deny-by-default auth-routes (T020)
+- F2-03, sync push/pull API (T021)
+- F7-01, backup, restore, server epoch (T022)

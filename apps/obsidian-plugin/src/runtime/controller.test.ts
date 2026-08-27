@@ -182,9 +182,9 @@ describe('HavemindSyncController', () => {
 
 const OFFLINE: SyncCycleResult = { ...CLEAN, status: 'offline' };
 
-  it('does not latch Offline on a single transient failure — shows a retrying state', () => {
+  it('does not latch Offline on a single transient failure, shows a retrying state', () => {
     const { controller, statuses } = build();
-    // One blip: the status must say it is retrying, never "Offline" — and never
+    // One blip: the status must say it is retrying, never "Offline", and never
     // "Syncing" either, because no progress is being made during the outage.
     controller.observeCycle(OFFLINE);
     expect(statuses.at(-1)?.text).toBe('Havemind: Retrying…');
@@ -215,7 +215,7 @@ const OFFLINE: SyncCycleResult = { ...CLEAN, status: 'offline' };
   it('recovers to Synced from a sustained Offline once a later cycle succeeds', () => {
     const { controller, statuses } = build();
     // Sustained loss reaches Offline, but a background (backoff-driven) cycle
-    // that succeeds must clear it — status follows the LATEST cycle, not a flag.
+    // that succeeds must clear it, status follows the LATEST cycle, not a flag.
     controller.observeCycle(OFFLINE);
     controller.observeCycle(OFFLINE);
     controller.observeCycle(OFFLINE);
@@ -243,7 +243,7 @@ const OFFLINE: SyncCycleResult = { ...CLEAN, status: 'offline' };
     expect(statuses.at(-1)?.text).toBe('Havemind: Synced');
   });
 
-  it('halts the loop on an unauthenticated cycle — no 401 retry storm', async () => {
+  it('halts the loop on an unauthenticated cycle, no 401 retry storm', async () => {
     const { controller, runner, hooks, statuses } = build();
     runner.result = { ...CLEAN, status: 'unauthenticated' };
 

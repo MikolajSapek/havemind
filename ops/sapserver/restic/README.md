@@ -1,4 +1,4 @@
-# SRV-03 — Restic backup to the owner's Mac over the tailnet (sapserver runbook)
+# SRV-03, Restic backup to the owner's Mac over the tailnet (sapserver runbook)
 
 Encrypted Restic repository on the owner's Mac, reached over the tailnet with
 restic's native **SFTP** backend, retention 7 daily / 4 weekly / 6 monthly.
@@ -27,7 +27,7 @@ already stores unencrypted, so on sapserver it deserves exactly the same
 treatment as the data directory (0700, uid 1000, tailnet-only host). Off the box
 it is protected by restic's own repository encryption. For artifacts that are
 encrypted **at rest on the host as well**, `havemind checkpoint create` seals
-every part to an off-server public key — at the cost of needing the owner's
+every part to an off-server public key, at the cost of needing the owner's
 secret key for every restore, including every drill.
 
 ## Static binaries (no sudo)
@@ -40,7 +40,7 @@ Installed on sapserver under `~/bin` (already on `PATH` via `~/.profile`;
 | restic | 0.19.1 | GitHub release `restic_0.19.1_linux_amd64.bz2` | ✓ against release `SHA256SUMS` |
 
 Re-verify any time: download the release `SHA256SUMS`, `sha256sum` the archive,
-compare. `rclone` is **no longer needed** — the SFTP backend is built into
+compare. `rclone` is **no longer needed**, the SFTP backend is built into
 restic and speaks plain `ssh`.
 
 ## Files
@@ -63,7 +63,7 @@ here. Secrets never enter the repo.
 
 The repo password is generated on sapserver (`openssl rand -base64 48`) and
 written only to the 0600 file above. **Keep a second copy in the owner recovery
-kit, off-server** — losing both makes every snapshot unrecoverable, by design.
+kit, off-server**, losing both makes every snapshot unrecoverable, by design.
 
 ## Repository string
 
@@ -84,7 +84,7 @@ Nothing below is automated: it needs the Mac's UI, a password typed at a real
 terminal, and one `chown`. Work through it in order. **Every block states which
 machine it runs on.**
 
-### A. LOCAL (your Mac) — make it a backup destination
+### A. LOCAL (your Mac), make it a backup destination
 
 1. **Enable Remote Login.** System Settings → General → Sharing → **Remote
    Login** → on. Restrict it to your own user if the panel offers the choice.
@@ -93,7 +93,7 @@ machine it runs on.**
    tailscale status | head -1        # or: tailscale ip -4
    ```
 3. **Prevent sleep from silencing the backup.** A closed or sleeping Mac makes
-   every run a logged skip, not a failure — that is by design — but a Mac that is
+   every run a logged skip, not a failure, that is by design, but a Mac that is
    *always* asleep is not a backup. Either keep it awake on power (System
    Settings → Lock Screen / Battery → "Prevent automatic sleeping on power
    adapter when the display is off") or plan to run `bash ~/havemind-ops/backup.sh`
@@ -103,7 +103,7 @@ machine it runs on.**
    mkdir -p ~/havemind-restic && chmod 700 ~/havemind-restic
    ```
 
-### B. REMOTE (sapserver) — connect to the Mac
+### B. REMOTE (sapserver), connect to the Mac
 
 5. **Open a session.** From your Mac:
    ```bash
@@ -129,7 +129,7 @@ machine it runs on.**
      ServerAliveInterval 15
    ```
 
-### C. LOCAL (your Mac) — authorise the key
+### C. LOCAL (your Mac), authorise the key
 
 Open a **new terminal window on your Mac** (you are leaving the ssh session for
 this step only):
@@ -142,7 +142,7 @@ this step only):
    ```
    The public key is not a secret; the private key never leaves sapserver.
 
-### D. REMOTE (sapserver) — prepare the host side
+### D. REMOTE (sapserver), prepare the host side
 
 Back in the ssh session from step 5 (`mikolaj@sapserver:~$`):
 
@@ -151,10 +151,10 @@ Back in the ssh session from step 5 (`mikolaj@sapserver:~$`):
    ssh havemind-backup true && echo reachable
    ```
    Accept the host fingerprint on this first connection. It must print
-   `reachable` — cron uses `BatchMode`, so a prompt of any kind means failure.
+   `reachable`, cron uses `BatchMode`, so a prompt of any kind means failure.
 10. **Create the host backup directory and give it to uid 1000.** The container
     runs as uid 1000 with `cap_drop: [ALL]`, so it cannot `chown` anything from
-    the inside — Docker would create this directory root-owned and every backup
+    the inside, Docker would create this directory root-owned and every backup
     would fail with `EACCES`. Same one-time fix as the data volume in
     `docs/self-hosting.md`:
     ```bash
@@ -193,15 +193,15 @@ Back in the ssh session from step 5 (`mikolaj@sapserver:~$`):
     chmod 600 ~/havemind-ops/secrets/restic-repo-password
     ```
     Copy that password into the owner recovery kit now. Type or paste it only at
-    a terminal — never into a chat window.
+    a terminal, never into a chat window.
 
-### E. REMOTE (sapserver) — activate and prove it
+### E. REMOTE (sapserver), activate and prove it
 
 14. **Bootstrap** (preflight → init → first snapshot → verify):
     ```bash
     bash ~/havemind-ops/bootstrap.sh
     ```
-15. **Schedule it.** `crontab -e` as `mikolaj` — a **user** crontab, no root, no
+15. **Schedule it.** `crontab -e` as `mikolaj`, a **user** crontab, no root, no
     docker:
     ```cron
     # Havemind: ship backup artifacts to the Mac (skips quietly if it is asleep)
@@ -209,7 +209,7 @@ Back in the ssh session from step 5 (`mikolaj@sapserver:~$`):
     # Havemind: retention 7/4/6, only after a successful restic check
     43 4 * * 0 /bin/bash /home/mikolaj/havemind-ops/prune.sh >> /home/mikolaj/havemind-ops/prune.log 2>&1
     ```
-16. **Run the restore drill — this is the 1.0 release gate:**
+16. **Run the restore drill, this is the 1.0 release gate:**
     ```bash
     bash ~/havemind-ops/restore-drill.sh
     ```
@@ -223,16 +223,16 @@ Back in the ssh session from step 5 (`mikolaj@sapserver:~$`):
 
 ## Acceptance mapping
 
-- **Real data, not a staging directory** — the source is the host side of the
+- **Real data, not a staging directory**, the source is the host side of the
   container's `/backups` bind mount, and `backup.sh` fails loudly if it holds no
   artifact manifest.
-- **Encrypted repo, off the server's disk** — restic repos are always encrypted;
+- **Encrypted repo, off the server's disk**, restic repos are always encrypted;
   the repo lives on the Mac, reached over the tailnet by SFTP.
-- **Retention 7/4/6** — configured in `restic.env`, applied by `prune.sh`, which
+- **Retention 7/4/6**, configured in `restic.env`, applied by `prune.sh`, which
   never forgets anything without a passing `restic check` first.
-- **Verification `restic snapshots` + `restic check`** — `verify.sh` (also the
+- **Verification `restic snapshots` + `restic check`**, `verify.sh` (also the
   final step of `bootstrap.sh`).
-- **Restore proven, not assumed** — `restore-drill.sh` restores the latest
+- **Restore proven, not assumed**, `restore-drill.sh` restores the latest
   snapshot, verifies every blob against its manifest and rebuilds a scratch data
   directory that passes `integrity_check`.
 

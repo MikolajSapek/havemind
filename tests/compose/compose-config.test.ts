@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
-// @ts-expect-error — tooling module authored in plain ESM (.mjs), no d.ts.
+// @ts-expect-error, tooling module authored in plain ESM (.mjs), no d.ts.
 import { analyzeCompose } from '../../scripts/lib/compose-checks.mjs';
 
 const repoRoot = fileURLToPath(new URL('../../', import.meta.url));
@@ -12,7 +12,7 @@ async function read(relativePath: string): Promise<string> {
   return readFile(new URL(relativePath, `file://${repoRoot}`), 'utf8');
 }
 
-describe('analyzeCompose — real hardened package', () => {
+describe('analyzeCompose, real hardened package', () => {
   it('reports no violations for the shipped compose.yaml and Dockerfile', async () => {
     const composeText = await read('deploy/compose.yaml');
     const dockerfileText = await read('apps/server/Dockerfile');
@@ -29,7 +29,7 @@ describe('analyzeCompose — real hardened package', () => {
   });
 });
 
-describe('analyzeCompose — catches unsafe configuration', () => {
+describe('analyzeCompose, catches unsafe configuration', () => {
   const badCompose = [
     'name: bad',
     'services:',

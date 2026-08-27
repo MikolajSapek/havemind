@@ -3,7 +3,7 @@
  * trigger that arrives WHILE the task is running is not dropped.
  *
  * MINOR (conflict sweep): a conflict copy written while `runConflictSweep()` was
- * already in flight hit the "already running" guard and returned a no-op —
+ * already in flight hit the "already running" guard and returned a no-op,
  * nothing re-scheduled it, so that copy was never swept. This guard instead
  * records a pending flag on a mid-run trigger and re-runs the task once the
  * in-flight pass finishes, so the late-arriving work is always picked up.

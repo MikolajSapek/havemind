@@ -30,7 +30,7 @@ class ReconciliationVault implements VaultSnapshotPort {
 
   async listSyncablePaths(): Promise<readonly string[]> {
     // Mirrors the real Obsidian vault scan by extension only (markdown +
-    // allowlisted binary, F9) — same as `Vault.getMarkdownFiles()` plus
+    // allowlisted binary, F9), same as `Vault.getMarkdownFiles()` plus
     // attachment enumeration; reconciliation itself applies `classifyVaultPath`
     // for the dotpath/reserved-directory exclusions (so those still count as
     // `ignored`, not silently dropped here).
@@ -137,8 +137,8 @@ describe('startup reconciliation', () => {
     vault.contents.set('Notes/New.md', 'new');
     // A reserved conflict-folder file: surfaced by the extension scan but
     // rejected by `classifyVaultPath` (no re-sync cycle), so it counts as
-    // `ignored`. NB: a plain `.obsidian/*.md` is no longer ignored — the config
-    // mirror now syncs it — so the ignored fixture uses the reserved folder.
+    // `ignored`. NB: a plain `.obsidian/*.md` is no longer ignored, the config
+    // mirror now syncs it, so the ignored fixture uses the reserved folder.
     vault.contents.set('Havemind Conflicts/Private.md', 'secret');
     // A non-allowlisted extension (F9 syncs png/jpg/etc, never .zip) so this stays
     // an excluded attachment under the narrowed `attachmentsExcluded` definition.
@@ -286,7 +286,7 @@ describe('startup reconciliation', () => {
   });
 
   it('keeps a structural vault error fatal instead of recording it as a skip', async () => {
-    // A collision is a data-integrity problem the user must resolve — naming
+    // A collision is a data-integrity problem the user must resolve, naming
     // skipped files must not soften it into a per-file skip.
     const vault = new ReconciliationVault();
     vault.contents.set('Notes/A.md', 'a');
@@ -302,7 +302,7 @@ describe('startup reconciliation', () => {
     // Only markdown and the allowlisted binary extensions (F9) are syncable. A
     // vault with a markdown note plus a ZIP and a canvas file must still sync the
     // note normally, while the two non-allowlisted attachments are counted as
-    // excluded so the omission is visible instead of silent — they must never be
+    // excluded so the omission is visible instead of silent, they must never be
     // read (readText/readBinary would throw for them) or enqueued.
     const vault = new ReconciliationVault();
     vault.contents.set('a.md', 'hello');
@@ -460,7 +460,7 @@ describe('formatReconcileNotices', () => {
     expect(formatReconcileNotices(baseResult())).toEqual([]);
   });
 
-  it('leaves the skip counters alone — a skip is not an exclusion', () => {
+  it('leaves the skip counters alone, a skip is not an exclusion', () => {
     expect(
       formatReconcileNotices(
         baseResult({
@@ -548,7 +548,7 @@ function mapping(
 ): LocalFileMapping {
   // Stored mappings hold the CANONICAL content form in production (the producer
   // canonicalises on write and the AUD-03 startup rebase canonicalises existing
-  // state), so the fixture must too — otherwise a content-match comparison
+  // state), so the fixture must too, otherwise a content-match comparison
   // against the now-canonicalised vault read would drift and mint a spurious
   // revision only in the test, never in production.
   const canonical = canonicalizeMarkdown(content);

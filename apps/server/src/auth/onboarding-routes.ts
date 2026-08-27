@@ -322,7 +322,7 @@ export function registerPreAuthOnboardingRoutes(
         accessToken: rotated.accessToken,
       };
     } catch {
-      // Any rotation failure — invalid, reused, revoked — is a flat 401 so a
+      // Any rotation failure, invalid, reused, revoked, is a flat 401 so a
       // caller cannot distinguish an unknown token from a burned family.
       return sendError(reply, 401, 'UNAUTHENTICATED');
     }
@@ -368,7 +368,7 @@ export function registerPreAuthOnboardingRoutes(
       };
       return response;
     } catch {
-      // Any pairing failure — unknown, expired, already consumed, malformed —
+      // Any pairing failure, unknown, expired, already consumed, malformed,
       // is a flat 401 so a caller cannot distinguish the cases.
       return sendError(reply, 401, 'UNAUTHENTICATED');
     }
@@ -388,7 +388,7 @@ export function registerPreAuthOnboardingRoutes(
       return sendError(reply, 401, 'UNAUTHENTICATED');
     }
     // A caller who names a vault gets exactly that vault, but only after its
-    // active membership is verified — the query string is caller-controlled, so
+    // active membership is verified, the query string is caller-controlled, so
     // it selects among the caller's own vaults and can never widen access. With
     // no `vault` the resolution stays the first active vault, keeping the
     // deployed plugin (refresh token + cursor only) working unchanged. Either

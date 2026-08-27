@@ -1,17 +1,17 @@
 /**
- * F-config-semantic — two-device end-to-end coverage for the SEMANTIC half of the
+ * F-config-semantic, two-device end-to-end coverage for the SEMANTIC half of the
  * `.obsidian/` appearance mirror: WHICH PART of a settings file crosses the wire,
  * and what happens when two devices change the same one.
  *
  * `config-mirror-two-device.test.ts` proves the bytes cross and
  * `config-apply-visibility-two-device.test.ts` proves the receiver notices. Both
- * assume the file is a whole-file copy — and for `.obsidian/graph.json` that
+ * assume the file is a whole-file copy, and for `.obsidian/graph.json` that
  * assumption was the field bug. Obsidian stores machine-local VIEW STATE in the
  * same file as the user's colour groups: merely OPENING the graph view rewrites
  * `scale` (the zoom) and the `collapse-*` panel folds. Every open produced a
  * revision, the two devices ping-ponged, each apply read as a divergence, and the
- * churn spawned `Havemind Conflicts/graph (conflict …).md` copies — a file
- * Obsidian never reads — while the one thing the user wanted synced (the colours)
+ * churn spawned `Havemind Conflicts/graph (conflict …).md` copies, a file
+ * Obsidian never reads, while the one thing the user wanted synced (the colours)
  * never landed on the second device.
  *
  * These rows drive the real wire path (real observer, real config poller, real
@@ -19,16 +19,16 @@
  * the fix rests on:
  *
  *  1. a rewrite that touched ONLY the volatile view state produces no revision at
- *     all — nothing reaches the server and nothing reaches the peer;
+ *     all, nothing reaches the server and nothing reaches the peer;
  *  2. a genuine `colorGroups` change lands on the peer AND the peer keeps its own
  *     zoom and fold state, and the merged write is not itself a change to push
  *     back (no echo, no ping-pong);
- *  3. divergent settings edits on both devices resolve by RECENCY — the newest
- *     write converges both — and nothing is ever deposited under
+ *  3. divergent settings edits on both devices resolve by RECENCY, the newest
+ *     write converges both, and nothing is ever deposited under
  *     `Havemind Conflicts/`.
  *
  * Production code under test: `sync/config-normalize.ts` through its real call
- * sites — `VaultChangeObserver` (hash/push side) and `mergeConfigContent` (apply
+ * sites, `VaultChangeObserver` (hash/push side) and `mergeConfigContent` (apply
  * side).
  *
  * ─── DOCUMENTED GAP: the last-writer-wins DECISION itself ────────────────────
@@ -38,9 +38,9 @@
  * `VaultApplyAdapter`: it assembles the sync stack over harness-owned ports whose
  * apply path has no on-disk divergence guard of its own (`recordConflict` is
  * reached only from the runner's open-BUFFER guard, and Obsidian never opens a
- * hidden config file as an editor buffer). The branch-level decision —
+ * hidden config file as an editor buffer). The branch-level decision,
  * `resolvesLastWriterWins`, every divergence branch it guards, and the untouched
- * conflict-copy behaviour for notes and attachments — is pinned in
+ * conflict-copy behaviour for notes and attachments, is pinned in
  * `runtime/vault-apply.test.ts`; the volatile-key projection at the port is
  * pinned in `runtime/obsidian-adapters.test.ts`. What is genuinely end-to-end
  * here is everything between the two devices: what the producer pushes, what the
@@ -60,7 +60,7 @@ const ALICE_COLOURS = [{ query: 'tag:#work', color: { a: 1, rgb: 8087286 } }];
 const BOB_COLOURS = [{ query: 'tag:#home', color: { a: 1, rgb: 16711680 } }];
 const FINAL_COLOURS = [{ query: 'tag:#final', color: { a: 1, rgb: 255 } }];
 
-/** Bob's own zoom and panel folds — machine-local, must survive every apply. */
+/** Bob's own zoom and panel folds, machine-local, must survive every apply. */
 const BOB_VIEW_STATE = {
   scale: 1.7391304347826086,
   close: true,
@@ -103,7 +103,7 @@ afterEach(async () => {
   cleanupHarnessDirectories();
 });
 
-describe('F-config-semantic — graph.json syncs its settings, never the view state', () => {
+describe('F-config-semantic, graph.json syncs its settings, never the view state', () => {
   it('row 1: a zoom-only rewrite on device A reaches neither the server nor device B', async () => {
     const { server, alice, bob } = await makeHarness();
 
@@ -158,7 +158,7 @@ describe('F-config-semantic — graph.json syncs its settings, never the view st
       graphJson({ ...BOB_VIEW_STATE, colorGroups: [], showTags: false }),
     );
 
-    // Alice picks her colour groups and adjusts the node size and a force slider —
+    // Alice picks her colour groups and adjusts the node size and a force slider,
     // all three are settings and all three must cross. Her own zoom and folds ride
     // along on disk and must not.
     await alice.writeConfig(
@@ -178,7 +178,7 @@ describe('F-config-semantic — graph.json syncs its settings, never the view st
 
     await bob.sync();
     const merged = readGraph(bob);
-    // Alice's settings landed — colours, sizes and forces alike…
+    // Alice's settings landed, colours, sizes and forces alike…
     expect(merged.colorGroups).toEqual(ALICE_COLOURS);
     expect(merged.showTags).toBe(true);
     expect(merged.nodeSizeMultiplier).toBe(1.45);
@@ -218,7 +218,7 @@ describe('F-config-semantic — graph.json syncs its settings, never the view st
     await bob.sync();
     expect(readGraph(bob).colorGroups).toEqual([]);
 
-    // Now both pick different colour groups before either has seen the other's —
+    // Now both pick different colour groups before either has seen the other's,
     // a genuine concurrent divergence on a settings file.
     await alice.writeConfig(
       GRAPH_PATH,
@@ -232,7 +232,7 @@ describe('F-config-semantic — graph.json syncs its settings, never the view st
     expect(await bob.pollConfig()).toHaveLength(1);
 
     // Two children of the same base reach the server, so the file has two
-    // divergent heads — for a note this is exactly the shape that becomes a
+    // divergent heads, for a note this is exactly the shape that becomes a
     // conflict copy.
     await alice.sync();
     await bob.sync();
@@ -243,7 +243,7 @@ describe('F-config-semantic — graph.json syncs its settings, never the view st
     await alice.sync();
 
     // Each device adopted what the server's total order last handed it, so the
-    // two settings files are stable but crossed — no copy, no overwrite loop.
+    // two settings files are stable but crossed, no copy, no overwrite loop.
     expect(alice.conflictPaths()).toEqual([]);
     expect(bob.conflictPaths()).toEqual([]);
     expect(await alice.pollConfig()).toEqual([]);

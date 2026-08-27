@@ -220,7 +220,7 @@ describe('connectFromInput lifecycle safety', () => {
   it('does not clobber a connection assigned while connectFromInput was in flight (FIX 3)', async () => {
     // A handle assigned meanwhile (e.g. by the rejoin restart's startConnection)
     // must win: the late connectFromInput handle stops itself and never
-    // overwrites the live connection — matching startConnection's invariant.
+    // overwrites the live connection, matching startConnection's invariant.
     const plugin = newPlugin();
     const lateHandle = fakeHandle('late');
     let resolveConnect!: (h: FakeHandle) => void;
@@ -393,7 +393,7 @@ describe('Retry now (user-initiated reconnect)', () => {
   it('disarms the rejoin poll on retry so a later poll tick never tears down the retry-built connection (FINDING 1a)', async () => {
     const plugin = newPlugin();
     // A poll that, left armed, would reach 'syncing' and tear down + restart the
-    // connection — exactly the thrash this fix prevents.
+    // connection, exactly the thrash this fix prevents.
     const attempt = vi
       .fn()
       .mockResolvedValue({ status: 'syncing', membershipId: 'm', vaultId: 'v' });
@@ -553,7 +553,7 @@ describe('F9 rejoin wiring', () => {
     // The dead-marker is cleared too, so no stale Rejoin affordance lingers.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((plugin as any).deadMembershipIds).not.toContain('m-magda');
-    // Removal is a control-plane action — it records nothing in the activity feed.
+    // Removal is a control-plane action, it records nothing in the activity feed.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((plugin as any).activityLog.snapshot()).toHaveLength(0);
   });
@@ -603,20 +603,20 @@ describe('F9 rejoin wiring', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((plugin as any).rejoinController).toBe(controller);
 
-    // A second terminal status while armed is idempotent — no second controller.
+    // A second terminal status while armed is idempotent, no second controller.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (plugin as any).handleStatus('reconnect-required', STATUS_VIEW);
     await flushMicrotasks();
     expect(adapterMocks.buildRejoinControllerForInvitee).toHaveBeenCalledTimes(1);
 
-    // First poll: no grant yet — stays armed, no restart.
+    // First poll: no grant yet, stays armed, no restart.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (plugin as any).pollRejoinOnce();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((plugin as any).rejoinController).toBe(controller);
     expect(adapterMocks.startHavemindConnection).not.toHaveBeenCalled();
 
-    // Second poll: syncing — disarm and restart the connection once.
+    // Second poll: syncing, disarm and restart the connection once.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (plugin as any).pollRejoinOnce();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -661,8 +661,8 @@ describe('F9 rejoin wiring', () => {
   });
 
   it('routes a throwing attempt() to the surfaced failure path (no unhandled rejection) (FIX C1)', async () => {
-    // If the controller's attempt() rejects — e.g. the post-200 refresh-token
-    // save throws — pollRejoinOnce must catch it and route to the surfaced
+    // If the controller's attempt() rejects, e.g. the post-200 refresh-token
+    // save throws, pollRejoinOnce must catch it and route to the surfaced
     // rejoin-failed path, never let it escape as an unhandled rejection that
     // leaves the 30 s poll spinning against a burned grant in silence.
     const plugin = newPlugin();
@@ -678,7 +678,7 @@ describe('F9 rejoin wiring', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((plugin as any).rejoinController).toBe(controller);
 
-    // The poll ticks and the attempt rejects — the tick must resolve, not throw.
+    // The poll ticks and the attempt rejects, the tick must resolve, not throw.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await expect((plugin as any).pollRejoinOnce()).resolves.toBeUndefined();
 
@@ -695,7 +695,7 @@ describe('F9 rejoin wiring', () => {
   it('does not arm the doomed rejoin poll for an OWNER dead-end but still surfaces the error (sweep-P1)', async () => {
     // The owner self-rejoin is a documented dead-end: issuing a grant needs an
     // authenticated owner session the burned owner lacks. buildRejoinControllerForInvitee
-    // returns null for an owner connection, so no /auth/rejoin poll is armed —
+    // returns null for an owner connection, so no /auth/rejoin poll is armed,
     // but the reconnect-required error is still surfaced to drive re-pairing.
     const plugin = newPlugin();
     adapterMocks.buildRejoinControllerForInvitee.mockResolvedValue(null);

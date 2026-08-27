@@ -1,4 +1,4 @@
-# 05 — Plugin: onboarding, vault observation, sync runner
+# 05, Plugin: onboarding, vault observation, sync runner
 
 Surface: `apps/obsidian-plugin`. Source tasks: T025, T026, T027.
 
@@ -32,15 +32,15 @@ Surface: `apps/obsidian-plugin`. Source tasks: T025, T026, T027.
 
 ## Anti-spec (S5)
 
-- Never put the invite secret in the `obsidian://` query string — only in the URL fragment and
+- Never put the invite secret in the `obsidian://` query string, only in the URL fragment and
   via manual paste of the envelope (see `specs/002-public-access.md`).
 - Never auto-merge two existing vaults during onboarding.
 - Never overwrite the active (open, diverging) editor buffer without a conflict/defer path.
-- Never introduce any Node.js/Electron-only dependency in the plugin code — it breaks mobile
+- Never introduce any Node.js/Electron-only dependency in the plugin code, it breaks mobile
   compatibility.
 
 ## Issues → BACKLOG mapping
 
-- F2-04 — vault-adapter and reconciliation (T026, skeleton portion)
-- F3-01 — invite onboarding (T025)
-- F4-01 — sync runner and safe remote apply (T027)
+- F2-04, vault-adapter and reconciliation (T026, skeleton portion)
+- F3-01, invite onboarding (T025)
+- F4-01, sync runner and safe remote apply (T027)

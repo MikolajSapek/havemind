@@ -13,7 +13,7 @@ import type { ConflictCopy, DiffLine } from '../runtime/conflict-resolution';
 
 import { armedButton, renderViewTitle } from './primitives';
 
-/** View model for the resolve modal — pure, built from a copy + optional diff. */
+/** View model for the resolve modal, pure, built from a copy + optional diff. */
 export interface ConflictModalModel {
   readonly title: string;
   readonly author: string | null;
@@ -55,7 +55,7 @@ export interface ConflictModalActions {
  * Renders the resolve modal body: a heading, the manual hint (if any), the
  * colour-coded line diff (added lines tinted with --text-success, removed with
  * --text-error), and the three resolution buttons. "Keep theirs" is offered
- * only when a text target is known — a missing target or a binary copy cannot be
+ * only when a text target is known, a missing target or a binary copy cannot be
  * written from here, so those resolve by keeping mine or opening files manually.
  */
 export function renderConflictModalBody(
@@ -64,7 +64,7 @@ export function renderConflictModalBody(
   actions: ConflictModalActions,
 ): void {
   container.addClass('havemind-conflict-modal');
-  renderViewTitle(container, `Resolve conflict — ${model.title}`);
+  renderViewTitle(container, `Resolve conflict, ${model.title}`);
 
   if (model.author !== null && model.timestamp !== null) {
     const meta = container.createDiv({

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Havemind — RESTORE DRILL (1.0 release gate).
+# Havemind, RESTORE DRILL (1.0 release gate).
 #
 # Proves the whole chain end to end, on real data, with user-level permissions
-# only — no sudo, no docker group, no write access to anything live:
+# only, no sudo, no docker group, no write access to anything live:
 #
 #   1. the restic repository on the Mac is reachable and internally consistent
 #   2. the latest snapshot restores back onto sapserver
@@ -16,13 +16,13 @@
 # the live database are never opened for writing.
 #
 # Verification mode:
-#   * "cli"     — runs `havemind backup verify` + `havemind backup restore`, i.e.
+#   * "cli", runs `havemind backup verify` + `havemind backup restore`, i.e.
 #                 the same code path the server ships (restoreInstance: manifest
 #                 verification, integrity_check, epoch rotation). Used when a
 #                 Havemind CLI is available OUTSIDE the container. Point
 #                 HAVEMIND_CLI at it, e.g.
 #                   export HAVEMIND_CLI="node $HOME/havemind/apps/server/bin/havemind.js"
-#   * "offline" — same checks re-implemented over the artifact with python3 only
+#   * "offline", same checks re-implemented over the artifact with python3 only
 #                 (stdlib hashlib + sqlite3). Needs no node, no dist build and no
 #                 container, so the drill is runnable on a bare sapserver.
 #
