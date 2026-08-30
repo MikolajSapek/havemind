@@ -1,6 +1,6 @@
 {
   "name": "@havemind/obsidian-plugin",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "private": true,
   "description": "Desktop Obsidian client for the private Havemind pilot.",
   "license": "Apache-2.0",
@@ -13,6 +13,7 @@
   "scripts": {
     "build": "node build.mjs",
     "dev": "node build.mjs",
+    "dev:preview": "node preview/build.mjs --serve",
     "test": "vitest run --config vitest.config.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },

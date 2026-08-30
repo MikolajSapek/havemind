@@ -5,6 +5,38 @@ All notable changes to this project are documented here. The format is based on
 follows independent [Semantic Versioning](https://semver.org) for the plugin
 and the server.
 
+## [1.2.2], 2026-08-31
+
+### Fixed
+
+- The first-run screens no longer run into the edges of the pane. The chooser
+  and the host path mount their blocks directly on the view, which had given up
+  its own padding so the header could span the pane, so the heading, subheading,
+  option rows and the self-hosting link sat flush against the frame while the
+  hints between them stayed inset, leaving the text on two left edges in a 300px
+  sidebar.
+- The first-run screens can be scrolled. Scrolling and the 16px of air below the
+  last line come from the tab body on every connected screen, and these screens
+  render none, so in a pane shorter than its content the overflow could not be
+  reached at all and the host path's "I've done this, connect" button was out of
+  reach.
+
+### Added
+
+- A browser preview of the first-run screens (`npm run dev:preview`), which
+  renders the shipping section renderers and stylesheet outside Obsidian so
+  width- and height-dependent layout defects are visible before release.
+
+## [1.2.1], 2026-08-27
+
+### Fixed
+
+- The panel's keyboard listener is removed when the plugin unloads.
+- Release metadata is checked before publishing, preventing a mismatch between
+  the plugin package, the manifests and `versions.json`.
+- The local test deployment builds once, installs the same artefacts into both
+  test vaults and verifies their hashes.
+
 ## [1.2.0], 2026-08-24, Panel Redesign & Connection Reliability
 
 ### Added
