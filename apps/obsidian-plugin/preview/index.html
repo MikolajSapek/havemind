@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Havemind first-run screens</title>
+
+<!-- The shipping stylesheet, unmodified. Everything below re-creates the
+     variables Obsidian would supply; nothing below styles the pane itself. -->
+<link rel="stylesheet" href="../styles.css">
+
+<style>
+  /* Obsidian's theme variables, the values the plugin renders against. */
+  body.theme-light {
+    --background-primary: #ffffff;
+    --background-secondary: #f2f3f5;
+    --background-secondary-alt: #e3e5e8;
+    --background-modifier-border: #e0e0e0;
+    --background-modifier-hover: rgba(0, 0, 0, 0.045);
+    --text-normal: #222222;
+    --text-muted: #5c5c5c;
+    --text-faint: #999999;
+    --text-error: #c0392b;
+    --text-success: #0a8f3c;
+    --interactive-accent: #7c5cd6;
+    --interactive-accent-hover: #6a4bc4;
+    --color-accent-rgb: 124, 92, 214;
+    --color-green-rgb: 10, 143, 60;
+    --color-green-hsl: 142, 87%, 30%;
+    --color-red-rgb: 192, 57, 43;
+    --color-red-hsl: 6, 63%, 46%;
+    --shell: #e9eaee;
+  }
+  body.theme-dark {
+    --background-primary: #1e1e1e;
+    --background-secondary: #262626;
+    --background-secondary-alt: #161616;
+    --background-modifier-border: #3a3a3a;
+    --background-modifier-hover: rgba(255, 255, 255, 0.06);
+    --text-normal: #dadada;
+    --text-muted: #999999;
+    --text-faint: #666666;
+    --text-error: #ff6b6b;
+    --text-success: #44cf6e;
+    --interactive-accent: #a78bfa;
+    --interactive-accent-hover: #b9a2fb;
+    --color-accent-rgb: 167, 139, 250;
+    --color-green-rgb: 68, 207, 110;
+    --color-green-hsl: 138, 58%, 54%;
+    --color-red-rgb: 255, 107, 107;
+    --color-red-hsl: 0, 100%, 71%;
+    --shell: #141414;
+  }
+  body {
+    --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --font-monospace: ui-monospace, SFMono-Regular, Menlo, monospace;
+    --font-ui-medium: 15px;
+    --font-ui-small: 13px;
+    --font-ui-smaller: 12px;
+    --font-normal: 400;
+    --font-medium: 500;
+    --size-4-1: 4px;
+    --size-4-2: 8px;
+    --size-4-3: 12px;
+    --size-4-4: 16px;
+    --radius-s: 4px;
+    --icon-s: 16px;
+    --layer-popover: 30;
+
+    margin: 0;
+    min-height: 100vh;
+    background: var(--shell);
+    color: var(--text-normal);
+    font-family: var(--font-ui);
+    font-size: var(--font-ui-small);
+  }
+
+  /* The harness. None of this touches the pane. */
+  .bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 16px;
+    padding: 12px 16px;
+    background: var(--background-secondary);
+    border-bottom: 1px solid var(--background-modifier-border);
+  }
+  .group { display: flex; align-items: center; gap: 6px; }
+  .group > .label { color: var(--text-muted); font-size: 12px; }
+  .bar button {
+    padding: 4px 10px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    background: var(--background-primary);
+    color: var(--text-muted);
+    font: inherit;
+    cursor: pointer;
+  }
+  .bar button.is-active {
+    border-color: var(--interactive-accent);
+    color: var(--interactive-accent);
+  }
+  #width-readout {
+    min-width: 44px;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .stage { display: flex; justify-content: center; padding: 32px 16px 64px; }
+  /* The frame stands in for the sidebar leaf, and the dashed edge is the pane
+     boundary: the whole defect was blocks touching or crossing this line. */
+  /* The leaf gives `.view-content` its height, and the pane is that element,
+     so the preview must do the same or the pane's own bottom padding cannot be
+     told apart from slack left over inside the frame. */
+  #frame { display: flex; }
+  #pane { flex: 1; min-width: 0; }
+  #frame {
+    width: 300px;
+    height: 560px;
+    background: var(--background-primary);
+    border: 1px dashed color-mix(in srgb, var(--interactive-accent) 45%, transparent);
+    border-radius: 6px;
+    overflow: hidden;
+    resize: horizontal;
+  }
+  .note { max-width: 620px; margin: 0 auto; padding: 0 16px 40px; color: var(--text-muted); line-height: 1.6; }
+  .note code { font-family: var(--font-monospace); font-size: 0.92em; }
+</style>
+</head>
+<body class="theme-light">
+
+<div class="bar">
+  <div class="group">
+    <span class="label">Screen</span>
+    <button data-screen="chooser">Chooser</button>
+    <button data-screen="host">Host path</button>
+  </div>
+  <div class="group">
+    <span class="label">Theme</span>
+    <button data-theme="light" class="is-active">Light</button>
+    <button data-theme="dark">Dark</button>
+  </div>
+  <div class="group">
+    <span class="label">Width</span>
+    <input id="width" type="range" min="240" max="560" value="300">
+    <span id="width-readout">300px</span>
+  </div>
+</div>
+
+<div class="stage">
+  <div id="frame"><div id="pane"></div></div>
+</div>
+
+<p class="note">
+  The dashed edge is the pane boundary. Every block should hold one left edge,
+  12px inside it. Drag the width down to 240px: the defect showed up as the
+  heading and option rows meeting the frame while the two hints stayed inset.
+</p>
+
+<script src="./preview.js"></script>
+</body>
+</html>

@@ -25,6 +25,8 @@ backups/
 .obsidian/
 Havemind Conflicts/
 apps/obsidian-plugin/main.js
+apps/obsidian-plugin/preview/preview.js
+apps/obsidian-plugin/preview/preview.js.map
 
 npm-debug.log*
 *.tsbuildinfo

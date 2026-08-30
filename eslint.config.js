@@ -11,6 +11,10 @@ export default tseslint.config(
       '**/*.d.ts',
       // Built plugin bundle (gitignored, esbuild output), not source.
       'apps/obsidian-plugin/main.js',
+      // Built preview bundle (gitignored, esbuild output), not source. The
+      // preview's own sources next to it are linted normally.
+      'apps/obsidian-plugin/preview/preview.js',
+      'apps/obsidian-plugin/preview/preview.js.map',
       // Claude Design export bundle, reference artefacts, not linted source.
       'design/**',
     ],
