@@ -106,6 +106,9 @@
 
   /* Tab body inset */
   --havemind-body-pad: 14px 12px 16px;
+  /* Bottom air on the screens that render no tab body; matches the 16px that
+     `--havemind-body-pad` gives every other screen. */
+  --havemind-first-run-pad: var(--size-4-4);
 
   /* Alarm block (conflicts, failed sends) */
   --havemind-alarm-rule: 2px solid var(--text-error);
@@ -1325,6 +1328,11 @@
 .havemind-view > .havemind-status,
 .havemind-view > .havemind-status-detail,
 .havemind-view > .havemind-hint,
+.havemind-view > .havemind-entry-head,
+.havemind-view > .havemind-entry-subheading,
+.havemind-view > .havemind-entry-options,
+.havemind-view > .havemind-host-steps,
+.havemind-view > .havemind-step-link,
 .havemind-view > .havemind-empty,
 .havemind-view > .havemind-send-waiting,
 .havemind-view > label,
@@ -1334,6 +1342,25 @@
 .havemind-view > button,
 .havemind-view > h4,
 .havemind-view > hr { margin-left: 12px; margin-right: 12px; }
+/* The first-run screens scroll, and end with air below.
+ *
+ * `.havemind-tab-body` owns both on every connected screen: it takes the
+ * leftover height, scrolls, and its `--havemind-body-pad` ends in 16px. The
+ * chooser and the host path render no tab body, so they had neither. The last
+ * line sat flush on the pane's bottom edge (measured at 0px), and in a pane
+ * shorter than the content the overflow could not be reached at all, which put
+ * the host path's "I've done this, connect" button out of reach.
+ *
+ * `:has()` scopes this to exactly the screens that lack a tab body; the
+ * connected pane keeps its chrome flush and its own scroller. The scroll box
+ * is the pane itself here, so the padding is what keeps the final line off the
+ * edge at the end of the scroll. */
+.havemind-view:has(> .havemind-entry-options),
+.havemind-view:has(> .havemind-host-steps) {
+  overflow-y: auto;
+  padding-bottom: var(--havemind-first-run-pad);
+}
+
 /* No margin under the header: the alarm block and the tab strip both sit flush
    against it by design, and each sets its own inner padding. This rule once
    said `12px` while two other rules in this file said `0` for the same
