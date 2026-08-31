@@ -338,7 +338,11 @@ Fixes from this loop are committed separately; below is what was deliberately de
   - Guard `instanceof TFolder` + fallback (`Havemind Conflicts (files)` → root) in
     `writeConflictArtifact`.
   - Fixed: plugin conflict-folder commit (below, same loop).
-- [ ] **AUD-03** `plugin` Formatter/linter churn between machines with different settings
+- [x] **AUD-03** `plugin` Formatter/linter churn between machines with different settings
+  - Closed (2026-08-31) as a duplicate: the fix is the AUD-03 row further down
+    (`37e609d`, hash-side canonicalization + 1500 ms settle window + one-time
+    rebase). `runtime/modify-debounce.ts` and `runtime/canonicalization-rebase.ts`
+    are in the tree. This row is the pre-fix description, kept for its analysis.
   - Symptom: an auto-formatting plugin (Linter "format on save", Prettier-for-Obsidian) rewrites
     the note after Havemind writes it → `contentHash` differs from the seeded value → a new
     revision gets pushed. Two machines with different styles oscillate indefinitely; under
@@ -423,13 +427,23 @@ re-hash from the blob `read` hot path); below is what was deliberately deferred.
 
 - [ ] **AUD2-01** NIT `server` `auth-routes.ts:129`, the rate-limiter's `windows` map never
   removes entries after `resetAt` (grows with the number of keys). Limited in practice (2 devices).
-- [ ] **AUD2-02** NIT `server` `rejoin-routes.ts:157`, `revoke-routes.ts:154`, owner mutation
+- [x] **AUD2-02** NIT `server` `rejoin-routes.ts:157`, `revoke-routes.ts:154`, owner mutation
   endpoints (rejoin/revoke) with no rate limit.
+  - Evidence (2026-08-31): both endpoints now build a limiter from
+    `createRateLimiter` and run it in `onRequest` before the handler
+    (`rejoin-routes.ts:165`, `revoke-routes.ts:165`), each taking its window from
+    `deps.rateLimit ?? DEFAULT_RATE_LIMIT`.
 - [ ] **AUD2-03** NIT `server` `rejoin-grants.ts:321-342`, multiple live rejoin grants
   can be redeemed simultaneously per membership.
-- [ ] **AUD2-04** NIT (latent, unreachable in single-vault) `server` `membership-revocation.ts:127-132`
+- [x] **AUD2-04** NIT (latent, unreachable in single-vault) `server` `membership-revocation.ts:127-132`
 , membership revocation deletes ALL of a user's devices via `WHERE user_id`; becomes a
   real cross-vault bug if multi-vault is enabled.
+  - Evidence (2026-08-31): the device query is scoped,
+    `WHERE user_id = ? AND (vault_id = ? OR vault_id IS NULL)`
+    (`membership-revocation.ts:139`), the scope column arrives in migration 007,
+    and `vault_id IS NULL` stays fail-closed for devices onboarded before it.
+    Covered by `membership-revocation.test.ts` and
+    `multi-vault-isolation.test.ts:625` (vault B untouched).
 - [ ] **AUD2-05** NIT `server` `rejoin-grants.ts:254-319`, rejoin ignores vault soft-delete
   (fails fail-closed downstream).
 - [ ] **AUD2-06** MINOR `server` `auth-routes.ts:200-203`, blob GET is exempt from the rate limit
