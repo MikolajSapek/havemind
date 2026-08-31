@@ -17,16 +17,8 @@ havemind-alarm-rows
 havemind-alarm-send
 havemind-approve-
 havemind-author
-havemind-author-
-havemind-author-1
-havemind-author-2
-havemind-author-3
-havemind-author-4
-havemind-author-5
-havemind-author-6
 havemind-author-block
 havemind-author-block-animate
-havemind-author-initial
 havemind-author-mark
 havemind-author-mark-animate
 havemind-authors
@@ -76,6 +68,7 @@ havemind-header-action
 havemind-hint
 havemind-host-command
 havemind-host-steps
+havemind-invitation-token
 havemind-invite-copy-fallback
 havemind-invite-cta
 havemind-invite-envelope
@@ -85,7 +78,6 @@ havemind-invite-role
 havemind-join
 havemind-nav-bar
 havemind-onboarding
-havemind-overlay-color
 havemind-pane-header
 havemind-pane-mark
 havemind-pane-mark-dot
@@ -109,8 +101,6 @@ havemind-roster-dot
 havemind-roster-meta
 havemind-roster-name
 havemind-roster-row
-havemind-roster-row-height
-havemind-row-color
 havemind-secret-without-active
 havemind-section-error
 havemind-send-action

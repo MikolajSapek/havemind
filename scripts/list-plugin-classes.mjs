@@ -34,10 +34,16 @@ function walk(dir) {
 
 const names = new Set();
 for (const file of walk(SRC).filter((f) => f.endsWith('.ts'))) {
-  for (const match of readFileSync(file, 'utf8').matchAll(/havemind-[a-z0-9-]+/g)) {
+  const source = readFileSync(file, 'utf8');
+  for (const match of source.matchAll(/havemind-[a-z0-9-]+/g)) {
     // Client ids and refresh-token keys share the prefix but are not classes;
     // a UUID segment is the giveaway.
     if (/^havemind-[0-9a-f]{8}-/.test(match[0])) continue;
+    // A custom property (`--havemind-gap`) is a value, never a class. The two
+    // dashes sit outside the match, so without this check a test that asserts
+    // on a token name adds that token to the class list, and the list stops
+    // meaning "classes the source can apply".
+    if (source.startsWith('--', Math.max(0, match.index - 2))) continue;
     names.add(match[0]);
   }
 }
