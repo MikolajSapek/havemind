@@ -101,6 +101,47 @@ describe('entry chooser', () => {
     expect(texts(root).some((t) => /Install Docker/i.test(t))).toBe(false);
   });
 
+  it('keeps typed input when the host path hands you back to the chooser', () => {
+    // AT1-4. The back affordance is only safe if it is not also a way to lose
+    // a pasted invitation: someone who pastes, wanders into the host branch to
+    // check what it costs, and comes back must find their token still there.
+    const view = new HavemindOnboardingView(new WorkspaceLeaf(), {
+      panelProvider: () => buildConnectionPanel({ status: 'disconnected' }),
+    });
+    view.onOpen();
+    const root = view.containerEl as unknown as MockElement;
+
+    const options = flatten(root).filter((el) =>
+      (el.classes ?? []).includes('havemind-entry-option'),
+    );
+    expect(options).toHaveLength(2);
+    options[0]?.triggerClick();
+
+    const field = flatten(view.containerEl as unknown as MockElement).find(
+      (el) => el.tag === 'textarea',
+    );
+    if (field === undefined) throw new Error('paste field not rendered');
+    field.value = 'havemind-invitation-token';
+
+    const backToChooser = flatten(
+      view.containerEl as unknown as MockElement,
+    ).find((el) => el.text === 'Back');
+    backToChooser?.triggerClick();
+    const host = flatten(view.containerEl as unknown as MockElement).filter(
+      (el) => (el.classes ?? []).includes('havemind-entry-option'),
+    )[1];
+    host?.triggerClick();
+    const back = flatten(view.containerEl as unknown as MockElement).find(
+      (el) => el.text === 'Back',
+    );
+    back?.triggerClick();
+
+    const restored = flatten(view.containerEl as unknown as MockElement).find(
+      (el) => el.tag === 'textarea',
+    );
+    expect(restored?.value).toBe('havemind-invitation-token');
+  });
+
   it('skips the question for someone who followed a join link', () => {
     // Clicking obsidian://havemind-join already answers it: that user holds an
     // invitation. Asking anyway makes them answer twice.

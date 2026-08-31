@@ -490,7 +490,17 @@ are sequential; each is independently releasable.
   - ⏳ BLOCKED on the visual design of the pane (Claude Design). This issue
     fixes the structure; the layout of the single pane is designed first.
 
-- [ ] **UI-01** `plugin` Split the two entry paths (plans/007 Stage 1)
+- [x] **UI-01** `plugin` Split the two entry paths (plans/007 Stage 1)
+  - Evidence (2026-08-31): chooser shipped in `runtime/entry-choice.ts` +
+    `ui/entry-chooser-section.ts`. AT1-1 and AT1-5 covered by
+    `ui/priority-column.test.ts` ("asks which path a fresh user is on",
+    "skips the question for someone who followed a join link"); AT1-2/AT1-3 by
+    `runtime/entry-choice.test.ts` (paths, prices, one copyable command,
+    absolute guide URL); AT1-4 by the draft-preservation test added the same
+    day, which fails when `captureDrafts()` is removed. Negative AC holds:
+    `HavemindOnboardingViewOptions` and the `main.ts` wiring are unchanged.
+    Layout defects found while verifying this on screen are fixed in 1.2.2
+    (inset, scrolling, bottom air), see `ui/entry-inset.test.ts`.
   - A chooser replaces the unconditional five-step tutorial: "I have an
     invitation" goes straight to the paste form, "I'll host the server" gets
     the tutorial. Both keep a back affordance; a `havemind-join` URI skips the
