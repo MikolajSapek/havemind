@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { WakeSubscription } from './wake-subscription';
 import type { RequestUrlFn, RequestUrlResponseLike } from './sync-transport';
@@ -240,6 +240,26 @@ describe('WakeSubscription', () => {
     await sub.whenStopped();
 
     expect(calls.length).toBe(1);
+  });
+
+  it('cancels a pending retry delay and finishes stopping immediately', async () => {
+    const cancel = vi.fn();
+    const requestUrl: RequestUrlFn = async () => {
+      throw new Error('offline');
+    };
+    const sub = new WakeSubscription({
+      ...baseOptions(),
+      requestUrl,
+      onWake: () => undefined,
+      scheduler: () => cancel,
+    });
+
+    sub.start();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    sub.stop();
+    await sub.whenStopped();
+
+    expect(cancel).toHaveBeenCalledOnce();
   });
 
   it('reports connected on a resolved poll and disconnected on a transport error', async () => {

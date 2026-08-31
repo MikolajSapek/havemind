@@ -118,7 +118,9 @@ function makeRunner(
     transport,
     state,
     vault,
-    scheduler: (callback, delayMs) => retries.push({ callback, delayMs }),
+    scheduler: (callback, delayMs) => {
+      retries.push({ callback, delayMs });
+    },
     random: () => 0,
     ...overrides,
   });
@@ -586,6 +588,22 @@ describe('SyncRunner single-flight and backoff', () => {
 });
 
 describe('SyncRunner stop (reconnect quiescence)', () => {
+  it('cancels a scheduled backoff retry on stop()', async () => {
+    const cancel = vi.fn();
+    const pull = vi.fn(async () => {
+      throw new Error('offline');
+    });
+    const { runner } = makeRunner({
+      transport: { push: vi.fn(async () => []), pull },
+      scheduler: () => cancel,
+    });
+
+    await runner.trigger();
+    runner.stop();
+
+    expect(cancel).toHaveBeenCalledOnce();
+  });
+
   it('emits no further push once stopped, even when a pending backoff retry fires', async () => {
     // A prior-session connection that went offline is backing off. On reconnect
     // its handle is stopped; the pending backoff must never fire a push through

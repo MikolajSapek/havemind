@@ -51,6 +51,7 @@ export function createSchedulerHooks(
 /** Backoff scheduler for the runner, wrapping `setTimeout`. */
 export function createBackoffScheduler(): SchedulerFn {
   return (callback, delayMs) => {
-    window.setTimeout(callback, delayMs);
+    const timer = window.setTimeout(callback, delayMs);
+    return () => window.clearTimeout(timer);
   };
 }

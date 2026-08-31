@@ -177,7 +177,18 @@ export interface VaultApplyPort {
   recordConflict(event: RemoteEvent): Promise<void>;
 }
 
-export type SchedulerFn = (callback: () => void, delayMs: number) => void;
+/** Cancels one scheduled callback when the runtime is torn down. */
+export type SchedulerCancellation = () => void;
+
+/**
+ * Schedules a callback. Test schedulers may return nothing, while production
+ * schedulers return a cancellation function so reconnect/unload can release a
+ * pending timer immediately.
+ */
+export type SchedulerFn = (
+  callback: () => void,
+  delayMs: number,
+) => void | SchedulerCancellation;
 
 export interface SyncRunnerOptions {
   readonly transport: SyncTransport;
@@ -328,6 +339,8 @@ export class SyncRunner {
   private failureCount = 0;
   private cycleCounter = 0;
   private stopped = false;
+  /** Cancellable retry timers still waiting to re-enter the sync loop. */
+  private readonly pendingBackoffCancellations = new Set<SchedulerCancellation>();
   /**
    * The server head observed on the FIRST pull after this runner was built (a
    * runner is rebuilt per connection). Every remote event at or below it belongs
@@ -381,6 +394,10 @@ export class SyncRunner {
    */
   public stop(): void {
     this.stopped = true;
+    for (const cancel of this.pendingBackoffCancellations) {
+      cancel();
+    }
+    this.pendingBackoffCancellations.clear();
   }
 
   private async loop(): Promise<SyncCycleResult> {
@@ -733,9 +750,25 @@ export class SyncRunner {
     // Half jitter: a guaranteed floor of ceiling/2 plus up to another half.
     const half = ceiling / 2;
     const delayMs = half + this.options.random() * half;
-    this.options.scheduler(() => {
+    const scheduledTimer: { cancellation?: SchedulerCancellation } = {};
+    let fired = false;
+    const scheduled = this.options.scheduler(() => {
+      fired = true;
+      if (scheduledTimer.cancellation !== undefined) {
+        this.pendingBackoffCancellations.delete(scheduledTimer.cancellation);
+      }
       void this.trigger();
     }, delayMs);
+    if (typeof scheduled !== 'function') return;
+    const cancellation = scheduled;
+    scheduledTimer.cancellation = cancellation;
+    // A synchronous test scheduler may fire before it returns its cancellation;
+    // only retain timers that are still pending after scheduling.
+    if (!fired && !this.stopped) {
+      this.pendingBackoffCancellations.add(cancellation);
+    } else if (this.stopped) {
+      cancellation();
+    }
   }
 }
 

@@ -22,7 +22,7 @@
  * to the normal cadence when push is down.
  */
 
-import type { SchedulerFn } from '../sync/sync-runner';
+import type { SchedulerCancellation, SchedulerFn } from '../sync/sync-runner';
 import type { RequestUrlFn } from './sync-transport';
 
 /** First-failure backoff ceiling; mirrors the runner's five-second loop cadence. */
@@ -107,13 +107,19 @@ export class WakeSubscription {
   /** null until the first edge is emitted, so the very first state is reported. */
   private connected: boolean | null = null;
   private runPromise: Promise<void> = Promise.resolve();
+  /** The one settle/backoff timer the serial wake loop may currently await. */
+  private pendingDelay: {
+    readonly cancel: SchedulerCancellation;
+    readonly resolve: () => void;
+  } | null = null;
 
   constructor(options: WakeSubscriptionOptions) {
     this.options = {
       scheduler:
         options.scheduler ??
         ((callback, delayMs) => {
-          setTimeout(callback, delayMs);
+          const timer = setTimeout(callback, delayMs);
+          return () => clearTimeout(timer);
         }),
       random: options.random ?? Math.random,
       baseBackoffMs: options.baseBackoffMs ?? DEFAULT_BASE_BACKOFF_MS,
@@ -139,6 +145,12 @@ export class WakeSubscription {
    */
   stop(): void {
     this.stopped = true;
+    const pending = this.pendingDelay;
+    this.pendingDelay = null;
+    pending?.cancel();
+    // Cancelling the native timer alone would leave `whenStopped()` awaiting
+    // the delay promise forever, so resolve it as part of teardown.
+    pending?.resolve();
   }
 
   /** Resolves once the loop has fully stopped, a teardown/test synchronisation aid. */
@@ -201,9 +213,7 @@ export class WakeSubscription {
 
   /** Bounded pause between re-checks while a fired wake settles. */
   private settleDelay(): Promise<void> {
-    return new Promise((resolve) => {
-      this.options.scheduler(() => resolve(), this.options.settleDelayMs);
-    });
+    return this.waitForDelay(this.options.settleDelayMs);
   }
 
   private async pollOnce(cursor: number): Promise<number> {
@@ -236,8 +246,32 @@ export class WakeSubscription {
     // Half jitter: a guaranteed floor of ceiling/2 plus up to another half.
     const half = ceiling / 2;
     const delayMs = half + this.options.random() * half;
+    return this.waitForDelay(delayMs);
+  }
+
+  /** Schedules one cancellable pause and releases it promptly on stop(). */
+  private waitForDelay(delayMs: number): Promise<void> {
     return new Promise((resolve) => {
-      this.options.scheduler(() => resolve(), delayMs);
+      let settled = false;
+      const finish = (): void => {
+        if (settled) return;
+        settled = true;
+        if (this.pendingDelay?.resolve === finish) {
+          this.pendingDelay = null;
+        }
+        resolve();
+      };
+      const scheduled = this.options.scheduler(finish, delayMs);
+      const cancel: SchedulerCancellation =
+        typeof scheduled === 'function' ? scheduled : () => undefined;
+      this.pendingDelay = { cancel, resolve: finish };
+      // Synchronous test schedulers resolve before they can return; never leave
+      // their already-completed delay registered as pending.
+      if (settled) this.pendingDelay = null;
+      if (this.stopped) {
+        cancel();
+        finish();
+      }
     });
   }
 
