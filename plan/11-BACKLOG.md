@@ -542,10 +542,70 @@ are sequential; each is independently releasable.
     status row rendered, the 1.1.3 defect becomes impossible, not just fixed.
   - AC: `npm run test:e2e` green **without modifying** the e2e suites.
 
+## MOB, mobile clients (research 2026-08-31)
+
+The plugin ships `isDesktopOnly: true`, which `plans/001-technical-plan.md` §282
+records as a pilot-era decision ("desktop-only until mobile behavior passes its
+own smoke tests"), not a technical limit. A code audit found the bundle already
+mobile-clean: the build's own check rejects Node and Electron APIs and passes,
+there is no `FileSystemAdapter`, no regex lookbehind, no raw `fetch` (61 calls
+go through `requestUrl`), no WebSocket, no `localStorage`, and IndexedDB is
+reached through `globalThis`. The 16 `adapter.*` calls read `.obsidian/` config
+the Vault API cannot see, and `DataAdapter` exists on mobile.
+
+Two constraints are the platform's, not ours, and are documented rather than
+fixed: the server URL is a tailnet address, so a phone needs Tailscale, and iOS
+suspends background work after roughly 30 seconds, so sync runs while Obsidian
+is open. That limit applies to every sync plugin, LiveSync included.
+
+MOB-01 is worth doing on its own merits; the other two are gated behind it and
+behind a real device.
+
+- [ ] **MOB-01** `plugin` Resume the sync loop when the app comes back to the foreground
+  - The server's long poll runs 25s (`sync-routes.ts:121`,
+    `DEFAULT_WAIT_TIMEOUT_MS`) and iOS freezes background work at about 30s, yet
+    the plugin registers no `visibilitychange` listener at all. Minimising
+    Obsidian leaves a `/wait` request frozen mid-flight, and returning to the app
+    tells the sync loop nothing: it resumes on backoff at best, and waits out a
+    dead request at worst.
+  - The teardown work in 1.2.3 already supplies the mechanism (`AbortSignal` in
+    `connect-driver.ts`, the stop signal in `wake-subscription.ts`); this wires it
+    to document visibility.
+  - Worth doing regardless of mobile: a slept laptop behaves the same way.
+  - AC: with the document hidden then shown, the runner abandons the in-flight
+    wait and re-enters the loop immediately rather than after a backoff delay
+    (functional, fake visibility source, no real timers).
+  - AC negative: no listener survives `onunload`, and a visibility event after
+    teardown starts nothing (regression on the 1.2.3 teardown guarantees).
+  - AC: `npm run verify` green; no change to the sync protocol or the server.
+
+- [ ] **MOB-02** `plugin,user-decision` Smoke-test a mobile build on a real device
+  - Build with `isDesktopOnly: false` and side-load the three files onto one
+    phone. Never flip the shipped manifest first: the plugin is public, and an
+    untested flag lands on other people's phones.
+  - Cover, in one pass: onboarding from an invitation, sync both directions, one
+    conflict, the author overlay in the mobile editor, one binary attachment, and
+    behaviour across minimise and return.
+  - Two answers cannot come from reading the code. The author overlay uses the
+    public `editorInfoField`, but the mobile editor is a different touch surface
+    in a narrow column. And `MAX_BINARY_FILE_BYTES` is 25 MB carried as base64 in
+    memory (~33 MB, plus copies while converting), which a 3 GB phone may refuse.
+  - AC: every item above either passes or is recorded as a named defect with a
+    reproduction.
+  - Depends on: MOB-01.
+
+- [ ] **MOB-03** `plugin,docs` Ship mobile support
+  - Flip `isDesktopOnly`, document what a phone needs (Obsidian, Tailscale on the
+    same tailnet, the plugin) and what it does not get (background sync), and say
+    plainly that sync runs while Obsidian is open.
+  - AC: the defects MOB-02 found are fixed or documented as known limitations.
+  - AC: `docs/self-hosting.md` covers joining from a phone end to end.
+  - Depends on: MOB-02.
+
 ## GITLAB-IMPORT
 
-- Labels: `foundation`, `server`, `plugin`, `sapserver`, `security`, `user-decision`.
-- Milestones: `F0`, `F1`, `F2`, `F3`, `F4`, `F5`, `F6`, `F7`, `F8`, `F9`, `SRV`.
+- Labels: `foundation`, `server`, `plugin`, `sapserver`, `security`, `user-decision`, `docs`.
+- Milestones: `F0`, `F1`, `F2`, `F3`, `F4`, `F5`, `F6`, `F7`, `F8`, `F9`, `SRV`, `MOB`.
 - Import: `glab issue create` per row above (title = `Fx-NN: description`, body = AC), or export
   to CSV (`Title,Labels,Milestone,Description`) and `glab issue import` where available.
 - Checkboxes in this file remain the source of truth for progress, the tracker import is a copy
