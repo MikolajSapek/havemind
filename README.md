@@ -14,7 +14,7 @@ changed what.
 Use it with people first. If you choose to use Claude, MCP, or another local
 agent in that vault, Havemind keeps those changes in the same history too.
 
-**Version 1.2.2, first-run layout fixes.** A seven-day,
+**Version 1.2.3, clean teardown.** A seven-day,
 two-device pilot completed without data loss. Havemind does not provide
 end-to-end encryption: the self-hosted server stores synced content in plaintext.
 Read the [security model](#security-model) before connecting a vault you care

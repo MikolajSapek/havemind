@@ -1,6 +1,6 @@
 {
   "name": "@havemind/obsidian-plugin",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "private": true,
   "description": "Desktop Obsidian client for the private Havemind pilot.",
   "license": "Apache-2.0",

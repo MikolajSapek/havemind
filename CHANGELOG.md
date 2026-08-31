@@ -5,6 +5,26 @@ All notable changes to this project are documented here. The format is based on
 follows independent [Semantic Versioning](https://semver.org) for the plugin
 and the server.
 
+## [1.2.3], 2026-08-31
+
+### Fixed
+
+- Unloading or reloading the plugin cancels the work still in flight. A sync
+  retry timer scheduled moments earlier could fire after unload, and a
+  connection attempt awaiting onboarding I/O ran to completion regardless of
+  whether the plugin was still there to receive it. Retry timers are now
+  cancellable and released on teardown, and the connect drive takes an
+  `AbortSignal` that `onunload` and `disconnect` both trigger.
+
+### Internal
+
+- The generated plugin class list no longer collects CSS custom properties.
+  `list-plugin-classes.mjs` greps identifier-shaped strings, so
+  `--havemind-first-run-pad` read as a class the moment a test named it, and
+  eleven tokens had already entered the list the same way. The list feeds
+  `stylesheet-conflicts.test.ts`, whose whole job is to fail on a rule for a
+  class nothing renders, so padding it with tokens weakened that check.
+
 ## [1.2.2], 2026-08-31
 
 ### Fixed
