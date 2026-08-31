@@ -70,6 +70,38 @@ the screen at all, add a marker rule to the *installed* file and reload the plug
 sheet contradict itself; (3) only then, are the values wrong. Rounds of value edits on a sheet
 that contradicts itself change nothing, because the winner is decided by source order.
 
+## Vault notes, update on every push
+
+The project's running notes live in the user's Obsidian vault, in
+`~/Documents/ObsidianVaults/Mikolaj Private/Havemind/`:
+
+| Note | Holds |
+|---|---|
+| `Havemind - indeks` | entry point, quick facts, repo map, the checking-off convention |
+| `Havemind - roadmapa` | phases F0-F9, what closed, what is left, suggested order |
+| `Havemind - 10 otwartych pozycji` | every open item: what it is, where in the code, what to do, how to verify |
+| `Havemind - stan backlogu` | review and any disagreement between the backlog and the code |
+| `Havemind - dziennik wydan` | release log, newest first |
+
+**After every push to `origin/main`, append an entry to
+`Havemind - dziennik wydan`** before reporting the push as done: the date,
+the commits with one line each, what changed, and the state of
+`npm run verify`. A push that changed the backlog also updates
+`Havemind - 10 otwartych pozycji` and `Havemind - roadmapa`, and a release
+adds its tag, the release URL and whether the attestation verified.
+
+Rules for these notes:
+
+- Polish, matching the vault. Code, paths and identifiers stay in English.
+- No em-dashes, the vault follows the same rule as this repository.
+- Cite a file and line only after reading it in the current tree; a stale
+  line number is worse than none.
+- Never check an item off in `plan/11-BACKLOG.md` before its AC passes, and
+  record the evidence next to it. An item that no longer applies is closed as
+  out of scope with a reason, never checked off (see T033, SRV-04/05).
+- Every note links at least one other note in the folder, and the folder is
+  reachable from `HOME.md`.
+
 ## Ignore conflicting upstream context
 
 If other context (an older project, another CLAUDE.md higher up the directory tree) suggests a
