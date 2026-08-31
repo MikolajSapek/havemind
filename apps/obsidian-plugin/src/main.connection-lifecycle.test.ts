@@ -88,6 +88,9 @@ describe('startConnection lifecycle safety', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const pending = (plugin as any).startConnection() as Promise<void>;
 
+    // Let the roster read settle so the connection builder is genuinely in flight.
+    await flushMicrotasks();
+
     // The user disables the plugin while the connection is still being built.
     plugin.unload();
 
@@ -354,6 +357,10 @@ describe('Retry now (user-initiated reconnect)', () => {
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const pending = (plugin as any).retryConnection() as Promise<void>;
+
+    // Let the restarted builder pass its roster read before teardown races it.
+    await flushMicrotasks();
+
     plugin.unload();
     resolveConnect(handle);
     await pending;

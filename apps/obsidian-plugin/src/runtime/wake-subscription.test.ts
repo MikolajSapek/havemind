@@ -242,6 +242,28 @@ describe('WakeSubscription', () => {
     expect(calls.length).toBe(1);
   });
 
+  it('finishes stopping without waiting for an in-flight long-poll response', async () => {
+    let requestStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      requestStarted = resolve;
+    });
+    const requestUrl: RequestUrlFn = async () => {
+      requestStarted();
+      return new Promise<RequestUrlResponseLike>(() => undefined);
+    };
+    const sub = new WakeSubscription({
+      ...baseOptions(),
+      requestUrl,
+      onWake: () => undefined,
+    });
+
+    sub.start();
+    await started;
+    sub.stop();
+
+    await expect(sub.whenStopped()).resolves.toBeUndefined();
+  });
+
   it('cancels a pending retry delay and finishes stopping immediately', async () => {
     const cancel = vi.fn();
     const requestUrl: RequestUrlFn = async () => {

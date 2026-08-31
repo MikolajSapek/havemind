@@ -105,6 +105,14 @@ export function buildSyncController(
         }),
   });
 
+  const configApply = createConfigApplyReloader({
+    triggerCssChange: () => {
+      plugin.app.workspace.trigger?.('css-change');
+    },
+    notify: (message) => {
+      new Notice(message);
+    },
+  });
   const vault = new VaultApplyAdapter({
     files: createVaultFilePort({
       vault: (plugin.app as unknown as AppWithVault).vault,
@@ -113,14 +121,7 @@ export function buildSyncController(
       // receiving device restarted Obsidian, because Obsidian caches its config
       // in memory and the plugin never signalled a reload. `css-change` is the
       // documented workspace event that makes it re-read snippets and themes.
-      configApply: createConfigApplyReloader({
-        triggerCssChange: () => {
-          plugin.app.workspace.trigger?.('css-change');
-        },
-        notify: (message) => {
-          new Notice(message);
-        },
-      }),
+      configApply,
     }),
     conflictFolder: CONFLICT_FOLDER,
     resolveRevision: connection.resolveRevision,
@@ -214,6 +215,7 @@ export function buildSyncController(
     hooks: createSchedulerHooks(plugin),
     intervalMs: connection.intervalMs ?? DEFAULT_INTERVAL_MS,
     onStatus,
+    onStop: () => configApply.dispose(),
     // Push is optional: omit `wake` entirely on the poll-only fallback path so
     // the controller never tries to start a subscription that failed to build.
     ...(wake === undefined

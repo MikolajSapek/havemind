@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   HavemindSyncController,
@@ -72,6 +72,7 @@ function build(overrides?: {
   intervalMs?: number;
   wake?: WakeSubscriptionLike;
   pushConnectedIntervalMs?: number;
+  onStop?: () => void;
 }): {
   controller: HavemindSyncController;
   runner: FakeRunner;
@@ -96,6 +97,7 @@ function build(overrides?: {
     ...(overrides?.pushConnectedIntervalMs === undefined
       ? {}
       : { pushConnectedIntervalMs: overrides.pushConnectedIntervalMs }),
+    ...(overrides?.onStop === undefined ? {} : { onStop: overrides.onStop }),
   });
   return { controller, runner, hooks, statuses, reported };
 }
@@ -150,6 +152,14 @@ describe('HavemindSyncController', () => {
     controller.start();
     controller.stop();
     expect(runner.stopCount).toBe(1);
+  });
+
+  it('runs connection-owned cleanup when stopped', () => {
+    const onStop = vi.fn();
+    const { controller } = build({ onStop });
+    controller.stop();
+    controller.stop();
+    expect(onStop).toHaveBeenCalledOnce();
   });
 
     it('starts and stops the push subscription in lockstep with the schedule', () => {

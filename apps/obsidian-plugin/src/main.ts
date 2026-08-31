@@ -250,6 +250,8 @@ export default class HavemindPlugin extends Plugin {
    * settles.
    */
   private retryInFlight = false;
+  /** Abort signals for all connection builds that are still awaiting onboarding I/O. */
+  private readonly connectionAttemptAborters = new Set<AbortController>();
   /**
    * Guards the user-initiated "Reset connection" (P1 #5) so a double-click can
    * never run two overlapping clear-and-rewrite passes over `data.json`.
@@ -558,6 +560,7 @@ export default class HavemindPlugin extends Plugin {
     // Mark unloaded BEFORE anything else so an in-flight `startConnection` await
     // that resolves after this point stops its handle instead of assigning it.
     this.unloaded = true;
+    this.abortConnectionAttempts();
     // Cancel any in-flight invitee rejoin poll so it never fires after unload.
     this.disarmRejoin();
     // Cancel any pending auto-repair sweep so it never fires after unload.
@@ -719,13 +722,17 @@ export default class HavemindPlugin extends Plugin {
 
   /** The fallible connection build, kept separate from the UI-facing boundary. */
   private async startConnectionOnce(): Promise<void> {
+    const attempt = this.beginConnectionAttempt();
+    try {
     // Load the persisted roster first so a reopened, already-connected vault
     // shows its connected members immediately (never derived from activity).
     await this.loadRoster();
+    if (attempt.signal.aborted) return;
     const handle = await startHavemindConnection(
       this,
       (status, view) => this.handleStatus(status, view),
       this.activityHooks(),
+      attempt.signal,
     );
     // Guard the assignment against two races that resolve only after the await:
     //  - FIX 1: the plugin was unloaded while this build was in flight. `onunload`
@@ -756,6 +763,9 @@ export default class HavemindPlugin extends Plugin {
     // can now auto-merge. Scheduled (debounced) so it runs alongside, not
     // ahead of, the first sync cycle.
     this.scheduleConflictSweep();
+    } finally {
+      this.connectionAttemptAborters.delete(attempt);
+    }
   }
 
   /** Runtime hooks handed to the sync loop so live surfaces stay fed. */
@@ -950,6 +960,8 @@ export default class HavemindPlugin extends Plugin {
     serverUrl: string,
     report: ConnectReporter,
   ): Promise<void> {
+    const attempt = this.beginConnectionAttempt();
+    try {
     // A fresh paste clears any prior "invitation invalid" screen.
     this.guestInvitationInvalid = false;
     // Keep a working connection until the replacement flow has actually
@@ -963,6 +975,7 @@ export default class HavemindPlugin extends Plugin {
       // Durably record the waiting state so a pane reopen resumes the waiting
       // screen (with the code) instead of a blank paste form.
       onPendingApproval: (verificationPhrase) => {
+        if (attempt.signal.aborted || this.unloaded) return;
         this.awaitingApproval = { verificationPhrase };
         this.views.refreshOnboarding();
       },
@@ -970,10 +983,12 @@ export default class HavemindPlugin extends Plugin {
       // waiting screen for the terminal "invitation invalid" screen. This is an
       // expected auth response, not a connection loss, status is untouched.
       onInvitationRejected: () => {
+        if (attempt.signal.aborted || this.unloaded) return;
         this.awaitingApproval = null;
         this.guestInvitationInvalid = true;
         this.views.refreshOnboarding();
       },
+      signal: attempt.signal,
     });
     if (handle !== null) {
       // Guard against the plugin being unloaded while the invitee approval poll
@@ -1006,6 +1021,9 @@ export default class HavemindPlugin extends Plugin {
       // MRG-05: sweep any pre-existing conflict copies now that a base is loaded.
       this.scheduleConflictSweep();
     }
+    } finally {
+      this.connectionAttemptAborters.delete(attempt);
+    }
   }
 
   /**
@@ -1028,6 +1046,7 @@ export default class HavemindPlugin extends Plugin {
 
   /** Stops the live sync loop; the paste form returns so the user can reconnect. */
   private disconnect(): void {
+    this.abortConnectionAttempts();
     this.connection?.stop();
     this.connection = null;
     this.syncState = null;
@@ -1042,6 +1061,20 @@ export default class HavemindPlugin extends Plugin {
     this.guestInvitationInvalid = false;
     this.setStatus(formatStatusBar({ status: 'disconnected' }));
     this.views.refreshOnboarding();
+  }
+
+  /** Starts a tracked connection build; all live attempts are cancelled on teardown. */
+  private beginConnectionAttempt(): AbortController {
+    const attempt = new AbortController();
+    this.connectionAttemptAborters.add(attempt);
+    return attempt;
+  }
+
+  private abortConnectionAttempts(): void {
+    for (const attempt of this.connectionAttemptAborters) {
+      attempt.abort();
+    }
+    this.connectionAttemptAborters.clear();
   }
 
   /** Updates the status bar and live Connect indicator from a cycle status. */

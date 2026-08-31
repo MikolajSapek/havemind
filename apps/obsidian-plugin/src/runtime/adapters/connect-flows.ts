@@ -53,6 +53,7 @@ export async function startHavemindConnection(
   plugin: Plugin,
   onStatus: StatusListener,
   hooks?: RuntimeHooks,
+  signal?: AbortSignal,
 ): Promise<ConnectionHandle> {
   // An owner paired via /owner/pair persists a connection record and takes
   // precedence; otherwise resume any in-flight invitee onboarding.
@@ -92,6 +93,7 @@ export async function startHavemindConnection(
     sleep: (ms) => new Promise((resolve) => window.setTimeout(resolve, ms)),
     pollIntervalMs: APPROVAL_POLL_INTERVAL_MS,
     maxSteps: MAX_CONNECT_STEPS,
+    ...(signal === undefined ? {} : { signal }),
   });
 
   if (!isConnectedOnboardingState(connectedState)) {
@@ -122,6 +124,8 @@ export interface ConnectFromInputOptions {
   readonly onInvitationRejected?: () => void;
   /** Live UI hooks (activity feed) threaded into the started sync loop. */
   readonly hooks?: RuntimeHooks;
+  /** Cancels a pending invitation-approval drive when its UI owner disappears. */
+  readonly signal?: AbortSignal;
 }
 
 /**
@@ -241,6 +245,7 @@ async function connectAsInvitee(
     sleep: (ms) => new Promise((resolve) => window.setTimeout(resolve, ms)),
     pollIntervalMs: APPROVAL_POLL_INTERVAL_MS,
     maxSteps: MAX_CONNECT_STEPS,
+    ...(options.signal === undefined ? {} : { signal: options.signal }),
   });
   if (state.phase === 'rejected') {
     // An auth rejection is an expected in-flow response, not a connection loss:

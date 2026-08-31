@@ -75,7 +75,10 @@ export interface ConfigApplyReloaderOptions {
   /** Shows a user-facing message (`new Notice` in the runtime). */
   readonly notify: (message: string) => void;
   /** Timer seam; defaults to `window.setTimeout`. */
-  readonly schedule?: (run: () => void, delayMs: number) => void;
+  readonly schedule?: (
+    run: () => void,
+    delayMs: number,
+  ) => void | (() => void);
   /** Diagnostic sink for a failing side effect; it never receives error data. */
   readonly warn?: (message: string) => void;
   readonly batchMs?: number;
@@ -84,6 +87,8 @@ export interface ConfigApplyReloaderOptions {
 export interface ConfigApplyReloader {
   /** Records one successfully applied `.obsidian/` path (write or delete). */
   applied(path: string): void;
+  /** Cancels a pending batch and makes late timer callbacks inert. */
+  dispose(): void;
 }
 
 /**
@@ -99,8 +104,12 @@ export interface ConfigApplyReloader {
 export function createConfigApplyReloader(
   options: ConfigApplyReloaderOptions,
 ): ConfigApplyReloader {
-  const schedule =
-    options.schedule ?? ((run, delayMs) => void window.setTimeout(run, delayMs));
+  const schedule: NonNullable<ConfigApplyReloaderOptions['schedule']> =
+    options.schedule ??
+    ((run, delayMs) => {
+      const timer = window.setTimeout(run, delayMs);
+      return () => window.clearTimeout(timer);
+    });
   const warn =
     options.warn ??
     ((message) => console.warn(message));
@@ -109,6 +118,8 @@ export function createConfigApplyReloader(
   let cssPending = false;
   let noticePending = false;
   let armed = false;
+  let disposed = false;
+  let cancellation: (() => void) | null = null;
 
   const runGuarded = (label: string, effect: () => void): void => {
     try {
@@ -121,7 +132,9 @@ export function createConfigApplyReloader(
   };
 
   const flush = (): void => {
+    if (disposed) return;
     armed = false;
+    cancellation = null;
     const css = cssPending;
     const notice = noticePending;
     cssPending = false;
@@ -136,6 +149,7 @@ export function createConfigApplyReloader(
 
   return {
     applied(path) {
+      if (disposed) return;
       if (classifyConfigApplyEffect(path) === 'css-reload') {
         cssPending = true;
       } else {
@@ -143,7 +157,28 @@ export function createConfigApplyReloader(
       }
       if (armed) return;
       armed = true;
-      schedule(flush, batchMs);
+      let fired = false;
+      const scheduled = schedule(() => {
+        fired = true;
+        cancellation = null;
+        flush();
+      }, batchMs);
+      if (typeof scheduled === 'function') {
+        if (!fired && !disposed) {
+          cancellation = scheduled;
+        } else {
+          scheduled();
+        }
+      }
+    },
+    dispose() {
+      if (disposed) return;
+      disposed = true;
+      armed = false;
+      cssPending = false;
+      noticePending = false;
+      cancellation?.();
+      cancellation = null;
     },
   };
 }

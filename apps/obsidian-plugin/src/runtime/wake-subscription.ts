@@ -107,6 +107,11 @@ export class WakeSubscription {
   /** null until the first edge is emitted, so the very first state is reported. */
   private connected: boolean | null = null;
   private runPromise: Promise<void> = Promise.resolve();
+  private resolveStopSignal!: () => void;
+  /** Resolves on stop so the loop does not await an opaque requestUrl promise. */
+  private readonly stopSignal = new Promise<void>((resolve) => {
+    this.resolveStopSignal = resolve;
+  });
   /** The one settle/backoff timer the serial wake loop may currently await. */
   private pendingDelay: {
     readonly cancel: SchedulerCancellation;
@@ -145,6 +150,7 @@ export class WakeSubscription {
    */
   stop(): void {
     this.stopped = true;
+    this.resolveStopSignal();
     const pending = this.pendingDelay;
     this.pendingDelay = null;
     pending?.cancel();
@@ -163,7 +169,9 @@ export class WakeSubscription {
       let sentCursor: number;
       let resolvedCursor: number;
       try {
-        sentCursor = await this.options.loadCursor();
+        const loadedCursor = await this.awaitOrStop(this.options.loadCursor());
+        if (loadedCursor === null) return;
+        sentCursor = loadedCursor;
         // Anti-spin gate. `onWake` fires syncNow fire-and-forget; the durable
         // cursor only advances once that pull completes. Until it does,
         // re-issuing /wait with the same still-behind cursor just triggers the
@@ -179,7 +187,9 @@ export class WakeSubscription {
         }
         // Durable cursor caught up (sync landed) or no wake pending: re-arm.
         this.pendingSyncFromCursor = null;
-        resolvedCursor = await this.pollOnce(sentCursor);
+        const polledCursor = await this.awaitOrStop(this.pollOnce(sentCursor));
+        if (polledCursor === null) return;
+        resolvedCursor = polledCursor;
       } catch (error) {
         if (this.stopped) {
           return;
@@ -235,6 +245,15 @@ export class WakeSubscription {
       throw new Error('wake long-poll response missing numeric cursor');
     }
     return body.cursor as number;
+  }
+
+  /** Lets teardown detach from an unabortable Obsidian requestUrl call promptly. */
+  private async awaitOrStop<T>(operation: Promise<T>): Promise<T | null> {
+    if (this.stopped) return null;
+    return Promise.race([
+      operation,
+      this.stopSignal.then(() => null),
+    ]);
   }
 
   private backoff(): Promise<void> {

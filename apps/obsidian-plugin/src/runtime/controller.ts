@@ -64,6 +64,8 @@ export interface HavemindSyncControllerOptions {
    * degradation) when omitted.
    */
   readonly pushConnectedIntervalMs?: number;
+  /** Releases connection-owned resources that are not owned by the scheduler. */
+  readonly onStop?: () => void;
 }
 
 /**
@@ -81,6 +83,7 @@ export class HavemindSyncController {
   private lastSyncedAt: number | undefined;
   private consecutiveFailures = 0;
   private lastObservedCycleId = 0;
+  private cleanupDone = false;
 
   constructor(options: HavemindSyncControllerOptions) {
     this.options = options;
@@ -111,6 +114,10 @@ export class HavemindSyncController {
     // late cycle would push through the now-stale transport (prior identity) and
     // 403 the server, so a stopped connection's runner must be fully inert.
     this.options.runner.stop?.();
+    if (!this.cleanupDone) {
+      this.cleanupDone = true;
+      this.options.onStop?.();
+    }
   }
 
   /**

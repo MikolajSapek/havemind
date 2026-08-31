@@ -1225,6 +1225,31 @@ describe('createConfigApplyReloader', () => {
     );
     expect(warn.mock.calls[0]).toHaveLength(1);
   });
+
+  it('cancels and suppresses a pending batch when disposed', async () => {
+    const { createConfigApplyReloader } = await import('./obsidian-adapters');
+    let flush!: () => void;
+    const cancel = vi.fn();
+    const triggerCssChange = vi.fn();
+    const notify = vi.fn();
+    const reloader = createConfigApplyReloader({
+      triggerCssChange,
+      notify,
+      schedule: (run) => {
+        flush = run;
+        return cancel;
+      },
+    });
+
+    reloader.applied('.obsidian/snippets/a.css');
+    reloader.applied('.obsidian/hotkeys.json');
+    reloader.dispose();
+    flush(); // A timer callback already queued by the platform is harmless.
+
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(triggerCssChange).not.toHaveBeenCalled();
+    expect(notify).not.toHaveBeenCalled();
+  });
 });
 
 describe('createVaultFilePort config apply visibility', () => {
@@ -1236,7 +1261,7 @@ describe('createVaultFilePort config apply visibility', () => {
     const port = createVaultFilePort({
       vault: vault as never,
       state: noopState as never,
-      configApply: { applied: (path: string) => applied.push(path) },
+      configApply: { applied: (path: string) => applied.push(path), dispose: () => undefined },
     });
 
     await port.writeByPath('.obsidian/snippets/mine.css', 'body { color: red; }');
@@ -1255,7 +1280,7 @@ describe('createVaultFilePort config apply visibility', () => {
     const port = createVaultFilePort({
       vault: vault as never,
       state: noopState as never,
-      configApply: { applied: (path: string) => applied.push(path) },
+      configApply: { applied: (path: string) => applied.push(path), dispose: () => undefined },
     });
 
     await port.writeBinaryByPath(
@@ -1275,7 +1300,7 @@ describe('createVaultFilePort config apply visibility', () => {
     const port = createVaultFilePort({
       vault: vault as never,
       state: noopState as never,
-      configApply: { applied: (path: string) => applied.push(path) },
+      configApply: { applied: (path: string) => applied.push(path), dispose: () => undefined },
     });
 
     await port.deleteByPath('.obsidian/snippets/mine.css');
@@ -1292,7 +1317,7 @@ describe('createVaultFilePort config apply visibility', () => {
     const port = createVaultFilePort({
       vault: vault as never,
       state: noopState as never,
-      configApply: { applied: (path: string) => applied.push(path) },
+      configApply: { applied: (path: string) => applied.push(path), dispose: () => undefined },
     });
 
     await port.writeByPath('Note.md', 'text\n');

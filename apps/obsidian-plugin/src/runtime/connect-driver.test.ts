@@ -76,4 +76,22 @@ describe('driveToConnected', () => {
     expect(state.phase).toBe('pending-approval');
     expect(controller.calls).toBe(3);
   });
+
+  it('returns promptly when its abort signal fires during approval polling', async () => {
+    const controller = scripted(['pending-approval']);
+    const abort = new AbortController();
+    const pending = driveToConnected({
+      controller,
+      sleep: async () => new Promise<void>(() => undefined),
+      pollIntervalMs: 2000,
+      maxSteps: 10,
+      signal: abort.signal,
+    });
+
+    await Promise.resolve();
+    abort.abort();
+
+    await expect(pending).resolves.toEqual({ phase: 'cancelled' });
+    expect(controller.calls).toBe(1);
+  });
 });
