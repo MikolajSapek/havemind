@@ -20,6 +20,7 @@ import type { MemberRole } from '../runtime/roster';
 import type { SendQueueStatusView } from '../runtime/send-queue-status';
 import { resolveViewState } from '../runtime/view-state';
 import { renderGuestWaitingScreen } from './screens/guest-waiting';
+import { renderInviteComposer } from './screens/invite-composer';
 import {
   buildConnectionPanel,
   type ConnectionPanelView,
@@ -55,7 +56,6 @@ import {
   labelledField,
   renderFormStatus,
   renderSection,
-  renderViewTitle,
   safeRead,
 } from './primitives';
 import { renderRejoinRoster } from './roster-section';
@@ -1013,228 +1013,12 @@ export class HavemindOnboardingView extends ItemView {
     content: HTMLElement,
     model: CreateConnectionViewModel,
   ): void {
-    const title = content.createDiv();
-    title.addClass('havemind-composer-title');
-    renderViewTitle(title, 'Invite someone');
-    if (this.options.onCloseComposer !== undefined) {
-      const close = title.createEl('button', { text: 'Close' });
-      close.addClass('havemind-composer-close');
-      close.onClickEvent(() => this.options.onCloseComposer?.());
-    }
-    if (model.notice) this.renderNotice(content, model.notice, model.noticeKind);
-
-    // MAJOR 5: isolate the create, roster and waiting sections so a throw in
-    // one degrades to an inline fallback rather than blanking the composer.
-    renderSection(content, 'create invitation', () =>
-      this.renderCreateSection(content, model),
-    );
-
-    // No roster here. The composer carried its own back when it was a separate
-    // screen; it now renders inside the People tab, which draws the roster
-    // above it, so keeping this drew "Connected / You" twice in one pane.
-
-    renderSection(content, 'waiting devices', () => {
-      // Four lines explaining that nothing has happened is the pane talking
-      // about itself (round 2, Q4). One quiet line says the same and leaves the
-      // space for the device that is about to arrive, which is when this
-      // section has something to say.
-      if (model.pending.length === 0) {
-        // Only meaningful once an invitation exists: before that there is
-        // nothing to wait for.
-        if (model.invitation !== null) {
-          content
-            .createDiv({ text: 'Waiting for the other device…' })
-            .addClass('havemind-hint');
-        }
-        return;
-      }
-
-      const divider = content.createEl('hr');
-      divider.addClass('havemind-divider');
-      content.createEl('h4', { text: 'Waiting for the other device' });
-      for (const entry of model.pending) {
-        this.renderPendingRow(content, entry);
-      }
-    });
-  }
-
-  private renderCreateSection(
-    content: HTMLElement,
-    model: CreateConnectionViewModel,
-  ): void {
-    const roleSelect = labelledField(
-      content,
-      'havemind-invite-role',
-      'Role',
-      'select',
-    );
-    for (const value of ['editor', 'owner'] as const) {
-      roleSelect.createEl('option', { text: value, value });
-    }
-    roleSelect.value = this.draft.role || model.role;
-
-    const nameInput = labelledField(
-      content,
-      'havemind-invite-name',
-      'Name',
-      'input',
-      {
-        type: 'text',
-        placeholder: 'e.g. Magda',
-        value: this.draft.name || model.name,
-      },
-    );
-    this.liveInputs.role = roleSelect;
-    this.liveInputs.name = nameInput;
-
-    const status = renderFormStatus(content);
-    const create = content.createEl('button', { text: 'Create invitation' });
-    create.addClass('mod-cta');
-    create.onClickEvent(() => {
-      const role: InvitationRole = roleSelect.value === 'owner' ? 'owner' : 'editor';
-      const name = nameInput.value.trim();
-      status.setText('Creating invitation…');
-      this.options.onCreateInvitation?.(role, name, (message) =>
-        status.setText(message),
-      );
-    });
-
-    if (model.invitation === null) return;
-    const envelope = model.invitation.envelope;
-
-    if (model.invitationExpired === true) {
-      // No dead-end: an expired single-use invite can never be redeemed, so the
-      // envelope is withheld and the owner is pointed back to Create invitation.
-      content
-        .createDiv({
-          text: 'This invitation expired. Create a new one above to invite the other device.',
-        })
-        .addClass('havemind-hint');
-      const dismiss = content.createEl('button', { text: 'Done' });
-      dismiss.onClickEvent(() => this.options.onDismissInvitation?.());
-      return;
-    }
-
-    content
-      .createDiv({
-        text: 'Invite created, copy it and send it to the other device. Single-use, expires in 15 minutes.',
-      })
-      .addClass('havemind-hint');
-    const code = content.createEl('code', { text: envelope });
-    code.addClass('havemind-invite-envelope');
-    // A hand-selectable copy for when the clipboard is unavailable or denied.
-    // Genuinely readonly, not merely described as such: Copy sends the ORIGINAL
-    // envelope, so an edited field would hand the owner something other than
-    // what they can see, a silent mismatch in the one string that must be
-    // exact. Readonly still allows selecting and copying by hand.
-    const fallback = content.createEl('textarea', {
-      value: envelope,
-      cls: 'havemind-invite-copy-fallback',
-      attr: {
-        id: 'havemind-invite-envelope-text',
-        readonly: 'true',
-        'aria-label': 'Invitation to copy',
-      },
-    });
-    fallback.setAttribute('readonly', 'true');
-    const copyStatus = content.createDiv({ text: '' });
-    copyStatus.addClass('havemind-form-status');
-    const copy = content.createEl('button', { text: 'Copy' });
-    copy.addClass('mod-cta');
-    copy.onClickEvent(() => {
-      void Promise.resolve(this.options.onCopyInvitation?.(envelope) ?? false).then(
-        (copied) => {
-          copyStatus.setText(
-            copied
-              ? 'Copied to clipboard.'
-              : 'Could not copy automatically. Select and copy the invitation manually.',
-          );
-        },
-        () => {
-          copyStatus.setText(
-            'Could not copy automatically. Select and copy the invitation manually.',
-          );
-        },
-      );
-    });
-    content
-      .createDiv({ text: `Expires: ${model.invitation.expiresAt}` })
-      .addClass('havemind-hint');
-    // Done clears the envelope display so it is not a permanent dead-end.
-    const dismiss = content.createEl('button', { text: 'Done' });
-    dismiss.onClickEvent(() => this.options.onDismissInvitation?.());
-  }
-
-  /**
-   * Renders the composer's transient notice line. 'success' (e.g. a device
-   * just connected) uses the icon+label+colour status-row convention shared
-   * with the Connect panel indicator, never colour alone; other notices
-   * (progress/info) stay a plain text line.
-   */
-  private renderNotice(
-    content: HTMLElement,
-    notice: string,
-    kind: 'info' | 'success' | undefined,
-  ): void {
-    if (kind !== 'success') {
-      content.createDiv({ text: notice }).addClass('havemind-hint');
-      return;
-    }
-    const row = content.createDiv({ text: '' });
-    row.addClass('havemind-status');
-    row.style.setProperty('color', 'var(--text-success)');
-    setIcon(row.createEl('span', { attr: DECORATIVE }), 'check-circle');
-    row.createEl('span', { text: ` ${notice}` });
-  }
-
-  private renderPendingRow(
-    content: HTMLElement,
-    entry: PendingApprovalEntry,
-  ): void {
-    // Icon + label + colour (never colour alone), matching the Connect panel
-    // indicator convention.
-    const row = content.createDiv({ text: '' });
-    row.addClass('havemind-pending-row');
-    row.style.setProperty('color', 'var(--text-accent)');
-    setIcon(row.createEl('span', { attr: DECORATIVE }), 'user-round-check');
-    row.createEl('span', {
-      text: ` ${entry.intendedMemberDisplayName ?? 'Pending device'} · expires ${entry.expiresAt}`,
-    });
-    // The owner never sees the code: they type in what the joining device
-    // reads aloud, so the human read-aloud check is meaningful (rule: the code
-    // travels only over the out-of-band voice channel).
-    // The id carries the invitation, because several devices can wait at once
-    // and a shared id would leave every field after the first unnamed.
-    const phraseId = `havemind-approve-${entry.invitationId}`;
-    row.createEl('label', {
-      text: 'Enter the 6-digit code your peer reads to you',
-      attr: { for: phraseId },
-    });
-    const phraseInput = row.createEl('input', {
-      type: 'text',
-      placeholder: '123456',
-      attr: {
-        id: phraseId,
-        inputmode: 'numeric',
-        maxlength: '6',
-        pattern: '[0-9]*',
-      },
-    });
-    const status = renderFormStatus(row);
-    const approve = row.createEl('button', { text: 'Approve' });
-    approve.addClass('mod-cta');
-    approve.onClickEvent(() => {
-      const phrase = phraseInput.value.trim();
-      if (phrase.length === 0) {
-        status.setText('Enter the code you heard, then approve.');
-        return;
-      }
-      status.setText('Approving…');
-      // The row is not re-rendered on a wrong code, so the input keeps its
-      // value and focus and the owner can simply correct the code and retry.
-      this.options.onApprove?.(entry.invitationId, phrase, (message) =>
-        status.setText(message),
-      );
+    renderInviteComposer(content, model, this.draft, this.liveInputs, {
+      onClose: this.options.onCloseComposer,
+      onCreate: this.options.onCreateInvitation,
+      onCopy: this.options.onCopyInvitation,
+      onDismiss: this.options.onDismissInvitation,
+      onApprove: this.options.onApprove,
     });
   }
 }
