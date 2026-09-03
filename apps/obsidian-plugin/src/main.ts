@@ -84,10 +84,7 @@ import {
   copyTextToClipboard,
 } from './runtime/clipboard';
 
-import {
-  HavemindActivityView,
-  type ActivityViewOptions,
-} from './ui/activity-view';
+import type { ActivityViewOptions } from './ui/activity-view';
 import {
   ConflictResolveModal,
   buildConflictModalModel,
@@ -115,10 +112,7 @@ import type {
   HavemindConnectionActions,
   HavemindSettingsInfo,
 } from './ui/settings-model';
-import {
-  HAVEMIND_ACTIVITY_VIEW,
-  HAVEMIND_ONBOARDING_VIEW,
-} from './ui/view-types';
+import { HAVEMIND_ONBOARDING_VIEW } from './ui/view-types';
 
 // The view classes, section renderers, modal, settings tab and pure planners now
 // live under `./ui`. They are re-exported here so `./main` remains the single
@@ -313,23 +307,23 @@ export default class HavemindPlugin extends Plugin {
         activityEntriesToRecords(this.activityLog.snapshot(), this.rosterMembers),
       onRestore: (revisionId) => this.handleRestore(revisionId),
     };
-    // Both surfaces read the same log, so both must repaint when it moves: the
-    // pane now carries the activity feed as a section (plans/007 Stage 0) while
-    // the standalone view stays registered for anyone who already has it open
-    // in a leaf.
+    // The pane carries the activity feed as a tab (plans/007 Stage 0) and is the
+    // only registered surface, so one repaint covers it.
     this.activityLogUnsubscribe = this.activityLog.subscribe(() => {
-      this.views.refreshActivity();
       this.views.refreshOnboarding();
     });
 
-    this.registerView(HAVEMIND_ACTIVITY_VIEW, (leaf: WorkspaceLeaf) => {
-      const view = new HavemindActivityView(leaf, {
-        ...this.activityOptions,
-        onClosed: () => this.views.unregisterActivity(view),
-      });
-      this.views.registerActivity(view);
-      return view;
-    });
+    // UI-00 / plans/007 Stage 0: one registered view type. The standalone
+    // Activity view is no longer registered. Every route to it, the ribbon, the
+    // `open-activity` command, the protocol handler, already lands on the single
+    // pane's Activity tab, so registering the old type only kept a second,
+    // orphaned surface that a restored workspace layout could rebuild and that
+    // would then drift from the tab reading the same feed.
+    //
+    // `HAVEMIND_ACTIVITY_VIEW` is still re-exported below: dropping a published
+    // name is a separate decision from closing the second door. The view class
+    // itself is reached through `./ui/activity-view`, which still builds and is
+    // still covered; it simply has no registered type pointing at it.
     this.registerView(HAVEMIND_ONBOARDING_VIEW, (leaf: WorkspaceLeaf) => {
       const view = new HavemindOnboardingView(leaf, {
         // A phone joins vaults, it does not run them: hosting needs Docker, a
@@ -951,7 +945,6 @@ export default class HavemindPlugin extends Plugin {
   private async recordRosterMember(member: RosterMember): Promise<void> {
     this.rosterMembers = await this.rosterStore().recordMember(member);
     this.views.refreshOnboarding();
-    this.views.refreshActivity();
   }
 
   /**
@@ -1362,7 +1355,6 @@ export default class HavemindPlugin extends Plugin {
       );
       new Notice(`Removed ${displayName} from the vault.`);
       this.views.refreshOnboarding();
-      this.views.refreshActivity();
     } catch (error) {
       new Notice(
         `Havemind: could not remove member, ${

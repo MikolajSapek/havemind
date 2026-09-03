@@ -673,7 +673,7 @@ The plugin is public, so this interface is now the first thing every new user
 meets. E2EE deliberately deferred in favour of this (owner decision). Stages
 are sequential; each is independently releasable.
 
-- [ ] **UI-00** `plugin,user-decision` One hexagon, one pane (plans/007 Stage 0)
+- [x] **UI-00** `plugin,user-decision` One hexagon, one pane (plans/007 Stage 0)
   - Collapse three doors (ribbon hexagon → activity, ribbon `users` → overlay
     toggle, command palette → connect panel) into a single ribbon icon opening
     a single registered view. Connect, activity, authorship, roster and
@@ -683,6 +683,30 @@ are sequential; each is independently releasable.
     keyboard/screen-reader path (regression on F8-02d).
   - ⏳ BLOCKED on the visual design of the pane (Claude Design). This issue
     fixes the structure; the layout of the single pane is designed first.
+  - Unblocked 2026-09-03: the pane design arrived (`Havemind Mobile.dc.html`,
+    nine artboards). Its desktop half was already implemented in an earlier
+    round; the phone half landed as `47dbf68` (safe-area + coarse-pointer
+    targets) and `10bb8ac` (no hosting path on a phone).
+  - Evidence (2026-09-03): the scope was NARROWER than this entry described.
+    One ribbon icon and one entry point already existed (Stages 0/1); what
+    survived was the second REGISTERED VIEW TYPE. `HAVEMIND_ACTIVITY_VIEW` was
+    still registered with nothing left to open it, so a workspace layout saved
+    while the old Activity leaf was open could restore a second, orphaned
+    Havemind surface that no command reaches and that drifts from the pane's own
+    Activity tab. That registration is removed (`main.ts:325`).
+  - AT0-1/AT0-2/AT0-4 pinned by `main.single-pane.test.ts` (one ribbon, exactly
+    one registered type, every command still present AND invocable). AT0-3 was
+    already covered by `activity-in-pane.test.ts` and the tab tests.
+  - Follow-on cleanup: `PluginViewRegistry` lost its activity slot, which had
+    become three silent no-op `refreshActivity()` calls in `main.ts`; guarded by
+    a test in `view-registry.test.ts`. `HavemindActivityView` still builds and
+    is still tested (`main.lifecycle.test.ts` constructs it directly), it simply
+    has no registered type pointing at it; `HAVEMIND_ACTIVITY_VIEW` stays
+    re-exported, since dropping a published name is a separate decision.
+  - Regression probes: re-adding a second `registerView` fails AT0-2; discarding
+    the `activityLog.subscribe` disposer still fails the repointed unload test,
+    so moving it onto the pane kept its guard on F9 bug #4.
+  - `npm run verify` exit 0, 1911 tests.
 
 - [x] **UI-01** `plugin` Split the two entry paths (plans/007 Stage 1)
   - Evidence (2026-08-31): chooser shipped in `runtime/entry-choice.ts` +

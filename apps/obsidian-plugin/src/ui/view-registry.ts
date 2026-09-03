@@ -10,33 +10,23 @@ export interface RefreshablePluginView {
  * in the plugin would retain its DOM and send refreshes into a dead surface, so
  * registration returns an identity-safe disposer for the view's `onClose`.
  */
+/**
+ * One slot, because UI-00 left one registered view type: the pane's Activity
+ * tab repaints through `refreshOnboarding` like every other tab.
+ */
 export class PluginViewRegistry {
   private onboarding: RefreshablePluginView | null = null;
-  private activity: RefreshablePluginView | null = null;
 
   registerOnboarding(view: RefreshablePluginView): () => void {
     this.onboarding = view;
     return () => this.unregisterOnboarding(view);
   }
 
-  registerActivity(view: RefreshablePluginView): () => void {
-    this.activity = view;
-    return () => this.unregisterActivity(view);
-  }
-
   unregisterOnboarding(view: RefreshablePluginView): void {
     if (this.onboarding === view) this.onboarding = null;
   }
 
-  unregisterActivity(view: RefreshablePluginView): void {
-    if (this.activity === view) this.activity = null;
-  }
-
   refreshOnboarding(): void {
     this.onboarding?.refresh();
-  }
-
-  refreshActivity(): void {
-    this.activity?.refresh();
   }
 }

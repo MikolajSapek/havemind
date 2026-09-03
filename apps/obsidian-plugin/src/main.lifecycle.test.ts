@@ -7,6 +7,7 @@ import HavemindPlugin, {
 } from './main';
 import { buildConnectionPanel } from './runtime/status';
 import { buildRejoinRosterView } from './runtime/rejoin-roster';
+import { HavemindActivityView } from './ui/activity-view';
 import {
   App,
   type MockElement,
@@ -63,6 +64,30 @@ function openTab(view: { containerEl: unknown }, label: RegExp): void {
   tab.triggerClick();
 }
 
+/**
+ * Builds the standalone Activity view directly.
+ *
+ * UI-00 stopped registering its view type (one pane, one door), so it can no
+ * longer be obtained from `registrationState.views`. The class is still built
+ * and still shipped; these tests exercise its own rendering, which is a
+ * different question from which types the plugin registers. What the pane's
+ * Activity TAB renders is covered by `activity-in-pane.test.ts`.
+ */
+function buildActivityView(plugin?: HavemindPlugin): HavemindActivityView {
+  // When a plugin is supplied, the view is built on ITS live options, which is
+  // what the removed registration used to do: `setActivityOptions` and the
+  // onload-wired feed both land there. Reading the private field keeps the test
+  // honest about the wiring rather than re-declaring it.
+  const options =
+    plugin === undefined
+      ? {}
+      : // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ((plugin as any).activityOptions as ConstructorParameters<
+          typeof HavemindActivityView
+        >[1]);
+  return new HavemindActivityView(new WorkspaceLeaf(), options ?? {});
+}
+
 describe('plugin lifecycle', () => {
   beforeEach(() => {
     resetObsidianMock();
@@ -80,7 +105,9 @@ describe('plugin lifecycle', () => {
     // pane; its `show-authors` command keeps the keyboard route.
     expect(registrationState.ribbons).toHaveLength(1);
     expect(registrationState.statusItems).toHaveLength(1);
-    expect(registrationState.views.has(HAVEMIND_ACTIVITY_VIEW)).toBe(true);
+    // UI-00: one registered view type. The Activity feed is a tab of that pane
+    // now, so its old standalone type is no longer registered.
+    expect(registrationState.views.has(HAVEMIND_ACTIVITY_VIEW)).toBe(false);
     expect(registrationState.views.has(HAVEMIND_ONBOARDING_VIEW)).toBe(true);
     // Audit #3 finding 10 removed an EMPTY editor extension and a no-op markdown
     // post-processor that stood in for the author overlay. FINDING 1 replaced
@@ -191,9 +218,7 @@ describe('plugin lifecycle', () => {
     await registrationState.ribbons[0]?.triggerClick();
     expect(app.workspace.revealedLeaves).toEqual([app.workspace.rightLeaf]);
 
-    const creator = registrationState.views.get(HAVEMIND_ACTIVITY_VIEW);
-    expect(creator).toBeDefined();
-    const view = creator?.(new WorkspaceLeaf());
+    const view = buildActivityView(plugin);
     expect(view?.getViewType()).toBe(HAVEMIND_ACTIVITY_VIEW);
     expect(view?.getDisplayText()).toBe('Havemind activity');
     expect(view?.getIcon()).toBe('hexagon');
@@ -236,9 +261,7 @@ describe('plugin lifecycle', () => {
     const plugin = new HavemindPlugin(app, manifest);
     await plugin.onload();
 
-    const view = registrationState.views
-      .get(HAVEMIND_ACTIVITY_VIEW)
-      ?.(new WorkspaceLeaf());
+    const view = buildActivityView(plugin);
     const container = view?.containerEl as unknown as MockElement;
     container.children.splice(0);
 
@@ -764,9 +787,7 @@ describe('plugin lifecycle', () => {
       onRestore: (revisionId) => restored.push(revisionId),
     });
 
-    const view = registrationState.views
-      .get(HAVEMIND_ACTIVITY_VIEW)
-      ?.(new WorkspaceLeaf());
+    const view = buildActivityView(plugin);
     await view?.onOpen();
     const container = view?.containerEl as unknown as MockElement;
     const rows = container.children[1]?.children ?? [];
@@ -810,9 +831,7 @@ describe('plugin lifecycle', () => {
       hasContent: true,
     });
 
-    const view = registrationState.views
-      .get(HAVEMIND_ACTIVITY_VIEW)
-      ?.(new WorkspaceLeaf());
+    const view = buildActivityView(plugin);
     await view?.onOpen();
     const container = view?.containerEl as unknown as MockElement;
     const restoreButton = flatten(container).find(({ classes }) =>
@@ -847,9 +866,7 @@ describe('plugin lifecycle', () => {
       hasContent: true,
     });
 
-    const view = registrationState.views
-      .get(HAVEMIND_ACTIVITY_VIEW)
-      ?.(new WorkspaceLeaf());
+    const view = buildActivityView(plugin);
     await view?.onOpen();
     const container = view?.containerEl as unknown as MockElement;
     const restoreButton = container.children[1]?.children[1]?.children[1];
@@ -867,19 +884,21 @@ describe('plugin lifecycle', () => {
     const plugin = new HavemindPlugin(app, manifest);
     await plugin.onload();
 
+    // Driven through the pane, the surface the subscription notifies now that
+    // UI-00 left one registered view. The regression under test is the
+    // subscription's lifetime, not which view receives it.
     const view = registrationState.views
-      .get(HAVEMIND_ACTIVITY_VIEW)
+      .get(HAVEMIND_ONBOARDING_VIEW)
       ?.(new WorkspaceLeaf());
+    if (view === undefined) throw new Error('onboarding view not registered');
     let refreshes = 0;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const refreshableView = view as any;
-    if (refreshableView) {
-      const originalRefresh = refreshableView.refresh.bind(refreshableView);
-      refreshableView.refresh = () => {
-        refreshes += 1;
-        originalRefresh();
-      };
-    }
+    const originalRefresh = refreshableView.refresh.bind(refreshableView);
+    refreshableView.refresh = () => {
+      refreshes += 1;
+      originalRefresh();
+    };
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (plugin as any).activityLog.record({
