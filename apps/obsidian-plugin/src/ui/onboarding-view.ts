@@ -21,6 +21,8 @@ import type { SendQueueStatusView } from '../runtime/send-queue-status';
 import { resolveViewState } from '../runtime/view-state';
 import { renderGuestWaitingScreen } from './screens/guest-waiting';
 import { renderInviteComposer } from './screens/invite-composer';
+import { renderConnectionControls } from './screens/connection-controls';
+import { renderStatusIndicator } from './screens/status-indicator';
 import {
   buildConnectionPanel,
   type ConnectionPanelView,
@@ -594,74 +596,12 @@ export class HavemindOnboardingView extends ItemView {
     panel: ConnectionPanelView,
     includeRecovery = true,
   ): void {
-    const row = content.createDiv({ text: '' });
-    row.addClass('havemind-status');
-    if (panel.spin) row.addClass('havemind-status-spin');
-    // synced / conflict read as a small filled dot; the icon name, label and
-    // colour token stay exactly as status.ts provides them.
-    const isDotStatus = panel.status === 'synced' || panel.status === 'offline';
-    row.style.setProperty('color', `var(${panel.colorToken})`);
-    if (isDotStatus) {
-      const dot = row.createEl('span', { attr: DECORATIVE });
-      dot.addClass('havemind-status-dot');
-      if (panel.status === 'offline') dot.addClass('havemind-status-dot-idle');
-    } else {
-      const icon = row.createEl('span', { attr: DECORATIVE });
-      setIcon(icon, panel.icon);
-    }
-    row.createEl('span', { text: ` ${panel.label}` });
-    const detail = content.createDiv();
-    detail.addClass('havemind-status-detail');
-    for (const part of panel.detail.split(' · ')) {
-      const line = detail.createEl('span');
-      line.addClass('havemind-status-line');
-      const lastSync = /^Last sync:\s*(.+)$/.exec(part);
-      if (lastSync?.[1] !== undefined) {
-        line.appendText('Last sync: ');
-        line.createEl('span', { text: lastSync[1] }).addClass('havemind-status-time');
-      } else {
-        line.setText(part);
-      }
-    }
-
-    // A "Retry now" affordance for the non-synced backoff/terminal states
-    // (offline waiting on the sync runner's backoff, or a terminal
-    // reconnect-required). It lets the user force an immediate reconnect rather
-    // than waiting the backoff out. Never shown while synced/syncing (nothing to
-    // retry) or conflict/disconnected (retry cannot help those). Lives in the
-    // panel, not the status bar, since setText clobbers status-bar children.
-    if (
-      includeRecovery &&
-      this.options.onRetry !== undefined &&
-      (panel.status === 'offline' || panel.status === 'reconnect-required')
-    ) {
-      const retry = content.createEl('button', { text: 'Retry now' });
-      retry.addClass('mod-cta');
-      retry.addClass('havemind-retry');
-      retry.onClickEvent(() => this.options.onRetry?.());
-    }
-
-    // P1 #5: the stored connection is damaged, so retrying and rejoining are
-    // both dead ends, the one way forward is clearing it and pairing again.
-    // Deliberately NOT rendered for any other status: this is the only state in
-    // which sync is provably dead, so the button can never be an accidental
-    // click on a healthy connection.
-    if (
-      includeRecovery &&
-      this.options.onReset !== undefined &&
-      panel.status === 'reset-required'
-    ) {
-      const reset = content.createEl('button', {
-        text: 'Reset connection',
-        attr: {
-          'aria-label':
-            'Reset the stored Havemind connection and pair this device again',
-        },
-      });
-      reset.addClass('mod-warning');
-      reset.addClass('havemind-reset');
-      reset.onClickEvent(() => this.options.onReset?.());
-    }
+    renderStatusIndicator(
+      content,
+      panel,
+      { onRetry: this.options.onRetry, onReset: this.options.onReset },
+      includeRecovery,
+    );
   }
 
   /**
@@ -673,69 +613,16 @@ export class HavemindOnboardingView extends ItemView {
     content: HTMLElement,
     panel: ConnectionPanelView,
   ): void {
-    this.renderIndicator(content, panel, false);
-
-    const state = content.createDiv();
-    state.addClass('havemind-connect-block');
-    if (panel.serverName !== undefined) {
-      const server = state.createDiv();
-      server.addClass('havemind-connect-row');
-      server.createEl('span', { text: 'Server' }).addClass('havemind-connect-label');
-      server
-        .createEl('span', { text: panel.serverName })
-        .addClass('havemind-connect-value');
-    }
-
-    const actions = content.createDiv();
-    actions.addClass('havemind-connect-block');
-    if (this.options.onSyncNow !== undefined) {
-      const sync = actions.createEl('button', { text: 'Sync now' });
-      sync.addClass('havemind-action-row');
-      sync.onClickEvent(() => this.options.onSyncNow?.());
-    }
-
-    if (
-      this.options.onRetry !== undefined &&
-      (panel.status === 'offline' || panel.status === 'reconnect-required')
-    ) {
-      const retry = actions.createEl('button', { text: 'Retry now' });
-      retry.addClass('havemind-action-row');
-      retry.onClickEvent(() => this.options.onRetry?.());
-    }
-
-    if (this.options.onReset !== undefined && panel.status === 'reset-required') {
-      const reset = actions.createEl('button', { text: 'Reset connection' });
-      reset.addClass('havemind-action-row');
-      reset.addClass('mod-warning');
-      reset.onClickEvent(() => this.options.onReset?.());
-    }
-
-    const help = actions.createEl('button', {
-      text: this.helpOpen ? 'Hide getting started' : 'Show getting started',
-      attr: { 'aria-expanded': this.helpOpen ? 'true' : 'false' },
+    renderConnectionControls(content, panel, this.helpOpen, {
+      onSyncNow: this.options.onSyncNow,
+      onRetry: this.options.onRetry,
+      onReset: this.options.onReset,
+      onDisconnect: this.options.onDisconnect,
+      onToggleHelp: () => {
+        this.helpOpen = !this.helpOpen;
+        this.render();
+      },
     });
-    help.addClass('havemind-action-row');
-    help.addClass('mod-quiet');
-    help.onClickEvent(() => {
-      this.helpOpen = !this.helpOpen;
-      this.render();
-    });
-
-    if (this.helpOpen) {
-      renderGettingStarted(actions, buildGettingStartedViewModel());
-    }
-
-    if (this.options.onDisconnect !== undefined) {
-      const exit = content.createDiv();
-      exit.addClass('havemind-connect-block');
-      const disconnect = exit.createEl('button', {
-        text: 'Disconnect and change server',
-      });
-      disconnect.addClass('havemind-action-row');
-      disconnect.addClass('mod-warning');
-      disconnect.onClickEvent(() => this.options.onDisconnect?.());
-    }
-
   }
 
   /**
