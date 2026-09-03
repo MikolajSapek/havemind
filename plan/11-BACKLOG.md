@@ -728,13 +728,31 @@ are sequential; each is independently releasable.
     `main.ts` wiring compiles untouched.
   - Presentation only: no protocol, server or sync change.
 
-- [ ] **UI-02** `plugin` Hierarchy in the connected panel (plans/007 Stage 2)
+- [x] **UI-02** `plugin` Hierarchy in the connected panel (plans/007 Stage 2)
   - Three tiers: always-visible (status, anything actionable), collapsed
     (roster, idle send queue), behind an affordance (tutorial). A healthy panel
     shows the status row and little else.
   - AC: AT2-1…AT2-4 from `plans/007-ui-rebuild.md` green.
   - AC negative (T3): nothing actionable, a conflict, a quarantined send, is
     ever collapsed out of first paint.
+  - Evidence (2026-09-03): the BEHAVIOUR was already satisfied by the tabbed
+    pane; no production change was needed. What was missing was the proof, so
+    this closes as a test-only change (`ui/tiered-panel.test.ts`, 5 tests).
+    Tier 1: alarms render above the tab strip on every tab
+    (`onboarding-view.ts:452-453`), so a tab can never hide one. Tier 2: the
+    roster lives behind the People tab rather than a summary line, which is
+    stronger than the stage asked for. Tier 3: the tutorial stays behind its
+    affordance (`helpOpen`).
+  - Each AC was probed rather than assumed. AT2-2/AT2-4: moving the alarms
+    inside the tab body fails both. AT2-1: removing the empty-list guards from
+    BOTH `renderConflicts` and `renderConflictSection` fails it.
+  - The AT2-1 probe caught a hollow test of my own first: without
+    `onResolveConflict`/`onRetrySend` wired, the sections bail out early and the
+    test passed for the wrong reason, proving only that an unwired pane draws
+    nothing. It now wires the handlers as the real plugin does, and asserts on
+    the alarm BLOCK (border, tint, left rule) and the tab's `needs-attention`
+    class, not merely on rows.
+  - `npm run verify` exit 0, 1916 tests.
 
 - [ ] **UI-03** `plugin` Explicit view state (plans/007 Stage 3)
   - Replace the ordered `if … return` chain in `render()` with a discriminated
