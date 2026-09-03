@@ -19,6 +19,7 @@ import { renderInviteComposer } from './screens/invite-composer';
 import { renderConnectionControls } from './screens/connection-controls';
 import { renderEntryPath } from './screens/entry-path';
 import { renderConnectForm } from './screens/connect-form';
+import { renderPaneChrome } from './screens/pane-chrome';
 import { renderPeopleTab } from './screens/people-tab';
 import { buildHeaderMenuItems } from './screens/header-menu';
 import { renderStatusIndicator } from './screens/status-indicator';
@@ -37,7 +38,7 @@ import {
 
 import { renderActivityRows } from './activity-section';
 import { renderConflictSection } from './conflict-section';
-import { renderPaneHeader, type PaneMenuItem } from './pane-header';
+import type { PaneMenuItem } from './pane-header';
 import {
   PANE_TABPANEL_ID,
   paneTabDomId,
@@ -210,35 +211,18 @@ export class HavemindOnboardingView extends ItemView {
       return;
     }
 
-    // Header strip with the overflow menu (design 1a). Disconnect, Reset and
-    // the server address live behind it rather than costing standing lines in
-    // a 300px column.
-    const overlayOn = safeRead(
-      'authorOverlay',
-      this.options.authorOverlayProvider,
-      undefined,
-    );
-    renderPaneHeader(content, {
-      title: 'Havemind',
+    renderPaneChrome(content, {
+      panel,
       menuOpen: this.menuOpen,
+      alarmed: this.attentionCount() > 0,
+      overlayOn: safeRead('authorOverlay', this.options.authorOverlayProvider, undefined),
+      items: this.headerMenuItems(panel),
       onToggleMenu: () => {
         this.menuOpen = !this.menuOpen;
         this.render();
       },
-      items: this.headerMenuItems(panel),
-      alarmed: this.attentionCount() > 0,
-      // View actions live in the header, not in a second row (round 2, Q1).
-      // Only once connected: before that there is nothing to colour and nobody
-      // to invite.
-      ...(panel.showForm || overlayOn === undefined
-        ? {}
-        : { authorOverlayOn: overlayOn }),
-      ...(panel.showForm || this.options.onToggleAuthorOverlay === undefined
-        ? {}
-        : { onToggleAuthorOverlay: this.options.onToggleAuthorOverlay }),
-      ...(panel.showForm || this.options.onOpenComposer === undefined
-        ? {}
-        : { onInvite: this.options.onOpenComposer }),
+      onToggleAuthorOverlay: this.options.onToggleAuthorOverlay,
+      onInvite: this.options.onOpenComposer,
     });
 
     // The invite composer is the Invite tab (see renderTabBody), not a block
