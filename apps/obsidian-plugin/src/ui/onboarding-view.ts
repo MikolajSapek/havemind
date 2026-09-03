@@ -9,7 +9,7 @@
  * error boundary so one failing provider can never blank the pane.
  */
 
-import { ItemView, setIcon, type WorkspaceLeaf } from 'obsidian';
+import { ItemView, type WorkspaceLeaf } from 'obsidian';
 
 import { buildGettingStartedViewModel } from '../runtime/getting-started-render';
 import type { RejoinRosterView } from '../runtime/rejoin-roster';
@@ -20,6 +20,7 @@ import { renderConnectionControls } from './screens/connection-controls';
 import { renderEntryPath } from './screens/entry-path';
 import { renderConnectForm } from './screens/connect-form';
 import { renderConnectedBody } from './screens/connected-body';
+import { renderGuestInvalid } from './screens/guest-invalid';
 import { renderTabBody } from './screens/tab-body';
 import { renderPaneChrome } from './screens/pane-chrome';
 import { renderPeopleTab } from './screens/people-tab';
@@ -31,7 +32,6 @@ import {
 } from '../runtime/status';
 
 import type { EntryChoice } from '../runtime/entry-choice';
-import { buildSpentInvitation } from '../runtime/handshake';
 import {
   buildPaneTabs,
   type PaneTabId,
@@ -43,7 +43,6 @@ import { renderConflictSection } from './conflict-section';
 import type { PaneMenuItem } from './pane-header';
 import { renderGettingStarted } from './getting-started-section';
 import {
-  DECORATIVE,
   safeRead,
 } from './primitives';
 import { renderRejoinRoster } from './roster-section';
@@ -508,20 +507,9 @@ export class HavemindOnboardingView extends ItemView {
    * the paste form to try a fresh invite, never offline, never a blank form.
    */
   private renderGuestInvalid(content: HTMLElement): void {
-    // Never a blank screen (design 1e): name the cause, price the fix in the
-    // other person's time so asking feels cheap, and offer both ways forward.
-    const view = buildSpentInvitation(
-      this.options.guestWaitingProvider?.()?.ownerName,
-    );
-
-    const row = content.createDiv({ text: '' });
-    row.addClass('havemind-status');
-    row.style.setProperty('color', 'var(--text-error)');
-    setIcon(row.createEl('span', { attr: DECORATIVE }), 'alert-triangle');
-    row.createEl('span', { text: ` ${view.heading}` });
-
-    content.createDiv({ text: view.explanation }).addClass('havemind-hint');
-    this.renderForm(content);
+    renderGuestInvalid(content, this.options.guestWaitingProvider?.()?.ownerName, {
+      renderForm: (target) => this.renderForm(target),
+    });
   }
 
   private renderForm(content: HTMLElement): void {
