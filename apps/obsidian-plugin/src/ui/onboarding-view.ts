@@ -20,6 +20,7 @@ import { renderConnectionControls } from './screens/connection-controls';
 import { renderEntryPath } from './screens/entry-path';
 import { renderConnectForm } from './screens/connect-form';
 import { renderConnectedBody } from './screens/connected-body';
+import { renderConflicts, renderSendQueue } from './screens/alarms';
 import { renderGuestInvalid } from './screens/guest-invalid';
 import { renderTabBody } from './screens/tab-body';
 import { renderPaneChrome } from './screens/pane-chrome';
@@ -39,17 +40,12 @@ import {
 } from '../runtime/pane-tabs';
 
 import { renderActivityRows } from './activity-section';
-import { renderConflictSection } from './conflict-section';
 import type { PaneMenuItem } from './pane-header';
 import { renderGettingStarted } from './getting-started-section';
 import {
   safeRead,
 } from './primitives';
 import { renderRejoinRoster } from './roster-section';
-import {
-  renderRecoveryNotice,
-  renderSendQueueSection,
-} from './send-queue-section';
 import { HAVEMIND_ONBOARDING_VIEW } from './view-types';
 
 // Re-exported so every existing import of these names keeps working: moving a
@@ -362,34 +358,20 @@ export class HavemindOnboardingView extends ItemView {
    * appears only while there is something to resolve.
    */
   private renderConflicts(content: HTMLElement): void {
-    const copies = this.options.conflictsProvider?.() ?? [];
-    const onResolveConflict = this.options.onResolveConflict;
-    if (copies.length === 0 || onResolveConflict === undefined) return;
-    renderConflictSection(content, copies, {
-      onResolve: (copyPath) => onResolveConflict(copyPath),
+    renderConflicts(content, {
+      copies: this.options.conflictsProvider?.() ?? [],
+      onResolve: this.options.onResolveConflict,
     });
   }
 
-  /**
-   * Draws the SND-01 send-queue section (waiting + failed) beneath the status
-   * indicator. The provider reads the persisted sync state; a null return
-   * (disconnected) or an all-clear view renders nothing.
-   */
   private renderSendQueue(content: HTMLElement): void {
-    // GAP-1: surface the recovery warning first, so it shows even when there is
-    // no send-queue view (or an all-clear one) to draw beneath it.
-    renderRecoveryNotice(content, this.options.recoveryRequiredProvider?.() ?? false);
-    const view = this.options.sendQueueProvider?.() ?? null;
-    if (view === null) return;
-    const onRetry = this.options.onRetrySend;
-    const onDiscard = this.options.onDiscardSend;
-    if (onRetry === undefined || onDiscard === undefined) return;
-    renderSendQueueSection(content, view, {
-      onRetry: (revisionId) => onRetry(revisionId),
-      onDiscard: (revisionId) => onDiscard(revisionId),
+    renderSendQueue(content, {
+      recoveryRequired: this.options.recoveryRequiredProvider?.() ?? false,
+      view: this.options.sendQueueProvider?.() ?? null,
+      onRetry: this.options.onRetrySend,
+      onDiscard: this.options.onDiscardSend,
     });
   }
-
 
   /**
    * The disconnected pane: a chooser, then only the branch the user picked
