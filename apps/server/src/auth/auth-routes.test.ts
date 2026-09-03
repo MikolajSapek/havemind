@@ -658,3 +658,104 @@ describe('GAP-4 long-poll wait rate-limit exemption', () => {
     expect(statusCodes).toEqual([null, null, 429, 429]);
   });
 });
+
+/**
+ * AUD2-01: the limiter's `windows` map kept one entry per key forever, so a
+ * long-lived process accumulated one dead bucket per distinct IP/device that
+ * ever hit it. The fix is a lazy sweep on access (no timer, nothing that can
+ * outlive the limiter's owner, matching the plugin's `scheduler-hooks.ts`
+ * discipline). `trackedKeys` exposes the map's size so the eviction is
+ * observable without reaching into the closure.
+ */
+describe('AUD2-01 rate-limiter window eviction', () => {
+  function fakeRequest(ip: string): FastifyRequest {
+    return {
+      headers: {},
+      ip,
+      method: 'GET',
+      routeOptions: { url: '/vaults/:vaultId/members' },
+    } as unknown as FastifyRequest;
+  }
+
+  function fakeReply(): FastifyReply {
+    const reply = {
+      code() {
+        return reply;
+      },
+      header() {
+        return reply;
+      },
+      send() {
+        return reply;
+      },
+    };
+    return reply as unknown as FastifyReply;
+  }
+
+  function makeLimiter(clock: { ms: number }): ReturnType<typeof createRateLimiter> {
+    return createRateLimiter(
+      { maxRequests: 120, windowMs: 60_000 },
+      () => new Date(clock.ms),
+      (request) => request.ip,
+    );
+  }
+
+  it('drops windows that expired before the current request', () => {
+    const clock = { ms: 0 };
+    const limiter = makeLimiter(clock);
+
+    for (let index = 0; index < 50; index += 1) {
+      limiter(fakeRequest(`10.0.0.${index}`), fakeReply());
+    }
+    expect(limiter.trackedKeys()).toBe(50);
+
+    // One request a full window later: every earlier bucket is dead.
+    clock.ms = 60_001;
+    limiter(fakeRequest('10.0.1.1'), fakeReply());
+
+    expect(limiter.trackedKeys()).toBe(1);
+  });
+
+  it('keeps windows that are still live', () => {
+    const clock = { ms: 0 };
+    const limiter = makeLimiter(clock);
+
+    limiter(fakeRequest('10.0.0.1'), fakeReply());
+    clock.ms = 30_000;
+    limiter(fakeRequest('10.0.0.2'), fakeReply());
+
+    expect(limiter.trackedKeys()).toBe(2);
+  });
+
+  it('still counts a live window across the sweep', () => {
+    const clock = { ms: 0 };
+    const limiter = createRateLimiter(
+      { maxRequests: 2, windowMs: 60_000 },
+      () => new Date(clock.ms),
+      (request) => request.ip,
+    );
+
+    limiter(fakeRequest('10.0.0.1'), fakeReply());
+    clock.ms = 10_000;
+    limiter(fakeRequest('10.0.0.9'), fakeReply());
+    clock.ms = 20_000;
+    limiter(fakeRequest('10.0.0.1'), fakeReply());
+
+    let limited = false;
+    const reply = {
+      code(status: number) {
+        limited = status === 429;
+        return reply;
+      },
+      header() {
+        return reply;
+      },
+      send() {
+        return reply;
+      },
+    } as unknown as FastifyReply;
+    limiter(fakeRequest('10.0.0.1'), reply);
+
+    expect(limited).toBe(true);
+  });
+});

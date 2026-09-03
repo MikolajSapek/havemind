@@ -133,21 +133,59 @@ function hasImpersonationHeader(
   });
 }
 
+/**
+ * A rate limiter, plus the bookkeeping a test needs to observe its eviction
+ * (AUD2-01) without reaching into the closure.
+ */
+export interface RateLimiter {
+  (request: FastifyRequest, reply: FastifyReply): void;
+  /** Number of windows currently held in memory. */
+  trackedKeys: () => number;
+}
+
+/**
+ * Map size below which the expired-window sweep is skipped. The pilot has two
+ * devices, so the steady state is a handful of keys and sweeping them costs
+ * more than it reclaims; the sweep only earns its keep once a long-lived
+ * process has accumulated dead buckets from many distinct keys.
+ */
+const SWEEP_THRESHOLD_KEYS = 32;
+
 export function createRateLimiter(
   config: AuthRateLimitConfig,
   now: () => Date,
   clientKey: (request: FastifyRequest) => string | null,
-): (request: FastifyRequest, reply: FastifyReply) => void {
+): RateLimiter {
   const windows = new Map<string, { count: number; resetAt: number }>();
 
-  return (request, reply): void => {
+  /**
+   * Evicts windows whose `resetAt` has passed (AUD2-01). Deliberately a lazy
+   * sweep driven by request traffic rather than a `setInterval`: a timer would
+   * outlive the Fastify instance that owns this limiter and keep the process
+   * alive, which is exactly the listener/timer-ownership discipline the plugin
+   * documents in `scheduler-hooks.ts`. Cost is amortised, it only runs once the
+   * map is large enough for dead entries to matter.
+   */
+  const sweep = (nowMs: number): void => {
+    if (windows.size < SWEEP_THRESHOLD_KEYS) {
+      return;
+    }
+    for (const [key, window] of windows) {
+      if (window.resetAt <= nowMs) {
+        windows.delete(key);
+      }
+    }
+  };
+
+  const limiter = (request: FastifyRequest, reply: FastifyReply): void => {
     const key = clientKey(request);
     if (key === null) {
-      // Exempt: an authenticated, session-verified blob GET. It never
-      // consumes a bucket slot, see `defaultClientKey` for why.
+      // Exempt: an authenticated, session-verified blob GET or long-poll wait.
+      // It never consumes a bucket slot, see `defaultClientKey` for why.
       return;
     }
     const nowMs = now().getTime();
+    sweep(nowMs);
     const existing = windows.get(key);
     const window =
       existing === undefined || existing.resetAt <= nowMs
@@ -160,6 +198,8 @@ export function createRateLimiter(
       sendError(reply, 429, 'RATE_LIMITED');
     }
   };
+  limiter.trackedKeys = (): number => windows.size;
+  return limiter;
 }
 
 /** The blob-download route, as Fastify reports it via `request.routeOptions.url`. */
@@ -206,16 +246,24 @@ function isWaitGetRoute(request: FastifyRequest): boolean {
  * so they keep the IP-keyed brute-force protection unchanged.
  *
  * A `GET` on the blob route from a session-verified caller returns `null`
- * (rate-limit exempt) instead of a key: `blobBelongsToVault` still guards
- * which bytes an authenticated member may read, so this is not an open
- * relay, and it is the only way to drain a large (>100-revision) catch-up
- * backlog, one blob fetch per applied revision, without the per-device
- * bucket 429ing mid-drain (AUD-08).
+ * (rate-limit exempt) instead of a key: it is the only way to drain a large
+ * (>100-revision) catch-up backlog, one blob fetch per applied revision,
+ * without the per-device bucket 429ing mid-drain (AUD-08).
+ *
+ * Exempt from *this* limiter is not unlimited (AUD2-06). The route stays
+ * bounded on two axes handled in `sync-routes.ts`: `blobBelongsToVault`
+ * guards which bytes an authenticated member may read at all, and every
+ * served blob is charged by byte length against a per-device egress token
+ * bucket (`BlobByteRateLimiter`, AUD-08b) that answers 429 once a device
+ * outruns its budget. Request-count limiting is the wrong instrument for an
+ * amplifier whose cost is bytes, not requests, so the count exemption stays
+ * and the byte budget is the real cap.
  *
  * A `GET` on the long-poll wake route is exempted the same way (GAP-4): it
  * is a held connection that reconnects roughly every 25s, never a mutation,
  * so it must not compete with a device's mutation traffic for the same
- * bucket slots during a reconnect storm.
+ * bucket slots during a reconnect storm. It too is separately bounded, by
+ * the per-device/global held-wait ceiling (`HeldWaitLimiter`, AUD-08b).
  */
 export function defaultClientKey(
   sessions: SessionRepository,

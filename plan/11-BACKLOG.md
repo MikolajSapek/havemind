@@ -425,8 +425,24 @@ Findings from the second server audit iteration (2026-07-23). Two fixed in this 
 (FIX #1 cursor-from-the-future CURSOR_INVALID on the pull path; FIX #2 removal of the full
 re-hash from the blob `read` hot path); below is what was deliberately deferred.
 
-- [ ] **AUD2-01** NIT `server` `auth-routes.ts:129`, the rate-limiter's `windows` map never
+- [x] **AUD2-01** NIT `server` `auth-routes.ts:129`, the rate-limiter's `windows` map never
   removes entries after `resetAt` (grows with the number of keys). Limited in practice (2 devices).
+  - Evidence (2026-09-03): `createRateLimiter` now sweeps expired windows on
+    access (`auth-routes.ts:169-178`, `sweep(nowMs)` called at line 187 before the bucket
+    lookup), gated by `SWEEP_THRESHOLD_KEYS = 32` so the 2-device steady state
+    pays nothing. Deliberately a traffic-driven lazy sweep, not a
+    `setInterval`: a timer would outlive the Fastify instance that owns the
+    limiter and hold the process open, which is the ownership discipline the
+    plugin documents in `scheduler-hooks.ts`. The limiter is now a
+    `RateLimiter` (callable + `trackedKeys()`) so eviction is observable
+    without reaching into the closure; `rejoin-routes.ts`/`revoke-routes.ts`
+    call it unchanged. Covered by
+    `auth-routes.test.ts` "AUD2-01 rate-limiter window eviction" (3 tests:
+    50 dead keys collapse to 1 after one full window, live windows survive,
+    a live counter still 429s across a sweep). Red first
+    (`limiter.trackedKeys is not a function`), then green; regression probe
+    (delete the `sweep(nowMs)` call) re-failed the eviction test and passed
+    again on restore. `npm run verify` exits 0, 1888 tests in 154 files.
 - [x] **AUD2-02** NIT `server` `rejoin-routes.ts:157`, `revoke-routes.ts:154`, owner mutation
   endpoints (rejoin/revoke) with no rate limit.
   - Evidence (2026-08-31): both endpoints now build a limiter from
@@ -446,8 +462,25 @@ re-hash from the blob `read` hot path); below is what was deliberately deferred.
     `multi-vault-isolation.test.ts:625` (vault B untouched).
 - [ ] **AUD2-05** NIT `server` `rejoin-grants.ts:254-319`, rejoin ignores vault soft-delete
   (fails fail-closed downstream).
-- [ ] **AUD2-06** MINOR `server` `auth-routes.ts:200-203`, blob GET is exempt from the rate limit
+- [x] **AUD2-06** MINOR `server` `auth-routes.ts:200-203`, blob GET is exempt from the rate limit
   as an amplifier; documented as AUD-08, revisit if abused.
+  - Evidence (2026-09-03): resolved as "no behaviour change, the comment was
+    lying". The request-count exemption is load-bearing (it is the only way to
+    drain a >100-revision catch-up backlog, one blob fetch per revision,
+    without 429ing mid-drain, AUD-08) and request counting is the wrong
+    instrument for an amplifier whose cost is bytes. The amplifier is already
+    bounded on both axes, in `sync-routes.ts`: `blobBelongsToVault`
+    (`sync-routes.ts:808`) gates which bytes an authenticated member may read,
+    and every served blob is charged by byte length against a per-device
+    egress token bucket (`BlobByteRateLimiter`, `device-throttles.ts:69-103`,
+    applied at `sync-routes.ts:819-825`) that answers 429 over budget.
+    The `defaultClientKey` doc comment claimed only the first of those, so it
+    was corrected to state the byte budget and the held-wait ceiling
+    (`auth-routes.ts:239-267`, the AUD2-06 paragraph at 253-261). No new test: the claim is already enforced
+    end-to-end by `sync-routes.test.ts:1319` "AUD-08b blob-GET per-device byte
+    throttle" (200, 200, 429 + refill), which fails if the budget is removed;
+    adding a duplicate in a file owned by another workstream was avoided.
+    `npm run verify` exits 0, 1888 tests in 154 files.
 
 ## MERGE-3WAY (user decision 2026-07-22: modeled on Obsidian Sync / obsidian-livesync)
 
