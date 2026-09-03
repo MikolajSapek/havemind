@@ -586,8 +586,16 @@ describe('plugin lifecycle', () => {
     ).toBe(false);
     // A durable, named confirmation is shown using the icon+label+colour
     // convention (never colour alone), matching the other status rows.
-    const confirmation = all.find(({ classes }) =>
-      classes.includes('havemind-status'),
+    // Selected by what it says, not by being the first status row on the pane:
+    // since UI-03 the connection's own status row is lifted above the tabs
+    // while the composer is open (AT3-2), so "the first .havemind-status" is
+    // that one, and this assertion was silently reading the wrong element.
+    const confirmation = all.find(
+      ({ classes, children }) =>
+        classes.includes('havemind-status') &&
+        flatten({ children } as MockElement).some(
+          ({ text }) => text === ' Magda connected.',
+        ),
     );
     expect(confirmation).toBeDefined();
     const confirmationChildren = flatten(confirmation as MockElement);

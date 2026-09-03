@@ -18,6 +18,7 @@ import { buildGettingStartedViewModel } from '../runtime/getting-started-render'
 import type { RejoinRosterView } from '../runtime/rejoin-roster';
 import type { MemberRole } from '../runtime/roster';
 import type { SendQueueStatusView } from '../runtime/send-queue-status';
+import { resolveViewState } from '../runtime/view-state';
 import {
   buildConnectionPanel,
   type ConnectionPanelView,
@@ -363,19 +364,6 @@ export class HavemindOnboardingView extends ItemView {
     // differently, and then the tab strip and the tab body describe different
     // states of the same pane.
 
-    // A server rejection/lockout takes precedence over the waiting screen: the
-    // invitation is spent, so we never leave the guest waiting or offline.
-    if (safeRead('guestInvalid', this.options.guestInvalidProvider, false)) {
-      this.renderGuestInvalid(content);
-      return;
-    }
-
-    const waiting = safeRead('guestWaiting', this.options.guestWaitingProvider, null);
-    if (waiting) {
-      this.renderGuestWaiting(content, waiting);
-      return;
-    }
-
     // Disconnected is the safe default: it offers the connect form rather than
     // claiming a health the plugin cannot currently verify.
     const panel = safeRead(
@@ -384,9 +372,36 @@ export class HavemindOnboardingView extends ItemView {
       buildConnectionPanel({ status: 'disconnected' }),
     );
 
-    // Read once and threaded through: `paneTabs()` and `renderTabBody` both
-    // need to know whether a composer is open, and two reads could disagree.
+    // Which screen to draw is decided by one pure function rather than by the
+    // order these branches happen to be written in (AT3-1). The precedence it
+    // encodes, invalid → awaiting → connected → joining/hosting → choosing, is
+    // the same one this chain always implemented; lifting it out is what makes
+    // it assertable, which is what was missing when the composer hid the status
+    // row in 1.1.3.
+    // Read once and threaded through: `resolveViewState`, `paneTabs()` and
+    // `renderTabBody` all need to know whether a composer is open, and two
+    // reads could answer differently, leaving them describing different states
+    // of the same pane.
     const composer = safeRead('composer', this.options.composerProvider, null);
+
+    const state = resolveViewState({
+      guestInvalid: safeRead('guestInvalid', this.options.guestInvalidProvider, false),
+      guestWaiting: safeRead('guestWaiting', this.options.guestWaitingProvider, null),
+      panel,
+      entryChoice: this.entryChoice,
+      joinLinkFollowed: this.draft.token.length > 0,
+      composerOpen: composer !== null,
+    });
+
+    if (state.kind === 'invalid') {
+      this.renderGuestInvalid(content);
+      return;
+    }
+
+    if (state.kind === 'awaiting') {
+      this.renderGuestWaiting(content, state.waiting);
+      return;
+    }
 
     // Header strip with the overflow menu (design 1a). Disconnect, Reset and
     // the server address live behind it rather than costing standing lines in
@@ -451,6 +466,18 @@ export class HavemindOnboardingView extends ItemView {
     // what makes a tabbed pane safe rather than merely tidy.
     renderSection(content, 'send queue', () => this.renderSendQueue(content));
     renderSection(content, 'conflicts', () => this.renderConflicts(content));
+
+    // AT3-2, the 1.1.3 defect made structural. The composer draws inside the
+    // People tab, so while it is open the status row is a tab-switch away and a
+    // connected vault can read as disconnected, which is exactly the failure
+    // that shipped in 1.1.3. `resolveViewState` has no composer variant: the
+    // composer is a momentary task drawn OVER the connected state, never
+    // instead of it, so the status row is lifted above the strip for as long as
+    // it is open. Everywhere else it stays in the Status tab, where a calm pane
+    // wants it.
+    if (composer !== null) {
+      renderSection(content, 'status', () => this.renderIndicator(content, panel));
+    }
 
     const tabs = this.paneTabs(composer != null);
     // Focus follows a keyboard selection, and only that one: the pane

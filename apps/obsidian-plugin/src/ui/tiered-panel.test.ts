@@ -130,3 +130,23 @@ describe('UI-02, a healthy panel is nearly empty', () => {
     expect(texts(root).some((t) => /Install Docker/i.test(t))).toBe(false);
   });
 });
+
+describe('UI-03, the composer is a modal over the panel (AT3-2)', () => {
+  it('leaves the status row in the DOM while the composer is open', () => {
+    // The 1.1.3 defect, made structural. The composer used to take the first
+    // branch of an ordered if-chain and return before the status row was drawn,
+    // so a connected vault rendered no "Connected, synced" anywhere and read as
+    // disconnected. `resolveViewState` has no composer variant at all: the
+    // composer draws OVER the connected state, so it cannot displace it.
+    const root = pane({
+      composerProvider: () => ({
+        role: 'editor' as const,
+        name: '',
+        invitation: null,
+        pending: [],
+      }),
+    });
+
+    expect(texts(root).some((t) => /synced/i.test(t))).toBe(true);
+  });
+});
