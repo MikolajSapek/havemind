@@ -23,6 +23,8 @@ import { renderGuestWaitingScreen } from './screens/guest-waiting';
 import { renderInviteComposer } from './screens/invite-composer';
 import { renderConnectionControls } from './screens/connection-controls';
 import { renderEntryPath } from './screens/entry-path';
+import { renderConnectForm } from './screens/connect-form';
+import { buildHeaderMenuItems } from './screens/header-menu';
 import { renderStatusIndicator } from './screens/status-indicator';
 import {
   buildConnectionPanel,
@@ -48,8 +50,6 @@ import {
 import { renderGettingStarted } from './getting-started-section';
 import {
   DECORATIVE,
-  labelledField,
-  renderFormStatus,
   renderSection,
   safeRead,
 } from './primitives';
@@ -713,63 +713,24 @@ export class HavemindOnboardingView extends ItemView {
   }
 
   private headerMenuItems(panel: ConnectionPanelView): PaneMenuItem[] {
-    if (panel.showForm) return [];
-
-    const items: PaneMenuItem[] = [];
-
-    // Sync is automatic; a standing button implies it might not be. It lives
-    // here for the rare case where forcing a cycle actually helps (round 2, Q5).
-    if (this.options.onSyncNow) {
-      items.push({
-        label: 'Sync now',
-        onSelect: () => {
-          this.menuOpen = false;
-          this.options.onSyncNow?.();
-        },
-      });
-    }
-
-    // Getting started lost its icon with the action row. It is read once and
-    // then never again, which is exactly what the overflow menu is for, but it
-    // must stay reachable, so it moves here rather than disappearing.
-    items.push({
-      label: this.helpOpen ? 'Hide getting started' : 'Show getting started',
-      onSelect: () => {
+    const close = (run?: () => void) => () => {
+      this.menuOpen = false;
+      run?.();
+    };
+    return buildHeaderMenuItems(panel, this.helpOpen, {
+      onSyncNow: this.options.onSyncNow,
+      onDisconnect: this.options.onDisconnect,
+      onReset: this.options.onReset,
+      onSelectSyncNow: close(this.options.onSyncNow),
+      onSelectDisconnect: close(this.options.onDisconnect),
+      onSelectReset: close(this.options.onReset),
+      onToggleHelp: () => {
         this.helpOpen = !this.helpOpen;
         this.menuOpen = false;
         this.render();
       },
     });
-    if (this.options.onDisconnect) {
-      items.push({
-        label: 'Disconnect',
-        onSelect: () => {
-          this.menuOpen = false;
-          this.options.onDisconnect?.();
-        },
-      });
-    }
-    if (this.options.onReset) {
-      items.push({
-        label: 'Reset connection',
-        onSelect: () => {
-          this.menuOpen = false;
-          this.options.onReset?.();
-        },
-      });
-    }
-    // Context belongs after the actions: it is useful for confirmation, but
-    // must not split the menu's destructive/recovery choices.
-    if (panel.serverName !== undefined) {
-      items.push({
-        label: `Server: ${panel.serverName}`,
-        onSelect: () => {},
-        readOnly: true,
-      });
-    }
-    return items;
   }
-
 
   /** Renders the rejoin-aware roster with its owner actions from the options. */
   private renderRoster(content: HTMLElement, roster: RejoinRosterView): void {
@@ -825,41 +786,7 @@ export class HavemindOnboardingView extends ItemView {
   }
 
   private renderForm(content: HTMLElement): void {
-    const tokenInput = labelledField(
-      content,
-      'havemind-connect-token',
-      'Invitation or owner pairing token',
-      'textarea',
-      { placeholder: 'v1.… or hm_pt_…', value: this.draft.token },
-    );
-    const serverInput = labelledField(
-      content,
-      'havemind-connect-server',
-      'Server URL',
-      'input',
-      {
-        type: 'text',
-        placeholder: 'https://your-server.example',
-        value: this.draft.server,
-      },
-    );
-    this.liveInputs.token = tokenInput;
-    this.liveInputs.server = serverInput;
-    const status = renderFormStatus(content);
-    const connect = content.createEl('button', { text: 'Connect' });
-    connect.addClass('mod-cta');
-    connect.onClickEvent(() => {
-      const input = tokenInput.value.trim();
-      const serverUrl = serverInput.value.trim();
-      if (input.length === 0) {
-        status.setText('Paste an invitation or pairing token first.');
-        return;
-      }
-      status.setText('Connecting…');
-      this.options.onConnect?.(input, serverUrl, (message) =>
-        status.setText(message),
-      );
-    });
+    renderConnectForm(content, this.draft, this.liveInputs, this.options.onConnect);
   }
 
   /**
