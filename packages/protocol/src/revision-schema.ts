@@ -243,8 +243,10 @@ const contentRevisionPayloadSchema = z
 /**
  * Binary attachment payload (F9). Whole-file replace only, there is no line
  * diff or three-way merge for binary, so the recipe is always `null`. The raw
- * bytes are carried base64-encoded and identified by `blobByteHash` (SHA-256 of
- * the RAW bytes, never a canonicalised form). A legacy markdown payload carries
+ * bytes are carried base64-encoded and DESCRIBED by `blobByteHash` (SHA-256 of
+ * the RAW bytes, never a canonicalised form). That field is metadata only: the
+ * decoder does not verify it and no consumer reads it (AUD-10(b)); integrity is
+ * closed by the content-addressed hash over the whole payload. A legacy markdown payload carries
  * no `kind` field, so the presence of `kind: 'binary'` is what selects this
  * union member; old revisions keep decoding through `contentRevisionPayloadSchema`.
  */

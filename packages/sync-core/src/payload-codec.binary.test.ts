@@ -9,6 +9,32 @@ function encode(value: unknown): string {
 const byteHash = 'b'.repeat(64);
 
 describe('decodeRevisionPayload, binary', () => {
+  it('does not verify blobByteHash: the field is unread metadata', () => {
+    // AUD-10(b). The decoder deliberately IGNORES `blobByteHash`. Integrity of
+    // these exact bytes is closed outside the payload: the whole payload JSON
+    // (base64 included) is content-addressed and re-hashed on read
+    // (`apps/server/src/blob-store.ts`, `#verifyExisting`), and the consumer
+    // recomputes `hashBlob(bytes)` itself before applying
+    // (`vault-apply.ts`, `applyRemoteBinary`). A blatantly wrong
+    // `blobByteHash` therefore decodes fine. This test exists so nobody
+    // re-documents the field as an integrity guarantee without first making it
+    // one; see the note on `binaryRevisionPayloadSchema`.
+    const bytes = new Uint8Array([0x01, 0x02, 0x03]);
+    const decoded = decodeRevisionPayload(
+      encode({
+        schemaVersion: 1,
+        operation: 'create',
+        kind: 'binary',
+        path: 'Attachments/pic.png',
+        contentBase64: Buffer.from(bytes).toString('base64'),
+        blobByteHash: '0'.repeat(64),
+        recipe: null,
+      }),
+    );
+
+    expect(decoded.binaryContent).toEqual(bytes);
+  });
+
   it('decodes a binary revision to its raw bytes (0x00 and high bytes preserved)', () => {
     const bytes = new Uint8Array([0x00, 0x01, 0xff, 0x80, 0x00]);
     const contentBase64 = Buffer.from(bytes).toString('base64');

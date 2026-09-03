@@ -405,12 +405,31 @@ Fixes from this loop are committed separately; below is what was deliberately de
     backlog). Doesn't block the 2-person pilot.
   - Direction: batch blob-fetch (multiple hashes in one request), exempt blob GET from the limit
     for authenticated devices, or raise the limit for sessions with a valid bearer.
-- [ ] **AUD-07** `plugin` User notes under a dotted path segment or in the `Havemind Conflicts` folder
+- [x] **AUD-07** `plugin` User notes under a dotted path segment or in the `Havemind Conflicts` folder
   - `isEligiblePath` rejects any segment starting with `.` (e.g. `Notes/.drafts/x.md`) and the
     reserved root `Havemind Conflicts/` → such notes do NOT sync (under-sync, safe by
     direction). LOW/usability, just a note in the user documentation.
+  - Evidence (2026-09-03): the function is named `classifyVaultPath`/`eligibleKind`, not
+    `isEligiblePath` (`apps/obsidian-plugin/src/obsidian/vault-adapter.ts`). Read from the code,
+    the real rules are three, not two: (1) any dot-leading path segment; (2) the reserved
+    `Havemind Conflicts/` root, TOP LEVEL ONLY (`Notes/Havemind Conflicts/x.md` and
+    `Havemind Conflicts Archive/x.md` both sync); (3) an extension outside `.md` + the binary
+    allowlist, tested case-INsensitively (`pic.PNG` syncs), and applied BEFORE rules 1-2. The
+    `.obsidian/` appearance allowlist is checked before the dot-path guard, so the backlog's
+    "any segment starting with `.`" was already wrong. Documented in
+    `docs/pilot/known-limitations.md` ("Dot-paths and the reserved folder") and, user-facing, in
+    `docs/self-hosting.md` section h.
+  - Bug found while confirming the rules, fixed here (TDD): the producer compared the reserved
+    root case-SENSITIVELY while the protocol's `RESERVED_ROOTS` folds case, so
+    `havemind conflicts/x.md` was classified eligible, enqueued, then threw inside
+    `canonicalizeVaultPath` at envelope build (`packages/sync-core/src/revision-envelope.ts`),
+    killing the push cycle and latching the device Offline. Tests written first and observed RED
+    (2 failed / 35 passed) for that exact reason, then GREEN at 37; fix reverted to re-confirm
+    RED and restored. Pinned by "excludes a case variant of the reserved root" and "never
+    classifies eligible a path the protocol reserves" in `vault-adapter.test.ts`, the second of
+    which fails if the two layers ever disagree again.
 
-- [ ] **AUD-10** `server` Minor findings from the pre-pilot audit (2026-07-22, none blocking)
+- [x] **AUD-10** `server` Minor findings from the pre-pilot audit (2026-07-22, none blocking)
   - (a) `/owner/rejoin-grants` has no limiter (intentional, self-flagged in the code), add it in
     the next server round; (b) `blobByteHash` in the binary payload is dead metadata
     (the external content-addressed hash already closes integrity), wire it in as a
@@ -418,6 +437,38 @@ Fixes from this loop are committed separately; below is what was deliberately de
     pushes (~100-150 MiB transient/request at the ceiling), irrelevant in the 2-person trust
     model, relevant if the trust boundary widens; (d) `#resolveBoundDevice` picks the most
     recently approved device, revisit before multi-device.
+  - Evidence (2026-09-03): all four handled; full write-up in
+    `docs/pilot/known-limitations.md`, "Server audit follow-ups (backlog AUD-10)".
+    (a) ALREADY DONE, not re-done: `/owner/rejoin-grants` runs `grantRateLimit` in `onRequest`
+    before the handler, in its own IP-keyed bucket separate from pre-auth `/auth/rejoin`
+    (`apps/server/src/auth/rejoin-routes.ts`), covered by "429s once one client exceeds the owner
+    grant threshold" in `rejoin-routes.test.ts`. The "self-flagged, no limiter" comment the
+    finding cited no longer exists. This landed with AUD2-02; the route lives in
+    `rejoin-routes.ts`, so no edit to the concurrently-owned `rejoin-grants.ts` or
+    `auth-routes.ts` was needed.
+    (b) DOC COMMENT FIXED, field left unwired, deliberately. Verified the decoder ignores
+    `blobByteHash` entirely and the consumer recomputes `hashBlob(bytes)` itself
+    (`payload-codec.ts`, `vault-apply.ts` `applyRemoteBinary`); the payload JSON including the
+    base64 is content-addressed and re-hashed on read (`blob-store.ts` `#verifyExisting`), so a
+    cross-check would catch no reachable failure while adding a hash pass over up to 25 MB per
+    attachment to the receive path. Corrected the comments in
+    `packages/sync-core/src/revision-envelope.ts` and `packages/protocol/src/revision-schema.ts`
+    that implied a guarantee; added a characterisation test pinning that a wrong `blobByteHash`
+    still decodes ("does not verify blobByteHash: the field is unread metadata"), proven to have
+    teeth by making the decoder verify the field and observing the test fail.
+    (c) RECORDED, no cap built. Evidence: 40 MiB per-request body limit
+    (`DEFAULT_BODY_LIMIT_BYTES`) with a 36 MiB payload ceiling, and 120 req/60 s per client key
+    (`DEFAULT_RATE_LIMIT`) on the protected surface, but nothing bounds simultaneity, so peak
+    transient memory is concurrency x 40 MiB. Accepted for a two-device tailnet where every
+    caller is authenticated; the ceiling and its trigger-to-revisit are now stated in a comment
+    on `DEFAULT_BODY_LIMIT_BYTES` in `apps/server/src/config.ts` and in the docs. A semaphore is
+    the fix if the trust boundary widens.
+    (d) DOCUMENTED KNOWN LIMITATION, no code change. `#resolveBoundDevice` selects
+    `ORDER BY (vault_id IS NULL), approved_at DESC, id LIMIT 1`, vault-scoped first, then most
+    recently approved; unambiguous at one device per person, arbitrary from the user's point of
+    view with several. Must be revisited before multi-device ships, when the grant needs to name
+    its target device. Not edited here in any case: it lives in `rejoin-grants.ts`, concurrently
+    owned by another agent.
 
 ## Server hardening (audit iteration 2)
 
@@ -449,6 +500,15 @@ re-hash from the blob `read` hot path); below is what was deliberately deferred.
     `createRateLimiter` and run it in `onRequest` before the handler
     (`rejoin-routes.ts:165`, `revoke-routes.ts:165`), each taking its window from
     `deps.rateLimit ?? DEFAULT_RATE_LIMIT`.
+- [ ] **AUD2-08** MINOR `server` `sync/sync-routes.ts:788-830`, `GET /vaults/:vaultId/blobs/:blobHash`
+  authorises on `requireSession` + `loadActiveMembership` + `blobBelongsToVault`
+  and never reads the `vaults` table, so a member whose session predates a vault
+  soft-delete can still read blob bytes out of that vault. Push and pull already
+  fail closed (`revision-repository.ts` `#getVault` and `getCursor` both filter
+  `deleted_at IS NULL`); this route is the one gap in that containment. Found
+  2026-09-03 while fixing AUD2-05, which closed only the rejoin-shaped path.
+  - AC: a soft-deleted vault's blob GET returns 404/403 for a session minted
+    before the delete; push/pull behaviour unchanged.
 - [ ] **AUD2-07** NIT `server` `device-throttles.ts:70`, `BlobByteRateLimiter.#buckets`
   never removes entries, one bucket per device id lives for the process lifetime.
   Same unbounded-map pattern as AUD2-01, found while fixing it (2026-09-03).

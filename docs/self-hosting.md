@@ -221,6 +221,16 @@ terminal:
   registry (`community-plugins.json`) and the per-machine window layout
   (`workspace.json`) are never synced, so no member of a vault can replace
   another member's installed plugin code.
+- **Some notes never sync, silently.** Havemind skips a file when any path
+  segment starts with a dot (`Notes/.drafts/x.md`, `.trash/…`), when it sits at
+  the top level of the reserved `Havemind Conflicts/` folder (matched
+  case-insensitively), or when its extension is neither `.md` nor an allowed
+  attachment (`png`, `jpg`, `jpeg`, `gif`, `webp`, `svg`, `pdf`, max 25 MB).
+  Nested folders are fine, `Notes/Havemind Conflicts/x.md` does sync; only the
+  top level is reserved. The plugin shows no warning for a skipped file, so keep
+  notes you want synced out of dot-paths and out of `Havemind Conflicts/`. Full
+  rules: [known limitations](pilot/known-limitations.md#dot-paths-and-the-reserved-folder-aud-07).
+
 - **Data on the server is stored in plaintext.** The live database and blob
   store are unencrypted on the volume; the `havemind_db_key` secret encrypts
   only checkpoint snapshots, not the live data. Anyone who controls the server

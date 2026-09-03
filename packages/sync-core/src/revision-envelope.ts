@@ -183,10 +183,17 @@ async function buildInnerPayload(
   }
 
   if (input.kind === 'binary') {
-    // Whole-file replace over RAW bytes: no canonicalisation, no recipe. The
-    // byte hash identifies the exact source file so the peer can track its base
-    // and detect divergence over bytes (never over a canonicalised markdown
-    // form). Kept deliberately separate from the markdown path below.
+    // Whole-file replace over RAW bytes: no canonicalisation, no recipe. Kept
+    // deliberately separate from the markdown path below.
+    //
+    // `blobByteHash` is DESCRIPTIVE metadata, not an integrity guarantee
+    // (AUD-10(b)). No consumer reads it: `decodeRevisionPayload` ignores the
+    // field, and `applyRemoteBinary` recomputes `hashBlob(bytes)` from the
+    // decoded bytes to track its base and detect divergence. Integrity of these
+    // bytes is closed OUTSIDE the payload, the whole payload JSON (base64
+    // included) is content-addressed and re-hashed on read in the server's blob
+    // store, so a corrupted attachment fails there, not here. Do not describe
+    // this field as a check until something actually verifies it.
     const bytes = input.binaryContent ?? new Uint8Array(0);
     const base: Record<string, unknown> = {
       schemaVersion: 1,

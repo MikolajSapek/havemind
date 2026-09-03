@@ -1,4 +1,8 @@
-import { hashBlob } from '@havemind/protocol';
+import {
+  canonicalizeVaultPath,
+  hashBlob,
+  isReservedVaultPath,
+} from '@havemind/protocol';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
@@ -842,5 +846,45 @@ describe('reserved conflict folder exclusion', () => {
     expect(classifyVaultPath(`Notes/${CONFLICT_FOLDER}/note.md`).eligible).toBe(
       true,
     );
+  });
+
+  it('excludes a case variant of the reserved root, matching the protocol', () => {
+    // The producer used to compare the top segment case-SENSITIVELY while the
+    // protocol's `RESERVED_ROOTS` folds case. On a case-insensitive filesystem
+    // (macOS, Windows) `havemind conflicts/x.md` is the SAME folder as the
+    // reserved one, so the producer classified it eligible, enqueued it, and
+    // `canonicalizeVaultPath` then threw at envelope-build time. That throw
+    // kills the whole push cycle and latches the device Offline, the exact
+    // failure mode the backslash guard above this function exists to prevent.
+    for (const variant of [
+      CONFLICT_FOLDER.toLowerCase(),
+      CONFLICT_FOLDER.toUpperCase(),
+    ]) {
+      expect(classifyVaultPath(`${variant}/x.md`).eligible).toBe(false);
+      expect(isReservedVaultPath(`${variant}/x.md`)).toBe(true);
+    }
+  });
+
+  it('never classifies eligible a path the protocol reserves', () => {
+    // Pins the two layers together: anything the producer admits must survive
+    // `canonicalizeVaultPath`, or the push cycle throws instead of syncing.
+    const probes = [
+      'Notes/.drafts/x.md',
+      '.drafts/x.md',
+      '.trash/x.md',
+      `${CONFLICT_FOLDER}/x.md`,
+      CONFLICT_FOLDER.toLowerCase() + '/x.md',
+      '.obsidian/appearance.json',
+      '.obsidian/plugins/foo/main.js',
+      '.obsidian/snippets/a.css',
+      'Notes/pic.PNG',
+      'Notes/doc.docx',
+      'a/b.md',
+    ];
+    for (const probe of probes) {
+      if (classifyVaultPath(probe).eligible) {
+        expect(() => canonicalizeVaultPath(probe)).not.toThrow();
+      }
+    }
   });
 });

@@ -13,7 +13,9 @@ import { normalizeConfigContent } from '../sync/config-normalize';
  * endless echo. `conflict-resolution.ts` has no runtime imports of its own
  * (Obsidian types only), so this direction introduces no cycle.
  */
-const RESERVED_TOP_LEVEL_DIRECTORIES = new Set([CONFLICT_FOLDER]);
+const RESERVED_TOP_LEVEL_DIRECTORIES = new Set(
+  [CONFLICT_FOLDER].map((name) => name.toLowerCase()),
+);
 
 /**
  * Non-markdown file extensions the pilot syncs as whole-file binary attachments
@@ -294,7 +296,12 @@ function eligibleKind(canonicalPath: string): SyncContentKind | null {
   }
 
   const [top] = segments;
-  if (top === undefined || RESERVED_TOP_LEVEL_DIRECTORIES.has(top)) {
+  // Case-FOLDED, matching the protocol's `RESERVED_ROOTS`. On a case-insensitive
+  // filesystem `havemind conflicts/` is the same folder as the reserved root, and
+  // a case-sensitive comparison here classified it eligible, enqueued it, then
+  // threw inside `canonicalizeVaultPath` at envelope-build time, killing the push
+  // cycle and latching the device Offline.
+  if (top === undefined || RESERVED_TOP_LEVEL_DIRECTORIES.has(top.toLowerCase())) {
     return null;
   }
   return kind;
