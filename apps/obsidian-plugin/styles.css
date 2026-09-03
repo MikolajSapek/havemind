@@ -87,6 +87,9 @@
 
   /* Tab strip */
   --havemind-tab-height: 32px;
+  /* Coarse-pointer cell from the mobile handoff: 32px is comfortable under a
+     mouse and below the 44px minimum under a fingertip. */
+  --havemind-tab-height-touch: 52px;
   --havemind-tab-label-size: 11.5px;
   --havemind-tab-label-weight: 500;
   --havemind-tab-active-weight: 600;
@@ -231,6 +234,12 @@
   container-type: inline-size;
   container-name: havemind-pane;
   background: var(--background-primary);
+  /* Phone insets (notch, rounded corners). The header's own ground continues
+     under the status bar because the padding is on the leaf, not the header.
+     Zero on every desktop, so the sidebar geometry is unchanged. */
+  padding-top: env(safe-area-inset-top);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
 }
 
 /* Air between the top-level blocks of a view, the main lever of the redesign.
@@ -1313,6 +1322,27 @@
 .havemind-view button.havemind-tab.needs-attention .havemind-tab-count {
   color: var(--havemind-bad);
   font-weight: var(--font-medium);
+}
+
+/* Phone and tablet. A 32px strip is comfortable under a mouse and below the
+   44px minimum under a fingertip, so the design raises the cell to 52px on
+   coarse pointers only; the desktop sidebar keeps its 32px. Scoped by input
+   device rather than by width, because a narrow desktop sidebar is still a
+   mouse and a wide tablet is still a finger. */
+@media (pointer: coarse) {
+  /* Overrides the rendered height rather than redeclaring
+     `--havemind-tab-height`: that token is asserted to be declared exactly once
+     (`design-tokens.test.ts`), and a second declaration is precisely the drift
+     the assertion exists to catch. The token stays the desktop value; the phone
+     states its own height here. */
+  .havemind-view button.havemind-tab {
+    height: var(--havemind-tab-height-touch);
+  }
+  /* The last row has to clear the home indicator. `max()` keeps the designed
+     16px wherever there is no inset. */
+  .havemind-tab-body {
+    padding-bottom: max(16px, env(safe-area-inset-bottom));
+  }
 }
 
 @container havemind-pane (max-width: 249px) {
