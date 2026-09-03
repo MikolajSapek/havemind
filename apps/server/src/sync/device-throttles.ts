@@ -60,6 +60,13 @@ interface Bucket {
 }
 
 /**
+ * Bucket count below which the eviction scan is skipped: at the 2-3 device
+ * steady state a sweep would only ever walk live entries, so it is not worth
+ * its own cost. Mirrors `SWEEP_THRESHOLD_KEYS` in `auth-routes.ts`.
+ */
+const SWEEP_THRESHOLD_DEVICES = 32;
+
+/**
  * Per-device token bucket measured in BYTES. Each blob GET charges the blob's
  * byte length; an over-budget charge is refused (the route returns 429). The
  * bucket starts full, so a fresh device can burst up to `burstBytes` before any
@@ -76,11 +83,43 @@ export class BlobByteRateLimiter {
   ) {}
 
   /**
+   * Evicts buckets that have refilled to capacity (AUD2-07). A full bucket owes
+   * nothing, so it is indistinguishable from a device that never appeared and
+   * dropping it changes no decision; a bucket still below its cap must be kept,
+   * or eviction would silently hand a throttled device a fresh full budget.
+   *
+   * Lazy, traffic-driven, and NOT a `setInterval`, matching the AUD2-01 sweep in
+   * `auth-routes.ts`: a timer would outlive the Fastify instance that owns this
+   * limiter and keep the process alive.
+   */
+  #sweep(nowMs: number): void {
+    if (this.#buckets.size < SWEEP_THRESHOLD_DEVICES) {
+      return;
+    }
+    for (const [deviceId, bucket] of this.#buckets) {
+      const elapsedMs = Math.max(0, nowMs - bucket.lastRefillMs);
+      const tokens = Math.min(
+        this.burstBytes,
+        bucket.tokens + elapsedMs * this.refillBytesPerMs,
+      );
+      if (tokens >= this.burstBytes) {
+        this.#buckets.delete(deviceId);
+      }
+    }
+  }
+
+  /** Number of buckets currently held. Exposed so eviction is observable. */
+  public trackedDevices(): number {
+    return this.#buckets.size;
+  }
+
+  /**
    * Charges `bytes` against the device's bucket. Returns true when the charge
    * fit (and was deducted); false when it did not (nothing is deducted).
    */
   public tryConsume(deviceId: string, bytes: number): boolean {
     const nowMs = this.now().getTime();
+    this.#sweep(nowMs);
     const existing = this.#buckets.get(deviceId);
     const bucket: Bucket = existing ?? {
       tokens: this.burstBytes,

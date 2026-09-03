@@ -520,12 +520,27 @@ re-hash from the blob `read` hot path); below is what was deliberately deferred.
     delete case returned 200. Regression probe: dropping the
     `vaults.deleted_at IS NULL` line fails exactly that test (1 failed / 44
     passed). `npm run verify` exit 0, 1899 tests.
-- [ ] **AUD2-07** NIT `server` `device-throttles.ts:70`, `BlobByteRateLimiter.#buckets`
+- [x] **AUD2-07** NIT `server` `device-throttles.ts:70`, `BlobByteRateLimiter.#buckets`
   never removes entries, one bucket per device id lives for the process lifetime.
   Same unbounded-map pattern as AUD2-01, found while fixing it (2026-09-03).
   A device bucket is only dead once it has refilled to `burstBytes`, so eviction
   must not drop a bucket that is still paying off a charge. Bounded in practice
   by the device count, so NIT, not MINOR.
+  - Evidence (2026-09-03): `BlobByteRateLimiter.#sweep` evicts only buckets that
+    have refilled to `burstBytes` (`device-throttles.ts:86-110`), called from
+    `tryConsume`, gated by `SWEEP_THRESHOLD_DEVICES = 32`. A full bucket owes
+    nothing so dropping it changes no decision; a bucket below its cap is kept,
+    or eviction would hand a throttled device a fresh budget. Lazy and
+    traffic-driven, not a `setInterval`, matching the AUD2-01 sweep. 3 new tests
+    (evicts full buckets, keeps a mid-debt bucket, skips the scan below the
+    threshold). Red first: `trackedDevices` did not exist. Regression probe:
+    removing the `#sweep` call fails the eviction test. `npm run verify` exit 0,
+    1902 tests.
+  - Also corrected a misleading comment in the pre-existing "refills the bucket
+    over time" test: it read "100 bytes/second == 0.1 bytes/ms" while passing
+    `100` into a parameter the production call site feeds bytes-per-MS
+    (`sync-routes.ts:427-431` divides a per-second config by 1000). The test was
+    correct, its comment was not, and the comment misled this work at first.
 - [x] **AUD2-03** NIT `server` `rejoin-grants.ts:321-342`, multiple live rejoin grants
   can be redeemed simultaneously per membership.
   - Evidence (2026-09-03): the finding was diagnosed as TWO separate questions and
