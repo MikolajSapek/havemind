@@ -760,6 +760,24 @@ are sequential; each is independently releasable.
     `resolveViewState`. Invitation composer becomes a modal, not a screen.
   - AC: AT3-1…AT3-4 from `plans/007-ui-rebuild.md` green.
   - AC: `ui/onboarding-view.ts` under 250 lines; no file in `ui/screens/` over 200.
+  - PARTIAL (2026-09-03), deliberately left open. The ViewState half is done and
+    pushed (`e275fe5`): `runtime/view-state.ts` resolves the screen from a pure
+    function, precedence is table-driven (`view-state.test.ts`, AT3-1), and
+    `assertNever` makes a new variant a compile error, verified by adding one and
+    watching `tsc` reject it (AT3-3). AT3-2 is fixed and probed: the composer has
+    no ViewState variant, so it draws OVER the connected state and the status row
+    is lifted above the tab strip while it is open; removing that lift fails the
+    test.
+  - REMAINING: the file ceiling. `onboarding-view.ts` is ~1240 lines against a
+    250 target. One screen (`screens/guest-waiting.ts`) is extracted as the
+    pattern; ~25 more methods follow, largest first (the invite composer is
+    ~200 lines on its own). `ui/file-size.test.ts` holds both ceilings, with the
+    250-line one `it.skip`ped and commented so the target stays visible in the
+    suite rather than only in this document.
+  - Two existing tests caught real defects in the first wiring attempt: a double
+    read of `composerProvider` (against the file's own read-once rule), and an
+    assertion that selected the approval confirmation as "the first
+    `.havemind-status`", which the lifted row displaced.
   - AC (regression, structural): opening the composer while connected leaves the
     status row rendered, the 1.1.3 defect becomes impossible, not just fixed.
   - AC: `npm run test:e2e` green **without modifying** the e2e suites.
