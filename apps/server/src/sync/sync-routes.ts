@@ -337,6 +337,18 @@ function parseBatch(
   return parsed;
 }
 
+/**
+ * True when the blob is referenced by a revision in a LIVE vault.
+ *
+ * AUD2-08: the join onto `vaults` carries the soft-delete filter. Push and pull
+ * already fail closed on a deleted vault (`revision-repository.ts` `#getVault`
+ * and `getCursor` both filter `deleted_at IS NULL`), but the blob route
+ * authorises on session + membership alone, so without this a session minted
+ * before the delete could still read bytes out of the vault. Folded into the
+ * existing lookup rather than added as a second query: the caller already maps
+ * a false result to 404, which is the right answer for a deleted vault too, and
+ * keeps a deleted vault indistinguishable from a missing blob.
+ */
 function blobBelongsToVault(
   database: Database.Database,
   vaultId: string,
@@ -346,7 +358,10 @@ function blobBelongsToVault(
     .prepare(
       `SELECT 1 AS present
        FROM revisions
-       WHERE vault_id = ? AND blob_hash = ?
+       JOIN vaults ON vaults.id = revisions.vault_id
+       WHERE revisions.vault_id = ?
+         AND revisions.blob_hash = ?
+         AND vaults.deleted_at IS NULL
        LIMIT 1`,
     )
     .get(vaultId, blobHash) as { present: number } | undefined;

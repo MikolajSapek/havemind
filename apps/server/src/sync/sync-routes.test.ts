@@ -1316,6 +1316,66 @@ describe('sync push/pull routes', () => {
     });
   });
 
+  describe('AUD2-08 blob GET honours the vault soft-delete', () => {
+    it('refuses a blob from a soft-deleted vault for a session minted before the delete', async () => {
+      // Push and pull already fail closed on a soft-deleted vault
+      // (`revision-repository.ts` `#getVault` and `getCursor` both filter
+      // `deleted_at IS NULL`). The blob route authorised on session +
+      // membership + blob-belongs-to-vault and never read `vaults`, so a
+      // session that predates the delete could still read bytes out of it.
+      const fixture = makeFixture();
+      const app = createApp(fixture);
+
+      const pushed = await push(app, fixture.accessTokenA, VAULT_A, [
+        revisionInput(REVISION_1, [], 'k1', 'opaque-1'),
+      ]);
+      const blobHash = (
+        pushed.json() as { results: Array<{ receipt: { blobHash: string } }> }
+      ).results[0]?.receipt.blobHash;
+      expect(blobHash).toBeDefined();
+
+      const get = async () =>
+        app.inject({
+          headers: { authorization: `Bearer ${fixture.accessTokenA}` },
+          method: 'GET',
+          url: `/vaults/${VAULT_A}/blobs/${blobHash}`,
+        });
+
+      // Readable while the vault is live, so the refusal below is the delete
+      // taking effect and not a broken fixture.
+      expect((await get()).statusCode).toBe(200);
+
+      fixture.database
+        .prepare(`UPDATE vaults SET deleted_at = ? WHERE id = ?`)
+        .run(START_TIME, VAULT_A);
+
+      const afterDelete = await get();
+      expect(afterDelete.statusCode).toBe(404);
+      expect(afterDelete.json()).toEqual({ error: { code: 'NOT_FOUND' } });
+    });
+
+    it('still serves a blob from a live vault', async () => {
+      // Guards the fix against over-reach: soft-deleting one vault must not
+      // make every blob unreadable.
+      const fixture = makeFixture();
+      const app = createApp(fixture);
+
+      const pushed = await push(app, fixture.accessTokenA, VAULT_A, [
+        revisionInput(REVISION_1, [], 'k1', 'opaque-1'),
+      ]);
+      const blobHash = (
+        pushed.json() as { results: Array<{ receipt: { blobHash: string } }> }
+      ).results[0]?.receipt.blobHash;
+
+      const blob = await app.inject({
+        headers: { authorization: `Bearer ${fixture.accessTokenA}` },
+        method: 'GET',
+        url: `/vaults/${VAULT_A}/blobs/${blobHash}`,
+      });
+      expect(blob.statusCode).toBe(200);
+    });
+  });
+
   describe('AUD-08b blob-GET per-device byte throttle', () => {
     it('throttles a device that pulls blobs beyond its byte budget and refills over time', async () => {
       const fixture = makeFixture();

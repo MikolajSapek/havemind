@@ -500,7 +500,7 @@ re-hash from the blob `read` hot path); below is what was deliberately deferred.
     `createRateLimiter` and run it in `onRequest` before the handler
     (`rejoin-routes.ts:165`, `revoke-routes.ts:165`), each taking its window from
     `deps.rateLimit ?? DEFAULT_RATE_LIMIT`.
-- [ ] **AUD2-08** MINOR `server` `sync/sync-routes.ts:788-830`, `GET /vaults/:vaultId/blobs/:blobHash`
+- [x] **AUD2-08** MINOR `server` `sync/sync-routes.ts:788-830`, `GET /vaults/:vaultId/blobs/:blobHash`
   authorises on `requireSession` + `loadActiveMembership` + `blobBelongsToVault`
   and never reads the `vaults` table, so a member whose session predates a vault
   soft-delete can still read blob bytes out of that vault. Push and pull already
@@ -509,6 +509,17 @@ re-hash from the blob `read` hot path); below is what was deliberately deferred.
   2026-09-03 while fixing AUD2-05, which closed only the rejoin-shaped path.
   - AC: a soft-deleted vault's blob GET returns 404/403 for a session minted
     before the delete; push/pull behaviour unchanged.
+  - Evidence (2026-09-03): the soft-delete filter is folded into the existing
+    `blobBelongsToVault` lookup as a join onto `vaults`
+    (`sync/sync-routes.ts:340-369`) rather than a second query, so a deleted
+    vault stays indistinguishable from a missing blob and the caller's existing
+    404 mapping is reused. 2 new tests in `sync-routes.test.ts` ("AUD2-08 blob
+    GET honours the vault soft-delete"): one asserts 200 while live then 404
+    after the delete (so the refusal cannot be a broken fixture), one guards
+    against over-reach by keeping a live vault's blob readable. Red first: the
+    delete case returned 200. Regression probe: dropping the
+    `vaults.deleted_at IS NULL` line fails exactly that test (1 failed / 44
+    passed). `npm run verify` exit 0, 1899 tests.
 - [ ] **AUD2-07** NIT `server` `device-throttles.ts:70`, `BlobByteRateLimiter.#buckets`
   never removes entries, one bucket per device id lives for the process lifetime.
   Same unbounded-map pattern as AUD2-01, found while fixing it (2026-09-03).
