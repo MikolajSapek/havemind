@@ -181,6 +181,14 @@ function requireStoredDate(value: string): number {
  * through event/receipt metadata, so binding alone must never redeem (audit
  * finding #1). A device with no provisioned secret is fail-closed and cannot
  * rejoin. The grant is still single-use and expires in 15 minutes.
+ *
+ * Two further invariants, both enforced in this class:
+ * - At most ONE live grant per membership. Issuing a grant supersedes any
+ *   earlier unconsumed one for the same membership, so the number of grants an
+ *   owner issues never becomes the number of sessions an invitee can mint
+ *   (AUD2-03).
+ * - A membership whose vault is soft-deleted (`vaults.deleted_at`) can neither
+ *   be granted nor redeemed (AUD2-05).
  */
 export class RejoinGrantService {
   readonly #database: Database.Database;
@@ -234,6 +242,22 @@ export class RejoinGrantService {
         target.userId,
         target.vaultId,
       );
+      // AUD2-03: one live grant per membership. Without this, each extra grant
+      // the owner issues is an extra redemption: `#loadLiveGrant` picks the
+      // newest unconsumed row, so an older one stays redeemable and hands out a
+      // second session. Superseding here, inside the same BEGIN IMMEDIATE that
+      // inserts the replacement, keeps "at most one redeemable grant" true at
+      // every commit boundary. Redemption stays single-use in its own right
+      // (`UPDATE ... WHERE consumed_at IS NULL`, checked via `changes`), so the
+      // two guards are independent: this one bounds how many grants exist, that
+      // one bounds how often one grant is spent.
+      this.#database
+        .prepare(
+          `UPDATE rejoin_grants SET consumed_at = ?
+           WHERE membership_id = ? AND consumed_at IS NULL`,
+        )
+        .run(createdAt, targetMembershipId);
+
       const grantId = this.#newUuid();
       this.#database
         .prepare(
@@ -384,7 +408,27 @@ export class RejoinGrantService {
     if (row === undefined) {
       throw new RejoinGrantError('GRANT_NOT_FOUND');
     }
+    // AUD2-05: a membership in a soft-deleted vault is not rejoinable. Both
+    // callers (`createGrant`, `redeemGrant`) route through here, so the guard
+    // covers issuing AND redeeming from one place. Sync itself already fails
+    // closed for a deleted vault (`revision-repository.ts` `getCursor` and
+    // `#getVault` both filter `deleted_at IS NULL`, and push/pull go through
+    // them), but that containment is not total: `GET /vaults/:id/blobs/:hash`
+    // in `sync/sync-routes.ts` authorises on membership alone and never reads
+    // `vaults`, so a session minted by rejoin could still read blob bytes out
+    // of a deleted vault. Refusing at the source is the check that belongs
+    // here, rather than relying on a downstream guarantee with a hole in it.
+    if (!this.#vaultIsLive(row.vaultId)) {
+      throw new RejoinGrantError('MEMBERSHIP_INACTIVE');
+    }
     return row;
+  }
+
+  #vaultIsLive(vaultId: string): boolean {
+    const row = this.#database
+      .prepare('SELECT 1 AS live FROM vaults WHERE id = ? AND deleted_at IS NULL')
+      .get(vaultId) as { live: number } | undefined;
+    return row !== undefined;
   }
 
   #requireOwnerMembership(membershipId: string, vaultId: string): void {

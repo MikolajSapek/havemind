@@ -449,8 +449,41 @@ re-hash from the blob `read` hot path); below is what was deliberately deferred.
     `createRateLimiter` and run it in `onRequest` before the handler
     (`rejoin-routes.ts:165`, `revoke-routes.ts:165`), each taking its window from
     `deps.rateLimit ?? DEFAULT_RATE_LIMIT`.
-- [ ] **AUD2-03** NIT `server` `rejoin-grants.ts:321-342`, multiple live rejoin grants
+- [ ] **AUD2-07** NIT `server` `device-throttles.ts:70`, `BlobByteRateLimiter.#buckets`
+  never removes entries, one bucket per device id lives for the process lifetime.
+  Same unbounded-map pattern as AUD2-01, found while fixing it (2026-09-03).
+  A device bucket is only dead once it has refilled to `burstBytes`, so eviction
+  must not drop a bucket that is still paying off a charge. Bounded in practice
+  by the device count, so NIT, not MINOR.
+- [x] **AUD2-03** NIT `server` `rejoin-grants.ts:321-342`, multiple live rejoin grants
   can be redeemed simultaneously per membership.
+  - Evidence (2026-09-03): the finding was diagnosed as TWO separate questions and
+    only one of them was a real defect. Single-use redemption was ALREADY atomic:
+    `UPDATE rejoin_grants SET consumed_at = ? WHERE id = ? AND consumed_at IS NULL`
+    guarded by `changes !== 1` (`rejoin-grants.ts:348-357`), inside a
+    `BEGIN IMMEDIATE` transaction (`redeem.immediate()`), which is the repo's
+    established pattern; better-sqlite3 is synchronous and `busy_timeout` plus
+    WAL is configured centrally in `db.ts:72-75`, so two redemptions cannot
+    interleave inside one transaction and a second process serialises on the
+    write lock. No race to fix there. The REAL defect was upstream: nothing
+    stopped `createGrant` from leaving N unconsumed rows for one membership, and
+    `#loadLiveGrant` takes the newest unconsumed row (`ORDER BY created_at DESC
+    ... LIMIT 1`), so N grants meant N redeemable sessions, each one individually
+    "single-use". Fix: `createGrant` now supersedes every earlier unconsumed
+    grant for the target membership before inserting the replacement
+    (`rejoin-grants.ts:245-260`), in the SAME `BEGIN IMMEDIATE` transaction as
+    the insert, so "at most one redeemable grant per membership" holds at every
+    commit boundary. Chose the invariant over a schema change: a partial unique
+    index would need migration 008 and would make a legitimate re-issue fail
+    instead of superseding. Covered by
+    `rejoin-grants.test.ts:442` "AUD2-03: one live grant per membership"
+    (3 tests: a new grant supersedes the earlier one, three issued grants still
+    yield exactly one redemption then `GRANT_NOT_FOUND`, and another
+    membership's live grant is untouched). Red first (2 of the 3 failed, the
+    third passed as the over-broad-invalidation guard it is meant to be), then
+    green; regression probe (delete the superseding UPDATE) re-failed exactly
+    those 2 and passed again on restore. `npm run verify` exits 0, 1896 tests in
+    154 files.
 - [x] **AUD2-04** NIT (latent, unreachable in single-vault) `server` `membership-revocation.ts:127-132`
 , membership revocation deletes ALL of a user's devices via `WHERE user_id`; becomes a
   real cross-vault bug if multi-vault is enabled.
@@ -460,8 +493,36 @@ re-hash from the blob `read` hot path); below is what was deliberately deferred.
     and `vault_id IS NULL` stays fail-closed for devices onboarded before it.
     Covered by `membership-revocation.test.ts` and
     `multi-vault-isolation.test.ts:625` (vault B untouched).
-- [ ] **AUD2-05** NIT `server` `rejoin-grants.ts:254-319`, rejoin ignores vault soft-delete
+- [x] **AUD2-05** NIT `server` `rejoin-grants.ts:254-319`, rejoin ignores vault soft-delete
   (fails fail-closed downstream).
+  - Evidence (2026-09-03): the "fail-closed downstream" claim was checked against
+    the code and holds for sync, but NOT completely. Push and pull do fail
+    closed: every mutation path goes through `revision-repository.ts` `#getVault`
+    (line 917, `WHERE id = ? AND deleted_at IS NULL`, NOT_FOUND when absent,
+    called at lines 623 and 654 from the commit path) and the pull route calls
+    `getCursor` (line 471, same filter) at `sync/sync-routes.ts:768` before
+    `listEvents`. The hole is `GET /vaults/:vaultId/blobs/:blobHash`
+    (`sync/sync-routes.ts:788-830`): it authorises on `loadActiveMembership`
+    (line 795) and `blobBelongsToVault` (line 807) and never reads `vaults` at
+    all, so a session minted by rejoin could still read blob bytes out of a
+    soft-deleted vault. So the containment was real for writes and for the event
+    stream, and incomplete for blob reads, which is exactly why the check
+    belongs at the source. Fix: the guard sits in `#loadMembership`
+    (`rejoin-grants.ts:411-425`), the ONE loader both `createGrant` and
+    `redeemGrant` route through, so issuing and redeeming are both covered by a
+    single branch rather than one guard per caller; `#vaultIsLive`
+    (`rejoin-grants.ts:427-432`) is the `deleted_at IS NULL` probe. Reused the
+    existing `MEMBERSHIP_INACTIVE` code (403 FORBIDDEN via
+    `REJOIN_CODE_BY_ERROR`) rather than adding an eighth error code: a
+    membership in a deleted vault is inactive in every sense the caller can act
+    on, and `/auth/rejoin` flattens every redemption failure to 401 anyway.
+    Covered by `rejoin-grants.test.ts:527` "AUD2-05: rejoin honours the vault
+    soft-delete" (3 tests: no grant may be issued, no grant may be redeemed, and
+    a refused redemption leaves the grant unconsumed so the rejection is not
+    itself a way to burn a grant). Red first (all 3 failed with "Expected
+    RejoinGrantError but none was thrown"), then green; regression probe
+    (delete the `#vaultIsLive` branch) re-failed exactly those 3 and passed
+    again on restore. `npm run verify` exits 0, 1896 tests in 154 files.
 - [x] **AUD2-06** MINOR `server` `auth-routes.ts:200-203`, blob GET is exempt from the rate limit
   as an amplifier; documented as AUD-08, revisit if abused.
   - Evidence (2026-09-03): resolved as "no behaviour change, the comment was

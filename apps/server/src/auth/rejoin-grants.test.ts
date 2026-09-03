@@ -438,3 +438,152 @@ describe('RejoinGrantService.redeemGrant', () => {
     );
   });
 });
+
+describe('AUD2-03: one live grant per membership', () => {
+  it('supersedes an earlier live grant when a new one is issued', () => {
+    const fixture = makeFixture();
+    const first = fixture.service.createGrant({
+      ownerMembershipId: OWNER_MEMBERSHIP,
+      targetMembershipId: INVITEE_MEMBERSHIP,
+    });
+    fixture.clock.advance(1_000);
+    const second = fixture.service.createGrant({
+      ownerMembershipId: OWNER_MEMBERSHIP,
+      targetMembershipId: INVITEE_MEMBERSHIP,
+    });
+    expect(second.grantId).not.toBe(first.grantId);
+
+    // Exactly one grant is left live for this membership: the newest.
+    const live = fixture.database
+      .prepare(
+        `SELECT id FROM rejoin_grants
+         WHERE membership_id = ? AND consumed_at IS NULL`,
+      )
+      .all(INVITEE_MEMBERSHIP) as Array<{ id: string }>;
+    expect(live.map((row) => row.id)).toEqual([second.grantId]);
+  });
+
+  it('yields exactly one redemption no matter how many grants were issued', () => {
+    const fixture = makeFixture();
+    for (let index = 0; index < 3; index += 1) {
+      fixture.service.createGrant({
+        ownerMembershipId: OWNER_MEMBERSHIP,
+        targetMembershipId: INVITEE_MEMBERSHIP,
+      });
+      fixture.clock.advance(1_000);
+    }
+
+    // The first redemption succeeds...
+    fixture.service.redeemGrant({
+      deviceId: INVITEE_DEVICE,
+      initialRefreshTokenHash: hashRefreshToken(generateRefreshToken()),
+      membershipId: INVITEE_MEMBERSHIP,
+      rejoinSecret: INVITEE_REJOIN_SECRET,
+    });
+    // ...and the superseded grants must NOT hand out extra sessions.
+    expectRejoinError(
+      () =>
+        fixture.service.redeemGrant({
+          deviceId: INVITEE_DEVICE,
+          initialRefreshTokenHash: hashRefreshToken(generateRefreshToken()),
+          membershipId: INVITEE_MEMBERSHIP,
+          rejoinSecret: INVITEE_REJOIN_SECRET,
+        }),
+      'GRANT_NOT_FOUND',
+    );
+  });
+
+  it('leaves the live grant of another membership untouched', () => {
+    const fixture = makeFixture();
+    const otherUser = '90000000-0000-4000-8000-0000000000c1';
+    const otherDevice = '90000000-0000-4000-8000-0000000000c2';
+    const otherMembership = '90000000-0000-4000-8000-0000000000c4';
+    insertUser(fixture.database, otherUser, 'Ola', 0);
+    insertDevice(fixture.database, otherDevice, otherUser, "Ola's laptop");
+    insertMembership(fixture.database, otherMembership, otherUser, 'editor');
+
+    const other = fixture.service.createGrant({
+      ownerMembershipId: OWNER_MEMBERSHIP,
+      targetMembershipId: otherMembership,
+    });
+    fixture.service.createGrant({
+      ownerMembershipId: OWNER_MEMBERSHIP,
+      targetMembershipId: INVITEE_MEMBERSHIP,
+    });
+    fixture.service.createGrant({
+      ownerMembershipId: OWNER_MEMBERSHIP,
+      targetMembershipId: INVITEE_MEMBERSHIP,
+    });
+
+    const stillLive = fixture.database
+      .prepare(
+        `SELECT consumed_at AS consumedAt FROM rejoin_grants WHERE id = ?`,
+      )
+      .get(other.grantId) as { consumedAt: string | null };
+    expect(stillLive.consumedAt).toBeNull();
+  });
+});
+
+describe('AUD2-05: rejoin honours the vault soft-delete', () => {
+  function softDeleteVault(fixture: Fixture): void {
+    fixture.database
+      .prepare('UPDATE vaults SET deleted_at = ? WHERE id = ?')
+      .run(START_TIME, VAULT);
+  }
+
+  it('refuses to issue a grant for a membership in a soft-deleted vault', () => {
+    const fixture = makeFixture();
+    softDeleteVault(fixture);
+    expectRejoinError(
+      () =>
+        fixture.service.createGrant({
+          ownerMembershipId: OWNER_MEMBERSHIP,
+          targetMembershipId: INVITEE_MEMBERSHIP,
+        }),
+      'MEMBERSHIP_INACTIVE',
+    );
+  });
+
+  it('refuses to redeem a grant after the vault is soft-deleted', () => {
+    const fixture = makeFixture();
+    fixture.service.createGrant({
+      ownerMembershipId: OWNER_MEMBERSHIP,
+      targetMembershipId: INVITEE_MEMBERSHIP,
+    });
+    softDeleteVault(fixture);
+    expectRejoinError(
+      () =>
+        fixture.service.redeemGrant({
+          deviceId: INVITEE_DEVICE,
+          initialRefreshTokenHash: hashRefreshToken(generateRefreshToken()),
+          membershipId: INVITEE_MEMBERSHIP,
+          rejoinSecret: INVITEE_REJOIN_SECRET,
+        }),
+      'MEMBERSHIP_INACTIVE',
+    );
+  });
+
+  it('leaves the grant unconsumed when the vault is soft-deleted', () => {
+    const fixture = makeFixture();
+    const created = fixture.service.createGrant({
+      ownerMembershipId: OWNER_MEMBERSHIP,
+      targetMembershipId: INVITEE_MEMBERSHIP,
+    });
+    softDeleteVault(fixture);
+    expectRejoinError(
+      () =>
+        fixture.service.redeemGrant({
+          deviceId: INVITEE_DEVICE,
+          initialRefreshTokenHash: hashRefreshToken(generateRefreshToken()),
+          membershipId: INVITEE_MEMBERSHIP,
+          rejoinSecret: INVITEE_REJOIN_SECRET,
+        }),
+      'MEMBERSHIP_INACTIVE',
+    );
+    const row = fixture.database
+      .prepare('SELECT consumed_at AS consumedAt FROM rejoin_grants WHERE id = ?')
+      .get(created.grantId) as { consumedAt: string | null };
+    expect(row.consumedAt).toBeNull();
+  });
+});
+
