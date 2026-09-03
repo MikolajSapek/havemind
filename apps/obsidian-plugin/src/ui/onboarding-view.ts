@@ -20,6 +20,7 @@ import { renderConnectionControls } from './screens/connection-controls';
 import { renderEntryPath } from './screens/entry-path';
 import { renderConnectForm } from './screens/connect-form';
 import { renderConnectedBody } from './screens/connected-body';
+import { renderTabBody } from './screens/tab-body';
 import { renderPaneChrome } from './screens/pane-chrome';
 import { renderPeopleTab } from './screens/people-tab';
 import { buildHeaderMenuItems } from './screens/header-menu';
@@ -283,38 +284,33 @@ export class HavemindOnboardingView extends ItemView {
     panel: ConnectionPanelView,
     composer: CreateConnectionViewModel | null,
   ): void {
-    if (tab === 'status') {
-      this.renderIndicator(body, panel);
-      if (this.helpOpen) {
-        renderGettingStarted(body, buildGettingStartedViewModel());
-      }
-      return;
-    }
-
-    if (tab === 'activity') {
-      const feed = this.options.activityFeedProvider?.() ?? [];
-      renderActivityRows(body, {
-        feed,
-        ...(this.options.onRestore ? { onRestore: this.options.onRestore } : {}),
-      });
-      return;
-    }
-
-    if (tab === 'connect') {
-      this.renderConnectionControls(body, panel);
-      return;
-    }
-
-    renderPeopleTab(body, composer, {
-      renderRoster: (target) => {
-        // Read inside the boundary, not around it: a roster that cannot be
-        // built should show the section fallback where the list would have
-        // been, rather than vanishing silently and leaving the tab empty.
-        const roster = this.options.rejoinRosterProvider?.();
-        if (roster !== undefined) this.renderRoster(target, roster);
+    renderTabBody(body, tab, panel, composer, {
+      renderStatus: (target, p) => {
+        this.renderIndicator(target, p);
+        if (this.helpOpen) {
+          renderGettingStarted(target, buildGettingStartedViewModel());
+        }
       },
-      renderComposer: (target, model) => this.renderCreateConnection(target, model),
-      onOpenComposer: this.options.onOpenComposer,
+      renderActivity: (target) => {
+        renderActivityRows(target, {
+          feed: this.options.activityFeedProvider?.() ?? [],
+          ...(this.options.onRestore ? { onRestore: this.options.onRestore } : {}),
+        });
+      },
+      renderConnect: (target, p) => this.renderConnectionControls(target, p),
+      renderPeople: (target, model) =>
+        renderPeopleTab(target, model, {
+          renderRoster: (rosterTarget) => {
+            // Read inside the boundary, not around it: a roster that cannot be
+            // built should show the section fallback where the list would have
+            // been, rather than vanishing silently and leaving the tab empty.
+            const roster = this.options.rejoinRosterProvider?.();
+            if (roster !== undefined) this.renderRoster(rosterTarget, roster);
+          },
+          renderComposer: (composerTarget, m) =>
+            this.renderCreateConnection(composerTarget, m),
+          onOpenComposer: this.options.onOpenComposer,
+        }),
     });
   }
 
