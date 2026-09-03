@@ -37,7 +37,31 @@ class FakeRunner implements SyncRunnerLike {
 class FakeHooks implements SchedulerHooks {
   focus: (() => void) | null = null;
   online: (() => void) | null = null;
+  visibleDisposed = 0;
   interval: { run: () => void; ms: number } | null = null;
+
+  /**
+   * Models a real event target: every registration adds a listener and its
+   * disposer removes only that one. A single slot would hide a double-register
+   * leak, so they are kept as a set and `visible` fires all of them.
+   */
+  private visibleListeners = new Set<() => void>();
+
+  onVisible(run: () => void): () => void {
+    this.visibleListeners.add(run);
+    return () => {
+      this.visibleDisposed += 1;
+      this.visibleListeners.delete(run);
+    };
+  }
+
+  /** Fires every still-registered visibility listener. */
+  get visible(): (() => void) | null {
+    if (this.visibleListeners.size === 0) return null;
+    return () => {
+      for (const listener of [...this.visibleListeners]) listener();
+    };
+  }
 
   onFocus(run: () => void): () => void {
     this.focus = run;
@@ -58,6 +82,7 @@ class FakeHooks implements SchedulerHooks {
 class FakeWake implements WakeSubscriptionLike {
   startCount = 0;
   stopCount = 0;
+  resumeCount = 0;
 
   start(): void {
     this.startCount += 1;
@@ -65,6 +90,10 @@ class FakeWake implements WakeSubscriptionLike {
 
   stop(): void {
     this.stopCount += 1;
+  }
+
+  resume(): void {
+    this.resumeCount += 1;
   }
 }
 
@@ -160,6 +189,51 @@ describe('HavemindSyncController', () => {
     controller.stop();
     controller.stop();
     expect(onStop).toHaveBeenCalledOnce();
+  });
+
+  it('re-arms the push subscription when the app returns to the foreground', () => {
+    // MOB-01: the periodic poll already re-triggers on `focus`, but that never
+    // touched the push channel, so a long-poll frozen by mobile backgrounding
+    // sat dead until its backoff elapsed. Visibility now re-arms it.
+    const wake = new FakeWake();
+    const { controller, hooks } = build({ wake });
+    controller.start();
+    expect(wake.resumeCount).toBe(0);
+
+    hooks.visible?.();
+    expect(wake.resumeCount).toBe(1);
+  });
+
+  it('detaches the visibility listener on stop so no resume survives teardown', () => {
+    const wake = new FakeWake();
+    const { controller, hooks } = build({ wake });
+    controller.start();
+    controller.stop();
+    expect(hooks.visibleDisposed).toBe(1);
+
+    // Even if the host fired a late event, teardown must start nothing.
+    hooks.visible?.();
+    expect(wake.resumeCount).toBe(0);
+  });
+
+  it('does not leak a visibility listener when start is called twice', () => {
+    // `SyncScheduler.start()` is idempotent, so the controller's own
+    // registration must be too: overwriting the disposer would strand the first
+    // listener for the session, the exact leak scheduler-hooks documents.
+    const wake = new FakeWake();
+    const { controller, hooks } = build({ wake });
+    controller.start();
+    controller.start();
+    controller.stop();
+
+    hooks.visible?.();
+    expect(wake.resumeCount).toBe(0);
+  });
+
+  it('tolerates a visibility event with no push subscription (poll-only build)', () => {
+    const { controller, hooks } = build();
+    controller.start();
+    expect(() => hooks.visible?.()).not.toThrow();
   });
 
     it('starts and stops the push subscription in lockstep with the schedule', () => {

@@ -15,7 +15,9 @@
  *  - a transport error reconnects with exponential backoff + jitter, never throws;
  *  - an HTTP 401 is terminal (the session was refused), it stops rather than
  *    hammering the server in a retry storm;
- *  - `stop()` makes it fully inert: no further long-poll is issued.
+ *  - `stop()` makes it fully inert: no further long-poll is issued;
+ *  - `resume()` re-arms it after the app was suspended, dropping the pending
+ *    backoff so a returning app reconnects at once rather than on backoff.
  *
  * It reports connection transitions through `onConnectedChange` so the controller
  * can degrade the periodic poll to a slow heartbeat while push is live and revert
@@ -141,6 +143,29 @@ export class WakeSubscription {
     }
     this.started = true;
     this.runPromise = this.runLoop();
+  }
+
+  /**
+   * Re-arms the loop after the host app was suspended (mobile backgrounding, a
+   * slept laptop). Releases the pending backoff/settle delay so the loop retries
+   * at once instead of waiting the delay out, and clears the accumulated failure
+   * count so the return does not inherit a grown backoff.
+   *
+   * Deliberately does NOT touch `stopped`: after `stop()` this is inert, and it
+   * is a re-arm rather than an alternative entry point, so it never starts a loop
+   * `start()` has not armed.
+   */
+  resume(): void {
+    if (this.stopped || !this.started) {
+      return;
+    }
+    this.failureCount = 0;
+    const pending = this.pendingDelay;
+    this.pendingDelay = null;
+    pending?.cancel();
+    // Cancelling the native timer alone would leave the loop awaiting the delay
+    // promise forever, so release it too, exactly as teardown does.
+    pending?.resolve();
   }
 
   /**

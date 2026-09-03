@@ -5,8 +5,17 @@ import { SyncScheduler, type SchedulerHooks } from './scheduler';
 class FakeHooks implements SchedulerHooks {
   focus: (() => void) | null = null;
   online: (() => void) | null = null;
+  visible: (() => void) | null = null;
   interval: { run: () => void; ms: number } | null = null;
   disposed = 0;
+
+  onVisible(run: () => void): () => void {
+    this.visible = run;
+    return () => {
+      this.disposed += 1;
+      this.visible = null;
+    };
+  }
 
   onFocus(run: () => void): () => void {
     this.focus = run;

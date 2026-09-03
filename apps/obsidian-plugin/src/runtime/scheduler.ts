@@ -15,6 +15,15 @@ export interface SchedulerHooks {
   onFocus(run: () => void): () => void;
   /** Registers an online/network-regained listener; returns a disposer. */
   onOnline(run: () => void): () => void;
+  /**
+   * Registers a listener for the host app becoming visible again (returning from
+   * mobile backgrounding, a slept laptop); returns a disposer.
+   *
+   * Owned by the controller rather than this scheduler: visibility re-arms the
+   * real-time push channel, whereas `onFocus` triggers a poll cycle. It lives in
+   * this bundle because it is the same kind of ambient host event.
+   */
+  onVisible(run: () => void): () => void;
   /** Registers a periodic timer; returns a disposer. */
   setInterval(run: () => void, ms: number): () => void;
 }

@@ -44,6 +44,11 @@ export type StatusListener = (
 export interface WakeSubscriptionLike {
   start(): void;
   stop(): void;
+  /**
+   * Re-arms the channel after the host app was suspended. Optional so
+   * lightweight fakes need not implement it; `WakeSubscription` always does.
+   */
+  resume?(): void;
 }
 
 export interface HavemindSyncControllerOptions {
@@ -84,6 +89,8 @@ export class HavemindSyncController {
   private consecutiveFailures = 0;
   private lastObservedCycleId = 0;
   private cleanupDone = false;
+  /** Disposer for the visibility listener registered in `start()`. */
+  private disposeVisible: (() => void) | null = null;
 
   constructor(options: HavemindSyncControllerOptions) {
     this.options = options;
@@ -102,10 +109,22 @@ export class HavemindSyncController {
     // The real-time push subscription runs alongside the periodic poll: it wakes
     // the loop immediately on a peer change while the poll stays as a fallback.
     this.options.wake?.start();
+    // Returning from suspension (mobile backgrounding, a slept laptop) leaves a
+    // long-poll frozen mid-flight. The scheduler's `focus` trigger only re-runs
+    // the poll, so the push channel is re-armed here instead of waiting out its
+    // backoff. Registered with a real disposer, never `registerDomEvent`, so
+    // `stop()` removes exactly what it added (see scheduler-hooks).
+    // Idempotent like `SyncScheduler.start()`: registering twice would strand
+    // the first listener for the session.
+    this.disposeVisible ??= this.options.hooks.onVisible(() => {
+      this.options.wake?.resume?.();
+    });
   }
 
   stop(): void {
     this.scheduler.stop();
+    this.disposeVisible?.();
+    this.disposeVisible = null;
     // Stop the push subscription in lockstep so no long-poll survives teardown.
     this.options.wake?.stop();
     // Quiesce the runner too, not only the schedule: `scheduler.stop()` disarms

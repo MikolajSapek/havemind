@@ -4,13 +4,19 @@
  * are here because they are the same concern, turning ambient browser timers and
  * events into disposable handles, and because the focus/online registration is
  * deliberately NOT `plugin.registerDomEvent`: that only tears down on plugin
- * unload, so every reconnect leaked another listener pair for the session.
+ * unload, so every reconnect leaked another listener pair for the session. The
+ * visibility hook follows the same rule for the same reason.
  */
 
 import type { Plugin } from 'obsidian';
 
 import type { SchedulerFn } from '../../sync/sync-runner';
 import type { SchedulerHooks } from '../scheduler';
+
+/** Reads the current visibility so the hidden edge can be ignored (injectable). */
+export interface VisibilityStateSource {
+  readonly visibilityState: string;
+}
 
 /** The window-event surface the scheduler hooks need (injectable for tests). */
 export interface SchedulerEventTarget {
@@ -30,6 +36,7 @@ export interface SchedulerEventTarget {
 export function createSchedulerHooks(
   plugin: Plugin,
   target: SchedulerEventTarget = window,
+  visibility?: SchedulerEventTarget & VisibilityStateSource,
 ): SchedulerHooks {
   return {
     onFocus(run) {
@@ -39,6 +46,24 @@ export function createSchedulerHooks(
     onOnline(run) {
       target.addEventListener('online', run);
       return () => target.removeEventListener('online', run);
+    },
+    onVisible(run) {
+      // Resolved lazily, not as a default argument: `document` is absent in
+      // node-environment tests, and evaluating it eagerly would throw before any
+      // caller could inject a substitute.
+      const source =
+        visibility ??
+        (typeof document === 'undefined' ? undefined : document);
+      if (source === undefined) {
+        return () => undefined;
+      }
+      // `visibilitychange` fires on the document, not the window, and only the
+      // visible edge matters: going hidden must not disturb anything in flight.
+      const listener = (): void => {
+        if (source.visibilityState !== 'hidden') run();
+      };
+      source.addEventListener('visibilitychange', listener);
+      return () => source.removeEventListener('visibilitychange', listener);
     },
     setInterval(run, ms) {
       const id = window.setInterval(run, ms);

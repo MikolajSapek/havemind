@@ -561,7 +561,7 @@ is open. That limit applies to every sync plugin, LiveSync included.
 MOB-01 is worth doing on its own merits; the other two are gated behind it and
 behind a real device.
 
-- [ ] **MOB-01** `plugin` Resume the sync loop when the app comes back to the foreground
+- [x] **MOB-01** `plugin` Resume the sync loop when the app comes back to the foreground
   - The server's long poll runs 25s (`sync-routes.ts:121`,
     `DEFAULT_WAIT_TIMEOUT_MS`) and iOS freezes background work at about 30s, yet
     the plugin registers no `visibilitychange` listener at all. Minimising
@@ -578,6 +578,21 @@ behind a real device.
   - AC negative: no listener survives `onunload`, and a visibility event after
     teardown starts nothing (regression on the 1.2.3 teardown guarantees).
   - AC: `npm run verify` green; no change to the sync protocol or the server.
+  - Correction to the research note: the plugin DOES already re-trigger on
+    `focus` (`scheduler.ts`, `scheduler-hooks.ts`), but that drives only the
+    periodic poll and never touched `WakeSubscription`, so a frozen long-poll
+    still sat dead until its backoff elapsed. The gap was narrower than recorded.
+  - Evidence (2026-09-03): `WakeSubscription.resume()` releases the pending
+    backoff/settle delay and clears `failureCount`, inert after `stop()` and
+    before `start()`; new `onVisible` hook in `SchedulerHooks` registers on
+    `document` with a REAL disposer (never `plugin.registerDomEvent`, whose
+    unload-only teardown is the leak documented at `scheduler-hooks.ts:24`);
+    controller registers on `start()`, disposes on `stop()`, idempotent across a
+    double `start()`. 7 new tests (3 resume + 4 controller). `npm run verify`
+    exit 0, 1885 tests (was 1878). Coverage 90.08% stmts / 83.17% branches.
+    Regression probe: removing the delay release makes the resume test hang and
+    fail. Build's Node/Electron check still passes, no CSS touched so the plugin
+    class list is unchanged.
 
 - [ ] **MOB-02** `plugin,user-decision` Smoke-test a mobile build on a real device
   - Build with `isDesktopOnly: false` and side-load the three files onto one
