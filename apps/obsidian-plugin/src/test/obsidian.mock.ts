@@ -622,6 +622,17 @@ export class Setting {
  * `EditorView`, so nothing ever reads it; the export exists because the Live
  * Preview extension imports it and this module stands in for `obsidian`.
  */
+/**
+ * Platform flags. Defaults to the desktop app, which is what the existing
+ * suites assume; a test that needs the phone branch overrides the field for the
+ * duration of that test.
+ */
+export const Platform = {
+  isMobileApp: false,
+  isDesktopApp: true,
+  isPhone: false,
+};
+
 export const editorInfoField = {
   havemindHeadlessStub: true,
 };

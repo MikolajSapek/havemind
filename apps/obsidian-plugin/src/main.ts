@@ -1,5 +1,6 @@
 import {
   Notice,
+  Platform,
   Plugin,
   setIcon,
   type WorkspaceLeaf,
@@ -331,6 +332,10 @@ export default class HavemindPlugin extends Plugin {
     });
     this.registerView(HAVEMIND_ONBOARDING_VIEW, (leaf: WorkspaceLeaf) => {
       const view = new HavemindOnboardingView(leaf, {
+        // A phone joins vaults, it does not run them: hosting needs Docker, a
+        // terminal and a machine that stays awake. The entry chooser drops the
+        // host branch there rather than walking the user to a dead end.
+        canHost: !Platform.isMobileApp,
         // The activity feed is a section of this pane now, not a separate
         // destination (plans/007 Stage 0), same providers the standalone
         // Activity view reads, so the two can never disagree.

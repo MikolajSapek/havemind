@@ -132,6 +132,14 @@ export interface OnboardingViewOptions {
   /** Releases the plugin's active-view reference when Obsidian closes this leaf. */
   readonly onClosed?: () => void;
   /**
+   * Whether this device can plausibly run the server. The plugin passes
+   * `!Platform.isMobileApp`: hosting needs Docker, a terminal and a machine
+   * that stays awake, so on a phone the entry chooser drops to joining only.
+   * Injected rather than read from `Platform` here so the view stays testable
+   * without a platform global. Defaults to true.
+   */
+  readonly canHost?: boolean;
+  /**
    * The revision feed, rendered as a collapsed section of this pane rather
    * than a separate destination (plans/007 Stage 0). Reads the same provider
    * the standalone Activity view uses, so the two cannot disagree.
@@ -762,7 +770,7 @@ export class HavemindOnboardingView extends ItemView {
 
     if (!decided) {
       renderEntryChooser(content, {
-        model: buildEntryChooser(),
+        model: buildEntryChooser({ canHost: this.options.canHost ?? true }),
         onChoose: (choice) => {
           this.entryChoice = choice;
           this.render();

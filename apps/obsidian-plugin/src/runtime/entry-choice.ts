@@ -35,24 +35,55 @@ export interface EntryChooserViewModel {
   readonly footnote: string;
 }
 
-export function buildEntryChooser(): EntryChooserViewModel {
+export interface EntryChooserOptions {
+  /**
+   * Whether this device can plausibly run the server. False on a phone: hosting
+   * needs Docker, a terminal and a machine that stays awake, none of which a
+   * phone has. Defaults to true, so desktop callers are unchanged.
+   */
+  readonly canHost?: boolean;
+}
+
+const JOINING: EntryOption = {
+  id: 'joining',
+  title: 'Someone sent me an invitation',
+  cost: 'Paste it, read out six digits, done. About a minute.',
+};
+
+const HOSTING: EntryOption = {
+  id: 'hosting',
+  title: "I'll run the server",
+  cost:
+    'Docker and Tailscale on a machine that stays on. Fifteen minutes, a terminal.',
+};
+
+export function buildEntryChooser(
+  options: EntryChooserOptions = {},
+): EntryChooserViewModel {
+  const canHost = options.canHost ?? true;
+
+  // A phone joins vaults; it does not run them. Offering the hosting path here
+  // would walk the user to a terminal they do not have, so the chooser drops to
+  // the single real action and stops posing as a question. The information does
+  // not go with it: the footnote still says a server has to exist somewhere,
+  // because someone whose group has none needs to know that on this screen.
+  if (!canHost) {
+    return {
+      heading: 'Havemind',
+      subheading: 'One shared vault, on your hardware.',
+      question: 'Paste the invitation someone sent you.',
+      options: [JOINING],
+      footnote:
+        'No invitation yet? One person sets the server up on a computer that ' +
+        'stays on, then invites everyone else from there.',
+    };
+  }
+
   return {
     heading: 'Havemind',
     subheading: 'One shared vault, on your hardware.',
     question: 'Two or three people, one server you run. Which are you?',
-    options: [
-      {
-        id: 'joining',
-        title: 'Someone sent me an invitation',
-        cost: 'Paste it, read out six digits, done. About a minute.',
-      },
-      {
-        id: 'hosting',
-        title: "I'll run the server",
-        cost:
-          'Docker and Tailscale on a machine that stays on. Fifteen minutes, a terminal.',
-      },
-    ],
+    options: [JOINING, HOSTING],
     footnote:
       "Not sure? If a friend sent you a long block of text, it's the first one.",
   };

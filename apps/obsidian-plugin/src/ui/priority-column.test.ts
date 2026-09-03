@@ -101,6 +101,22 @@ describe('entry chooser', () => {
     expect(texts(root).some((t) => /Install Docker/i.test(t))).toBe(false);
   });
 
+  it('drops the hosting path on a phone', () => {
+    // A phone cannot run Docker or stay awake, so the host branch is not an
+    // option it can complete. `canHost: false` is what the plugin passes when
+    // Obsidian reports a mobile app.
+    const root = pane({
+      canHost: false,
+      panelProvider: () => buildConnectionPanel({ status: 'disconnected' }),
+    });
+
+    expect(texts(root).some((t) => /sent me an invitation/i.test(t))).toBe(true);
+    expect(texts(root).some((t) => /run the server/i.test(t))).toBe(false);
+    // The information survives the option: a group with no server still has to
+    // learn that one person sets it up elsewhere.
+    expect(texts(root).some((t) => /stays on/i.test(t))).toBe(true);
+  });
+
   it('keeps typed input when the host path hands you back to the chooser', () => {
     // AT1-4. The back affordance is only safe if it is not also a way to lose
     // a pasted invitation: someone who pastes, wanders into the host branch to

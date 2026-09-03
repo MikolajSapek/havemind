@@ -47,6 +47,16 @@ declare module 'obsidian' {
     children: TAbstractFile[];
   }
 
+  /**
+   * Runtime platform flags. Only the members the plugin reads are declared;
+   * the real typings carry more.
+   */
+  export const Platform: {
+    readonly isMobileApp: boolean;
+    readonly isDesktopApp: boolean;
+    readonly isPhone: boolean;
+  };
+
   export class Notice {
     constructor(message: string, timeout?: number);
   }

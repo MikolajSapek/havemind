@@ -52,3 +52,33 @@ describe('host view', () => {
     expect(buildHostView().primaryAction).toMatch(/connect/i);
   });
 });
+
+describe('on a phone', () => {
+  // A phone cannot host: the server needs Docker and a machine that stays
+  // awake. Offering "I'll run the server" there sends the user down a path
+  // that ends in a terminal they do not have, so the chooser drops to the one
+  // real option and stops being a question.
+  it('offers joining only', () => {
+    const model = buildEntryChooser({ canHost: false });
+    expect(model.options.map((option) => option.id)).toEqual(['joining']);
+  });
+
+  it('still explains what to do when nobody has a server yet', () => {
+    // Dropping the option must not drop the information: someone whose group
+    // has no server still needs to learn that one has to exist, and where.
+    const model = buildEntryChooser({ canHost: false });
+    expect(model.footnote).toMatch(/computer|desktop|machine/i);
+  });
+
+  it('does not ask "which are you" when there is nothing to choose', () => {
+    const model = buildEntryChooser({ canHost: false });
+    expect(model.question).not.toMatch(/which are you/i);
+  });
+
+  it('keeps both options on desktop', () => {
+    expect(buildEntryChooser({ canHost: true }).options).toHaveLength(2);
+    // The no-argument call is the desktop default, so existing callers and
+    // tests keep their meaning.
+    expect(buildEntryChooser().options).toHaveLength(2);
+  });
+});
