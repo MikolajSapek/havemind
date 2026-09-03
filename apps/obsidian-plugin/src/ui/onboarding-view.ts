@@ -22,17 +22,14 @@ import { resolveViewState } from '../runtime/view-state';
 import { renderGuestWaitingScreen } from './screens/guest-waiting';
 import { renderInviteComposer } from './screens/invite-composer';
 import { renderConnectionControls } from './screens/connection-controls';
+import { renderEntryPath } from './screens/entry-path';
 import { renderStatusIndicator } from './screens/status-indicator';
 import {
   buildConnectionPanel,
   type ConnectionPanelView,
 } from '../runtime/status';
 
-import {
-  buildEntryChooser,
-  buildHostView,
-  type EntryChoice,
-} from '../runtime/entry-choice';
+import type { EntryChoice } from '../runtime/entry-choice';
 import { buildSpentInvitation } from '../runtime/handshake';
 import {
   buildPaneTabs,
@@ -42,10 +39,6 @@ import {
 
 import { renderActivityRows } from './activity-section';
 import { renderConflictSection } from './conflict-section';
-import {
-  renderEntryChooser,
-  renderHostPath,
-} from './entry-chooser-section';
 import { renderPaneHeader, type PaneMenuItem } from './pane-header';
 import {
   PANE_TABPANEL_ID,
@@ -670,55 +663,34 @@ export class HavemindOnboardingView extends ItemView {
    * token typed, has self-evidently chosen: skip the question.
    */
   private renderEntryPath(content: HTMLElement): void {
-    const decided =
-      this.entryChoice !== 'undecided' ||
+    // An owner minting an invitation has already answered the question by
+    // opening the composer; asking again would be asking twice. The
+    // `!== undefined` guard matters: an absent provider is not an open composer.
+    const alreadyAnswered =
       this.draft.token.length > 0 ||
       this.options.arrivedWithInvitationProvider?.() === true ||
-      // An owner minting an invitation has already answered the question by
-      // opening the composer; asking again would be asking twice. Note the
-      // `=== undefined` guard: an absent provider is not an open composer.
       (this.options.composerProvider !== undefined &&
         this.options.composerProvider() !== null);
 
-    if (!decided) {
-      renderEntryChooser(content, {
-        model: buildEntryChooser({ canHost: this.options.canHost ?? true }),
+    renderEntryPath(
+      content,
+      {
+        entryChoice: this.entryChoice,
+        alreadyAnswered,
+        canHost: this.options.canHost ?? true,
+      },
+      {
         onChoose: (choice) => {
           this.entryChoice = choice;
           this.render();
         },
-      });
-      return;
-    }
-
-    if (this.entryChoice === 'hosting') {
-      renderHostPath(content, {
-        model: buildHostView(),
-        onBack: () => {
-          this.entryChoice = 'undecided';
-          this.render();
-        },
-        onContinue: () => {
-          this.entryChoice = 'joining';
-          this.render();
-        },
+        renderForm: (target) => this.renderForm(target),
         onOpenGuide: (url) => {
           window.open(url, '_blank');
         },
-      });
-      return;
-    }
-
-    // The joining path: three fields and one button, with no tutorial above it.
-    const back = content.createEl('button', { text: 'Back' });
-    back.addClass('havemind-entry-back');
-    back.onClickEvent(() => {
-      this.entryChoice = 'undecided';
-      this.render();
-    });
-    this.renderForm(content);
+      },
+    );
   }
-
 
   /**
    * What the header overflow menu holds. Only offered once connected: on the
