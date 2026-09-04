@@ -11,19 +11,16 @@
 
 import { ItemView, type WorkspaceLeaf } from 'obsidian';
 
-import { buildGettingStartedViewModel } from '../runtime/getting-started-render';
 import { resolveViewState } from '../runtime/view-state';
 import { renderGuestWaitingScreen } from './screens/guest-waiting';
-import { renderInviteComposer } from './screens/invite-composer';
-import { renderConnectionControls } from './screens/connection-controls';
 import { renderEntryPath } from './screens/entry-path';
 import { renderConnectForm } from './screens/connect-form';
 import { renderConnectedBody } from './screens/connected-body';
 import { renderConflicts, renderSendQueue } from './screens/alarms';
 import { renderGuestInvalid } from './screens/guest-invalid';
 import { renderTabBody } from './screens/tab-body';
+import { buildTabScreens } from './screens/tab-screens';
 import { renderPaneChrome } from './screens/pane-chrome';
-import { renderPeopleTab } from './screens/people-tab';
 import { buildHeaderMenuItems } from './screens/header-menu';
 import { renderStatusIndicator } from './screens/status-indicator';
 import {
@@ -38,13 +35,10 @@ import {
   type PaneTabsView,
 } from '../runtime/pane-tabs';
 
-import { renderActivityRows } from './activity-section';
 import type { PaneMenuItem } from './pane-header';
-import { renderGettingStarted } from './getting-started-section';
 import {
   safeRead,
 } from './primitives';
-import { renderRejoinRoster } from './roster-section';
 import { HAVEMIND_ONBOARDING_VIEW } from './view-types';
 
 // Re-exported so every existing import of these names keeps working: moving a
@@ -296,65 +290,22 @@ export class HavemindOnboardingView extends ItemView {
     panel: ConnectionPanelView,
     composer: CreateConnectionViewModel | null,
   ): void {
-    renderTabBody(body, tab, panel, composer, {
-      renderStatus: (target, p) => {
-        renderStatusIndicator(target, p, {
-          onRetry: this.options.onRetry,
-          onReset: this.options.onReset,
-        });
-        if (this.helpOpen) {
-          renderGettingStarted(target, buildGettingStartedViewModel());
-        }
-      },
-      renderActivity: (target) => {
-        renderActivityRows(target, {
-          feed: this.options.activityFeedProvider?.() ?? [],
-          ...(this.options.onRestore ? { onRestore: this.options.onRestore } : {}),
-        });
-      },
-      renderConnect: (target, p) =>
-        renderConnectionControls(target, p, this.helpOpen, {
-          onSyncNow: this.options.onSyncNow,
-          onRetry: this.options.onRetry,
-          onReset: this.options.onReset,
-          onDisconnect: this.options.onDisconnect,
-          onToggleHelp: () => {
-            this.helpOpen = !this.helpOpen;
-            this.render();
-          },
-        }),
-      renderPeople: (target, model) =>
-        renderPeopleTab(target, model, {
-          renderRoster: (rosterTarget) => {
-            // Read inside the boundary, not around it: a roster that cannot be
-            // built should show the section fallback where the list would have
-            // been, rather than vanishing silently and leaving the tab empty.
-            const roster = this.options.rejoinRosterProvider?.();
-            if (roster === undefined) return;
-            renderRejoinRoster(rosterTarget, roster, {
-              waiting: this.options.rejoinWaitingProvider?.() ?? new Set<string>(),
-              ...(this.options.onRejoin === undefined
-                ? {}
-                : { onRejoin: this.options.onRejoin }),
-              ...(this.options.onMarkDisconnected === undefined
-                ? {}
-                : { onMarkDisconnected: this.options.onMarkDisconnected }),
-              ...(this.options.onRemove === undefined
-                ? {}
-                : { onRemove: this.options.onRemove }),
-            });
-          },
-          renderComposer: (composerTarget, m) =>
-            renderInviteComposer(composerTarget, m, this.draft, this.liveInputs, {
-              onClose: this.options.onCloseComposer,
-              onCreate: this.options.onCreateInvitation,
-              onCopy: this.options.onCopyInvitation,
-              onDismiss: this.options.onDismissInvitation,
-              onApprove: this.options.onApprove,
-            }),
-          onOpenComposer: this.options.onOpenComposer,
-        }),
-    });
+    renderTabBody(
+      body,
+      tab,
+      panel,
+      composer,
+      buildTabScreens({
+        options: this.options,
+        draft: this.draft,
+        liveInputs: this.liveInputs,
+        helpOpen: this.helpOpen,
+        onToggleHelp: () => {
+          this.helpOpen = !this.helpOpen;
+          this.render();
+        },
+      }),
+    );
   }
 
   /** Reads live input values into `draft` so the next render can restore them. */
