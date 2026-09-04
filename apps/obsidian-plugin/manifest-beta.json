@@ -1,7 +1,7 @@
 {
   "id": "havemind-sync",
   "name": "Havemind",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "minAppVersion": "1.11.4",
   "description": "Sync a shared vault in real time across your own devices, on a server you host yourself. Full authorship, no silent overwrites.",
   "author": "Mikolaj Pawel Sapek",
