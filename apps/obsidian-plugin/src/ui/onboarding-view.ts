@@ -11,7 +11,6 @@
 
 import { ItemView, type WorkspaceLeaf } from 'obsidian';
 
-import { resolveViewState } from '../runtime/view-state';
 import { renderGuestWaitingScreen } from './screens/guest-waiting';
 import { renderEntryPath } from './screens/entry-path';
 import { renderConnectForm } from './screens/connect-form';
@@ -19,12 +18,12 @@ import { renderConnectedBody } from './screens/connected-body';
 import { renderConflicts, renderSendQueue } from './screens/alarms';
 import { renderGuestInvalid } from './screens/guest-invalid';
 import { renderTabBody } from './screens/tab-body';
+import { readPaneState } from './screens/pane-state';
 import { buildTabScreens } from './screens/tab-screens';
 import { renderPaneChrome } from './screens/pane-chrome';
 import { buildHeaderMenuItems } from './screens/header-menu';
 import { renderStatusIndicator } from './screens/status-indicator';
 import {
-  buildConnectionPanel,
   type ConnectionPanelView,
 } from '../runtime/status';
 
@@ -146,43 +145,11 @@ export class HavemindOnboardingView extends ItemView {
     content.addClass('havemind-view');
     this.liveInputs = {};
 
-    // Every read below happens BEFORE any `renderSection` boundary exists, and
-    // `content.empty()` has already run, so an unguarded throw here blanks the
-    // pane completely, leaving no header and no way back. Each one degrades to
-    // the value that keeps the most of the pane usable, and says so in the log.
-    //
-    // Read once, too: a provider called twice in one render can answer
-    // differently, and then the tab strip and the tab body describe different
-    // states of the same pane.
-
-    // Disconnected is the safe default: it offers the connect form rather than
-    // claiming a health the plugin cannot currently verify.
-    const panel = safeRead(
-      'panel',
-      this.options.panelProvider,
-      buildConnectionPanel({ status: 'disconnected' }),
+    const { panel, composer, state } = readPaneState(
+      this.options,
+      this.entryChoice,
+      this.draft.token,
     );
-
-    // Which screen to draw is decided by one pure function rather than by the
-    // order these branches happen to be written in (AT3-1). The precedence it
-    // encodes, invalid → awaiting → connected → joining/hosting → choosing, is
-    // the same one this chain always implemented; lifting it out is what makes
-    // it assertable, which is what was missing when the composer hid the status
-    // row in 1.1.3.
-    // Read once and threaded through: `resolveViewState`, `paneTabs()` and
-    // `renderTabBody` all need to know whether a composer is open, and two
-    // reads could answer differently, leaving them describing different states
-    // of the same pane.
-    const composer = safeRead('composer', this.options.composerProvider, null);
-
-    const state = resolveViewState({
-      guestInvalid: safeRead('guestInvalid', this.options.guestInvalidProvider, false),
-      guestWaiting: safeRead('guestWaiting', this.options.guestWaitingProvider, null),
-      panel,
-      entryChoice: this.entryChoice,
-      joinLinkFollowed: this.draft.token.length > 0,
-      composerOpen: composer !== null,
-    });
 
     if (state.kind === 'invalid') {
       renderGuestInvalid(content, this.options.guestWaitingProvider?.()?.ownerName, {
