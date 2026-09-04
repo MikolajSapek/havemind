@@ -30,6 +30,7 @@ import {
   type DiffLine,
   type ResolveAction,
 } from './runtime/conflict-resolution';
+import { CachedConflictList } from './runtime/conflict-cache';
 import {
   buildSendQueueStatus,
   selectNewlyQuarantined,
@@ -224,6 +225,14 @@ export default class HavemindPlugin extends Plugin {
    * so unload tears the poll down. Null when no rejoin is armed.
    */
   private rejoinController: RejoinController | null = null;
+  /**
+   * The conflict scan, cached between vault changes. The pane reads it twice
+   * per render and repaints often; each scan walks the whole vault.
+   */
+  private readonly conflicts = new CachedConflictList(() =>
+    listConflictCopies(this.conflictPort()),
+  );
+
   private rejoinPollTimer: ReturnType<typeof globalThis.setInterval> | null = null;
   /** Guards the post-rejoin restart so it fires exactly once (no double-start). */
   private rejoinRestarted = false;
@@ -352,7 +361,7 @@ export default class HavemindPlugin extends Plugin {
         guestWaitingProvider: () => this.awaitingApproval,
         guestInvalidProvider: () => this.guestInvitationInvalid,
         panelProvider: () => this.connectionPanel(),
-        conflictsProvider: () => listConflictCopies(this.conflictPort()),
+        conflictsProvider: () => this.conflicts.read(),
         onResolveConflict: (copyPath) => {
           void this.openConflictModal(copyPath);
         },
@@ -550,6 +559,27 @@ export default class HavemindPlugin extends Plugin {
     // On layout-ready, resume any stored onboarding to `connected` and start
     // the live sync loop. When there is no connection this reports disconnected
     // and starts nothing, so the loaded-but-disconnected shell stays passive.
+    // The cached conflict scan is invalidated by vault events, never by a
+    // timer: a timer would either rescan too often, which is the cost the cache
+    // exists to remove, or serve a stale list at the moment a conflict appears.
+    // A conflict the user cannot see is the one failure this plugin must not
+    // have (plan/01 rule 4). Rename counts: a copy moving in or out of the
+    // reserved folder changes the list without creating or deleting anything.
+    for (const event of ['create', 'delete', 'rename'] as const) {
+      // Cast on `app`, matching `conflictPort()`: the local typings do not
+      // model `vault`.
+      const { vault } = this.app as unknown as {
+        vault: { on?: (name: string, handler: () => void) => unknown };
+      };
+      const ref = vault.on?.(event, () => {
+        this.conflicts.invalidate();
+        this.views.refreshOnboarding();
+      });
+      if (ref !== undefined && ref !== null) {
+        this.registerEvent(ref as Parameters<typeof this.registerEvent>[0]);
+      }
+    }
+
     this.app.workspace.onLayoutReady(() => {
       void this.startConnection();
     });

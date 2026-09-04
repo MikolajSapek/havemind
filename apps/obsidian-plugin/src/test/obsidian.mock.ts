@@ -308,8 +308,22 @@ export class Workspace {
 export class App {
   readonly secretStorage = new SecretStorage();
   readonly workspace = new Workspace();
+  /**
+   * The vault the plugin reaches through `app.vault`. `on`/`emit` let a test
+   * fire the create/delete/rename events the conflict cache listens for.
+   */
   readonly vault = {
     getMarkdownFilesCalls: 0,
+    handlers: new Map<string, Array<(...args: unknown[]) => unknown>>(),
+    on(name: string, callback: (...args: unknown[]) => unknown): unknown {
+      const existing = this.handlers.get(name) ?? [];
+      existing.push(callback);
+      this.handlers.set(name, existing);
+      return { name };
+    },
+    emit(name: string, ...args: unknown[]): void {
+      for (const handler of this.handlers.get(name) ?? []) handler(...args);
+    },
   };
   readonly network = {
     requestCalls: 0,
@@ -485,6 +499,11 @@ export class Plugin {
   ): void {
     registrationState.protocolHandlers.set(action, handler);
     this.cleanup.push(() => registrationState.protocolHandlers.delete(action));
+  }
+
+  /** Obsidian disposes registered event refs on unload; nothing else to model. */
+  registerEvent(_ref: unknown): void {
+    void _ref;
   }
 
   registerView(type: string, creator: ViewCreator): void {

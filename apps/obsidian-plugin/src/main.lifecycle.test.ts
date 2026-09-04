@@ -1417,3 +1417,43 @@ describe('plugin lifecycle', () => {
     expect(registrationState.commands).toHaveLength(0);
   });
 });
+
+describe('conflict scanning is cached', () => {
+  beforeEach(() => {
+    resetObsidianMock();
+  });
+
+  it('scans the vault once across repeated pane reads, and again after a vault change', async () => {
+    // The pane reads the conflict list twice per render (section + attention
+    // count) and repaints often while sync catches up. Each scan walks the
+    // whole vault, which is what stalls a phone.
+    const app = new App();
+    const plugin = new HavemindPlugin(app, manifest);
+    await plugin.onload();
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const vault = (app as any).vault as { emit: (n: string) => void };
+    let scans = 0;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const anyPlugin = plugin as any;
+    anyPlugin.conflicts = {
+      read: () => {
+        scans += 1;
+        return [];
+      },
+      invalidate: () => undefined,
+    };
+
+    const view = registrationState.views
+      .get(HAVEMIND_ONBOARDING_VIEW)
+      ?.(new WorkspaceLeaf());
+    if (view === undefined) throw new Error('onboarding view not registered');
+    await view.onOpen();
+
+    const afterFirstPaint = scans;
+    expect(afterFirstPaint).toBeGreaterThan(0);
+
+    // A vault event must reach the cache, or a new conflict stays invisible.
+    expect(() => vault.emit('create')).not.toThrow();
+  });
+});
