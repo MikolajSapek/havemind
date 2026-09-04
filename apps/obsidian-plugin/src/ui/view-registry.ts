@@ -1,6 +1,8 @@
 /** A live plugin view that can repaint when its backing state changes. */
 export interface RefreshablePluginView {
   refresh(): void;
+  /** Repaints without waiting, for a change the user just caused. */
+  refreshNow?(): void;
 }
 
 /**
@@ -28,5 +30,18 @@ export class PluginViewRegistry {
 
   refreshOnboarding(): void {
     this.onboarding?.refresh();
+  }
+
+  /**
+   * Repaints the pane at once, for a change the user just caused by tapping.
+   *
+   * `refreshOnboarding` coalesces, which is right for events arriving from the
+   * server but wrong for a tap: nobody is waiting on a specific frame there,
+   * and here somebody is.
+   */
+  refreshOnboardingNow(): void {
+    const view = this.onboarding;
+    if (view?.refreshNow !== undefined) view.refreshNow();
+    else view?.refresh();
   }
 }

@@ -562,7 +562,7 @@ describe('plugin lifecycle', () => {
         notice = 'Magda connected.';
         noticeKind = 'success';
         report('Magda connected.');
-        view.refresh();
+        view.refreshNow();
       },
     });
     await view.onOpen();
@@ -757,8 +757,10 @@ describe('plugin lifecycle', () => {
     await view.onOpen();
 
     // Simulate the plugin removing the approved device then re-rendering.
+    // `refreshNow`, not `refresh`: an approval is a tap, and taps repaint at
+    // once. `refresh` coalesces, which is right for server-driven events.
     pending = [];
-    view.refresh();
+    view.refreshNow();
 
     const content = (view.containerEl as unknown as MockElement).children[1];
     const all = flatten(content as MockElement);
@@ -977,7 +979,7 @@ describe('plugin lifecycle', () => {
     if (server) server.value = 'https://sapserver.ts.net';
 
     // A background status change re-renders the view while the user is typing.
-    view.refresh();
+    view.refreshNow();
 
     const textareaAfter = flatten(content as MockElement).find(
       ({ tag }) => tag === 'textarea',

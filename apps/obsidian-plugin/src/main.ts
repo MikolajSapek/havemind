@@ -362,13 +362,13 @@ export default class HavemindPlugin extends Plugin {
         onRetrySend: (revisionId) => {
           void this.retrySend(revisionId).catch(() => {
             new Notice('Havemind: could not retry this queued change.');
-            this.views.refreshOnboarding();
+            this.views.refreshOnboardingNow();
           });
         },
         onDiscardSend: (revisionId) => {
           void this.discardSend(revisionId).catch(() => {
             new Notice('Havemind: could not discard this queued change.');
-            this.views.refreshOnboarding();
+            this.views.refreshOnboardingNow();
           });
         },
         rejoinRosterProvider: () => this.rejoinRosterView(),
@@ -384,7 +384,7 @@ export default class HavemindPlugin extends Plugin {
         onConnect: (input, serverUrl, report) => {
           void this.connectFromInput(input, serverUrl, report).catch(() => {
             report('Could not connect. Check the invitation, pairing token, and server URL.');
-            this.views.refreshOnboarding();
+            this.views.refreshOnboardingNow();
           });
         },
         onDisconnect: () => this.disconnect(),
@@ -576,7 +576,7 @@ export default class HavemindPlugin extends Plugin {
 
   private openConnectView(): Promise<void> {
     this.connectionActive = false;
-    this.views.refreshOnboarding();
+    this.views.refreshOnboardingNow();
     return this.openView(HAVEMIND_ONBOARDING_VIEW);
   }
 
@@ -588,7 +588,7 @@ export default class HavemindPlugin extends Plugin {
     this.connectionActive = true;
     this.connectionNotice = undefined;
     this.connectionNoticeKind = undefined;
-    this.views.refreshOnboarding();
+    this.views.refreshOnboardingNow();
     return this.openView(HAVEMIND_ONBOARDING_VIEW);
   }
 
@@ -597,7 +597,7 @@ export default class HavemindPlugin extends Plugin {
     this.connectionActive = false;
     this.connectionNotice = undefined;
     this.connectionNoticeKind = undefined;
-    this.views.refreshOnboarding();
+    this.views.refreshOnboardingNow();
   }
 
   /** Snapshot of the owner composer state for the unified panel. */
@@ -676,7 +676,7 @@ export default class HavemindPlugin extends Plugin {
       report(connectedMessage);
       // Re-render to drop the approved row while keeping the create section
       // (invitation + role/name) fully alive.
-      this.views.refreshOnboarding();
+      this.views.refreshOnboardingNow();
     } catch (error) {
       if (error instanceof ApproveDeviceError && error.locked) {
         // The invitation is spent after too many wrong codes: drop its waiting
@@ -688,7 +688,7 @@ export default class HavemindPlugin extends Plugin {
           'This invitation is now invalid. Create a new one above to try again.';
         this.connectionNoticeKind = undefined;
         report(error.message);
-        this.views.refreshOnboarding();
+        this.views.refreshOnboardingNow();
         return;
       }
       if (error instanceof ApproveDeviceError) {

@@ -14,6 +14,7 @@ import { ItemView, type WorkspaceLeaf } from 'obsidian';
 import { renderGuestWaitingScreen } from './screens/guest-waiting';
 import { captureDrafts, renderConnectForm } from './screens/connect-form';
 import { renderConnectedBodyFor } from './screens/connected-body-wiring';
+import { RepaintScheduler } from './screens/repaint-scheduler';
 import { renderGuestInvalid } from './screens/guest-invalid';
 import { readPaneState } from './screens/pane-state';
 import { renderPaneChromeFor } from './screens/pane-chrome';
@@ -67,6 +68,9 @@ export class HavemindOnboardingView extends ItemView {
    * re-render must not move focus.
    */
   private focusTabOnRender = false;
+
+  /** Folds a burst of repaint requests into one render (see the module). */
+  private readonly repaints = new RepaintScheduler(() => this.render());
   /**
    * Which entry path the user picked on the connect screen (design 1d).
    * `undecided` shows the chooser; a typed token or a `havemind-join` URI
@@ -105,12 +109,34 @@ export class HavemindOnboardingView extends ItemView {
   }
 
   override onClose(): void {
+    this.repaints.stop();
     this.options.onClosed?.();
   }
 
-  /** Re-renders from the current panel state, called on every status change. */
+  /**
+   * Repaints at once, for a change the user just caused by tapping something.
+   *
+   * A tap has to answer immediately: coalescing is for events arriving FROM the
+   * server, where nobody is waiting on a specific frame.
+   */
+  /**
+   * Re-renders from the current panel state, called on every status change.
+   *
+   * COALESCED, and that is the point. 36 call sites reach this, and every
+   * repaint reads the conflict provider, which scans the whole vault. On a
+   * desktop that is invisible; on a phone, catching up after a reconnect fires
+   * these in bursts and the pane freezes mid-tap. A burst inside one window
+   * therefore produces one render.
+   *
+   * `onOpen()` still calls `render()` directly: a pane blank for a frame is
+   * worse than one that repaints once too often.
+   */
+  refreshNow(): void {
+    this.repaints.now();
+  }
+
   refresh(): void {
-    this.render();
+    this.repaints.request();
   }
 
   private render(): void {
