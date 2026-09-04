@@ -18,12 +18,7 @@ function lineCount(path: string): number {
 }
 
 describe('Stage 3 file ceilings', () => {
-  // SKIPPED, deliberately, and tracked as the remaining half of UI-03.
-  // The ceiling is the target, not the current state: the file is ~1240 lines
-  // and comes down one screen at a time, each extraction verified on its own.
-  // Left in place, and failing-by-skip rather than deleted, so the target stays
-  // visible in the suite instead of living only in a plan document.
-  it.skip('keeps onboarding-view.ts under 250 lines', () => {
+  it('keeps onboarding-view.ts under 250 lines', () => {
     const path = fileURLToPath(new URL('./onboarding-view.ts', import.meta.url));
     expect(lineCount(path)).toBeLessThanOrEqual(250);
   });

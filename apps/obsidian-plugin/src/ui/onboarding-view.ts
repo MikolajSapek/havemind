@@ -12,18 +12,14 @@
 import { ItemView, type WorkspaceLeaf } from 'obsidian';
 
 import { renderGuestWaitingScreen } from './screens/guest-waiting';
-import { renderEntryPath } from './screens/entry-path';
 import { captureDrafts, renderConnectForm } from './screens/connect-form';
-import { renderConnectedBody } from './screens/connected-body';
+import { renderConnectedBodyFor } from './screens/connected-body-wiring';
 import { renderGuestInvalid } from './screens/guest-invalid';
-import { renderTabBody } from './screens/tab-body';
 import { readPaneState } from './screens/pane-state';
-import { attentionCount, buildBodyRenderers, buildTabScreens } from './screens/tab-screens';
 import { renderPaneChromeFor } from './screens/pane-chrome';
-import type { ConnectionPanelView } from '../runtime/status';
 
 import type { EntryChoice } from '../runtime/entry-choice';
-import { buildPaneTabs, type PaneTabId } from '../runtime/pane-tabs';
+import type { PaneTabId } from '../runtime/pane-tabs';
 
 import { HAVEMIND_ONBOARDING_VIEW } from './view-types';
 
@@ -38,11 +34,7 @@ export type {
   PendingApprovalEntry,
 } from './onboarding-types';
 
-import type {
-  CreateConnectionViewModel,
-  InvitationRole,
-  OnboardingViewOptions,
-} from './onboarding-types';
+import type { InvitationRole, OnboardingViewOptions } from './onboarding-types';
 
 
 export class HavemindOnboardingView extends ItemView {
@@ -169,7 +161,41 @@ export class HavemindOnboardingView extends ItemView {
       },
     );
 
-    this.renderConnectedBody(content, panel, composer);
+    const { focusTabOnRender } = renderConnectedBodyFor(
+      content,
+      panel,
+      composer,
+      {
+        options: this.options,
+        draft: this.draft,
+        liveInputs: this.liveInputs,
+        entryChoice: this.entryChoice,
+        helpOpen: this.helpOpen,
+        activeTab: this.activeTab,
+        focusTabOnRender: this.focusTabOnRender,
+      },
+      {
+        setEntryChoice: (choice) => {
+          this.entryChoice = choice;
+          this.render();
+        },
+        setHelpOpen: (open) => {
+          this.helpOpen = open;
+        },
+        setActiveTab: (id, viaKeyboard) => {
+          this.activeTab = id;
+          this.focusTabOnRender = viaKeyboard;
+          this.render();
+        },
+        repaint: () => this.render(),
+        openGuide: (url) => {
+          window.open(url, '_blank');
+        },
+      },
+    );
+    // The body consumes the focus flag; mirror that back so the next render
+    // does not steal focus again.
+    this.focusTabOnRender = focusTabOnRender;
   }
 
   /**
@@ -179,98 +205,5 @@ export class HavemindOnboardingView extends ItemView {
    * screens. The ordering rules it encodes are the load-bearing part, and they
    * are commented where they apply.
    */
-  private renderConnectedBody(
-    content: HTMLElement,
-    panel: ConnectionPanelView,
-    composer: CreateConnectionViewModel | null,
-  ): void {
-    const bodyState = {
-      activeTab: this.activeTab,
-      focusTabOnRender: this.focusTabOnRender,
-    };
-    renderConnectedBody(content, panel, composer, bodyState, {
-      ...buildBodyRenderers(this.options),
-      renderEntryPath: (target) => this.entryPath(target),
-      // `open` is passed in, not re-read: the provider was asked once already,
-      // and a second call could answer differently, leaving the strip and the
-      // body describing different states of the same pane. An open composer
-      // selects People rather than a tab of its own (round 2, Q3).
-      paneTabs: (open) =>
-        buildPaneTabs({
-          active: open ? 'people' : this.activeTab,
-          attentionCount: attentionCount(this.options),
-        }),
-      renderTabBody: (target, tab, p, c) =>
-        renderTabBody(
-          target,
-          tab,
-          p,
-          c,
-          buildTabScreens({
-            options: this.options,
-            draft: this.draft,
-            liveInputs: this.liveInputs,
-            helpOpen: this.helpOpen,
-            onToggleHelp: () => {
-              this.helpOpen = !this.helpOpen;
-              this.render();
-            },
-          }),
-        ),
-      onSelectTab: (id, viaKeyboard) => {
-        this.activeTab = id;
-        this.focusTabOnRender = viaKeyboard;
-        this.render();
-      },
-    });
-    // The body consumes the focus flag; mirror that back so the next render
-    // does not steal focus again.
-    this.focusTabOnRender = bodyState.focusTabOnRender;
-  }
-
-  /**
-   * The tab model, derived from the same providers the body reads.
-   *
-   * Every read is guarded: the strip is chrome, and a provider that throws must
-   * cost the user its count, not their whole pane. `renderSection` protects the
-   * sections it wraps, but this runs before them, an unguarded throw here would
-   * blank everything, which is the failure MAJOR 5 exists to prevent.
-   */
-  /**
-   * The disconnected pane: a chooser, then only the branch the user picked
-   * (design 1d). The five-step tutorial used to render unconditionally above
-   * the form, correct for the half of users who will host a server, and fatal
-   * for the half who only need to paste an invitation someone sent them.
-   *
-   * A user who arrived through `obsidian://havemind-join`, or who already has a
-   * token typed, has self-evidently chosen: skip the question.
-   */
-  private entryPath(content: HTMLElement): void {
-    renderEntryPath(
-      content,
-      {
-        entryChoice: this.entryChoice,
-        draftToken: this.draft.token,
-        canHost: this.options.canHost ?? true,
-      },
-      {
-        arrivedWithInvitation: this.options.arrivedWithInvitationProvider,
-        composer: this.options.composerProvider,
-      },
-      {
-        onChoose: (choice) => {
-          this.entryChoice = choice;
-          this.render();
-        },
-        renderForm: (target) =>
-          renderConnectForm(target, this.draft, this.liveInputs, this.options.onConnect),
-        onOpenGuide: (url) => {
-          window.open(url, '_blank');
-        },
-      },
-    );
-  }
-
-
   /** Renders the rejoin-aware roster with its owner actions from the options. */
 }

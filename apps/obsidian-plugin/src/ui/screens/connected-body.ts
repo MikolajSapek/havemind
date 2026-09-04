@@ -22,6 +22,7 @@ import {
 } from '../pane-tabs-section';
 import { renderSection } from '../primitives';
 
+
 /** The mutable bits of the pane the body reads and writes. */
 export interface ConnectedBodyState {
   activeTab: PaneTabId;

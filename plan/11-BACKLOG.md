@@ -754,7 +754,7 @@ are sequential; each is independently releasable.
     class, not merely on rows.
   - `npm run verify` exit 0, 1916 tests.
 
-- [ ] **UI-03** `plugin` Explicit view state (plans/007 Stage 3)
+- [x] **UI-03** `plugin` Explicit view state (plans/007 Stage 3)
   - Replace the ordered `if … return` chain in `render()` with a discriminated
     `ViewState` and one exhaustive `switch`; derive it in a pure, unit-tested
     `resolveViewState`. Invitation composer becomes a modal, not a screen.
@@ -768,19 +768,17 @@ are sequential; each is independently releasable.
     no ViewState variant, so it draws OVER the connected state and the status row
     is lifted above the tab strip while it is open; removing that lift fails the
     test.
-  - REMAINING: the file ceiling. `onboarding-view.ts` is **519 lines** against a
-    250 target, down from 1240. Thirteen screens are extracted under
-    `ui/screens/`, every one under the 200-line ceiling that IS enforced.
-    `ui/file-size.test.ts` holds both, with the 250-line one `it.skip`ped and
-    commented so the target stays visible in the suite rather than only here.
-  - What is left is not more of the same. The remaining ~360 code lines are ~20
-    thin adapters that read `this.options` and forward to a screen, plus the
-    dispatcher. Extracting one now costs roughly as many lines in the delegate
-    as it removes (the tab dispatcher netted 4 lines and was kept only for the
-    exhaustiveness guarantee it added). Reaching 250 needs a different move,
-    most likely passing the options bag to the screens directly and deleting the
-    adapter layer, which changes every screen's signature and is worth doing as
-    one deliberate change rather than as a fourteenth extraction.
+  - DONE (2026-09-04): `onboarding-view.ts` is **209 lines**, down from 1240, and
+    the 250-line assertion in `ui/file-size.test.ts` is enabled rather than
+    skipped. Sixteen screens live under `ui/screens/`, every one inside the
+    200-line ceiling, which caught `connected-body.ts` at 226 and forced the
+    layout/wiring split that fixed it.
+  - The move that finished it was the one predicted here: passing the options
+    bag straight to the screens and deleting the adapter layer. Extracting a
+    fourteenth screen would not have worked; the adapters cost as much in the
+    delegate as they removed.
+  - One step was reverted rather than kept: inlining `entryPath` produced a call
+    site as long as the method, so it bought nothing and cost readability.
   - Two existing tests caught real defects in the first wiring attempt: a double
     read of `composerProvider` (against the file's own read-once rule), and an
     assertion that selected the approval confirmation as "the first
