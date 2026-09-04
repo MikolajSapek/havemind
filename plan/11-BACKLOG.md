@@ -861,11 +861,21 @@ behind a real device.
     reproduction.
   - Depends on: MOB-01.
 
-- [ ] **MOB-03** `plugin,docs` Ship mobile support
+- [x] **MOB-03** `plugin,docs` Ship mobile support
   - Flip `isDesktopOnly`, document what a phone needs (Obsidian, Tailscale on the
     same tailnet, the plugin) and what it does not get (background sync), and say
     plainly that sync runs while Obsidian is open.
   - AC: the defects MOB-02 found are fixed or documented as known limitations.
+  - Evidence (2026-09-04): shipped as 1.4.0 with `isDesktopOnly: false`.
+    Mobile-safety verified on the built bundle, not just the source: zero
+    Node/Electron APIs, zero regex lookbehind (which breaks iOS below 16.4).
+    The phone layout landed earlier (`47dbf68` safe-area + 52px touch targets,
+    `10bb8ac` no hosting path on a phone).
+  - DEVIATION, stated plainly: this shipped WITHOUT MOB-02, at the owner's
+    explicit request, because side-loading onto an iPhone turned out to be
+    impractical (the Files app hides dot-directories, so `.obsidian/plugins`
+    is unreachable without a third-party git client). The device pass is
+    therefore still owed, and now happens on the released build.
   - AC: `docs/self-hosting.md` covers joining from a phone end to end.
   - Depends on: MOB-02.
 
