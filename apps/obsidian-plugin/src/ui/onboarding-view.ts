@@ -23,8 +23,7 @@ import {
   buildBodyRenderers,
   buildTabScreens,
 } from './screens/tab-screens';
-import { renderPaneChrome } from './screens/pane-chrome';
-import { buildHeaderMenuItems } from './screens/header-menu';
+import { renderPaneChromeFor } from './screens/pane-chrome';
 import {
   type ConnectionPanelView,
 } from '../runtime/status';
@@ -37,7 +36,6 @@ import {
 } from '../runtime/pane-tabs';
 
 import {
-  safeRead,
 } from './primitives';
 import { HAVEMIND_ONBOARDING_VIEW } from './view-types';
 
@@ -167,37 +165,21 @@ export class HavemindOnboardingView extends ItemView {
       return;
     }
 
-    // Every menu selection closes the menu; wrapping once keeps that from
-    // being repeated, and forgotten, on each item.
-    const closeMenu = (run?: () => void) => () => {
-      this.menuOpen = false;
-      run?.();
-    };
-    renderPaneChrome(content, {
+    renderPaneChromeFor(
+      content,
       panel,
-      menuOpen: this.menuOpen,
-      alarmed: attentionCount(this.options) > 0,
-      overlayOn: safeRead('authorOverlay', this.options.authorOverlayProvider, undefined),
-      items: buildHeaderMenuItems(panel, this.helpOpen, {
-        onSyncNow: this.options.onSyncNow,
-        onDisconnect: this.options.onDisconnect,
-        onReset: this.options.onReset,
-        onSelectSyncNow: closeMenu(this.options.onSyncNow),
-        onSelectDisconnect: closeMenu(this.options.onDisconnect),
-        onSelectReset: closeMenu(this.options.onReset),
-        onToggleHelp: () => {
-          this.helpOpen = !this.helpOpen;
-          this.menuOpen = false;
-          this.render();
+      this.options,
+      { menuOpen: this.menuOpen, helpOpen: this.helpOpen },
+      {
+        setMenuOpen: (open) => {
+          this.menuOpen = open;
         },
-      }),
-      onToggleMenu: () => {
-        this.menuOpen = !this.menuOpen;
-        this.render();
+        setHelpOpen: (open) => {
+          this.helpOpen = open;
+        },
+        repaint: () => this.render(),
       },
-      onToggleAuthorOverlay: this.options.onToggleAuthorOverlay,
-      onInvite: this.options.onOpenComposer,
-    });
+    );
 
     this.renderConnectedBody(content, panel, composer);
   }
