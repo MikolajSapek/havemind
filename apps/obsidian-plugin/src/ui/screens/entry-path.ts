@@ -21,9 +21,33 @@ import { renderEntryChooser, renderHostPath } from '../entry-chooser-section';
 
 export interface EntryPathState {
   readonly entryChoice: EntryChoice;
-  /** True when a token is typed or a join link brought them here. */
-  readonly alreadyAnswered: boolean;
+  /** Whatever the user has typed into the token field so far. */
+  readonly draftToken: string;
   readonly canHost: boolean;
+}
+
+/**
+ * True when the user has self-evidently already answered the chooser: a token
+ * typed, an arrival through a join link, or an owner who opened the composer.
+ * Asking again would be asking twice.
+ *
+ * The `!== undefined` guard matters: an absent provider is not an open
+ * composer.
+ */
+function alreadyAnswered(
+  state: EntryPathState,
+  options: EntryPathProviders,
+): boolean {
+  return (
+    state.draftToken.length > 0 ||
+    options.arrivedWithInvitation?.() === true ||
+    (options.composer !== undefined && options.composer() !== null)
+  );
+}
+
+export interface EntryPathProviders {
+  readonly arrivedWithInvitation?: (() => boolean) | undefined;
+  readonly composer?: (() => unknown) | undefined;
 }
 
 export interface EntryPathActions {
@@ -37,9 +61,11 @@ export interface EntryPathActions {
 export function renderEntryPath(
   content: HTMLElement,
   state: EntryPathState,
+  providers: EntryPathProviders,
   actions: EntryPathActions,
 ): void {
-  const decided = state.entryChoice !== 'undecided' || state.alreadyAnswered;
+  const decided =
+    state.entryChoice !== 'undecided' || alreadyAnswered(state, providers);
 
   if (!decided) {
     renderEntryChooser(content, {

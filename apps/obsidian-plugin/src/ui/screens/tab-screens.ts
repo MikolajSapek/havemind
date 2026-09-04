@@ -8,6 +8,7 @@
  */
 
 import { buildGettingStartedViewModel } from '../../runtime/getting-started-render';
+import type { ConnectionPanelView } from '../../runtime/status';
 import type { CreateConnectionViewModel, OnboardingViewOptions } from '../onboarding-types';
 import { renderActivityRows } from '../activity-section';
 import { renderGettingStarted } from '../getting-started-section';
@@ -17,6 +18,7 @@ import { renderConnectionControls } from './connection-controls';
 import type { ConnectDraft, ConnectLiveInputs } from './connect-form';
 import { renderInviteComposer } from './invite-composer';
 import { renderPeopleTab } from './people-tab';
+import { renderConflicts, renderSendQueue } from './alarms';
 import { renderStatusIndicator } from './status-indicator';
 import type { TabBodyScreens } from './tab-body';
 
@@ -84,6 +86,37 @@ export function buildTabScreens(context: TabScreensContext): TabBodyScreens {
             onApprove: options.onApprove,
           }),
         onOpenComposer: options.onOpenComposer,
+      }),
+  };
+}
+
+/**
+ * The three body renderers that read only the options bag: the status row and
+ * the two alarms. Split from the tab factory because the connected body draws
+ * them outside the tabs, above the strip.
+ */
+export function buildBodyRenderers(options: OnboardingViewOptions): {
+  renderIndicator: (target: HTMLElement, panel: ConnectionPanelView) => void;
+  renderSendQueue: (target: HTMLElement) => void;
+  renderConflicts: (target: HTMLElement) => void;
+} {
+  return {
+    renderIndicator: (target, panel) =>
+      renderStatusIndicator(target, panel, {
+        onRetry: options.onRetry,
+        onReset: options.onReset,
+      }),
+    renderSendQueue: (target) =>
+      renderSendQueue(target, {
+        recoveryRequired: options.recoveryRequiredProvider?.() ?? false,
+        view: options.sendQueueProvider?.() ?? null,
+        onRetry: options.onRetrySend,
+        onDiscard: options.onDiscardSend,
+      }),
+    renderConflicts: (target) =>
+      renderConflicts(target, {
+        copies: options.conflictsProvider?.() ?? [],
+        onResolve: options.onResolveConflict,
       }),
   };
 }

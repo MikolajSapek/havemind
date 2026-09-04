@@ -15,14 +15,12 @@ import { renderGuestWaitingScreen } from './screens/guest-waiting';
 import { renderEntryPath } from './screens/entry-path';
 import { renderConnectForm } from './screens/connect-form';
 import { renderConnectedBody } from './screens/connected-body';
-import { renderConflicts, renderSendQueue } from './screens/alarms';
 import { renderGuestInvalid } from './screens/guest-invalid';
 import { renderTabBody } from './screens/tab-body';
 import { readPaneState } from './screens/pane-state';
-import { buildTabScreens } from './screens/tab-screens';
+import { buildBodyRenderers, buildTabScreens } from './screens/tab-screens';
 import { renderPaneChrome } from './screens/pane-chrome';
 import { buildHeaderMenuItems } from './screens/header-menu';
-import { renderStatusIndicator } from './screens/status-indicator';
 import {
   type ConnectionPanelView,
 } from '../runtime/status';
@@ -200,23 +198,7 @@ export class HavemindOnboardingView extends ItemView {
       focusTabOnRender: this.focusTabOnRender,
     };
     renderConnectedBody(content, panel, composer, bodyState, {
-      renderIndicator: (target, p) =>
-        renderStatusIndicator(target, p, {
-          onRetry: this.options.onRetry,
-          onReset: this.options.onReset,
-        }),
-      renderSendQueue: (target) =>
-        renderSendQueue(target, {
-          recoveryRequired: this.options.recoveryRequiredProvider?.() ?? false,
-          view: this.options.sendQueueProvider?.() ?? null,
-          onRetry: this.options.onRetrySend,
-          onDiscard: this.options.onDiscardSend,
-        }),
-      renderConflicts: (target) =>
-        renderConflicts(target, {
-          copies: this.options.conflictsProvider?.() ?? [],
-          onResolve: this.options.onResolveConflict,
-        }),
+      ...buildBodyRenderers(this.options),
       renderEntryPath: (target) => this.entryPath(target),
       paneTabs: (open) => this.paneTabs(open),
       renderTabBody: (target, tab, p, c) => this.renderTabBody(target, tab, p, c),
@@ -294,21 +276,16 @@ export class HavemindOnboardingView extends ItemView {
    * token typed, has self-evidently chosen: skip the question.
    */
   private entryPath(content: HTMLElement): void {
-    // An owner minting an invitation has already answered the question by
-    // opening the composer; asking again would be asking twice. The
-    // `!== undefined` guard matters: an absent provider is not an open composer.
-    const alreadyAnswered =
-      this.draft.token.length > 0 ||
-      this.options.arrivedWithInvitationProvider?.() === true ||
-      (this.options.composerProvider !== undefined &&
-        this.options.composerProvider() !== null);
-
     renderEntryPath(
       content,
       {
         entryChoice: this.entryChoice,
-        alreadyAnswered,
+        draftToken: this.draft.token,
         canHost: this.options.canHost ?? true,
+      },
+      {
+        arrivedWithInvitation: this.options.arrivedWithInvitationProvider,
+        composer: this.options.composerProvider,
       },
       {
         onChoose: (choice) => {
