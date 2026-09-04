@@ -12,7 +12,6 @@
 import { ItemView, type WorkspaceLeaf } from 'obsidian';
 
 import { buildGettingStartedViewModel } from '../runtime/getting-started-render';
-import type { RejoinRosterView } from '../runtime/rejoin-roster';
 import { resolveViewState } from '../runtime/view-state';
 import { renderGuestWaitingScreen } from './screens/guest-waiting';
 import { renderInviteComposer } from './screens/invite-composer';
@@ -61,7 +60,6 @@ export type {
 
 import type {
   CreateConnectionViewModel,
-  GuestWaitingViewModel,
   InvitationRole,
   OnboardingViewOptions,
 } from './onboarding-types';
@@ -193,12 +191,16 @@ export class HavemindOnboardingView extends ItemView {
     });
 
     if (state.kind === 'invalid') {
-      this.renderGuestInvalid(content);
+      renderGuestInvalid(content, this.options.guestWaitingProvider?.()?.ownerName, {
+        renderForm: (target) => this.renderForm(target),
+      });
       return;
     }
 
     if (state.kind === 'awaiting') {
-      this.renderGuestWaiting(content, state.waiting);
+      renderGuestWaitingScreen(content, state.waiting, {
+        onCancel: this.options.onDisconnect,
+      });
       return;
     }
 
@@ -236,10 +238,10 @@ export class HavemindOnboardingView extends ItemView {
       focusTabOnRender: this.focusTabOnRender,
     };
     renderConnectedBody(content, panel, composer, bodyState, {
-      renderIndicator: (target, p) => this.renderIndicator(target, p),
-      renderSendQueue: (target) => this.renderSendQueue(target),
-      renderConflicts: (target) => this.renderConflicts(target),
-      renderEntryPath: (target) => this.renderEntryPath(target),
+      renderIndicator: (target, p) => this.indicator(target, p),
+      renderSendQueue: (target) => this.sendQueue(target),
+      renderConflicts: (target) => this.conflicts(target),
+      renderEntryPath: (target) => this.entryPath(target),
       paneTabs: (open) => this.paneTabs(open),
       renderTabBody: (target, tab, p, c) => this.renderTabBody(target, tab, p, c),
       onSelectTab: (id, viaKeyboard) => {
@@ -281,7 +283,7 @@ export class HavemindOnboardingView extends ItemView {
   ): void {
     renderTabBody(body, tab, panel, composer, {
       renderStatus: (target, p) => {
-        this.renderIndicator(target, p);
+        this.indicator(target, p);
         if (this.helpOpen) {
           renderGettingStarted(target, buildGettingStartedViewModel());
         }
@@ -292,7 +294,17 @@ export class HavemindOnboardingView extends ItemView {
           ...(this.options.onRestore ? { onRestore: this.options.onRestore } : {}),
         });
       },
-      renderConnect: (target, p) => this.renderConnectionControls(target, p),
+      renderConnect: (target, p) =>
+        renderConnectionControls(target, p, this.helpOpen, {
+          onSyncNow: this.options.onSyncNow,
+          onRetry: this.options.onRetry,
+          onReset: this.options.onReset,
+          onDisconnect: this.options.onDisconnect,
+          onToggleHelp: () => {
+            this.helpOpen = !this.helpOpen;
+            this.render();
+          },
+        }),
       renderPeople: (target, model) =>
         renderPeopleTab(target, model, {
           renderRoster: (rosterTarget) => {
@@ -300,10 +312,28 @@ export class HavemindOnboardingView extends ItemView {
             // built should show the section fallback where the list would have
             // been, rather than vanishing silently and leaving the tab empty.
             const roster = this.options.rejoinRosterProvider?.();
-            if (roster !== undefined) this.renderRoster(rosterTarget, roster);
+            if (roster === undefined) return;
+            renderRejoinRoster(rosterTarget, roster, {
+              waiting: this.options.rejoinWaitingProvider?.() ?? new Set<string>(),
+              ...(this.options.onRejoin === undefined
+                ? {}
+                : { onRejoin: this.options.onRejoin }),
+              ...(this.options.onMarkDisconnected === undefined
+                ? {}
+                : { onMarkDisconnected: this.options.onMarkDisconnected }),
+              ...(this.options.onRemove === undefined
+                ? {}
+                : { onRemove: this.options.onRemove }),
+            });
           },
           renderComposer: (composerTarget, m) =>
-            this.renderCreateConnection(composerTarget, m),
+            renderInviteComposer(composerTarget, m, this.draft, this.liveInputs, {
+              onClose: this.options.onCloseComposer,
+              onCreate: this.options.onCreateInvitation,
+              onCopy: this.options.onCopyInvitation,
+              onDismiss: this.options.onDismissInvitation,
+              onApprove: this.options.onApprove,
+            }),
           onOpenComposer: this.options.onOpenComposer,
         }),
     });
@@ -318,7 +348,7 @@ export class HavemindOnboardingView extends ItemView {
     if (live.name) this.draft.name = live.name.value;
   }
 
-  private renderIndicator(
+  private indicator(
     content: HTMLElement,
     panel: ConnectionPanelView,
     includeRecovery = true,
@@ -336,35 +366,19 @@ export class HavemindOnboardingView extends ItemView {
    * overflow menu. Connecting a different server remains an explicit two-step
    * action: disconnect first, then the normal pairing form appears.
    */
-  private renderConnectionControls(
-    content: HTMLElement,
-    panel: ConnectionPanelView,
-  ): void {
-    renderConnectionControls(content, panel, this.helpOpen, {
-      onSyncNow: this.options.onSyncNow,
-      onRetry: this.options.onRetry,
-      onReset: this.options.onReset,
-      onDisconnect: this.options.onDisconnect,
-      onToggleHelp: () => {
-        this.helpOpen = !this.helpOpen;
-        this.render();
-      },
-    });
-  }
-
   /**
    * Draws the MRG-03 "Conflicts" section when copies exist. The provider reads
    * the vault synchronously; an empty list renders nothing so the section
    * appears only while there is something to resolve.
    */
-  private renderConflicts(content: HTMLElement): void {
+  private conflicts(content: HTMLElement): void {
     renderConflicts(content, {
       copies: this.options.conflictsProvider?.() ?? [],
       onResolve: this.options.onResolveConflict,
     });
   }
 
-  private renderSendQueue(content: HTMLElement): void {
+  private sendQueue(content: HTMLElement): void {
     renderSendQueue(content, {
       recoveryRequired: this.options.recoveryRequiredProvider?.() ?? false,
       view: this.options.sendQueueProvider?.() ?? null,
@@ -382,7 +396,7 @@ export class HavemindOnboardingView extends ItemView {
    * A user who arrived through `obsidian://havemind-join`, or who already has a
    * token typed, has self-evidently chosen: skip the question.
    */
-  private renderEntryPath(content: HTMLElement): void {
+  private entryPath(content: HTMLElement): void {
     // An owner minting an invitation has already answered the question by
     // opening the composer; asking again would be asking twice. The
     // `!== undefined` guard matters: an absent provider is not an open composer.
@@ -453,67 +467,14 @@ export class HavemindOnboardingView extends ItemView {
   }
 
   /** Renders the rejoin-aware roster with its owner actions from the options. */
-  private renderRoster(content: HTMLElement, roster: RejoinRosterView): void {
-    renderRejoinRoster(content, roster, {
-      waiting: this.options.rejoinWaitingProvider?.() ?? new Set<string>(),
-      ...(this.options.onRejoin === undefined
-        ? {}
-        : { onRejoin: this.options.onRejoin }),
-      ...(this.options.onMarkDisconnected === undefined
-        ? {}
-        : { onMarkDisconnected: this.options.onMarkDisconnected }),
-      ...(this.options.onRemove === undefined
-        ? {}
-        : { onRemove: this.options.onRemove }),
-    });
-  }
-
   /**
    * Guest waiting screen: the invitation is already redeemed and this device is
    * waiting for the owner to approve it. The verification phrase is shown so it
    * survives a pane close/reopen; no paste form is drawn (re-pasting would try
    * to re-redeem a single-use invitation).
    */
-  private renderGuestWaiting(
-    content: HTMLElement,
-    model: GuestWaitingViewModel,
-  ): void {
-    renderGuestWaitingScreen(content, model, {
-      onCancel: this.options.onDisconnect,
-    });
-  }
-
-  /**
-   * Terminal guest screen after the owner rejected this device or the 3-attempt
-   * cap was reached. The invitation is spent, so we present a clear message plus
-   * the paste form to try a fresh invite, never offline, never a blank form.
-   */
-  private renderGuestInvalid(content: HTMLElement): void {
-    renderGuestInvalid(content, this.options.guestWaitingProvider?.()?.ownerName, {
-      renderForm: (target) => this.renderForm(target),
-    });
-  }
-
   private renderForm(content: HTMLElement): void {
     renderConnectForm(content, this.draft, this.liveInputs, this.options.onConnect);
   }
 
-  /**
-   * The unified owner "Create connection" panel. The create section (role +
-   * name + Create invitation, plus the minted envelope with Copy) and the live
-   * "waiting for the other device" section render together in one surface;
-   * approving a waiting device never unmounts the create section.
-   */
-  private renderCreateConnection(
-    content: HTMLElement,
-    model: CreateConnectionViewModel,
-  ): void {
-    renderInviteComposer(content, model, this.draft, this.liveInputs, {
-      onClose: this.options.onCloseComposer,
-      onCreate: this.options.onCreateInvitation,
-      onCopy: this.options.onCopyInvitation,
-      onDismiss: this.options.onDismissInvitation,
-      onApprove: this.options.onApprove,
-    });
-  }
 }
