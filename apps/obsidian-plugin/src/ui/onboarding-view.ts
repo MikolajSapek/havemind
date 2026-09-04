@@ -18,7 +18,11 @@ import { renderConnectedBody } from './screens/connected-body';
 import { renderGuestInvalid } from './screens/guest-invalid';
 import { renderTabBody } from './screens/tab-body';
 import { readPaneState } from './screens/pane-state';
-import { buildBodyRenderers, buildTabScreens } from './screens/tab-screens';
+import {
+  attentionCount,
+  buildBodyRenderers,
+  buildTabScreens,
+} from './screens/tab-screens';
 import { renderPaneChrome } from './screens/pane-chrome';
 import { buildHeaderMenuItems } from './screens/header-menu';
 import {
@@ -32,7 +36,6 @@ import {
   type PaneTabsView,
 } from '../runtime/pane-tabs';
 
-import type { PaneMenuItem } from './pane-header';
 import {
   safeRead,
 } from './primitives';
@@ -164,12 +167,30 @@ export class HavemindOnboardingView extends ItemView {
       return;
     }
 
+    // Every menu selection closes the menu; wrapping once keeps that from
+    // being repeated, and forgotten, on each item.
+    const closeMenu = (run?: () => void) => () => {
+      this.menuOpen = false;
+      run?.();
+    };
     renderPaneChrome(content, {
       panel,
       menuOpen: this.menuOpen,
-      alarmed: this.attentionCount() > 0,
+      alarmed: attentionCount(this.options) > 0,
       overlayOn: safeRead('authorOverlay', this.options.authorOverlayProvider, undefined),
-      items: this.headerMenuItems(panel),
+      items: buildHeaderMenuItems(panel, this.helpOpen, {
+        onSyncNow: this.options.onSyncNow,
+        onDisconnect: this.options.onDisconnect,
+        onReset: this.options.onReset,
+        onSelectSyncNow: closeMenu(this.options.onSyncNow),
+        onSelectDisconnect: closeMenu(this.options.onDisconnect),
+        onSelectReset: closeMenu(this.options.onReset),
+        onToggleHelp: () => {
+          this.helpOpen = !this.helpOpen;
+          this.menuOpen = false;
+          this.render();
+        },
+      }),
       onToggleMenu: () => {
         this.menuOpen = !this.menuOpen;
         this.render();
@@ -229,7 +250,7 @@ export class HavemindOnboardingView extends ItemView {
       // Inviting happens inside People now (round 2, Q3), so an open composer
       // selects that tab rather than a fourth one of its own.
       active: composerOpen ? 'people' : this.activeTab,
-      attentionCount: this.attentionCount(),
+      attentionCount: attentionCount(this.options),
     });
   }
 
@@ -301,45 +322,6 @@ export class HavemindOnboardingView extends ItemView {
     );
   }
 
-  /**
-   * What the header overflow menu holds. Only offered once connected: on the
-   * connect screen there is nothing to disconnect from, and Reset is already
-   * surfaced as its own affordance in the state that needs it.
-   */
-  /** How many things need the user right now, across every guarded provider. */
-  private attentionCount(): number {
-    const count = (read: () => number): number => {
-      try {
-        return read();
-      } catch {
-        return 0;
-      }
-    };
-    return (
-      count(() => this.options.conflictsProvider?.().length ?? 0) +
-      count(() => this.options.sendQueueProvider?.()?.failed.length ?? 0)
-    );
-  }
-
-  private headerMenuItems(panel: ConnectionPanelView): PaneMenuItem[] {
-    const close = (run?: () => void) => () => {
-      this.menuOpen = false;
-      run?.();
-    };
-    return buildHeaderMenuItems(panel, this.helpOpen, {
-      onSyncNow: this.options.onSyncNow,
-      onDisconnect: this.options.onDisconnect,
-      onReset: this.options.onReset,
-      onSelectSyncNow: close(this.options.onSyncNow),
-      onSelectDisconnect: close(this.options.onDisconnect),
-      onSelectReset: close(this.options.onReset),
-      onToggleHelp: () => {
-        this.helpOpen = !this.helpOpen;
-        this.menuOpen = false;
-        this.render();
-      },
-    });
-  }
 
   /** Renders the rejoin-aware roster with its owner actions from the options. */
 }

@@ -120,3 +120,24 @@ export function buildBodyRenderers(options: OnboardingViewOptions): {
       }),
   };
 }
+
+/**
+ * How many things need the user right now, across every guarded provider.
+ *
+ * Each read is guarded separately: this feeds the header's alarm dot and the
+ * Status tab's count, both chrome, and a provider that throws must cost the
+ * user its number rather than the whole pane.
+ */
+export function attentionCount(options: OnboardingViewOptions): number {
+  const count = (read: () => number): number => {
+    try {
+      return read();
+    } catch {
+      return 0;
+    }
+  };
+  return (
+    count(() => options.conflictsProvider?.().length ?? 0) +
+    count(() => options.sendQueueProvider?.()?.failed.length ?? 0)
+  );
+}
