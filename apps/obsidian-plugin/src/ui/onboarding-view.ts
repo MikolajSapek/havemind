@@ -13,29 +13,18 @@ import { ItemView, type WorkspaceLeaf } from 'obsidian';
 
 import { renderGuestWaitingScreen } from './screens/guest-waiting';
 import { renderEntryPath } from './screens/entry-path';
-import { renderConnectForm } from './screens/connect-form';
+import { captureDrafts, renderConnectForm } from './screens/connect-form';
 import { renderConnectedBody } from './screens/connected-body';
 import { renderGuestInvalid } from './screens/guest-invalid';
 import { renderTabBody } from './screens/tab-body';
 import { readPaneState } from './screens/pane-state';
-import {
-  attentionCount,
-  buildBodyRenderers,
-  buildTabScreens,
-} from './screens/tab-screens';
+import { attentionCount, buildBodyRenderers, buildTabScreens } from './screens/tab-screens';
 import { renderPaneChromeFor } from './screens/pane-chrome';
-import {
-  type ConnectionPanelView,
-} from '../runtime/status';
+import type { ConnectionPanelView } from '../runtime/status';
 
 import type { EntryChoice } from '../runtime/entry-choice';
-import {
-  buildPaneTabs,
-  type PaneTabId,
-} from '../runtime/pane-tabs';
+import { buildPaneTabs, type PaneTabId } from '../runtime/pane-tabs';
 
-import {
-} from './primitives';
 import { HAVEMIND_ONBOARDING_VIEW } from './view-types';
 
 // Re-exported so every existing import of these names keeps working: moving a
@@ -138,7 +127,7 @@ export class HavemindOnboardingView extends ItemView {
 
     // Snapshot any typed-but-unsubmitted input before tearing the DOM down, so
     // a re-render (create → approve, status change) never loses in-progress work.
-    this.captureDrafts();
+    captureDrafts(this.draft, this.liveInputs);
     content.empty();
     content.addClass('havemind-view');
     this.liveInputs = {};
@@ -247,15 +236,6 @@ export class HavemindOnboardingView extends ItemView {
    * sections it wraps, but this runs before them, an unguarded throw here would
    * blank everything, which is the failure MAJOR 5 exists to prevent.
    */
-  /** Reads live input values into `draft` so the next render can restore them. */
-  private captureDrafts(): void {
-    const live = this.liveInputs;
-    if (live.token) this.draft.token = live.token.value;
-    if (live.server) this.draft.server = live.server.value;
-    if (live.role) this.draft.role = live.role.value === 'owner' ? 'owner' : 'editor';
-    if (live.name) this.draft.name = live.name.value;
-  }
-
   /**
    * The disconnected pane: a chooser, then only the branch the user picked
    * (design 1d). The five-step tutorial used to render unconditionally above

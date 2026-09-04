@@ -64,3 +64,35 @@ export function renderConnectForm(
       );
     });
 }
+
+/** Everything the pane keeps between repaints, across both forms. */
+export interface PaneDraft {
+  token: string;
+  server: string;
+  role: string;
+  name: string;
+}
+
+/** Every live field the pane has handed out this render. */
+export interface PaneLiveInputs {
+  token?: HTMLElement | undefined;
+  server?: HTMLElement | undefined;
+  role?: HTMLElement | undefined;
+  name?: HTMLElement | undefined;
+}
+
+/**
+ * Reads the live fields back into the draft before the DOM is torn down.
+ *
+ * A status change can repaint the pane while someone is mid-typing, so without
+ * this a re-render silently discards a half-pasted invitation.
+ */
+export function captureDrafts(draft: PaneDraft, live: PaneLiveInputs): void {
+  if (live.token) draft.token = (live.token as HTMLInputElement).value;
+  if (live.server) draft.server = (live.server as HTMLInputElement).value;
+  if (live.role) {
+    draft.role =
+      (live.role as HTMLSelectElement).value === 'owner' ? 'owner' : 'editor';
+  }
+  if (live.name) draft.name = (live.name as HTMLInputElement).value;
+}
