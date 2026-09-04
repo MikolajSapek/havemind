@@ -16,6 +16,16 @@ export const EMPTY_ACTIVITY_TEXT =
   'No activity yet. Connect to a vault to see changes as they happen.';
 
 /** Data and actions an activity surface needs. */
+/**
+ * Rows drawn at once when the caller names no limit.
+ *
+ * The log keeps 200 entries; drawing all of them costs ~8 DOM nodes each,
+ * rebuilt on every repaint. Enough to read as a log, few enough that the tab
+ * stays cheap on a phone. The history is untouched: this bounds the DOM, not
+ * what is kept.
+ */
+export const DEFAULT_ACTIVITY_ROW_LIMIT = 60;
+
 export interface ActivitySectionOptions {
   readonly feed: readonly RevisionRecord[];
   readonly onRestore?: (revisionId: string) => void;
@@ -41,7 +51,7 @@ export function renderActivityRows(
   }
 
   const rows =
-    options.limit === undefined ? model.rows : model.rows.slice(0, options.limit);
+    model.rows.slice(0, options.limit ?? DEFAULT_ACTIVITY_ROW_LIMIT);
 
   for (const row of rows) {
     const entry = content.createDiv();
