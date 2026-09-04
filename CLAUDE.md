@@ -83,6 +83,32 @@ The project's running notes live in the user's Obsidian vault, in
 | `Havemind - stan backlogu` | review and any disagreement between the backlog and the code |
 | `Havemind - dziennik wydan` | release log, newest first |
 
+## Releasing: TWO repositories, both or the release is invisible
+
+This project has two repos and a release is not finished until it lands in both.
+
+| Repo | Role |
+|---|---|
+| `MikolajSapek/havemind` | source. All work happens here. |
+| `mikolajsapek/obsidian-havemind` | distribution. Built artefacts in the root; **this is what the Obsidian catalogue reads.** |
+
+The catalogue entry for `havemind-sync` points at the DISTRIBUTION repo. Tagging
+only the source repo publishes a release nobody can install: 1.2.2 through
+1.4.0 all shipped that way and users stayed on 1.2.1 for two weeks, which is how
+this rule got written (2026-09-04).
+
+After tagging the source repo, mirror it:
+
+1. Clone or pull `mikolajsapek/obsidian-havemind`.
+2. Copy from `apps/obsidian-plugin/`: `main.js`, `styles.css`, `manifest.json`,
+   `manifest-beta.json`, and `versions.json` from the repo root.
+3. Commit, push, tag with the SAME version, push the tag. Its own release
+   workflow builds the GitHub release from there.
+4. Verify with `gh release list --repo mikolajsapek/obsidian-havemind`, not just
+   the source repo's.
+
+A release is reported as done only after step 4.
+
 **After every push to `origin/main`, append an entry to
 `Havemind - dziennik wydan`** before reporting the push as done: the date,
 the commits with one line each, what changed, and the state of
