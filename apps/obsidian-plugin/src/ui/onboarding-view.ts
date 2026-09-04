@@ -192,7 +192,8 @@ export class HavemindOnboardingView extends ItemView {
 
     if (state.kind === 'invalid') {
       renderGuestInvalid(content, this.options.guestWaitingProvider?.()?.ownerName, {
-        renderForm: (target) => this.renderForm(target),
+        renderForm: (target) =>
+          renderConnectForm(target, this.draft, this.liveInputs, this.options.onConnect),
       });
       return;
     }
@@ -238,9 +239,23 @@ export class HavemindOnboardingView extends ItemView {
       focusTabOnRender: this.focusTabOnRender,
     };
     renderConnectedBody(content, panel, composer, bodyState, {
-      renderIndicator: (target, p) => this.indicator(target, p),
-      renderSendQueue: (target) => this.sendQueue(target),
-      renderConflicts: (target) => this.conflicts(target),
+      renderIndicator: (target, p) =>
+        renderStatusIndicator(target, p, {
+          onRetry: this.options.onRetry,
+          onReset: this.options.onReset,
+        }),
+      renderSendQueue: (target) =>
+        renderSendQueue(target, {
+          recoveryRequired: this.options.recoveryRequiredProvider?.() ?? false,
+          view: this.options.sendQueueProvider?.() ?? null,
+          onRetry: this.options.onRetrySend,
+          onDiscard: this.options.onDiscardSend,
+        }),
+      renderConflicts: (target) =>
+        renderConflicts(target, {
+          copies: this.options.conflictsProvider?.() ?? [],
+          onResolve: this.options.onResolveConflict,
+        }),
       renderEntryPath: (target) => this.entryPath(target),
       paneTabs: (open) => this.paneTabs(open),
       renderTabBody: (target, tab, p, c) => this.renderTabBody(target, tab, p, c),
@@ -283,7 +298,10 @@ export class HavemindOnboardingView extends ItemView {
   ): void {
     renderTabBody(body, tab, panel, composer, {
       renderStatus: (target, p) => {
-        this.indicator(target, p);
+        renderStatusIndicator(target, p, {
+          onRetry: this.options.onRetry,
+          onReset: this.options.onReset,
+        });
         if (this.helpOpen) {
           renderGettingStarted(target, buildGettingStartedViewModel());
         }
@@ -348,45 +366,6 @@ export class HavemindOnboardingView extends ItemView {
     if (live.name) this.draft.name = live.name.value;
   }
 
-  private indicator(
-    content: HTMLElement,
-    panel: ConnectionPanelView,
-    includeRecovery = true,
-  ): void {
-    renderStatusIndicator(
-      content,
-      panel,
-      { onRetry: this.options.onRetry, onReset: this.options.onReset },
-      includeRecovery,
-    );
-  }
-
-  /**
-   * Keeps every connection action in the pane instead of requiring the header
-   * overflow menu. Connecting a different server remains an explicit two-step
-   * action: disconnect first, then the normal pairing form appears.
-   */
-  /**
-   * Draws the MRG-03 "Conflicts" section when copies exist. The provider reads
-   * the vault synchronously; an empty list renders nothing so the section
-   * appears only while there is something to resolve.
-   */
-  private conflicts(content: HTMLElement): void {
-    renderConflicts(content, {
-      copies: this.options.conflictsProvider?.() ?? [],
-      onResolve: this.options.onResolveConflict,
-    });
-  }
-
-  private sendQueue(content: HTMLElement): void {
-    renderSendQueue(content, {
-      recoveryRequired: this.options.recoveryRequiredProvider?.() ?? false,
-      view: this.options.sendQueueProvider?.() ?? null,
-      onRetry: this.options.onRetrySend,
-      onDiscard: this.options.onDiscardSend,
-    });
-  }
-
   /**
    * The disconnected pane: a chooser, then only the branch the user picked
    * (design 1d). The five-step tutorial used to render unconditionally above
@@ -418,7 +397,8 @@ export class HavemindOnboardingView extends ItemView {
           this.entryChoice = choice;
           this.render();
         },
-        renderForm: (target) => this.renderForm(target),
+        renderForm: (target) =>
+          renderConnectForm(target, this.draft, this.liveInputs, this.options.onConnect),
         onOpenGuide: (url) => {
           window.open(url, '_blank');
         },
@@ -467,14 +447,4 @@ export class HavemindOnboardingView extends ItemView {
   }
 
   /** Renders the rejoin-aware roster with its owner actions from the options. */
-  /**
-   * Guest waiting screen: the invitation is already redeemed and this device is
-   * waiting for the owner to approve it. The verification phrase is shown so it
-   * survives a pane close/reopen; no paste form is drawn (re-pasting would try
-   * to re-redeem a single-use invitation).
-   */
-  private renderForm(content: HTMLElement): void {
-    renderConnectForm(content, this.draft, this.liveInputs, this.options.onConnect);
-  }
-
 }
