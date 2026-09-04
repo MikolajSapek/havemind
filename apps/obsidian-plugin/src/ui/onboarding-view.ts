@@ -32,7 +32,6 @@ import type { EntryChoice } from '../runtime/entry-choice';
 import {
   buildPaneTabs,
   type PaneTabId,
-  type PaneTabsView,
 } from '../runtime/pane-tabs';
 
 import {
@@ -203,8 +202,32 @@ export class HavemindOnboardingView extends ItemView {
     renderConnectedBody(content, panel, composer, bodyState, {
       ...buildBodyRenderers(this.options),
       renderEntryPath: (target) => this.entryPath(target),
-      paneTabs: (open) => this.paneTabs(open),
-      renderTabBody: (target, tab, p, c) => this.renderTabBody(target, tab, p, c),
+      // `open` is passed in, not re-read: the provider was asked once already,
+      // and a second call could answer differently, leaving the strip and the
+      // body describing different states of the same pane. An open composer
+      // selects People rather than a tab of its own (round 2, Q3).
+      paneTabs: (open) =>
+        buildPaneTabs({
+          active: open ? 'people' : this.activeTab,
+          attentionCount: attentionCount(this.options),
+        }),
+      renderTabBody: (target, tab, p, c) =>
+        renderTabBody(
+          target,
+          tab,
+          p,
+          c,
+          buildTabScreens({
+            options: this.options,
+            draft: this.draft,
+            liveInputs: this.liveInputs,
+            helpOpen: this.helpOpen,
+            onToggleHelp: () => {
+              this.helpOpen = !this.helpOpen;
+              this.render();
+            },
+          }),
+        ),
       onSelectTab: (id, viaKeyboard) => {
         this.activeTab = id;
         this.focusTabOnRender = viaKeyboard;
@@ -224,42 +247,6 @@ export class HavemindOnboardingView extends ItemView {
    * sections it wraps, but this runs before them, an unguarded throw here would
    * blank everything, which is the failure MAJOR 5 exists to prevent.
    */
-  private paneTabs(composerOpen: boolean): PaneTabsView {
-    // `composerOpen` is passed in, not re-read: `render()` already asked the
-    // provider once, and a second call could answer differently, leaving the
-    // strip and the body describing different states of the same pane.
-    return buildPaneTabs({
-      // Inviting happens inside People now (round 2, Q3), so an open composer
-      // selects that tab rather than a fourth one of its own.
-      active: composerOpen ? 'people' : this.activeTab,
-      attentionCount: attentionCount(this.options),
-    });
-  }
-
-  private renderTabBody(
-    body: HTMLElement,
-    tab: PaneTabId,
-    panel: ConnectionPanelView,
-    composer: CreateConnectionViewModel | null,
-  ): void {
-    renderTabBody(
-      body,
-      tab,
-      panel,
-      composer,
-      buildTabScreens({
-        options: this.options,
-        draft: this.draft,
-        liveInputs: this.liveInputs,
-        helpOpen: this.helpOpen,
-        onToggleHelp: () => {
-          this.helpOpen = !this.helpOpen;
-          this.render();
-        },
-      }),
-    );
-  }
-
   /** Reads live input values into `draft` so the next render can restore them. */
   private captureDrafts(): void {
     const live = this.liveInputs;
