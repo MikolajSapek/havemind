@@ -46,6 +46,11 @@ export interface ActivityViewModel {
 }
 
 export interface ActivityViewModelOptions {
+  /**
+   * Rows to keep after ordering. Omit to build the whole feed; the pane passes
+   * its render cap so discarded rows are never formatted.
+   */
+  readonly limit?: number;
   /** Formats an entry timestamp for display; defaults to ISO-8601. */
   readonly formatTimestamp?: (timestamp: number) => string;
 }
@@ -59,7 +64,14 @@ export function buildActivityViewModel(
   options: ActivityViewModelOptions = {},
 ): ActivityViewModel {
   const format = options.formatTimestamp ?? defaultFormatTimestamp;
-  const rows = buildActivityFeed(records).map(
+  // Cut to the limit BETWEEN ordering and formatting. The order has to be
+  // decided over every record ("newest first" cannot be read off a prefix), but
+  // formatting the ones that will never be drawn is pure waste, and the pane
+  // rebuilds this on every repaint of the tab.
+  const ordered = buildActivityFeed(records);
+  const visible =
+    options.limit === undefined ? ordered : ordered.slice(0, options.limit);
+  const rows = visible.map(
     (entry): ActivityRowView => ({
       revisionId: entry.revisionId,
       fileId: entry.fileId,

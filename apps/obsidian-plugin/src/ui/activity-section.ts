@@ -43,6 +43,7 @@ export function renderActivityRows(
 ): number {
   const model = buildActivityViewModel(options.feed, {
     formatTimestamp: formatActivityTime,
+    limit: options.limit ?? DEFAULT_ACTIVITY_ROW_LIMIT,
   });
   if (model.empty) {
     const empty = content.createDiv({ text: EMPTY_ACTIVITY_TEXT });
@@ -51,7 +52,7 @@ export function renderActivityRows(
   }
 
   const rows =
-    model.rows.slice(0, options.limit ?? DEFAULT_ACTIVITY_ROW_LIMIT);
+    model.rows;
 
   for (const row of rows) {
     const entry = content.createDiv();

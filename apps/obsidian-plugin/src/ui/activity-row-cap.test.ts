@@ -15,6 +15,7 @@ import { describe, expect, it } from 'vitest';
 import { buildConnectionPanel } from '../runtime/status';
 import { WorkspaceLeaf, type MockElement } from '../test/obsidian.mock';
 
+import { buildActivityViewModel } from '../runtime/activity-render';
 import { HavemindOnboardingView } from './onboarding-view';
 
 function flatten(el: MockElement): MockElement[] {
@@ -69,5 +70,37 @@ describe('Activity rows are capped', () => {
     expect(rows).toBeLessThan(200);
     // Still enough to be a useful log rather than a teaser.
     expect(rows).toBeGreaterThanOrEqual(50);
+  });
+});
+
+describe('the cap is applied before the model is built', () => {
+  it('formats only the rows it will draw', () => {
+    // The pipeline built a view model for all 200 entries and then sliced to
+    // 60, so 140 rows' worth of formatting was thrown away on every repaint of
+    // the tab. Counting calls to the timestamp formatter measures exactly that:
+    // ordering still reads every record, which is correct, but formatting must
+    // not.
+    let formatted = 0;
+    const model = buildActivityViewModel(feedOf(200), {
+      formatTimestamp: (value) => {
+        formatted += 1;
+        return String(value);
+      },
+      limit: 60,
+    });
+
+    expect(model.rows).toHaveLength(60);
+    expect(formatted).toBe(60);
+  });
+
+  it('builds the whole feed when no limit is given', () => {
+    let formatted = 0;
+    buildActivityViewModel(feedOf(200), {
+      formatTimestamp: (value) => {
+        formatted += 1;
+        return String(value);
+      },
+    });
+    expect(formatted).toBe(200);
   });
 });
