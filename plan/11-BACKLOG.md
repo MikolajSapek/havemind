@@ -310,10 +310,17 @@ in the phase report (what works, what's deferred, evidence).
   (2026-08-18): no backup to restore from; see DECISIONS.md.
 - [x] **SRV-05** `sapserver` Full-service restore test onto a clean instance, WON'T FIX, closed
   with SRV-03 (2026-08-18): no backup to restore from; see DECISIONS.md.
-- [ ] **SRV-06** `sapserver` Docker test page on `127.0.0.1:8080` + Tailscale Serve
+- [x] **SRV-06** `sapserver` Docker test page on `127.0.0.1:8080` + Tailscale Serve
   - AC: the page is reachable only over the tailnet, `ss -lntu` (no `sudo` needed to
     check the bind address) shows no port on the public interface (functional
     + regression).
+  - Evidence (2026-09-04): closed by the REAL service rather than the nginx dry
+    run, which would have proved less. `docker compose ps` shows
+    `127.0.0.1:8787->8787/tcp`: the bind is on loopback, no port on a public
+    interface, and the tailnet reaches it through `tailscale serve`. Container
+    `Up (healthy)`, and the live logs show `/vaults/:vaultId/wait` and
+    `/events` answering 200 to a real client. Standing up a test page beside a
+    deployment that already satisfies the AC would have added risk, not proof.
 - [x] **SRV-07** `sapserver,user-decision` Power-loss autostart in BIOS
   - Evidence (2026-07-16): the user set Restore on AC/Power Loss → Power On (Advanced →
     Chipset Configuration, bottom of the list, confirmed against the ASRock manual pp. 63-64) and
