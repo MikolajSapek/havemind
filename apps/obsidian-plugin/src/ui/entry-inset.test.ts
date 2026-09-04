@@ -70,28 +70,34 @@ const FIRST_RUN_BLOCKS = [
  * the rule exists, covers BOTH screens, and sets both properties.
  */
 describe('first-run screens scroll and end with air below', () => {
+  // Scoped by a class the renderer sets, not by `:has()`: that version worked,
+  // but `:has()` invalidates broadly enough that Obsidian's plugin review flags
+  // it, and these screens already know who they are.
   const rule = css.match(
-    /(\.havemind-view:has\(> \.havemind-entry-options\)[^{]*)\{([^}]*)\}/,
+    /\.havemind-view\.havemind-view-scrolls\s*\{([^}]*)\}/,
   );
 
   it('declares a rule for the screens with no tab body', () => {
     expect(rule).not.toBeNull();
   });
 
-  it('covers the host path as well as the chooser', () => {
-    expect(rule?.[1] ?? '').toContain('.havemind-view:has(> .havemind-host-steps)');
-  });
-
   it('lets the pane scroll when the content outgrows it', () => {
-    expect(rule?.[2] ?? '').toMatch(/overflow-y:\s*auto/);
+    expect(rule?.[1] ?? '').toMatch(/overflow-y:\s*auto/);
   });
 
   it('keeps the last line off the bottom edge', () => {
-    expect(rule?.[2] ?? '').toMatch(/padding-bottom:\s*var\(--havemind-first-run-pad\)/);
+    expect(rule?.[1] ?? '').toMatch(/padding-bottom:\s*var\(--havemind-first-run-pad\)/);
   });
 
   it('sizes that padding from the shared spacing scale', () => {
     expect(css).toMatch(/--havemind-first-run-pad:\s*var\(--size-4-4\)/);
+  });
+
+  it('uses no :has() in any selector', () => {
+    // Comments may still name it, that is how the rule above explains itself;
+    // what must not come back is a live selector.
+    const withoutComments = css.replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(withoutComments).not.toMatch(/:has\(/);
   });
 });
 

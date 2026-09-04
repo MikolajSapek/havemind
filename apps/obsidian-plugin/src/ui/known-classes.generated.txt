@@ -134,4 +134,5 @@ havemind-tabs
 havemind-title-icon
 havemind-verification-phrase
 havemind-view
+havemind-view-scrolls
 havemind-view-title

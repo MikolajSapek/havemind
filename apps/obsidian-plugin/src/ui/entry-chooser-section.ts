@@ -39,6 +39,10 @@ export function renderEntryChooser(
     .addClass('havemind-entry-subheading');
   content.createDiv({ text: model.question }).addClass('havemind-hint');
 
+  // The pane becomes its own scroll box on this screen: there is no tab body
+  // to scroll, and without it the last line sat flush on the pane's edge.
+  content.addClass('havemind-view-scrolls');
+
   const list = content.createDiv();
   list.addClass('havemind-entry-options');
   for (const option of model.options) {
@@ -77,6 +81,8 @@ export function renderHostPath(
   content
     .createDiv({ text: model.subheading })
     .addClass('havemind-entry-subheading');
+
+  content.addClass('havemind-view-scrolls');
 
   const list = content.createDiv();
   list.addClass('havemind-host-steps');

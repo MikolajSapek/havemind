@@ -1381,12 +1381,14 @@
  * shorter than the content the overflow could not be reached at all, which put
  * the host path's "I've done this, connect" button out of reach.
  *
- * `:has()` scopes this to exactly the screens that lack a tab body; the
- * connected pane keeps its chrome flush and its own scroller. The scroll box
- * is the pane itself here, so the padding is what keeps the final line off the
- * edge at the end of the scroll. */
-.havemind-view:has(> .havemind-entry-options),
-.havemind-view:has(> .havemind-host-steps) {
+ * Scoped by a class the renderer sets, not by `:has()`. The selector version
+ * worked, but `:has()` invalidates broadly enough that Obsidian's plugin review
+ * flags it, and the screens that need this already know who they are: the
+ * chooser and the host path add the class, the connected pane never does, so it
+ * keeps its chrome flush and its own scroller. The scroll box is the pane
+ * itself here, so the padding is what keeps the final line off the edge at the
+ * end of the scroll. */
+.havemind-view.havemind-view-scrolls {
   overflow-y: auto;
   padding-bottom: var(--havemind-first-run-pad);
 }
