@@ -5,7 +5,7 @@
 -- (HAVEMIND_VAULT_QUOTA_BYTES / DEFAULT_VAULT_QUOTA_BYTES), so the owner can
 -- set the effective quota purely via config/env, while an explicit per-vault
 -- override remains possible by writing a non-NULL value. Existing vaults keep
--- NULL (inherit) after this forward-only migration, no backfill required.
+-- NULL (inherit) after this forward-only migration — no backfill required.
 --
 -- The CHECK ceiling (64 GiB = 68719476736) mirrors MAX_VAULT_QUOTA_BYTES so a
 -- mis-set per-vault value can never invalidate the free-disk guard.
