@@ -1376,6 +1376,38 @@ describe('sync push/pull routes', () => {
     });
   });
 
+  describe('blob responses cannot be sniffed into something executable', () => {
+    it('sends X-Content-Type-Options: nosniff', async () => {
+      // The route returns arbitrary member-supplied bytes. Without nosniff a
+      // browser may ignore application/octet-stream and interpret an
+      // attachment as HTML or script, on the server's own tailnet origin.
+      // There is no CORS and no cookie auth, so this is not reachable from a
+      // third-party page; it is reachable when someone opens a blob URL
+      // themselves, which is enough to be worth one header.
+      const fixture = makeFixture();
+      const app = createApp(fixture);
+
+      const pushed = await push(app, fixture.accessTokenA, VAULT_A, [
+        revisionInput(REVISION_1, [], 'k1', 'opaque-1'),
+      ]);
+      const blobHash = (
+        pushed.json() as { results: Array<{ receipt: { blobHash: string } }> }
+      ).results[0]?.receipt.blobHash;
+
+      const blob = await app.inject({
+        headers: { authorization: `Bearer ${fixture.accessTokenA}` },
+        method: 'GET',
+        url: `/vaults/${VAULT_A}/blobs/${blobHash}`,
+      });
+
+      expect(blob.statusCode).toBe(200);
+      expect(blob.headers['x-content-type-options']).toBe('nosniff');
+      // The existing headers stay: the fix must not trade one for another.
+      expect(blob.headers['content-type']).toBe('application/octet-stream');
+      expect(blob.headers['cache-control']).toBe('no-store');
+    });
+  });
+
   describe('AUD-08b blob-GET per-device byte throttle', () => {
     it('throttles a device that pulls blobs beyond its byte budget and refills over time', async () => {
       const fixture = makeFixture();

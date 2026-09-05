@@ -841,6 +841,11 @@ export function registerSyncRoutes(
 
     reply.header('cache-control', 'no-store');
     reply.header('content-type', 'application/octet-stream');
+    // These are arbitrary member-supplied bytes. Without nosniff a browser may
+    // ignore the content type and interpret an attachment as HTML or script on
+    // the server's own origin. No CORS and no cookie auth means a third-party
+    // page cannot reach this, but someone opening a blob URL themselves can.
+    reply.header('x-content-type-options', 'nosniff');
     reply.send(bytes);
     return reply;
   });
