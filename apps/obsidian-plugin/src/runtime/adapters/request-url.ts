@@ -11,16 +11,23 @@ import { requestUrl } from 'obsidian';
 
 import type { RequestUrlFn } from '../sync-transport';
 
+import { withRequestTimeout } from './request-timeout';
+
 /** Wraps Obsidian's `requestUrl` as the transport's `RequestUrlFn`. */
 export function createRequestUrlFn(): RequestUrlFn {
   return async (options) => {
-    const response = await requestUrl({
-      url: options.url,
-      method: options.method,
-      throw: false,
-      ...(options.headers === undefined ? {} : { headers: options.headers }),
-      ...(options.body === undefined ? {} : { body: options.body }),
-    });
+    // Bounded: `requestUrl` has no timeout of its own, so a connection that
+    // dies without closing would hang here forever and stall the whole sync
+    // loop behind it. See `request-timeout.ts`.
+    const response = await withRequestTimeout(
+      requestUrl({
+        url: options.url,
+        method: options.method,
+        throw: false,
+        ...(options.headers === undefined ? {} : { headers: options.headers }),
+        ...(options.body === undefined ? {} : { body: options.body }),
+      }),
+    );
     // `.json` is a LAZY getter in the real Obsidian runtime that THROWS on a
     // non-JSON body (a 502/504 proxy HTML page, a Tailscale Funnel error page, an
     // empty body). Reading it eagerly here made the whole transport call reject
