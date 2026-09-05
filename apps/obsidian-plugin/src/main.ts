@@ -1005,7 +1005,7 @@ export default class HavemindPlugin extends Plugin {
       onPendingApproval: (verificationPhrase) => {
         if (attempt.signal.aborted || this.unloaded) return;
         this.awaitingApproval = { verificationPhrase };
-        this.views.refreshOnboarding();
+        this.views.refreshOnboardingNow();
       },
       // The owner rejected the device or the attempt cap was reached: leave the
       // waiting screen for the terminal "invitation invalid" screen. This is an
@@ -1014,7 +1014,7 @@ export default class HavemindPlugin extends Plugin {
         if (attempt.signal.aborted || this.unloaded) return;
         this.awaitingApproval = null;
         this.guestInvitationInvalid = true;
-        this.views.refreshOnboarding();
+        this.views.refreshOnboardingNow();
       },
       signal: attempt.signal,
     });
@@ -1088,7 +1088,7 @@ export default class HavemindPlugin extends Plugin {
     this.awaitingApproval = null;
     this.guestInvitationInvalid = false;
     this.setStatus(formatStatusBar({ status: 'disconnected' }));
-    this.views.refreshOnboarding();
+    this.views.refreshOnboardingNow();
   }
 
   /** Starts a tracked connection build; all live attempts are cancelled on teardown. */
@@ -1225,13 +1225,13 @@ export default class HavemindPlugin extends Plugin {
     const effect = planRetryFromDisk(outcome, path, options.discardOnRetrigger);
     if (effect.notice !== null) new Notice(effect.notice);
     if (effect.discard) await this.syncState?.discardQuarantined(revisionId);
-    this.views.refreshOnboarding();
+    this.views.refreshOnboardingNow();
   }
 
   /** Permanently discard a quarantined send (SND-01). */
   private async discardSend(revisionId: string): Promise<void> {
     await this.syncState?.discardQuarantined(revisionId);
-    this.views.refreshOnboarding();
+    this.views.refreshOnboardingNow();
   }
 
   /**
@@ -1344,7 +1344,7 @@ export default class HavemindPlugin extends Plugin {
         return;
       }
       this.rejoinWaiting = new Set([...this.rejoinWaiting, membershipId]);
-      this.views.refreshOnboarding();
+      this.views.refreshOnboardingNow();
     } catch (error) {
       new Notice(
         `Havemind: could not request rejoin, ${
@@ -1384,7 +1384,7 @@ export default class HavemindPlugin extends Plugin {
         [...this.rejoinWaiting].filter((id) => id !== membershipId),
       );
       new Notice(`Removed ${displayName} from the vault.`);
-      this.views.refreshOnboarding();
+      this.views.refreshOnboardingNow();
     } catch (error) {
       new Notice(
         `Havemind: could not remove member, ${
@@ -1408,7 +1408,7 @@ export default class HavemindPlugin extends Plugin {
     } catch {
       if (!this.unloaded) {
         this.connectionError = 'Havemind could not prepare reconnection. Pair again if this persists.';
-        this.views.refreshOnboarding();
+        this.views.refreshOnboardingNow();
       }
       return;
     }
@@ -1815,7 +1815,7 @@ export default class HavemindPlugin extends Plugin {
       this.connectionNotice =
         'Invitation created. Copy it and send it to the other device.';
       this.connectionNoticeKind = undefined;
-      this.views.refreshOnboarding();
+      this.views.refreshOnboardingNow();
     } catch (error) {
       report(
         `Could not create invitation: ${
@@ -1838,7 +1838,7 @@ export default class HavemindPlugin extends Plugin {
     this.connectionActive = false;
     this.connectionNotice = undefined;
     this.connectionNoticeKind = undefined;
-    this.views.refreshOnboarding();
+    this.views.refreshOnboardingNow();
   }
 
   /** Stores the created invitation so the onboarding view can display it. */
