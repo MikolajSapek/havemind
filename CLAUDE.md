@@ -70,6 +70,35 @@ the screen at all, add a marker rule to the *installed* file and reload the plug
 sheet contradict itself; (3) only then, are the values wrong. Rounds of value edits on a sheet
 that contradicts itself change nothing, because the winner is decided by source order.
 
+## Dependencies: the lockfile is resolved on LINUX, never on macOS
+
+`package-lock.json` records a tree that differs by platform. `@emnapi/core` and
+`@emnapi/runtime` 1.11.3 exist as TOP-LEVEL entries only on Linux; on macOS the
+tree carries just 1.11.1, nested under rolldown. A lockfile regenerated on a Mac
+is therefore missing entries the Docker build needs, and `npm ci` fails with
+`Missing: @emnapi/core@1.11.3 from lock file`. The server then cannot be rebuilt
+at all, which is how this rule got written (2026-09-05, three failed attempts on
+the wrong platform).
+
+`npm ci --dry-run` on macOS PASSES against that broken lockfile, so it proves
+nothing. Only a real `npm ci` inside the build image does.
+
+To change a dependency:
+
+1. Edit `package.json` as usual.
+2. Regenerate inside the image the Dockerfile builds from, not on the host:
+
+```bash
+docker run --rm -v "$PWD":/w -w /w \
+  node:22.23.1-bookworm-slim npm install --package-lock-only
+```
+
+3. Verify `npm ci` exits 0 locally too, so the file is not Linux-only.
+4. Confirm the Docker build succeeds before committing.
+
+Never run `rm package-lock.json && npm install` to fix a dependency problem. It
+silently drops every platform-optional package the host cannot resolve.
+
 ## Vault notes, update on every push
 
 The project's running notes live in the user's Obsidian vault, in
