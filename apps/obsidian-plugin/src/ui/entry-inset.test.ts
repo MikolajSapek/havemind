@@ -122,10 +122,26 @@ describe('the entry cards grow with their text', () => {
   // nowrap`, so without these four the second line was clipped behind the next
   // card and the text ran past the pane's right edge. Screenshotted on the
   // disconnected screen, 1.4.7.
-  const rule = /\.havemind-entry-option\s*\{([^}]*)\}/.exec(css)?.[1] ?? '';
+  const rule =
+    /\.havemind-entry-option,\s*\.havemind-view button\.havemind-entry-option\s*\{([^}]*)\}/.exec(
+      css,
+    )?.[1] ?? '';
 
   it('finds the rule', () => {
     expect(rule).not.toBe('');
+  });
+
+  it('carries the element-qualified selector too', () => {
+    // The values alone are not enough. A bare `.havemind-entry-option` loses
+    // to Obsidian's own `button { display: inline-flex; align-items: center }`,
+    // which laid the title and the cost side by side and pushed the cost out
+    // below the card, overlapping the next one. Every other button in this
+    // sheet is doubled the same way (`.havemind-action-row`,
+    // `.havemind-pane-more`, `.havemind-invite-cta`); this one was not, which
+    // is why the first fix did not take.
+    expect(css).toContain(
+      '.havemind-view button.havemind-entry-option',
+    );
   });
 
   it.each([

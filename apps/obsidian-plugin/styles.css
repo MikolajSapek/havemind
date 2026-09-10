@@ -1527,7 +1527,11 @@
   gap: 8px;
   margin: var(--havemind-gap) 0;
 }
-.havemind-entry-option {
+/* Both selectors, because a single class loses to Obsidian's own `button`
+   rule on some properties and this card must win all of them. Every other
+   button in this sheet is written the same way. */
+.havemind-entry-option,
+.havemind-view button.havemind-entry-option {
   display: block;
   width: 100%;
   text-align: left;
