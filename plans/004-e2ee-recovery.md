@@ -1,6 +1,8 @@
 # Havemind, vault content E2EE encryption and recovery path
 
-- Status: **Plan draft (pending approval)**
+- Status: **Not built, and not scheduled.** The README says plainly that there is
+  no end-to-end encryption. This is the design study for adding it, kept because
+  the recovery problem it works through is the hard part.
 - Date: 2026-07-24
 - Implements the gate: `specs/003-open-source-release.md` → **Stage 3, general beta** (`0.5.x`)
 - Fulfils the hard public-access requirement from: `specs/002-public-access.md`

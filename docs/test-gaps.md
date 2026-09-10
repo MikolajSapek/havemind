@@ -1,6 +1,7 @@
 # Test coverage, what is verified, and what only looks verified
 
 Audit date: 2026-08-23, after the pane redesign (plans/007 Phases A–F).
+Items 2 and 3 were fixed on 2026-09-10; the rest still stand.
 
 Headline: the test suite is strong, 1760 unit tests, 28 two-device e2e, and
 every server module carries tests. The gaps below are not missing tests so much
@@ -45,32 +46,13 @@ The debt itself is unchanged and still real: `sync-loop.ts` (3.2%),
 outside the pilot. Excluding them makes that visible as a decision instead of
 silently eroding a threshold meant to protect everything else.
 
-## 2. CI never runs the coverage gate
+## 2 and 3, both closed
 
-`.github/workflows/ci.yml` runs build, typecheck, lint and test. It does not run
-`test:coverage`.
-
-The phase Definition of Done in `plan/11-BACKLOG.md` requires "80%+ coverage
-threshold maintained", and every phase report cites a coverage number, but the
-number is produced by hand, on demand, and nothing enforces it between reports.
-
-**Fix:** add a coverage step to CI. Note it currently fails (see 3), so fix that
-first or the step lands red.
-
-## 3. `npm run test:coverage` is red right now
-
-```
-FAIL packages/crypto/src/vault-crypto.test.ts
-  > round-trips a >1 MB payload (size/perf sanity)
-  Test timed out in 10000ms
-```
-
-Not a code defect: the same suite passes in 4.07s without instrumentation. V8
-coverage instrumentation over libsodium's WASM is simply slow enough to blow the
-10s default on a 1.5 MB payload.
-
-**Fix:** give that one test an explicit timeout rather than raising the global
-one, the global default is a useful smoke alarm for accidental hangs.
+CI runs `npm run test:coverage` as its own job (`.github/workflows/ci.yml:50`),
+so the 80% figure in the phase Definition of Done is enforced rather than
+recited. The suite passes: the libsodium round-trip that used to time out under
+V8 instrumentation now carries its own timeout instead of raising the global
+one. Verified 2026-09-10, exit 0.
 
 ## 4. Modules whose only exercise is indirect
 

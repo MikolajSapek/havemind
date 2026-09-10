@@ -1,6 +1,7 @@
 # Havemind, follow-up plan: encrypted checkpoints (F9)
 
-- Status: **Follow-up draft (F9-01)**, pending owner approval before implementation.
+- Status: **Shipped.** `apps/server/src/checkpoint.ts`, sealed with
+  `crypto_box_seal`. Kept for the key-management reasoning, not as pending work.
 - Date: 2026-07-24
 - Extends: `plans/001-technical-plan.md` §7 (offline delivery, "Real-vault compaction
   requires an encrypted checkpoint"), §8 (backup/restore), §10 (E2EE); fulfils the gate
