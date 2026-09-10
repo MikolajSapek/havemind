@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img src="design/brand/havemind-hero.gif" alt="A note typed on a MacBook appearing on an iPhone about a second later, the Havemind pane visible on both" width="100%">
+  <img src="design/brand/havemind-hero.gif" alt="A note typed on a MacBook appearing on an iPhone seconds later, the Havemind pane visible on both" width="100%">
 </p>
 
 # Havemind
@@ -19,9 +19,10 @@ Use it with people first. If you choose to use Claude, MCP, or another local
 agent in that vault, Havemind keeps those changes in the same history too.
 
 **Version 1.4.7, desktop and mobile.** Runs on macOS, Windows and Linux, and on
-iOS and Android through the Obsidian mobile app. A seven-day, two-device pilot
-completed without data loss. Havemind does not provide end-to-end encryption:
-the self-hosted server stores synced content in plaintext. Read the
+iOS and Android through the Obsidian mobile app. A two-week, two-device pilot
+ran without data loss, including through three real incidents. Havemind does
+not provide end-to-end encryption: the self-hosted server stores synced content
+in plaintext. Read the
 [security model](#security-model) before connecting a vault you care about.
 
 **Self-hosting your own instance?** See
@@ -97,11 +98,14 @@ The long version, including backups and multiple vaults, is in
 - **Desktop and mobile, the same vault.** Havemind runs on macOS, Windows and
   Linux, and on iOS and Android through the Obsidian mobile app. The pane docks
   into the sidebar on a desktop and fills the screen on a phone, with touch
-  targets and safe areas sized for it. Edit a note on your phone and it is on
-  your laptop about a second later.
-- **Real-time two-way sync (~1 second).** A long-poll wake channel pushes a
-  peer's change to your device in roughly a second, with a periodic poll as a
-  fallback. You do not need to manually refresh.
+  targets and safe areas sized for it. Edit a note on your phone and it lands on
+  your laptop a couple of seconds later.
+- **Real-time two-way sync.** A long-poll wake channel delivers a peer's change
+  to your device in roughly a second once it is sent, with a periodic poll as a
+  fallback. An edit to a note waits 1.5 s to settle before it is sent, so a
+  formatter plugin rewriting the file on save cannot start an edit war between
+  two devices; creates, renames and deletes go out immediately. You never need
+  to refresh by hand.
 - **Notes and attachments.** Markdown notes sync with line-level history; images
   (PNG/JPG/GIF/WebP/SVG) and PDFs up to 25 MB sync byte-for-byte.
 - **Appearance settings, from an explicit allowlist.** Theme stylesheets
