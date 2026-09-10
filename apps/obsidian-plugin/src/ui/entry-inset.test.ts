@@ -115,3 +115,25 @@ describe('first-run screens keep the pane inset', () => {
     expect(covered).toBe(true);
   });
 });
+
+describe('the entry cards grow with their text', () => {
+  // Each card is a <button> holding two lines, a title and the cost below it.
+  // Obsidian's theme gives every button a fixed height and `white-space:
+  // nowrap`, so without these four the second line was clipped behind the next
+  // card and the text ran past the pane's right edge. Screenshotted on the
+  // disconnected screen, 1.4.7.
+  const rule = /\.havemind-entry-option\s*\{([^}]*)\}/.exec(css)?.[1] ?? '';
+
+  it('finds the rule', () => {
+    expect(rule).not.toBe('');
+  });
+
+  it.each([
+    ['height', /height:\s*auto/],
+    ['min-height', /min-height:\s*0/],
+    ['white-space', /white-space:\s*normal/],
+    ['overflow-wrap', /overflow-wrap:\s*anywhere/],
+  ])('overrides the theme %s', (_name, pattern) => {
+    expect(rule).toMatch(pattern);
+  });
+});
