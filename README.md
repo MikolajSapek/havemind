@@ -36,12 +36,9 @@ requirements and the steps.
 
 Havemind needs two things: the plugin, and a server you run.
 
-**The plugin.** Havemind is awaiting review for the Community catalogue.
-Until it lands there, install it with
-[BRAT](https://github.com/TfTHacker/obsidian42-brat): add
-`MikolajSapek/obsidian-havemind` as a beta plugin, then enable Havemind in
-Settings, then Community plugins. It runs on macOS, Windows, Linux, iOS and
-Android, and needs Obsidian 1.11.4 or newer.
+**The plugin.** In Obsidian, open Settings, then Community plugins, then
+Browse, and search for **Havemind**. Install it and enable it. It runs on
+macOS, Windows, Linux, iOS and Android, and needs Obsidian 1.11.4 or newer.
 
 **The server.** There is no Havemind cloud to sign up for: you host it, or you
 join someone who does. See [Quick start](#quick-start) below.

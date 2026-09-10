@@ -1,17 +1,24 @@
 # Publishing the plugin to the Obsidian community catalogue
 
+**Accepted and live.** Havemind is in the catalogue as `havemind-sync`: 1.4.7
+published 2026-09-05, 21 releases, review of commit `e288704` completed and the
+dependency scan clean. The entry is owned by the author. Users install it from
+Settings, then Community plugins, then Browse. Nothing below is pending; it is
+kept as the record of how the entry was obtained and what a resubmission needs.
+
 Distribution repo: <https://github.com/MikolajSapek/obsidian-havemind> (plugin-only,
 manifest at root). Monorepo `apps/obsidian-plugin/` stays the source of truth.
 
-## Already done (prerequisites)
+## Done at submission time (prerequisites)
 
 - Public distribution repo with `manifest.json`, `main.js`, `styles.css`,
   `versions.json`, `README.md`, `LICENSE` at the root.
 - GitHub Release tagged `0.9.0` with `main.js` + `manifest.json` + `styles.css`
   attached as assets.
-- Users can already install today via BRAT (see the distribution repo README).
+- BRAT installs from the distribution repo, which is how users installed
+  before the catalogue accepted the entry and how beta builds still ship.
 
-## Submit to the official catalogue (done by the owner, in a browser)
+## How the entry was submitted (completed, kept for reference)
 
 Requires an Obsidian account, cannot be automated by the agent.
 
@@ -22,9 +29,9 @@ Requires an Obsidian account, cannot be automated by the agent.
 5. The bot runs an automated review. Fix any issue with a new commit + a new
    release with a bumped version, then reply on the submission.
 
-Expected review queue: weeks to ~2 months.
+Review queue at the time: weeks to ~2 months. Accepted 2026-09-05.
 
-## Pre-submission checks (run before Submit)
+## Checks to re-run before any resubmission
 
 - Command IDs must NOT contain the plugin id `havemind-sync` (Obsidian
   auto-prefixes). Grep the plugin source for `addCommand` / `id:`.
