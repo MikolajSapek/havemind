@@ -55,7 +55,10 @@ Two paths, depending on whether you are the one running the server.
 2. **Configure and start the server.** From a checkout of this repository,
    `cp deploy/.env.example deploy/.env` and set `HAVEMIND_API_BASE_URL` to the
    HTTPS tailnet URL you will use in step 3; it is baked into the server's
-   discovery document, so it has to be right before the first start. Then
+   discovery document, so it has to be right before the first start. Before
+   running Compose, complete the [server preparation](docs/self-hosting.md#the-database-key-secret):
+   create `/srv/secrets/havemind_db_key` and give uid 1000 ownership of the
+   data volume and backup directory. Then run
    `docker compose -f deploy/compose.yaml up -d --build`. You need Docker
    Engine with the Compose v2 plugin.
 3. **Put Tailscale in front of it** with `tailscale serve`, so the other
@@ -100,8 +103,11 @@ The long version, including backups and multiple vaults, is in
   own. When two people change the same lines, both versions survive and a copy
   lands in `Havemind Conflicts/`.
 - **You can see who wrote what.** Every change in the Activity panel carries a
-  name and a colour, and any revision restores in one click. The author comes
-  from the server with the revision, so it is never a guess.
+  name and a colour when the member can be resolved. The author identity comes
+  from the server with the revision; unknown authors keep a neutral label.
+  The Activity feed holds up to 200 entries in memory and resets when the
+  plugin reloads. Its current Restore action only adds an Activity entry; it
+  does not restore file contents. Do not use it for recovery.
 - **Notes, attachments and how the vault looks.** Markdown with line-level
   history, images and PDFs up to 25 MB, plus your theme, snippets, hotkeys and
   graph settings.
@@ -113,8 +119,8 @@ The long version, including backups and multiple vaults, is in
 
 | | |
 |---|---|
-| Sync speed | A peer's change lands in about a second over the long-poll channel. An edit waits 1.5 s to settle first, so a formatter rewriting the file on save cannot start an edit war. Creates, renames and deletes go out immediately. |
-| `.obsidian/` scope | An allowlist, nothing more: `themes/`, `snippets/`, `hotkeys.json`, `graph.json`, `appearance.json`, `app.json`. |
+| Sync speed | A peer's change lands in about a second over the long-poll channel. An edit waits 1.5 s to settle first, reducing bursts from format-on-save tools. Incompatible formatter settings can still cause churn. Creates, renames and deletes go out immediately. |
+| `.obsidian/` scope | An allowlist, nothing more: `themes/`, `snippets/`, `hotkeys.json`, `graph.json`, `appearance.json`, `app.json`, `core-plugins.json`. |
 | Attachments | PNG, JPG, GIF, WebP, SVG, PDF, up to 25 MB, byte for byte. |
 | Crash safety | The outbox survives a crash. A torn state file is kept as a sidecar and flagged, never dropped. |
 | Presence | The owner sees who is connected. A dead session reconnects in one click, no new code. |
@@ -161,24 +167,22 @@ Obsidian plugin (Vault A) ─┐
 Obsidian plugin (Vault B) ─┘   real-time /wait wake     content-addressed blob store
 ```
 
-- **Plugin** (`apps/obsidian-plugin`): vault observer with per-path settling,
-  durable outbox, real-time wake subscription, pull/apply loop with causal
-  fast-forward detection, hash-side content canonicalization (files on disk are
-  never rewritten), conflict artifacts, activity log, presence roster, rejoin
-  controller, fail-closed persisted state.
-- **Server** (`apps/server`): Fastify + better-sqlite3 (WAL), forward-only
-  checksummed migrations, held long-poll wake endpoint, refresh-token rotation
-  with reuse detection, per-device rate limiting, per-vault storage quota,
-  orphaned-blob sweep at startup. Runs as a non-root, read-only, cap-dropped
-  container.
-- **Shared packages** (`packages/protocol`, `packages/sync-core`,
-  `packages/crypto`): wire schemas (Zod), revision DAG and provenance, 3-way
-  merge, payload codec (markdown + binary), canonicalization, and checkpoint
-  sealing with libsodium `crypto_box_seal` (X25519). The server holds only the
-  recipient public key, so it can create an encrypted checkpoint but never open
-  one; the secret key lives off-server in the owner's recovery kit. Live data on
-  the volume stays plaintext, and the symmetric vault-key helpers are present
-  but unused (see the security model below).
+All the thinking happens in the plugin: watching the vault, a durable outbox
+that survives a crash, the pull-and-apply loop, three-way merges, conflict
+copies, the activity log. Files on disk are never rewritten to canonicalise
+them; that happens on the hash side only.
+
+The server is deliberately dumb. Fastify and SQLite in WAL mode, storing blobs
+by content hash and revision headers, holding the long-poll that wakes your
+other devices. It rotates refresh tokens and detects reuse, rate-limits per
+device, enforces a quota per vault, and sweeps orphaned blobs at startup. It
+runs non-root, read-only, with capabilities dropped.
+
+`packages/crypto` seals checkpoints with libsodium `crypto_box_seal` (X25519).
+The server holds only the public half, so it can write an encrypted checkpoint
+and never open one; the secret key lives in the owner's recovery kit, off the
+server. Live data on the volume stays plaintext. The symmetric vault-key
+helpers in that package are unused.
 
 ## Security model
 
@@ -187,7 +191,8 @@ answers only on your private tailnet, never the public internet, and Tailscale
 (WireGuard) encrypts everything in transit with per-device authentication.
 
 Between members of a vault, the line is drawn at code. Appearance settings
-cross: themes, snippets, hotkeys, `graph.json`, `appearance.json`, `app.json`.
+cross: themes, snippets, hotkeys, `graph.json`, `appearance.json`, `app.json`,
+and `core-plugins.json` (the enabled built-in modules).
 `.obsidian/plugins/` never does. Plugin code, plugin state and plugin secrets
 stay on the machine they live on, so one member cannot overwrite another's
 plugin and have Obsidian run it on the next reload.
@@ -202,43 +207,48 @@ current operational caveats.
 
 ## Privacy and permission disclosures
 
-Havemind is a sync plugin, so it needs access to the vault it connects and it
-makes network requests **only after the user explicitly connects that vault to a
-server**. It has no telemetry, analytics, ads, accounts operated by Havemind, or
-hard-coded remote service.
+No telemetry, no analytics, no ads, no accounts we operate, no hard-coded
+server. The plugin makes its first network request only after you connect a
+vault, and none at all while disconnected.
 
-- **Network use.** All requests go only to the HTTPS server URL the owner enters
-  while connecting. They create and approve invitations, authenticate a device,
-  send and receive encrypted-in-transit revisions and blobs, load membership
-  state, and hold a long-poll request for near-real-time updates. The configured
-  server stores synced vault content in plaintext; it is operated by the user,
-  not by Havemind. No request is made while the plugin is disconnected.
-- **Vault file enumeration.** On initial reconciliation and when resolving a
-  conflict, the plugin lists vault paths to detect creates, deletions, renames
-  and conflicts. It reads and syncs only supported vault content plus the
-  explicit `.obsidian/` appearance-settings allowlist described above. It never
-  syncs `.obsidian/plugins/`, plugin data or plugin secrets.
-- **Clipboard.** The plugin only *writes* a one-time invitation when the vault
-  owner presses **Copy invitation**. It never reads the system clipboard and
-  never logs the invitation.
-- **Base64 encoding.** Base64url is a transparent transport format for binary
-  revision envelopes and invitation data. It is not encryption, obfuscation or
-  a way to hide code, URLs or keys.
+- **Network.** Every request goes to the one HTTPS address you typed when
+  connecting. They carry invitations, device authentication, revisions and
+  blobs, membership state, and the held long-poll that makes sync feel
+  immediate. That server is yours, not ours, and it stores your notes in
+  plaintext.
+- **Reading your vault.** On first reconciliation and when resolving a
+  conflict, the plugin lists vault paths to spot creates, deletes, renames and
+  conflicts. It reads and sends only notes, allowed attachments, and the
+  `.obsidian/` appearance allowlist above.
+- **Clipboard.** Write-only, once, when the owner presses Copy invitation. The
+  plugin never reads your clipboard and never logs the invitation.
+- **Base64.** A transport encoding for binary payloads. Not encryption, not
+  obfuscation, and not a way to hide code or URLs.
 
-This disclosure is intentionally explicit because the Community directory
-requires network use to be described in the README. See the
-[self-hosting guide](docs/self-hosting.md) for the server trust boundary.
+The Community directory asks for network use to be spelled out in the README,
+which is why this section exists.
 
 ## Documents
 
-- [MVP specification](specs/001-mvp.md)
-- [Zero-configuration connection amendment](specs/002-public-access.md)
-- [Open-source readiness amendment](specs/003-open-source-release.md)
-- [Approved technical implementation plan](plans/001-technical-plan.md)
-- [Historical private-pilot task matrix](plans/002-pilot-tasks.md)
-- [Current limitations and operational notes](docs/pilot/known-limitations.md)
-- [Closed beta programme](docs/beta/README.md)
-- [Existing-solutions research](docs/research.md)
+**If you are running it**
+
+- [Self-hosting guide](docs/self-hosting.md), zero to working server
+- [Current limitations](docs/pilot/known-limitations.md), the caveats that bite
+- [Using it with AI agents](docs/using-with-ai-agents.md)
+
+**If you are working on it**
+
+- [Technical plan](plans/001-technical-plan.md), the architecture and the
+  engineering contract
+- [Contributing](CONTRIBUTING.md) and [decisions](DECISIONS.md)
+
+**How it got here** (dated, historical, kept for provenance)
+
+- [MVP spec](specs/001-mvp.md) and its two amendments,
+  [zero-configuration connection](specs/002-public-access.md) and
+  [open-source readiness](specs/003-open-source-release.md)
+- [Pilot task matrix](plans/002-pilot-tasks.md), all 33 closed
+- [Existing-solutions research](docs/research.md), why this was built at all
 
 ## Local verification
 
@@ -246,14 +256,16 @@ Requires Node.js 22 and npm 10.
 
 ```bash
 npm ci
-npm run verify      # what CI enforces: workspace and release checks,
-                    # lint, typecheck, tests, build
-npm run test:e2e    # two-device fault matrix, not part of verify
+npm run verify      # workspace/release checks, lint, typecheck, all tests, build
+npm run test:e2e     # run only the two-device tests (also included in verify)
+npm run test:coverage # coverage thresholds, checked separately in CI
 ```
 
-`npm run verify` is the single gate to run before a release. The individual
-steps (`npm run build`, `npm run typecheck`, `npm run lint`, `npm test`) are
-still there when you want to run just one.
+`npm run verify` is the baseline local check before a release. CI also checks
+coverage, design tokens, the generated plugin class list, release artifacts
+and private-infrastructure markers; a passing local verify does not replace
+a passing CI run. The individual steps (`npm run build`, `npm run typecheck`,
+`npm run lint`, `npm test`) are still there when you want to run just one.
 
 Do not point a development build at an existing important vault. Use a dedicated
 test vault for development and automated testing.

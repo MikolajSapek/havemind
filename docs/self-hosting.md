@@ -74,6 +74,21 @@ revealing it.
 This key seals checkpoint snapshots. It does **not** encrypt the live database,
 which stays plaintext on the volume.
 
+Before starting the container, prepare its writable storage. The shipped
+Compose service runs as uid 1000 and cannot repair ownership itself:
+
+```bash
+docker volume create havemind_havemind-data
+docker run --rm -v havemind_havemind-data:/data alpine chown -R 1000:1000 /data
+mkdir -p deploy/backups
+chmod 700 deploy/backups
+docker run --rm -v "$PWD/deploy/backups:/backups" alpine chown -R 1000:1000 /backups
+```
+
+The backup bind mount is relative to `deploy/compose.yaml`. Without this
+preparation Docker can create it as root-owned and scheduled backups fail with
+permission errors. Run these commands from the repository root.
+
 Build and start the container:
 
 ```bash

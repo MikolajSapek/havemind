@@ -7,17 +7,28 @@ and the [closed beta guide](../beta/README.md).
 
 ## Auto-formatters on two machines (AUD-03)
 
-**Fixed (commit `37e609d`).** Content is now canonicalised before
-hashing, with a 1.5-second "settling" window and a one-off rebase of
-base hashes on plugin update. Differences in auto-formatter settings
-(e.g. Linter with "format on save", Prettier-for-Obsidian) between machines,
-line width, quote style, trailing newline, no longer generate churn or
-entries in `Havemind Conflicts/`. Binary attachments are excluded from the rebase:
-their base hash is computed over raw bytes, not text, so
-text canonicalisation does not affect them.
+**Partially addressed (commit `37e609d`).** Content is canonicalised before
+hashing, with a 1.5-second settling window and a one-off rebase of base hashes
+on plugin update. Canonicalisation removes a leading BOM, normalises CRLF and
+CR to LF, and collapses trailing blank lines. It does not normalise line width,
+quote style, list markers or intra-line spacing. Formatters that disagree on
+those values can still produce repeated revisions or conflicts.
 
-**Recommendation:** none, the full fix is already in the pilot and requires no manual
-synchronisation of formatter settings.
+Binary attachments are excluded from the rebase: their base hash is computed
+over raw bytes, not text.
+
+**Recommendation:** use compatible formatter settings on all devices. The
+settling window reduces bursts of writes; it does not reconcile incompatible
+formatting rules.
+
+## Activity history and Restore
+
+The Activity feed is an in-memory list of up to 200 entries, not a browser of
+the server's complete revision history. It resets when the plugin reloads.
+The current Restore action appends an Activity entry using placeholder content;
+it neither writes historical bytes to the vault nor queues a restored revision
+for sync. Do not use this action for recovery. Use the documented server backup
+and restore procedure when recovering a vault.
 
 ## Dot-paths and the reserved folder (AUD-07)
 
