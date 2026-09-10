@@ -5,6 +5,78 @@ All notable changes to this project are documented here. The format is based on
 follows independent [Semantic Versioning](https://semver.org) for the plugin
 and the server.
 
+## [1.4.7], 2026-09-05
+
+### Fixed
+
+- A request could hang indefinitely. Every outgoing call is now bounded by a
+  timeout, so a stalled network leaves the pane responsive instead of pinned on
+  a spinner that never resolves.
+
+## [1.4.6], 2026-09-05
+
+### Fixed
+
+- A tap could leave the pane looking unchanged until the next repaint. Every
+  tap path now repaints immediately.
+
+## [1.4.5], 2026-09-04
+
+### Performance
+
+- Only the activity rows that will actually be drawn are formatted, so a long
+  history no longer costs work nobody sees.
+
+## [1.4.4], 2026-09-04
+
+### Performance
+
+- The rendered activity list is capped, bounding the work a busy vault can put
+  on a phone.
+
+## [1.4.3], 2026-09-04
+
+### Performance
+
+- Base64 encoding runs in chunks rather than byte by byte, which is what made
+  attachment sync slow on mobile.
+
+## [1.4.2], 2026-09-04
+
+### Performance
+
+- The conflict scan is cached between vault changes, and repaints are coalesced
+  while taps stay immediate.
+
+## [1.4.1], 2026-09-04
+
+### Fixed
+
+- The scroll rule no longer depends on `:has()`, which older mobile webviews do
+  not support; it uses a class instead.
+
+## [1.4.0], 2026-09-04, Mobile support
+
+### Added
+
+- Mobile support: the pane fills the screen on a phone, with touch targets and
+  safe areas sized for it (`isDesktopOnly: false`).
+
+### Fixed
+
+- Migration comments restored and applied checksums frozen on the server.
+
+### Internal
+
+- The plugin UI reached its 250-line-per-module ceiling, closing UI-03.
+
+## [1.3.0], 2026-09-03
+
+### Added
+
+- The push channel resumes when the app returns to the foreground, so a phone
+  that was backgrounded picks changes straight back up.
+
 ## [1.2.3], 2026-08-31
 
 ### Fixed

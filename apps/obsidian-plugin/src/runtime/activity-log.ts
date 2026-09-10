@@ -11,12 +11,12 @@
  * Author attribution is honest (`plan/01` rule 3, never guess):
  *  - a locally authored change carries the local member's id, resolved to a name
  *    and colour via the roster;
- *  - a remote applied revision does NOT carry an author id in the pull stream
- *    (the decoded payload has no author field), so it is recorded as `remote`.
- *    When the roster has exactly one other member (the two-person pilot) it is
- *    attributed to them; otherwise it stays a neutral "Remote" label. Precise
- *    N-member remote attribution needs the author id surfaced in the pull
- *    payload, a FUTURE server change, deliberately out of scope here.
+ *  - a remote applied revision carries the authoring membership, relayed from
+ *    the pull receipt (`memberId`) through `RemoteAppliedEvent`, so it is named
+ *    and coloured exactly like a local change. A revision that carries no
+ *    author, a legacy one, is recorded as `remote` and rendered as a plain
+ *    remote change. It is never attributed by inference, not even when the
+ *    roster holds exactly one other member.
  *
  * Pure except for the in-memory buffer + listeners; no Obsidian/DOM/network.
  */
@@ -97,22 +97,6 @@ export class ActivityLog {
       this.listeners.delete(listener);
     };
   }
-}
-
-/**
- * Resolves the sole non-self roster member, or null when that is ambiguous
- * (nobody else, or more than one other member, the N-member case).
- *
- * Correct only for the two-person pilot: with exactly one other roster member
- * "the sole other member" and "the true author of this remote revision" are
- * the same person by construction. This stops being sound the moment a third
- * member joins, see the module docstring above for the N-member follow-up.
- */
-function soleOtherMember(
-  roster: readonly RosterMember[],
-): RosterMember | null {
-  const others = roster.filter((member) => !member.self);
-  return others.length === 1 ? (others[0] as RosterMember) : null;
 }
 
 /** The decoded operation kinds a remote revision payload can carry. */
@@ -226,7 +210,7 @@ export function activityEntriesToRecords(
   );
 
   return entries.map((entry): RevisionRecord => {
-    const author = resolveAuthor(entry.author, byMembership, roster);
+    const author = resolveAuthor(entry.author, byMembership);
     return {
       revisionId: entry.revisionId,
       // A non-empty placeholder: the feed never tracks a real vaultId today,
@@ -254,7 +238,6 @@ export function activityEntriesToRecords(
 function resolveAuthor(
   author: ActivityAuthor,
   byMembership: ReadonlyMap<string, RosterMember>,
-  roster: readonly RosterMember[],
 ): RevisionRecord['actor'] {
   if (author.kind === 'initial-import') {
     return { kind: 'initial-import' };
@@ -268,16 +251,11 @@ function resolveAuthor(
     };
   }
   // Remote revision whose payload carried no author id: an older revision, or
-  // a server that predates the author field. Attribute it to the sole other
-  // member when that is unambiguous, otherwise stay neutral rather than guess
-  // among several people. Colour keyed by a membershipId or a stable remote id.
-  const other = soleOtherMember(roster);
-  if (other !== null) {
-    return {
-      kind: 'author',
-      actorId: other.membershipId,
-      displayName: other.displayName,
-    };
-  }
+  // a server that predates the author field. The pull payload now names the
+  // author for everything committed since, so an entry that reaches here is
+  // genuinely unattributable and stays neutral. Naming "the sole other member"
+  // used to fill this gap; it was a guess that read as fact, right only while
+  // the vault had exactly two people, and it is gone. Colour keyed by a stable
+  // remote id so every unattributed change shares one swatch.
   return { kind: 'author', actorId: REMOTE_COLOR_ID, displayName: 'Remote' };
 }

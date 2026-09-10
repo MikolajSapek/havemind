@@ -19,6 +19,8 @@ import {
 } from '../create-invitation';
 import { ObsidianOnboardingSecrets } from '../onboarding-secrets';
 import { listPendingApprovals, type PendingApproval } from '../list-pending-approvals';
+import { fetchMemberRoster } from '../member-roster';
+import type { RosterMember } from '../roster';
 import { requestRejoinGrant, type RejoinGrantWaiting } from '../rejoin';
 import { revokeMembership, type MembershipRemoved } from '../remove-member';
 import { ensureClientInstanceId } from '../../storage/client-store';
@@ -250,5 +252,40 @@ export async function revokeMembershipForOwner(
     requestUrl: createRequestUrlFn(),
     getAccessToken: () => accessProvider.getAccessToken(),
     membershipId: options.membershipId,
+  });
+}
+
+/**
+ * Reads the vault's server-authoritative roster (`GET /members`), the single
+ * list every member of the vault sees. Returns `null` when this device is not
+ * connected to a vault, so the caller keeps the roster it already has rather
+ * than rendering an empty People pane. Unlike the four owner actions above this
+ * is readable by ANY active member (same access rule as `/bootstrap`), and it
+ * authenticates with the stored refresh token rather than a minted access
+ * token, which is what the route expects.
+ */
+export async function fetchMemberRosterForVault(
+  plugin: Plugin,
+  options: { selfMembershipId: string | null },
+): Promise<RosterMember[] | null> {
+  const connected = await resolveConnectedVault(plugin);
+  if (connected === null) {
+    return null;
+  }
+
+  const clientInstanceId = await ensureClientInstanceId(
+    createClientInstanceRepo(plugin),
+  );
+  const secrets = new ObsidianOnboardingSecrets({
+    clientInstanceId,
+    secretStorage: plugin.app.secretStorage,
+  });
+
+  return fetchMemberRoster({
+    apiBaseUrl: connected.apiBaseUrl,
+    getRefreshToken: () => secrets.getRefreshToken(),
+    requestUrl: createRequestUrlFn(),
+    selfMembershipId: options.selfMembershipId,
+    vaultId: connected.vaultId,
   });
 }

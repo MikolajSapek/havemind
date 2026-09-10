@@ -777,7 +777,11 @@ export class HarnessClient {
       epoch?: string;
       events: Array<{
         fileId: string;
-        receipt: { blobHash: string; parentRevisionIds?: string[] };
+        receipt: {
+          blobHash: string;
+          memberId?: string;
+          parentRevisionIds?: string[];
+        };
         revisionId: string;
         serverSequence: number;
       }>;
@@ -795,6 +799,12 @@ export class HarnessClient {
         ...(event.receipt.parentRevisionIds === undefined
           ? {}
           : { parentRevisionIds: event.receipt.parentRevisionIds }),
+        // Carry the authoring membership the server stamps on every receipt,
+        // exactly as the production transport does, so the Activity feed and
+        // the author overlay name the real peer instead of "Remote" (P4).
+        ...(event.receipt.memberId === undefined
+          ? {}
+          : { authorMembershipId: event.receipt.memberId }),
       },
       serverSequence: event.serverSequence,
     }));
@@ -862,6 +872,13 @@ export class HarnessClient {
       operation: decoded.operation,
       path: decoded.path,
       revisionId: event.revision.revisionId,
+      // The authoring membership the SERVER stamped on the receipt and the real
+      // transport relayed, never a test literal. Mirrors what the production
+      // apply adapter passes on, so the overlay/Activity chain below is
+      // exercised against a genuine author id (P4).
+      ...(event.revision.authorMembershipId === undefined
+        ? {}
+        : { authorMembershipId: event.revision.authorMembershipId }),
     });
   }
 

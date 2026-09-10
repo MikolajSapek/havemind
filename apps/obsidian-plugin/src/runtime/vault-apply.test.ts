@@ -743,6 +743,156 @@ describe('VaultApplyAdapter', () => {
     });
   });
 
+  describe('delete divergence guard (rule 3, P1)', () => {
+    function tombstone(path: string): DecodedRevisionPayload {
+      return { operation: 'delete', path, previousPath: null, content: null };
+    }
+
+    it('routes to a conflict and never deletes when on-disk diverged from base', async () => {
+      // The peer deleted the file; this device edited it while closed. Deleting
+      // it would silently lose that unsent local edit -> conflict artifact.
+      const { adapter, files } = build(() => tombstone('Notes/a.md'));
+      files.owners.set('Notes/a.md', 'file-1');
+      files.onDisk.set('Notes/a.md', 'LOCAL-EDIT\n');
+      files.baseHashes.set('file-1', await fakeHash('BASE\n'));
+
+      const outcome = await adapter.applyRemote(event('rev-d', 'file-1'));
+
+      expect(outcome).toBe('conflict');
+      expect(files.deletes).toEqual([]);
+      expect(files.onDisk.get('Notes/a.md')).toBe('LOCAL-EDIT\n');
+      expect(files.conflicts).toEqual([
+        {
+          path: 'Havemind Conflicts/a (conflict Windows 2026-07-22 2156).md',
+          content: '',
+        },
+      ]);
+      // The owned path and its base survive, the file was not retired.
+      expect(files.owners.get('Notes/a.md')).toBe('file-1');
+      expect(files.baseHashes.get('file-1')).toBe(await fakeHash('BASE\n'));
+    });
+
+    it('routes to a conflict when on-disk has content but no recorded base', async () => {
+      const { adapter, files } = build(() => tombstone('Notes/a.md'));
+      files.owners.set('Notes/a.md', 'file-1');
+      files.onDisk.set('Notes/a.md', 'UNPROVEN\n');
+      // No base recorded -> cannot prove the file is clean -> conflict.
+
+      const outcome = await adapter.applyRemote(event('rev-d', 'file-1'));
+
+      expect(outcome).toBe('conflict');
+      expect(files.deletes).toEqual([]);
+      expect(files.onDisk.get('Notes/a.md')).toBe('UNPROVEN\n');
+    });
+
+    it('still deletes an unmodified file whose on-disk matches the base', async () => {
+      const { adapter, files } = build(() => tombstone('Notes/a.md'));
+      files.owners.set('Notes/a.md', 'file-1');
+      files.onDisk.set('Notes/a.md', 'BASE\n');
+      files.baseHashes.set('file-1', await fakeHash('BASE\n'));
+
+      const outcome = await adapter.applyRemote(event('rev-d', 'file-1'));
+
+      expect(outcome).toBe('applied');
+      expect(files.deletes).toEqual(['Notes/a.md']);
+      expect(files.conflicts).toEqual([]);
+    });
+
+    it('still deletes an allowlisted settings file that diverged (last writer wins)', async () => {
+      const { adapter, files } = build(() => tombstone('.obsidian/appearance.json'));
+      files.owners.set('.obsidian/appearance.json', 'file-1');
+      files.onDisk.set('.obsidian/appearance.json', '{"local":true}\n');
+      files.baseHashes.set('file-1', await fakeHash('{}\n'));
+
+      const outcome = await adapter.applyRemote(event('rev-d', 'file-1'));
+
+      expect(outcome).toBe('applied');
+      expect(files.deletes).toEqual(['.obsidian/appearance.json']);
+      expect(files.conflicts).toEqual([]);
+    });
+  });
+
+  describe('rename destination collision guard (rule 3, P2)', () => {
+    function rename(
+      previousPath: string,
+      path: string,
+      text: string,
+    ): DecodedRevisionPayload {
+      return { operation: 'rename', path, previousPath, content: text };
+    }
+
+    it('leaves the source in place when the destination is owned by another file', async () => {
+      // The destination is held by a DIFFERENT fileId with different content, so
+      // the apply correctly conflicts. The source must survive: deleting it
+      // first would leave the user's original file gone from where they left it.
+      const { adapter, files } = build(() =>
+        rename('Notes/a.md', 'Notes/b.md', 'RENAMED\n'),
+      );
+      files.owners.set('Notes/a.md', 'file-1');
+      files.onDisk.set('Notes/a.md', 'BASE\n');
+      files.baseHashes.set('file-1', await fakeHash('BASE\n'));
+      // Destination occupied by an unrelated file with unrelated content.
+      files.owners.set('Notes/b.md', 'other-file');
+      files.onDisk.set('Notes/b.md', 'OCCUPANT\n');
+
+      const outcome = await adapter.applyRemote(event('rev-r', 'file-1'));
+
+      expect(outcome).toBe('conflict');
+      // The source is untouched, on disk and in the owner map.
+      expect(files.deletes).toEqual([]);
+      expect(files.onDisk.get('Notes/a.md')).toBe('BASE\n');
+      expect(files.owners.get('Notes/a.md')).toBe('file-1');
+      // The occupant is untouched and both sides survive via the conflict copy.
+      expect(files.writes).toEqual([]);
+      expect(files.onDisk.get('Notes/b.md')).toBe('OCCUPANT\n');
+      expect(files.conflicts).toEqual([
+        {
+          path: 'Havemind Conflicts/b (conflict Windows 2026-07-22 2156).md',
+          content: 'RENAMED\n',
+        },
+      ]);
+    });
+
+    it('still adopts (F3) when the occupied destination already holds the incoming content', async () => {
+      // Destination owned by another fileId but byte-identical to the incoming
+      // revision: this converges in place, so the source rename must still run.
+      const { adapter, files } = build(() =>
+        rename('Notes/a.md', 'Notes/b.md', 'SAME\n'),
+      );
+      files.owners.set('Notes/a.md', 'file-1');
+      files.onDisk.set('Notes/a.md', 'BASE\n');
+      files.baseHashes.set('file-1', await fakeHash('BASE\n'));
+      files.owners.set('Notes/b.md', 'other-file');
+      files.onDisk.set('Notes/b.md', 'SAME\n');
+
+      const outcome = await adapter.applyRemote(event('rev-r', 'file-1'));
+
+      expect(outcome).toBe('noop');
+      // No artifact: the two sides already agree on the destination content.
+      expect(files.conflicts).toEqual([]);
+      expect(files.writes).toEqual([]);
+      // The vacated source is still moved away and the destination adopted.
+      expect(files.deletes).toEqual(['Notes/a.md']);
+      expect(files.owners.get('Notes/b.md')).toBe('file-1');
+    });
+
+    it('still moves the file when the destination is free', async () => {
+      const { adapter, files } = build(() =>
+        rename('Notes/a.md', 'Notes/b.md', 'RENAMED\n'),
+      );
+      files.owners.set('Notes/a.md', 'file-1');
+      files.onDisk.set('Notes/a.md', 'BASE\n');
+      files.baseHashes.set('file-1', await fakeHash('BASE\n'));
+
+      const outcome = await adapter.applyRemote(event('rev-r', 'file-1'));
+
+      expect(outcome).toBe('applied');
+      expect(files.deletes).toEqual(['Notes/a.md']);
+      expect(files.writes).toEqual([{ path: 'Notes/b.md', content: 'RENAMED\n' }]);
+      expect(files.conflicts).toEqual([]);
+    });
+  });
+
   describe('producer-sync lockstep (re-entrancy guard, FIX 2)', () => {
     function withSync(
       decoded: (event: RemoteEvent) => DecodedRevisionPayload,
@@ -1709,5 +1859,128 @@ describe('VaultApplyAdapter, config divergence is last-writer-wins', () => {
     expect(files.binaryOnDisk.get('Attachments/photo.png')).toEqual(
       new Uint8Array([1]),
     );
+  });
+});
+
+describe('author attribution reaches every applied branch (P4)', () => {
+  /** A remote event whose receipt named the authoring membership. */
+  function authored(
+    revisionId: string,
+    fileId: string,
+    authorMembershipId: string,
+  ): RemoteEvent {
+    return {
+      serverSequence: 3,
+      revision: {
+        revisionId,
+        fileId,
+        contentHash: 'hash-1',
+        authorMembershipId,
+      },
+    };
+  }
+
+  /** Collects every onRemoteApplied event an adapter over `files` reports. */
+  function collector(
+    files: FakeFiles,
+    resolveRevision: () => DecodedRevisionPayload,
+  ): { adapter: VaultApplyAdapter; applied: RemoteAppliedEvent[] } {
+    const applied: RemoteAppliedEvent[] = [];
+    const adapter = new VaultApplyAdapter({
+      files,
+      conflictFolder: 'Havemind Conflicts',
+      resolveRevision: async () => resolveRevision(),
+      hashContent: fakeHash,
+      onRemoteApplied: (remoteEvent) => applied.push(remoteEvent),
+    });
+    return { adapter, applied };
+  }
+
+  it('carries the author through the markdown write branch', async () => {
+    const files = new FakeFiles();
+    const { adapter, applied } = collector(files, () =>
+      content('Notes/a.md', 'REMOTE\n'),
+    );
+
+    expect(await adapter.applyRemote(authored('rev-1', 'file-1', 'm-magda'))).toBe(
+      'applied',
+    );
+    expect(applied[0]?.authorMembershipId).toBe('m-magda');
+  });
+
+  it('carries the author through the delete branch', async () => {
+    const files = new FakeFiles();
+    files.owners.set('Notes/a.md', 'file-1');
+    const { adapter, applied } = collector(files, () => ({
+      operation: 'delete',
+      path: 'Notes/a.md',
+      previousPath: null,
+      content: null,
+    }));
+
+    expect(await adapter.applyRemote(authored('rev-2', 'file-1', 'm-magda'))).toBe(
+      'applied',
+    );
+    expect(applied[0]?.authorMembershipId).toBe('m-magda');
+  });
+
+  it('carries the author through the rename branch', async () => {
+    const files = new FakeFiles();
+    files.owners.set('Notes/a.md', 'file-1');
+    files.onDisk.set('Notes/a.md', 'BASE\n');
+    files.baseHashes.set('file-1', await fakeHash('BASE\n'));
+    const { adapter, applied } = collector(files, () => ({
+      operation: 'rename',
+      path: 'Notes/b.md',
+      previousPath: 'Notes/a.md',
+      content: 'RENAMED\n',
+    }));
+
+    expect(await adapter.applyRemote(authored('rev-3', 'file-1', 'm-magda'))).toBe(
+      'applied',
+    );
+    expect(applied[0]?.authorMembershipId).toBe('m-magda');
+  });
+
+  it('carries the author through the three-way merge branch', async () => {
+    const files = new FakeFiles();
+    const ancestor = 'A\nB\nC\nD\nE\n';
+    files.owners.set('Notes/a.md', 'file-1');
+    files.baseHashes.set('file-1', await fakeHash(ancestor));
+    files.baseContents.set('file-1', ancestor);
+    files.onDisk.set('Notes/a.md', 'A1\nB\nC\nD\nE\n');
+    const { adapter, applied } = collector(files, () =>
+      content('Notes/a.md', 'A\nB\nC\nD\nE1\n'),
+    );
+
+    expect(await adapter.applyRemote(authored('rev-4', 'file-1', 'm-magda'))).toBe(
+      'applied',
+    );
+    expect(applied[0]?.authorMembershipId).toBe('m-magda');
+  });
+
+  it('carries the author through the binary write branch', async () => {
+    const files = new FakeFiles();
+    const { adapter, applied } = collector(files, () =>
+      binaryContent('Attachments/img.png', new Uint8Array([0, 255, 128])),
+    );
+
+    expect(await adapter.applyRemote(authored('rev-5', 'file-1', 'm-magda'))).toBe(
+      'applied',
+    );
+    expect(applied[0]?.authorMembershipId).toBe('m-magda');
+  });
+
+  it('omits the author entirely when the revision carries none', async () => {
+    // Never an empty string and never a guessed member: the field is simply
+    // absent, which is what makes the feed fall back to a neutral remote entry.
+    const files = new FakeFiles();
+    const { adapter, applied } = collector(files, () =>
+      content('Notes/a.md', 'REMOTE\n'),
+    );
+
+    await adapter.applyRemote(event('rev-6', 'file-1'));
+
+    expect(applied[0]).not.toHaveProperty('authorMembershipId');
   });
 });

@@ -184,6 +184,20 @@ export class RosterStore {
   }
 
   /**
+   * Replaces the whole roster with the server-authoritative list and persists
+   * it. Unlike `recordMember` this DROPS members the server no longer lists, so
+   * a member removed on another device disappears here too. Only the roster key
+   * is rewritten; every other plugin-data key is preserved.
+   */
+  async replaceMembers(members: readonly RosterMember[]): Promise<RosterMember[]> {
+    const data = await this.persist.load();
+    const base = isRecord(data) ? data : {};
+    const next = [...members];
+    await this.persist.save({ ...base, [ROSTER_KEY]: next });
+    return next;
+  }
+
+  /**
    * Removes a member (idempotent by membershipId) and persists the roster.
    * Used when the owner permanently removes a member from the vault; the server
    * revocation is append-only, and here the owner's local presence list simply

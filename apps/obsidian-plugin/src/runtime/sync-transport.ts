@@ -306,6 +306,12 @@ function parsePullResponse(response: RequestUrlResponseLike): PullResult {
       rawParents.every((parent) => typeof parent === 'string')
         ? (rawParents as string[])
         : undefined;
+    // The authoring membership the server stamps on every receipt. Relayed so
+    // Activity can name the peer; a non-string (absent, or a legacy receipt)
+    // stays absent so the feed falls back to a neutral remote entry instead of
+    // attributing the change to nobody or to a guess.
+    const authorMembershipId =
+      typeof raw.receipt.memberId === 'string' ? raw.receipt.memberId : undefined;
     return {
       serverSequence: raw.serverSequence as number,
       revision: {
@@ -313,6 +319,7 @@ function parsePullResponse(response: RequestUrlResponseLike): PullResult {
         fileId: raw.fileId,
         contentHash: raw.receipt.blobHash,
         ...(parentRevisionIds === undefined ? {} : { parentRevisionIds }),
+        ...(authorMembershipId === undefined ? {} : { authorMembershipId }),
       },
     };
   });

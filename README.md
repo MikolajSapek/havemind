@@ -36,9 +36,12 @@ requirements and the steps.
 
 Havemind needs two things: the plugin, and a server you run.
 
-**The plugin.** In Obsidian, open Settings, then Community plugins, then
-Browse, and search for **Havemind**. Install it and enable it. It runs on
-macOS, Windows, Linux, iOS and Android.
+**The plugin.** Havemind is awaiting review for the Community catalogue.
+Until it lands there, install it with
+[BRAT](https://github.com/TfTHacker/obsidian42-brat): add
+`MikolajSapek/obsidian-havemind` as a beta plugin, then enable Havemind in
+Settings, then Community plugins. It runs on macOS, Windows, Linux, iOS and
+Android, and needs Obsidian 1.11.4 or newer.
 
 **The server.** There is no Havemind cloud to sign up for: you host it, or you
 join someone who does. See [Quick start](#quick-start) below.
@@ -52,18 +55,30 @@ Two paths, depending on whether you are the one running the server.
 1. **Install Tailscale** on the machine that will run the server, and log in.
    Everyone who syncs joins the same tailnet; that is the whole access
    boundary, and nothing is exposed to the public internet.
-2. **Start the server.** On that machine, from a checkout of this repository:
-   `docker compose up -d`. You need Docker Engine with the Compose v2 plugin.
+2. **Configure and start the server.** From a checkout of this repository,
+   `cp deploy/.env.example deploy/.env` and set `HAVEMIND_API_BASE_URL` to the
+   HTTPS tailnet URL you will use in step 3; it is baked into the server's
+   discovery document, so it has to be right before the first start. Then
+   `docker compose -f deploy/compose.yaml up -d --build`. You need Docker
+   Engine with the Compose v2 plugin.
 3. **Put Tailscale in front of it** with `tailscale serve`, so the other
    devices on your tailnet can reach it. Full commands are in the
    [self-hosting guide](docs/self-hosting.md).
-4. **Connect the plugin.** Open the Havemind pane in Obsidian, go to the
+4. **Create your account.** Run `setup` inside the container, once:
+
+   ```bash
+   docker compose -f deploy/compose.yaml exec havemind-server \
+     node apps/server/bin/havemind.js setup --owner "Your Name" --vault "My Vault"
+   ```
+
+   It prints a single-use pairing token (`hm_pt_...`).
+5. **Connect the plugin.** Open the Havemind pane in Obsidian, go to the
    Connect tab, and enter your server's tailnet address
-   (`something.tailnet-name.ts.net`). The Status tab turns green when it is
-   working.
-5. **Invite the other person.** People tab, then Invite someone. Send them the
+   (`something.tailnet-name.ts.net`) together with that pairing token. The
+   Status tab turns green when it is working.
+6. **Invite the other person.** People tab, then Invite someone. Send them the
    invitation; it works once.
-6. **Approve their device.** They read a 6-digit code aloud to you, you type
+7. **Approve their device.** They read a 6-digit code aloud to you, you type
    it in. Three attempts. That handshake is what binds their identity, so do
    it by voice, never by message.
 
@@ -103,14 +118,40 @@ The long version, including backups and multiple vaults, is in
 - **Fail-closed durability.** The local queue survives crashes and corrupt
   writes: a torn state file is preserved to a sidecar and flagged for recovery
   rather than silently dropping unsent changes.
-- **Authorship everywhere.** The Activity panel shows who changed what, with a
-  stable colour per author and one-click restore of any previous revision.
+- **Authorship everywhere.** The Activity panel names who changed what, with a
+  stable colour per author and one-click restore of any previous revision. The
+  author travels with the revision from the server, so it is never guessed: a
+  change from someone the roster does not know reads as a remote edit rather
+  than the wrong name.
 - **Presence roster and rejoin.** The owner sees who is connected; if a device's
   session dies, one click reconnects a known contact, no new code exchange.
 - **Human-verified onboarding.** Joining a vault requires a 6-digit code shown
   only on the joining device and read aloud to the owner, who types it in
   (3 attempts). Identity is bound server-side at approval and never trusted from
   the client afterwards.
+- **Several vaults on one server.** Each vault has its own owner and its own
+  members, fully isolated: two teams can share one box without seeing, waking or
+  writing each other's data.
+- **Encrypted checkpoints and scheduled backups.** The server writes a snapshot
+  on a timer (24 h by default, keeping the last 7). A checkpoint is sealed to a
+  public key, so the machine that creates it cannot read it back; restoring
+  needs the secret key from the owner's recovery kit.
+- **Per-vault storage quota and per-device throttling**, so one runaway client
+  cannot fill the disk or crowd out the others.
+
+## What it looks like
+
+<p align="center">
+  <img src="docs/images/01-status-framed.png" alt="The Status tab on a MacBook, connected and synced" width="100%">
+</p>
+
+<p align="center">
+  <img src="docs/images/03-people-framed.png" alt="The People tab listing the owner and two connected editors" width="100%">
+</p>
+
+<p align="center">
+  <img src="docs/images/04-mobile-framed.png" alt="The Havemind pane filling the screen on an iPhone" width="49%">
+</p>
 
 ## What it deliberately does not do
 
@@ -151,8 +192,12 @@ Obsidian plugin (Vault B) ─┘   real-time /wait wake     content-addressed bl
   container.
 - **Shared packages** (`packages/protocol`, `packages/sync-core`,
   `packages/crypto`): wire schemas (Zod), revision DAG and provenance, 3-way
-  merge, payload codec (markdown + binary), canonicalization, and crypto
-  primitives (present but unused, security is Tailscale-only, see below).
+  merge, payload codec (markdown + binary), canonicalization, and checkpoint
+  sealing with libsodium `crypto_box_seal` (X25519). The server holds only the
+  recipient public key, so it can create an encrypted checkpoint but never open
+  one; the secret key lives off-server in the owner's recovery kit. Live data on
+  the volume stays plaintext, and the symmetric vault-key helpers are present
+  but unused (see the security model below).
 
 ## Security model
 
@@ -224,12 +269,14 @@ Requires Node.js 22 and npm 10.
 
 ```bash
 npm ci
-npm run build
-npm run typecheck
-npm run lint
-npm test            # unit and integration tests
-npm run test:e2e    # two-device fault matrix
+npm run verify      # what CI enforces: workspace and release checks,
+                    # lint, typecheck, tests, build
+npm run test:e2e    # two-device fault matrix, not part of verify
 ```
+
+`npm run verify` is the single gate to run before a release. The individual
+steps (`npm run build`, `npm run typecheck`, `npm run lint`, `npm test`) are
+still there when you want to run just one.
 
 Do not point a development build at an existing important vault. Use a dedicated
 test vault for development and automated testing.

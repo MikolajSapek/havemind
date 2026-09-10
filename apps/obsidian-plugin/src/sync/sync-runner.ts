@@ -25,6 +25,15 @@ export interface RemoteRevision {
    * (a divergent shared file becomes a conflict, never an overwrite).
    */
   readonly parentRevisionIds?: readonly string[];
+  /**
+   * The membership that authored this revision, relayed verbatim from the
+   * server's receipt (`memberId`). Lets the Activity feed name the peer who
+   * made the change instead of labelling every remote revision "Remote edit".
+   * Optional: a revision committed before the transport surfaced the field
+   * decodes without one, and the feed then falls back to the neutral remote
+   * entry rather than guessing (never inferred client-side).
+   */
+  readonly authorMembershipId?: string;
 }
 
 export interface RemoteEvent {

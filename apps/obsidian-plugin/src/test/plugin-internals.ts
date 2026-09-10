@@ -25,6 +25,7 @@ export interface PluginInternals {
   deadMembershipIds: string[];
   handleStatus(status: string, view?: unknown): void;
   loadData(): Promise<unknown>;
+  loadRoster(): Promise<void>;
   pendingApprovals: unknown;
   pollRejoinOnce(): Promise<void>;
   recordRosterMember(member: unknown): Promise<void>;

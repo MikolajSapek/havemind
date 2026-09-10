@@ -278,6 +278,60 @@ describe('RequestUrlTransport', () => {
     expect(result.events[0]?.revision.parentRevisionIds).toEqual(['rev-1']);
   });
 
+  it('surfaces the revision author so Activity can attribute a remote change', async () => {
+    // The server already stamps every receipt with the authoring membership
+    // (`membership_id AS memberId`). Dropping it here is what made every remote
+    // change read "Remote edit" in the Activity feed.
+    const { transport } = build(() => ({
+      status: 200,
+      json: {
+        cursor: 12,
+        events: [
+          {
+            type: 'revision-accepted',
+            revisionId: 'rev-2',
+            fileId: 'file-2',
+            serverSequence: 12,
+            receipt: {
+              blobHash: 'blob-2',
+              serverSequence: 12,
+              memberId: 'm-magda',
+            },
+          },
+        ],
+      },
+    }));
+
+    const result = await transport.pull(5);
+
+    expect(result.events[0]?.revision.authorMembershipId).toBe('m-magda');
+  });
+
+  it('leaves the author absent when the receipt carries none', async () => {
+    // A revision committed before the field existed, or a non-string value.
+    // Never a guess and never an empty string: absent stays absent so the feed
+    // falls back to a neutral remote entry.
+    const { transport } = build(() => ({
+      status: 200,
+      json: {
+        cursor: 12,
+        events: [
+          {
+            type: 'revision-accepted',
+            revisionId: 'rev-2',
+            fileId: 'file-2',
+            serverSequence: 12,
+            receipt: { blobHash: 'blob-2', serverSequence: 12, memberId: 42 },
+          },
+        ],
+      },
+    }));
+
+    const result = await transport.pull(5);
+
+    expect(result.events[0]?.revision).not.toHaveProperty('authorMembershipId');
+  });
+
   it('throws on a malformed pull body', async () => {
     const { transport } = build(() => ({ status: 200, json: { cursor: 'x' } }));
     await expect(transport.pull(0)).rejects.toBeInstanceOf(

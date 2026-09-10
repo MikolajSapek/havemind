@@ -6,11 +6,11 @@
  * The overlay is honest-by-construction and that is precisely what needs an
  * end-to-end check. The claim it makes is per FILE ("this note was last changed
  * by X at T", see `attribution/overlay-source.ts`), resolved from the Activity
- * feed, whose remote entries carry NO author id, the pull stream has none, so a
- * remote revision is attributed to the sole other roster member (the two-person
- * pilot) by `activityEntriesToRecords`. Three separate modules therefore have to
- * agree about one path, and until now nothing checked them against a revision that
- * had actually travelled through a server.
+ * feed. A remote entry carries the AUTHORING MEMBERSHIP the server stamped on
+ * the receipt, relayed through the pull stream, so `activityEntriesToRecords`
+ * names the real peer rather than inferring one (P4). Four separate modules
+ * therefore have to agree about one path and one membership id, and the whole
+ * chain here runs against a revision that actually travelled through a server.
  *
  * Every step below the test is production code: the real poller-free note path
  * (observer + reconciliation + outbox), the real opaque server, the real pull +

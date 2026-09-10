@@ -71,6 +71,7 @@ import {
   buildRejoinControllerForInvitee,
   connectFromInput,
   createInvitationForOwner,
+  fetchMemberRosterForVault,
   listPendingApprovalsForOwner,
   requestRejoinGrantForOwner,
   resetHavemindConnectionState,
@@ -786,6 +787,10 @@ export default class HavemindPlugin extends Plugin {
     // one down (FINDING 1b).
     this.connectGeneration += 1;
     this.adoptSelfMembership(this.connection);
+    // P3: the People list comes from the server, not from what this device
+    // witnessed. Runs on every connect AND reconnect (retryConnection routes
+    // through startConnection), so a guest sees the whole vault.
+    void this.refreshRoster();
     void this.restorePendingApprovals();
     // MRG-05: on start (after the canonicalization rebase inside the handle
     // build), sweep any pre-existing conflict copies that a persisted ancestor
@@ -971,6 +976,33 @@ export default class HavemindPlugin extends Plugin {
     this.views.refreshOnboarding();
   }
 
+  /**
+   * P3: replaces the People list with the vault's server-authoritative roster
+   * (`GET /members`). The roster used to be assembled from what each device
+   * happened to witness, so a guest saw a list of one while the owner saw
+   * everyone. The server holds the truth and every member reads the same list.
+   *
+   * Failure is deliberately silent and NON-DESTRUCTIVE: an unreachable server,
+   * a refused session or a malformed payload leaves `rosterMembers` exactly as
+   * it was, so an offline device keeps showing what it last knew instead of
+   * blanking the People pane. The next connect or reconnect retries.
+   */
+  private async refreshRoster(): Promise<void> {
+    const self = this.rosterMembers.find((member) => member.self);
+    try {
+      const members = await fetchMemberRosterForVault(this, {
+        selfMembershipId: self?.membershipId ?? null,
+      });
+      // `null` means this device is not connected to a vault, there is nothing
+      // authoritative to render, so the existing list stands.
+      if (members === null || this.unloaded) return;
+      this.rosterMembers = await this.rosterStore().replaceMembers(members);
+      this.views.refreshOnboarding();
+    } catch {
+      // Keep the previous list rendered. Never an empty People pane.
+    }
+  }
+
   /** Upserts a member, persists the roster, and refreshes the live surfaces. */
   private async recordRosterMember(member: RosterMember): Promise<void> {
     this.rosterMembers = await this.rosterStore().recordMember(member);
@@ -1046,6 +1078,8 @@ export default class HavemindPlugin extends Plugin {
       // Record this device's own membership as a persistent roster member so the
       // invitee's UI clearly shows it is connected.
       this.adoptSelfMembership(handle);
+      // P3: pull the server-authoritative roster for this freshly paired vault.
+      void this.refreshRoster();
       // MRG-05: sweep any pre-existing conflict copies now that a base is loaded.
       this.scheduleConflictSweep();
     }

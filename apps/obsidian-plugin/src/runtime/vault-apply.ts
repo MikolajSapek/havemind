@@ -173,6 +173,12 @@ export interface RemoteAppliedEvent {
    * either way, only the Activity presentation depends on this.
    */
   readonly origin: RemoteAppliedOrigin;
+  /**
+   * The membership that authored the revision, relayed from the pull receipt
+   * (P4). Absent when the revision carried none, in which case the Activity
+   * feed records a neutral remote entry; the author is NEVER inferred here.
+   */
+  readonly authorMembershipId?: string;
 }
 
 /**
@@ -343,6 +349,25 @@ export class VaultApplyAdapter implements VaultApplyPort {
     if (decoded.operation === 'delete') {
       // Only remove a file this revision actually owns.
       if (this.files.fileIdAtPath(decoded.path) === fileId) {
+        // Owning the path is not enough to destroy it (rule 3, P1). A file
+        // edited on THIS device while closed holds an unsent local change; a
+        // remote tombstone must not take it with no copy left behind. Same
+        // shape as the rename branch below: read the path, hash it, compare to
+        // the recorded base, and divert the incoming revision to a conflict
+        // artifact when they diverge (a null base cannot prove the file clean,
+        // so it diverts too). An allowlisted `.obsidian/` settings file keeps
+        // resolving by recency and is deleted regardless.
+        if (!resolvesLastWriterWins(decoded.path)) {
+          const onDisk = await this.files.readByPath(decoded.path);
+          if (onDisk !== null) {
+            const base = this.files.baseHashFor(fileId);
+            const onDiskHash = await this.hashContent(onDisk);
+            if (base === null || onDiskHash !== base) {
+              await this.writeConflict(event, decoded);
+              return 'conflict';
+            }
+          }
+        }
         // Forget the producer mapping BEFORE the delete so the reflected vault
         // 'delete' event finds no mapping and is not re-pushed as a local
         // tombstone (re-entrancy guard).
@@ -360,6 +385,9 @@ export class VaultApplyAdapter implements VaultApplyPort {
           path: decoded.path,
           operation: decoded.operation,
           origin,
+          ...(event.revision.authorMembershipId === undefined
+            ? {}
+            : { authorMembershipId: event.revision.authorMembershipId }),
         });
       }
       return 'applied';
@@ -399,6 +427,23 @@ export class VaultApplyAdapter implements VaultApplyPort {
         const base = this.files.baseHashFor(fileId);
         const previousHash = await this.hashContent(previousOnDisk);
         if (base === null || previousHash !== base) {
+          await this.writeConflict(event, decoded);
+          return 'conflict';
+        }
+      }
+      // Destination collision, checked BEFORE the source is destroyed (P2).
+      // Ownership of the TARGET used to be read only after this delete, so a
+      // rename onto a path held by another fileId reported a conflict with the
+      // source already gone: the content survived only as a conflict copy and
+      // the user's original file had vanished from where they left it. The
+      // divergence check above protects the SOURCE; this one protects against
+      // moving into an occupied destination at all. Identical content at the
+      // target is not a collision, it is the F3 adopt path, which converges in
+      // place below and must still vacate the source.
+      const destinationOwner = this.files.fileIdAtPath(decoded.path);
+      if (destinationOwner !== null && destinationOwner !== fileId && !lastWriterWins) {
+        const destinationOnDisk = await this.files.readByPath(decoded.path);
+        if (destinationOnDisk === null || !contentMatches(destinationOnDisk, text)) {
           await this.writeConflict(event, decoded);
           return 'conflict';
         }
@@ -637,6 +682,9 @@ export class VaultApplyAdapter implements VaultApplyPort {
       path: decoded.path,
       operation: decoded.operation,
       origin,
+      ...(event.revision.authorMembershipId === undefined
+        ? {}
+        : { authorMembershipId: event.revision.authorMembershipId }),
     });
     return 'applied';
   }
@@ -705,6 +753,9 @@ export class VaultApplyAdapter implements VaultApplyPort {
       path: decoded.path,
       operation: decoded.operation,
       origin,
+      ...(event.revision.authorMembershipId === undefined
+        ? {}
+        : { authorMembershipId: event.revision.authorMembershipId }),
     });
     return 'applied';
   }
@@ -905,6 +956,9 @@ export class VaultApplyAdapter implements VaultApplyPort {
       path: decoded.path,
       operation: decoded.operation,
       origin,
+      ...(event.revision.authorMembershipId === undefined
+        ? {}
+        : { authorMembershipId: event.revision.authorMembershipId }),
     });
     return 'applied';
   }

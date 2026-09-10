@@ -170,6 +170,22 @@ describe('RosterStore', () => {
     await store.removeMember('m-magda');
     expect(data().syncState).toEqual({ version: 1 });
   });
+
+  it('replaces the whole roster with the server list, dropping departed members', async () => {
+    const { port, data } = fakePersist({ syncState: { version: 1 } });
+    const store = new RosterStore({ persist: port });
+    // A locally-witnessed member the server no longer lists (removed elsewhere).
+    await store.recordMember(magda());
+
+    const next = await store.replaceMembers([owner()]);
+
+    expect(next.map((m) => m.membershipId)).toEqual(['m-owner']);
+    expect((await store.readMembers()).map((m) => m.membershipId)).toEqual([
+      'm-owner',
+    ]);
+    // Non-roster keys survive the replacement.
+    expect(data().syncState).toEqual({ version: 1 });
+  });
 });
 
 describe('removeRosterMember', () => {

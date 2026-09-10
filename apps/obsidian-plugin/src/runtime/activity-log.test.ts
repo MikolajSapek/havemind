@@ -121,14 +121,19 @@ describe('activityEntriesToRecords', () => {
     expect(model.rows[1]?.label).toBe('edit · Notes/owner.md · You');
   });
 
-  it('attributes a remote revision to the sole other member (two-person pilot)', () => {
+  it('never guesses the author, even when exactly one other member exists', () => {
+    // The pull payload now carries the authoring membership, so an entry that
+    // reaches here WITHOUT one is genuinely unattributable. Naming the sole
+    // other member was a guess that happened to be right in a two-person vault
+    // and silently wrong the moment a third device or a legacy revision
+    // appeared. An unknown author renders as a plain remote change (P4 AC).
     const records = activityEntriesToRecords(
       [entry({ author: { kind: 'remote' } })],
       roster,
     );
     expect(records[0]?.actor).toMatchObject({
       kind: 'author',
-      displayName: 'Magda',
+      displayName: 'Remote',
     });
   });
 
