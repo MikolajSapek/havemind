@@ -19,7 +19,7 @@ community catalogue.
 `apps/obsidian-plugin/` after a build:
 
 - `main.js`, the bundled plugin (built with `npm run build` in the workspace).
-- `manifest.json`, plugin id `havemind-sync`, desktop-only.
+- `manifest.json`, plugin id `havemind-sync`, desktop and mobile.
 - `styles.css`, the Havemind pane stylesheet.
 
 Rebuild any time with:

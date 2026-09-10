@@ -10,20 +10,19 @@
 
 ### Share one Obsidian vault with people you trust.
 
-Havemind is private, self-hosted sync for [Obsidian](https://obsidian.md). It is
-built for two or three people sharing one vault: each person keeps a normal local
-copy while a server you control relays changes, keeps history, and records who
-changed what.
+Havemind is self-hosted sync for [Obsidian](https://obsidian.md), built for two
+or three people sharing one vault. Everyone keeps a normal local copy. A server
+you own passes the changes around and remembers who wrote what.
 
-Use it with people first. If you choose to use Claude, MCP, or another local
-agent in that vault, Havemind keeps those changes in the same history too.
+Built for people. If you also run Claude, MCP or another local agent in that
+vault, its edits land in the same history.
 
-**Version 1.4.7, desktop and mobile.** Runs on macOS, Windows and Linux, and on
-iOS and Android through the Obsidian mobile app. A two-week, two-device pilot
-ran without data loss, including through three real incidents. Havemind does
-not provide end-to-end encryption: the self-hosted server stores synced content
-in plaintext. Read the
-[security model](#security-model) before connecting a vault you care about.
+**Version 1.4.7, desktop and mobile.** A two-week pilot on two devices lost no
+data, including through three real incidents.
+
+There is no end-to-end encryption. Your server stores the vault in plaintext,
+so whoever runs that machine can read it. Read the
+[security model](#security-model) before you connect a vault you care about.
 
 **Self-hosting your own instance?** See
 [docs/self-hosting.md](docs/self-hosting.md) for the full zero-to-working
@@ -95,50 +94,35 @@ The long version, including backups and multiple vaults, is in
 
 ## What it does
 
-- **Desktop and mobile, the same vault.** Havemind runs on macOS, Windows and
-  Linux, and on iOS and Android through the Obsidian mobile app. The pane docks
-  into the sidebar on a desktop and fills the screen on a phone, with touch
-  targets and safe areas sized for it. Edit a note on your phone and it lands on
-  your laptop a couple of seconds later.
-- **Real-time two-way sync.** A long-poll wake channel delivers a peer's change
-  to your device in roughly a second once it is sent, with a periodic poll as a
-  fallback. An edit to a note waits 1.5 s to settle before it is sent, so a
-  formatter plugin rewriting the file on save cannot start an edit war between
-  two devices; creates, renames and deletes go out immediately. You never need
-  to refresh by hand.
-- **Notes and attachments.** Markdown notes sync with line-level history; images
-  (PNG/JPG/GIF/WebP/SVG) and PDFs up to 25 MB sync byte-for-byte.
-- **Appearance settings, from an explicit allowlist.** Theme stylesheets
-  (`.obsidian/themes/`), CSS snippets, hotkeys, graph view settings (node colour
-  groups included) and the `appearance.json` / `app.json` settings mirror between
-  devices, so a vault looks and behaves the same everywhere. That list is the
-  whole of it, nothing else under `.obsidian/` is in scope.
-- **History without silent overwrites.** Non-overlapping concurrent edits merge
-  automatically. When two people edit the same content, Havemind keeps both
-  versions and places a conflict copy in `Havemind Conflicts/` for review.
-- **Fail-closed durability.** The local queue survives crashes and corrupt
-  writes: a torn state file is preserved to a sidecar and flagged for recovery
-  rather than silently dropping unsent changes.
-- **Authorship everywhere.** The Activity panel names who changed what, with a
-  stable colour per author and one-click restore of any previous revision. The
-  author travels with the revision from the server, so it is never guessed: a
-  change from someone the roster does not know reads as a remote edit rather
-  than the wrong name.
-- **Presence roster and rejoin.** The owner sees who is connected; if a device's
-  session dies, one click reconnects a known contact, no new code exchange.
-- **Human-verified onboarding.** Joining a vault requires a 6-digit code shown
-  only on the joining device and read aloud to the owner, who types it in
-  (3 attempts). Identity is bound server-side at approval and never trusted from
-  the client afterwards.
-- **Several vaults on one server.** Each vault has its own owner and its own
-  members, fully isolated: two teams can share one box without seeing, waking or
-  writing each other's data.
-- **Encrypted checkpoints and scheduled backups.** The server writes a snapshot
-  on a timer (24 h by default, keeping the last 7). A checkpoint is sealed to a
-  public key, so the machine that creates it cannot read it back; restoring
-  needs the secret key from the owner's recovery kit.
-- **Per-vault storage quota and per-device throttling**, so one runaway client
-  cannot fill the disk or crowd out the others.
+- **One vault, every device.** Mac, Windows, Linux, iPhone, Android. Write on
+  the phone, it is on the laptop a couple of seconds later.
+- **Nothing is overwritten silently.** Edits that do not overlap merge on their
+  own. When two people change the same lines, both versions survive and a copy
+  lands in `Havemind Conflicts/`.
+- **You can see who wrote what.** Every change in the Activity panel carries a
+  name and a colour, and any revision restores in one click. The author comes
+  from the server with the revision, so it is never a guess.
+- **Notes, attachments and how the vault looks.** Markdown with line-level
+  history, images and PDFs up to 25 MB, plus your theme, snippets, hotkeys and
+  graph settings.
+- **Joining takes a phone call.** The new device shows six digits, the owner
+  types in what they hear. Three tries. That is what ties a person to a device.
+
+<details>
+<summary>The details behind those five</summary>
+
+| | |
+|---|---|
+| Sync speed | A peer's change lands in about a second over the long-poll channel. An edit waits 1.5 s to settle first, so a formatter rewriting the file on save cannot start an edit war. Creates, renames and deletes go out immediately. |
+| `.obsidian/` scope | An allowlist, nothing more: `themes/`, `snippets/`, `hotkeys.json`, `graph.json`, `appearance.json`, `app.json`. |
+| Attachments | PNG, JPG, GIF, WebP, SVG, PDF, up to 25 MB, byte for byte. |
+| Crash safety | The outbox survives a crash. A torn state file is kept as a sidecar and flagged, never dropped. |
+| Presence | The owner sees who is connected. A dead session reconnects in one click, no new code. |
+| Several vaults | One server, independent vaults. Two teams share a box without seeing each other's data. |
+| Backups | Off unless you set `HAVEMIND_BACKUP_DIR`; the shipped compose file sets it. Then a snapshot every 24 h, last 7 kept. Checkpoints are sealed to a public key, so the server that writes one cannot open it. |
+| Limits | Storage quota per vault, throttling per device. |
+
+</details>
 
 ## What it looks like
 
@@ -154,24 +138,20 @@ The long version, including backups and multiple vaults, is in
   <img src="docs/images/04-mobile-framed.png" alt="The Havemind pane filling the screen on an iPhone" width="49%">
 </p>
 
-## What it deliberately does not do
+## What it will not do
 
-- **No Havemind-hosted cloud.** The server runs on your own hardware and is
-  intended to be reachable only over your private
-  [Tailscale](https://tailscale.com) network. Do not expose it to the public
-  internet.
-- **No plugin sync, and no device state.** `.obsidian/plugins/` is excluded in
-  full, no plugin code, no plugin state, no plugin secrets (`data.json`), as
-  are the enabled-plugins registry (`community-plugins.json`) and the
-  per-machine window layout (`workspace.json`). No member of a vault can
-  replace another member's installed plugin code, and the machines can run
-  entirely different plugin sets without conflict. The allowlist is enforced at
-  two independent layers, the producer guard and the wire schema, so a
-  revision for an excluded path is rejected on arrival as well as at authoring
-  time.
-- **No server-side intelligence.** The server is an opaque, append-only relay: it
-  stores content-addressed blobs and revision headers, and never computes diffs,
-  merges or provenance. All of that happens in the client.
+- **Run in our cloud.** There isn't one. The server sits on your hardware,
+  reachable only over your [Tailscale](https://tailscale.com) network. Do not
+  put it on the public internet.
+- **Sync your plugins.** All of `.obsidian/plugins/` stays out: no plugin code,
+  no plugin state, no `data.json` secrets. Same for the enabled-plugins list and
+  your window layout. Nobody in the vault can swap out someone else's plugin
+  code and have Obsidian run it, and two machines can keep completely different
+  plugin sets. Two separate layers enforce this, the producer guard and the
+  wire schema, so a revision for a blocked path is refused when it arrives as
+  well as when it is written.
+- **Think about your notes.** The server stores blobs and revision headers and
+  nothing else. Diffs, merges and provenance all happen on your machine.
 
 ## Architecture
 
@@ -202,27 +182,23 @@ Obsidian plugin (Vault B) ─┘   real-time /wait wake     content-addressed bl
 
 ## Security model
 
-Havemind's security rests on **Tailscale**, not on application-layer encryption.
-The server is reachable only over your private tailnet, never the public internet
-and all traffic between devices and the server is encrypted in transit by
-Tailscale (WireGuard), with per-device authentication.
+Security here rests on Tailscale, not on encryption inside the app. The server
+answers only on your private tailnet, never the public internet, and Tailscale
+(WireGuard) encrypts everything in transit with per-device authentication.
 
-Within a vault, the trust boundary between members is drawn at **code**: the
-`.obsidian/` scope is an explicit allowlist of appearance settings (theme
-stylesheets, CSS snippets, hotkeys, `graph.json`, `appearance.json` /
-`app.json`), and
-`.obsidian/plugins/` is excluded in full. Plugin code, plugin state and plugin
-secrets never cross the wire, so one member cannot overwrite another member's
-installed plugin and have Obsidian execute it on the next reload.
+Between members of a vault, the line is drawn at code. Appearance settings
+cross: themes, snippets, hotkeys, `graph.json`, `appearance.json`, `app.json`.
+`.obsidian/plugins/` never does. Plugin code, plugin state and plugin secrets
+stay on the machine they live on, so one member cannot overwrite another's
+plugin and have Obsidian run it on the next reload.
 
-Content is stored on the server in plaintext, so **the trust boundary is the
-machine you run the server on**: anyone who controls that box can read the vault.
-Run it on hardware you and your circle trust, keep it tailnet-only (never enable
-Tailscale Funnel), and treat server access as vault access. End-to-end encryption
-is deliberately out of scope, this is a small, self-hosted, trusted-circle tool,
-not a zero-trust service. Secrets never appear in the repository, logs or reports.
-See [docs/pilot/known-limitations.md](docs/pilot/known-limitations.md) for current
-operational caveats.
+The vault sits on the server in plaintext. **Whoever controls that machine can
+read everything.** Run it on hardware you and your people trust, keep it on the
+tailnet (never turn on Tailscale Funnel), and treat access to the server as
+access to the vault. End-to-end encryption is out of scope on purpose: this is
+a small tool for a circle that already trusts each other, not a zero-trust
+service. See [known limitations](docs/pilot/known-limitations.md) for the
+current operational caveats.
 
 ## Privacy and permission disclosures
 

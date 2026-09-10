@@ -7,14 +7,15 @@ real workflows, not to collect users at any cost.
 
 ## Who should join
 
-Good testers already use Obsidian on desktop, can join a private Tailscale
-network, and are comfortable running or trusting a self-hosted server. They
+Good testers already use Obsidian, can join a private Tailscale network, and
+are comfortable running or trusting a self-hosted server. They
 should have a second device or a trusted collaborator who can edit the same
 vault.
 
-Do not recruit people who need end-to-end encryption, mobile support, public
-internet access, or a managed hosted service. Havemind is desktop-only, runs on
-a private network, and the selected server stores synced content in plaintext.
+Do not recruit people who need end-to-end encryption, public internet access,
+or a managed hosted service. Havemind runs on a private network, and the server
+stores synced content in plaintext. Mobile works: iOS and Android through the
+Obsidian app, since 1.4.0.
 
 ## Safety before first connection
 
