@@ -1,7 +1,22 @@
 # 008, Apply safety and author attribution
 
-Status: proposed, 2026-09-10. Four defects found in review of `1044617`, verified
-against the tree at `26ae8be`. Two risk local data, two leave the UI wrong.
+Status: **done, 2026-09-10**, shipped in `96ab775`. Four defects found in review
+of `1044617`, verified against the tree at `26ae8be`. Two risked local data, two
+left the UI wrong. `npm run verify` green at the time of the commit.
+
+Two things this plan got wrong, corrected during the work:
+
+- P4 named `sync-controller.ts` as a place to change. It was not: the controller
+  already forwards the whole event. The field was being dropped one step
+  earlier, in the pull parser in `sync-transport.ts`, and the server had been
+  returning `memberId` on the receipt all along.
+- P4 says three `onRemoteApplied` call sites. There are four; the three-way
+  merge branch was missed. Attribution would have worked for some operations
+  and not others.
+
+Also found while fixing P4 and outside the plan: `activity-log.ts` guessed the
+author whenever a vault held exactly one other member, which is what P4's own AC
+forbids. Removed, along with the test that pinned the behaviour.
 
 ## Why these four sit in one plan
 

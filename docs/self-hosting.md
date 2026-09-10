@@ -175,8 +175,8 @@ defeats the entire model.
 
 ## f. Connect the plugin
 
-1. Install the Havemind Obsidian plugin (see the plugin's own install
-   instructions, it is not in the community catalogue).
+1. Install the Havemind Obsidian plugin: Settings, then Community plugins,
+   then Browse, and search for **Havemind**. Needs Obsidian 1.11.4 or newer.
 2. Open the vault, open the Havemind panel (ribbon icon or command palette →
    **Havemind: Connect to Havemind**).
 3. Paste the Server URL (`https://your-server.your-tailnet.ts.net`) and the
