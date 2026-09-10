@@ -20,7 +20,7 @@ export interface ListPendingApprovalsOptions {
   readonly getAccessToken: () => Promise<string>;
 }
 
-export class ListPendingApprovalsError extends Error {
+class ListPendingApprovalsError extends Error {
   override readonly name = 'ListPendingApprovalsError';
 }
 

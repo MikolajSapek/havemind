@@ -22,7 +22,7 @@
 export const REQUEST_TIMEOUT_MS = 60_000;
 
 /** Marks a request abandoned by the client, distinct from a server error. */
-export class RequestTimeoutError extends Error {
+class RequestTimeoutError extends Error {
   public override readonly name = 'RequestTimeoutError';
 
   public constructor(ms: number) {

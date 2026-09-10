@@ -10,6 +10,7 @@ import {
   resetObsidianMock,
   type Setting,
 } from './test/obsidian.mock';
+import { internals } from './test/plugin-internals';
 
 const manifest: PluginManifest = {
   author: 'Mikolaj Pawel Sapek',
@@ -54,10 +55,8 @@ function button(label: string): ButtonComponent {
 function newPlugin(app: App = new App()): HavemindPlugin {
   const plugin = new HavemindPlugin(app, manifest);
   let disk: Record<string, unknown> = {};
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (plugin as any).loadData = async () => disk;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (plugin as any).saveData = async (data: unknown) => {
+  internals(plugin).loadData = async () => disk;
+  internals(plugin).saveData = async (data: unknown) => {
     disk = data as Record<string, unknown>;
   };
   return plugin;

@@ -730,7 +730,7 @@ export async function listCheckpoints(
  * checkpoint before any older one is pruned (plans/006 retention; plan/01 rule
  * 9, never `forget` without a prior `verify`).
  */
-export async function verifyCheckpointStructure(
+async function verifyCheckpointStructure(
   checkpointDir: string,
 ): Promise<CheckpointManifest> {
   const manifestBytes = await readCheckpointFile(

@@ -33,7 +33,7 @@ export interface CreatedInvitation {
   readonly invitationId: string;
 }
 
-export class CreateInvitationError extends Error {
+class CreateInvitationError extends Error {
   override readonly name = 'CreateInvitationError';
 }
 

@@ -73,7 +73,7 @@ export interface RefreshTokenAccessProviderOptions {
   readonly now?: () => number;
 }
 
-export class AccessTokenError extends Error {
+class AccessTokenError extends Error {
   override readonly name = 'AccessTokenError';
 
   /**

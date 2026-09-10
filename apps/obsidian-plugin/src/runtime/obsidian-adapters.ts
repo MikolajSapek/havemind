@@ -47,22 +47,20 @@
  * re-typed. Re-exported so the drift regression test can prove all three
  * reserved-folder sites resolve to ONE constant (see `conflict-resolution.ts`).
  */
-export { CONFLICT_FOLDER } from './conflict-resolution';
-
-export { SyncScheduler } from './scheduler';
-
-export type { RuntimeHooks } from './adapters/runtime-hooks';
+export {
+  CONFLICT_FOLDER,
+} from './conflict-resolution';
 
 export {
   classifyConfigApplyEffect,
   CONFIG_RELOAD_NOTICE,
   createConfigApplyReloader,
-  type ConfigApplyEffect,
   type ConfigApplyReloader,
-  type ConfigApplyReloaderOptions,
 } from './adapters/config-apply';
 
-export { createRequestUrlFn } from './adapters/request-url';
+export {
+  createRequestUrlFn,
+} from './adapters/request-url';
 
 export {
   createPersistPort,
@@ -70,63 +68,42 @@ export {
 } from './adapters/plugin-data-ports';
 
 export {
-  createBackoffScheduler,
   createSchedulerHooks,
-  type SchedulerEventTarget,
 } from './adapters/scheduler-hooks';
 
 export {
   createVaultFilePort,
-  type VaultFilePortOptions,
 } from './adapters/vault-file-port';
-
-export {
-  buildSyncController,
-  type BuiltSyncController,
-  type SyncConnection,
-} from './adapters/sync-controller';
-
-export {
-  HAVEMIND_STATUS_DISCONNECTED,
-  HAVEMIND_STATUS_RESET_REQUIRED,
-} from './adapters/status-constants';
-
-export { buildOnboardingController } from './adapters/onboarding-wiring';
 
 export {
   evaluateOwnerConnection,
   gateOwnerConnection,
   parseOwnerConnection,
-  preserveCorruptOwnerConnection,
   resetHavemindConnectionState,
-  type OwnerConnectionGate,
-  type OwnerConnectionReadResult,
 } from './adapters/owner-connection';
 
 export {
   CONFIG_POLL_FAILURE_NOTICE,
   CONFIG_POLL_FAILURE_NOTICE_EVERY,
   createConfigPollTick,
-  type ConfigPollTickDeps,
 } from './adapters/config-poll';
 
 export {
   registerVaultChangeListeners,
-  type VaultChangeListenerHandlers,
 } from './adapters/vault-change-listeners';
 
 export {
   parseProducerState,
   parseProducerStateResult,
-  type ProducerParseResult,
 } from './adapters/producer-state';
 
-export type { ConnectionHandle } from './adapters/sync-loop';
+export type {
+  ConnectionHandle,
+} from './adapters/sync-loop';
 
 export {
   connectFromInput,
   startHavemindConnection,
-  type ConnectFromInputOptions,
 } from './adapters/connect-flows';
 
 export {
@@ -137,4 +114,6 @@ export {
   revokeMembershipForOwner,
 } from './adapters/owner-actions';
 
-export { buildRejoinControllerForInvitee } from './adapters/rejoin-wiring';
+export {
+  buildRejoinControllerForInvitee,
+} from './adapters/rejoin-wiring';

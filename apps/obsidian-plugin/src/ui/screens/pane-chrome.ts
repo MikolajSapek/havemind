@@ -28,7 +28,7 @@ export interface PaneChromeOptions {
   readonly onInvite?: (() => void) | undefined;
 }
 
-export function renderPaneChrome(
+function renderPaneChrome(
   content: HTMLElement,
   options: PaneChromeOptions,
 ): void {

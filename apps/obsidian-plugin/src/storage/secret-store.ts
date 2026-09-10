@@ -50,7 +50,7 @@ export type SecretStoreErrorCode =
   | 'secret-read-failed'
   | 'secret-write-failed';
 
-export class SecretStoreError extends Error {
+class SecretStoreError extends Error {
   override readonly name = 'SecretStoreError';
 
   constructor(

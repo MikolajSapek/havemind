@@ -16,6 +16,7 @@ import {
   type PluginManifest,
   WorkspaceLeaf,
 } from './test/obsidian.mock';
+import { internals } from './test/plugin-internals';
 
 const manifest: PluginManifest = {
   author: 'Mikolaj Pawel Sapek',
@@ -81,8 +82,7 @@ function buildActivityView(plugin?: HavemindPlugin): HavemindActivityView {
   const options =
     plugin === undefined
       ? {}
-      : // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        ((plugin as any).activityOptions as ConstructorParameters<
+      :        (internals(plugin).activityOptions as ConstructorParameters<
           typeof HavemindActivityView
         >[1]);
   return new HavemindActivityView(new WorkspaceLeaf(), options ?? {});
@@ -826,12 +826,10 @@ describe('plugin lifecycle', () => {
     // Seed the roster (self) and an existing activity entry directly, there
     // is no live layout-ready hook in the headless mock (see Workspace mock),
     // so this mirrors what loadRoster()/recordActivity would have populated.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (plugin as any).rosterMembers = [
+    internals(plugin).rosterMembers = [
       { membershipId: 'm-owner', displayName: 'You', role: 'owner', self: true },
     ];
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (plugin as any).activityLog.record({
+    internals(plugin).activityLog.record({
       revisionId: 'rev-1',
       fileId: 'file-1',
       path: 'Notes/a.md',
@@ -851,8 +849,7 @@ describe('plugin lifecycle', () => {
 
     restoreButton?.triggerClick();
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const snapshot = (plugin as any).activityLog.snapshot() as Array<{
+    const snapshot = internals(plugin).activityLog.snapshot() as Array<{
       revisionId: string;
     }>;
     expect(snapshot).toHaveLength(2);
@@ -865,8 +862,7 @@ describe('plugin lifecycle', () => {
     const plugin = new HavemindPlugin(app, manifest);
     await plugin.onload();
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (plugin as any).activityLog.record({
+    internals(plugin).activityLog.record({
       revisionId: 'rev-1',
       fileId: 'file-1',
       path: 'Notes/a.md',
@@ -882,8 +878,7 @@ describe('plugin lifecycle', () => {
     const restoreButton = container.children[1]?.children[1]?.children[1];
 
     expect(() => restoreButton?.triggerClick()).not.toThrow();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((plugin as any).activityLog.snapshot()).toHaveLength(1);
+    expect(internals(plugin).activityLog.snapshot()).toHaveLength(1);
   });
 
   it('stops notifying the activity view after unload (subscription disposed)', async () => {
@@ -910,8 +905,7 @@ describe('plugin lifecycle', () => {
       originalRefresh();
     };
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (plugin as any).activityLog.record({
+    internals(plugin).activityLog.record({
       revisionId: 'rev-1',
       fileId: 'file-1',
       path: 'Notes/a.md',
@@ -924,8 +918,7 @@ describe('plugin lifecycle', () => {
 
     plugin.unload();
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (plugin as any).activityLog.record({
+    internals(plugin).activityLog.record({
       revisionId: 'rev-2',
       fileId: 'file-1',
       path: 'Notes/a.md',

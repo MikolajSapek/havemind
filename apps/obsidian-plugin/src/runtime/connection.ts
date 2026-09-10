@@ -37,7 +37,7 @@ export interface ConnectionResolvers {
   readonly resolveRevision: (event: RemoteEvent) => Promise<DecodedRevisionPayload>;
 }
 
-export class BlobFetchError extends Error {
+class BlobFetchError extends Error {
   override readonly name = 'BlobFetchError';
 }
 

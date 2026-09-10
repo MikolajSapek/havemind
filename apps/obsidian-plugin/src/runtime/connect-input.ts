@@ -44,7 +44,7 @@ export interface OwnerPairing {
   readonly memberId?: string;
 }
 
-export class OwnerPairError extends Error {
+class OwnerPairError extends Error {
   override readonly name = 'OwnerPairError';
 }
 

@@ -61,7 +61,7 @@ function requirePragmaValue(
   }
 }
 
-export function configureDatabase(
+function configureDatabase(
   database: Database.Database,
   options: OpenDatabaseOptions = {},
 ): void {

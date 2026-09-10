@@ -70,7 +70,7 @@ export const NOOP_HANDLE: ConnectionHandle = {
   serverName: '',
 };
 
-export function serverNameFromUrl(apiBaseUrl: string): string {
+function serverNameFromUrl(apiBaseUrl: string): string {
   try {
     return new URL(apiBaseUrl).host;
   } catch {

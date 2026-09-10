@@ -298,7 +298,7 @@ const DEFAULT_MAX_PUSH_BATCH_ITEMS = 64;
  * any buffer that diverges from its known base must never be silently
  * overwritten.
  */
-export function decideRemoteApply(
+function decideRemoteApply(
   buffers: readonly OpenBuffer[],
   incomingContentHash: string,
 ): RemoteApplyDecision {

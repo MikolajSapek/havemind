@@ -28,6 +28,7 @@ import {
   type PluginManifest,
   WorkspaceLeaf,
 } from './test/obsidian.mock';
+import { internals } from './test/plugin-internals';
 
 const manifest: PluginManifest = {
   author: 'Mikolaj Pawel Sapek',
@@ -78,10 +79,8 @@ function fakePlugin(
 /** A real plugin whose plugin-data is backed by `disk`. */
 function newPlugin(disk: Disk): HavemindPlugin {
   const plugin = new HavemindPlugin(new App(), manifest);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (plugin as any).loadData = async () => disk.value;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (plugin as any).saveData = async (data: unknown) => {
+  internals(plugin).loadData = async () => disk.value;
+  internals(plugin).saveData = async (data: unknown) => {
     disk.value = data as Record<string, unknown>;
   };
   plugin.onload();
@@ -242,8 +241,7 @@ describe('Reset connection action (P1 #5)', () => {
     const plugin = newPlugin(disk);
     plugin.app.secretStorage.setSecret(REFRESH_SECRET_KEY, 'refresh-token');
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (plugin as any).resetConnection();
+    await internals(plugin).resetConnection();
 
     const keys = Object.keys(disk.value);
     // Every corrupt sidecar survives, including the one minted for the record
@@ -274,19 +272,14 @@ describe('Reset connection action (P1 #5)', () => {
       },
     };
     const plugin = newPlugin(disk);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (plugin as any).connectionStatus = 'reset-required';
+    internals(plugin).connectionStatus = 'reset-required';
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (plugin as any).resetConnection();
+    await internals(plugin).resetConnection();
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((plugin as any).connectionStatus).toBe('disconnected');
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const panel = (plugin as any).connectionPanel() as { showForm: boolean };
+    expect(internals(plugin).connectionStatus).toBe('disconnected');
+    const panel = internals(plugin).connectionPanel() as { showForm: boolean };
     expect(panel.showForm).toBe(true);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((plugin as any).connection).toBeNull();
+    expect(internals(plugin).connection).toBeNull();
   });
 
   it('renders an accessible "Reset connection" button in the reset-required panel', async () => {

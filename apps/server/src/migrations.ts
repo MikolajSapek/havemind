@@ -51,7 +51,7 @@ const INSERT_APPLIED_MIGRATION_SQL = `
   VALUES (?, ?, ?, ?)
 `;
 
-export class MigrationError extends Error {
+class MigrationError extends Error {
   public constructor(message: string, options?: ErrorOptions) {
     super(message, options);
     this.name = 'MigrationError';

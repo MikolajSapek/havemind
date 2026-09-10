@@ -48,7 +48,7 @@ export interface LivePreviewOverlaySource {
  * backed by a file. Read from Obsidian's `editorInfoField` rather than the active
  * file, so a split pane attributes its OWN document instead of the focused one.
  */
-export function pathForEditorView(view: EditorView): string | null {
+function pathForEditorView(view: EditorView): string | null {
   const info = view.state.field(editorInfoField, false);
   return info?.file?.path ?? null;
 }

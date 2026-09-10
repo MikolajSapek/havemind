@@ -27,6 +27,7 @@ vi.mock('./runtime/obsidian-adapters', async (importOriginal) => {
 
 import HavemindPlugin from './main';
 import { App, resetObsidianMock, type PluginManifest } from './test/obsidian.mock';
+import { internals } from './test/plugin-internals';
 
 const manifest: PluginManifest = {
   author: 'Mikolaj Pawel Sapek',
@@ -52,10 +53,8 @@ function newPlugin(): HavemindPlugin {
   const plugin = new HavemindPlugin(new App(), manifest);
   // loadRoster()/roster persistence read plugin data; the headless Plugin mock
   // does not model loadData/saveData, so stub them to an empty store.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (plugin as any).loadData = async () => null;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (plugin as any).saveData = async () => undefined;
+  internals(plugin).loadData = async () => null;
+  internals(plugin).saveData = async () => undefined;
   plugin.onload();
   return plugin;
 }
@@ -85,8 +84,7 @@ describe('startConnection lifecycle safety', () => {
       }),
     );
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const pending = (plugin as any).startConnection() as Promise<void>;
+    const pending = internals(plugin).startConnection() as Promise<void>;
 
     // Let the roster read settle so the connection builder is genuinely in flight.
     await flushMicrotasks();
@@ -99,8 +97,7 @@ describe('startConnection lifecycle safety', () => {
     await pending;
 
     expect(handle.stop).toHaveBeenCalledTimes(1);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((plugin as any).connection).toBeNull();
+    expect(internals(plugin).connection).toBeNull();
   });
 
   it('does not orphan a connection established by connectFromInput while startConnection is in flight', async () => {
@@ -117,13 +114,11 @@ describe('startConnection lifecycle safety', () => {
       }),
     );
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const pending = (plugin as any).startConnection() as Promise<void>;
+    const pending = internals(plugin).startConnection() as Promise<void>;
 
     // A user-initiated connect wins the race and assigns a live handle.
     const userHandle = fakeHandle('user');
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (plugin as any).connection = userHandle;
+    internals(plugin).connection = userHandle;
 
     // The layout-ready connect resolves late.
     resolveConnect(layoutHandle);
@@ -131,8 +126,7 @@ describe('startConnection lifecycle safety', () => {
 
     expect(layoutHandle.stop).toHaveBeenCalledTimes(1);
     expect(userHandle.stop).not.toHaveBeenCalled();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((plugin as any).connection).toBe(userHandle);
+    expect(internals(plugin).connection).toBe(userHandle);
   });
 
   it('assigns the handle normally when no unload or concurrent connect intervenes', async () => {
@@ -140,12 +134,10 @@ describe('startConnection lifecycle safety', () => {
     const handle = fakeHandle('sapserver');
     adapterMocks.startHavemindConnection.mockResolvedValue(handle);
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (plugin as any).startConnection();
+    await internals(plugin).startConnection();
 
     expect(handle.stop).not.toHaveBeenCalled();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((plugin as any).connection).toBe(handle);
+    expect(internals(plugin).connection).toBe(handle);
   });
 
   it('hydrates server-authoritative pending approvals after an owner restart', async () => {
@@ -160,13 +152,11 @@ describe('startConnection lifecycle safety', () => {
       },
     ]);
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (plugin as any).startConnection();
+    await internals(plugin).startConnection();
     await Promise.resolve();
 
     expect(adapterMocks.listPendingApprovalsForOwner).toHaveBeenCalledWith(plugin);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((plugin as any).pendingApprovals).toEqual([
+    expect(internals(plugin).pendingApprovals).toEqual([
       expect.objectContaining({ intendedMemberDisplayName: 'Magda' }),
     ]);
   });
@@ -216,8 +206,7 @@ describe('connectFromInput lifecycle safety', () => {
     await pending;
 
     expect(handle.stop).toHaveBeenCalledTimes(1);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((plugin as any).connection).toBeNull();
+    expect(internals(plugin).connection).toBeNull();
   });
 
   it('does not clobber a connection assigned while connectFromInput was in flight (FIX 3)', async () => {
@@ -246,23 +235,20 @@ describe('connectFromInput lifecycle safety', () => {
     // A concurrent connection is established (and assigned) while the paste flow
     // is still awaiting.
     const existing = fakeHandle('existing');
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (plugin as any).connection = existing;
+    internals(plugin).connection = existing;
 
     resolveConnect(lateHandle);
     await pending;
 
     expect(lateHandle.stop).toHaveBeenCalledTimes(1);
     expect(existing.stop).not.toHaveBeenCalled();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((plugin as any).connection).toBe(existing);
+    expect(internals(plugin).connection).toBe(existing);
   });
 
   it('keeps the working connection when a replacement flow does not connect', async () => {
     const plugin = newPlugin();
     const existing = fakeHandle('existing');
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (plugin as any).connection = existing;
+    internals(plugin).connection = existing;
     adapterMocks.connectFromInput.mockResolvedValue(null);
 
     await (
@@ -276,8 +262,7 @@ describe('connectFromInput lifecycle safety', () => {
     ).connectFromInput('bad-input', 'https://sapserver.example', () => {});
 
     expect(existing.stop).not.toHaveBeenCalled();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((plugin as any).connection).toBe(existing);
+    expect(internals(plugin).connection).toBe(existing);
   });
 });
 
@@ -300,26 +285,22 @@ describe('Retry now (user-initiated reconnect)', () => {
   it('stops the current handle and restarts through the shared startConnection path', async () => {
     const plugin = newPlugin();
     const stale = fakeHandle('stale');
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (plugin as any).connection = stale;
+    internals(plugin).connection = stale;
     const fresh = fakeHandle('fresh');
     adapterMocks.startHavemindConnection.mockResolvedValue(fresh);
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (plugin as any).retryConnection();
+    await internals(plugin).retryConnection();
 
     expect(stale.stop).toHaveBeenCalledTimes(1);
     expect(adapterMocks.startHavemindConnection).toHaveBeenCalledTimes(1);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((plugin as any).connection).toBe(fresh);
+    expect(internals(plugin).connection).toBe(fresh);
     plugin.unload();
   });
 
   it('is idempotent under a rapid double-click: exactly one live handle', async () => {
     const plugin = newPlugin();
     const stale = fakeHandle('stale');
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (plugin as any).connection = stale;
+    internals(plugin).connection = stale;
     const fresh = fakeHandle('fresh');
     let resolveConnect!: (h: FakeHandle) => void;
     adapterMocks.startHavemindConnection.mockReturnValue(
@@ -330,18 +311,15 @@ describe('Retry now (user-initiated reconnect)', () => {
 
     // Two clicks land before the first build resolves; the second must be a
     // no-op so no second build (and thus no second live handle) is ever created.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const first = (plugin as any).retryConnection() as Promise<void>;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const second = (plugin as any).retryConnection() as Promise<void>;
+    const first = internals(plugin).retryConnection() as Promise<void>;
+    const second = internals(plugin).retryConnection() as Promise<void>;
     resolveConnect(fresh);
     await Promise.all([first, second]);
 
     expect(stale.stop).toHaveBeenCalledTimes(1);
     expect(adapterMocks.startHavemindConnection).toHaveBeenCalledTimes(1);
     expect(fresh.stop).not.toHaveBeenCalled();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((plugin as any).connection).toBe(fresh);
+    expect(internals(plugin).connection).toBe(fresh);
     plugin.unload();
   });
 
@@ -355,8 +333,7 @@ describe('Retry now (user-initiated reconnect)', () => {
       }),
     );
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const pending = (plugin as any).retryConnection() as Promise<void>;
+    const pending = internals(plugin).retryConnection() as Promise<void>;
 
     // Let the restarted builder pass its roster read before teardown races it.
     await flushMicrotasks();
@@ -366,8 +343,7 @@ describe('Retry now (user-initiated reconnect)', () => {
     await pending;
 
     expect(handle.stop).toHaveBeenCalledTimes(1);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((plugin as any).connection).toBeNull();
+    expect(internals(plugin).connection).toBeNull();
   });
 
   it('restarts on a terminal reconnect-required state and DISARMS the rejoin poll (FINDING 1)', async () => {
@@ -377,23 +353,19 @@ describe('Retry now (user-initiated reconnect)', () => {
     adapterMocks.startHavemindConnection.mockResolvedValue(fakeHandle('resumed'));
 
     // A terminal auth failure arms the invitee rejoin poll.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (plugin as any).handleStatus('reconnect-required', STATUS_VIEW);
+    internals(plugin).handleStatus('reconnect-required', STATUS_VIEW);
     await flushMicrotasks();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((plugin as any).rejoinController).toBe(controller);
+    expect(internals(plugin).rejoinController).toBe(controller);
 
     // The user clicks Retry now: restart FIRST (persisted creds may still work).
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (plugin as any).retryConnection();
+    await internals(plugin).retryConnection();
 
     // A restart was attempted …
     expect(adapterMocks.startHavemindConnection).toHaveBeenCalledTimes(1);
     // … and the stale rejoin poll is DISARMED, so a later poll tick can never
     // tear down the healthy connection this retry just built. If the restart
     // lands back in reconnect-required, handleStatus re-arms the poll fresh.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((plugin as any).rejoinController).toBeNull();
+    expect(internals(plugin).rejoinController).toBeNull();
     plugin.unload();
   });
 
@@ -410,22 +382,17 @@ describe('Retry now (user-initiated reconnect)', () => {
     adapterMocks.startHavemindConnection.mockResolvedValue(resumed);
 
     // reconnect-required arms the invitee rejoin poll.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (plugin as any).handleStatus('reconnect-required', STATUS_VIEW);
+    internals(plugin).handleStatus('reconnect-required', STATUS_VIEW);
     await flushMicrotasks();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((plugin as any).rejoinController).toBe(controller);
+    expect(internals(plugin).rejoinController).toBe(controller);
 
     // The user clicks Retry now and the connection comes back healthy.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (plugin as any).retryConnection();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((plugin as any).connection).toBe(resumed);
+    await internals(plugin).retryConnection();
+    expect(internals(plugin).connection).toBe(resumed);
 
     // The stale 30 s poll fires afterwards. It must NOT touch the healthy
     // retry-built handle: no attempt(), no stop(), no second startConnection.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (plugin as any).pollRejoinOnce();
+    await internals(plugin).pollRejoinOnce();
 
     expect(attempt).not.toHaveBeenCalled();
     expect(resumed.stop).not.toHaveBeenCalled();
@@ -444,29 +411,23 @@ describe('Retry now (user-initiated reconnect)', () => {
     adapterMocks.startHavemindConnection.mockResolvedValue(resumed);
 
     // Arm the poll at the current connect generation.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (plugin as any).handleStatus('reconnect-required', STATUS_VIEW);
+    internals(plugin).handleStatus('reconnect-required', STATUS_VIEW);
     await flushMicrotasks();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((plugin as any).rejoinController).toBe(controller);
+    expect(internals(plugin).rejoinController).toBe(controller);
 
     // A connection is re-established by SOME path that does not itself disarm the
     // poll (here a bare startConnection). The generation counter advances.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (plugin as any).startConnection();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((plugin as any).connection).toBe(resumed);
+    await internals(plugin).startConnection();
+    expect(internals(plugin).connection).toBe(resumed);
 
     // The armed poll now ticks. The generation guard detects the connection was
     // re-established since arming and no-ops (never calls attempt / tears down),
     // then disarms.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (plugin as any).pollRejoinOnce();
+    await internals(plugin).pollRejoinOnce();
 
     expect(attempt).not.toHaveBeenCalled();
     expect(resumed.stop).not.toHaveBeenCalled();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((plugin as any).rejoinController).toBeNull();
+    expect(internals(plugin).rejoinController).toBeNull();
     plugin.unload();
   });
 });
@@ -496,8 +457,7 @@ describe('F9 rejoin wiring', () => {
     expect(adapterMocks.requestRejoinGrantForOwner).toHaveBeenCalledWith(plugin, {
       membershipId: 'm-magda',
     });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((plugin as any).rejoinWaiting.has('m-magda')).toBe(true);
+    expect(internals(plugin).rejoinWaiting.has('m-magda')).toBe(true);
   });
 
   it('does not record waiting when the owner is not connected (adapter returns null)', async () => {
@@ -508,38 +468,32 @@ describe('F9 rejoin wiring', () => {
       requestRejoin: (id: string) => Promise<void>;
     }).requestRejoin('m-magda');
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((plugin as any).rejoinWaiting.has('m-magda')).toBe(false);
+    expect(internals(plugin).rejoinWaiting.has('m-magda')).toBe(false);
   });
 
   it('owner removeMember revokes via the adapter and drops the member from the roster', async () => {
     const plugin = newPlugin();
     // An in-memory data.json so the roster store can persist and re-read.
     let store: Record<string, unknown> = {};
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (plugin as any).loadData = async () => store;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (plugin as any).saveData = async (data: Record<string, unknown>) => {
+    internals(plugin).loadData = async () => store;
+    internals(plugin).saveData = async (data: Record<string, unknown>) => {
       store = data;
     };
     // Seed the persistent roster with the owner (self) and Magda.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (plugin as any).recordRosterMember({
+    await internals(plugin).recordRosterMember({
       membershipId: 'm-owner',
       displayName: 'You',
       role: 'owner',
       self: true,
     });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (plugin as any).recordRosterMember({
+    await internals(plugin).recordRosterMember({
       membershipId: 'm-magda',
       displayName: 'Magda',
       role: 'editor',
       self: false,
     });
     // The owner had marked Magda disconnected before removing her.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (plugin as any).deadMembershipIds = ['m-magda'];
+    internals(plugin).deadMembershipIds = ['m-magda'];
 
     adapterMocks.revokeMembershipForOwner.mockResolvedValue({
       status: 'removed',
@@ -554,28 +508,22 @@ describe('F9 rejoin wiring', () => {
       membershipId: 'm-magda',
     });
     // Magda disappears from the roster; the owner self row remains.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const members = (plugin as any).rosterMembers as Array<{ membershipId: string }>;
+    const members = internals(plugin).rosterMembers as Array<{ membershipId: string }>;
     expect(members.map((m) => m.membershipId)).toEqual(['m-owner']);
     // The dead-marker is cleared too, so no stale Rejoin affordance lingers.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((plugin as any).deadMembershipIds).not.toContain('m-magda');
+    expect(internals(plugin).deadMembershipIds).not.toContain('m-magda');
     // Removal is a control-plane action, it records nothing in the activity feed.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((plugin as any).activityLog.snapshot()).toHaveLength(0);
+    expect(internals(plugin).activityLog.snapshot()).toHaveLength(0);
   });
 
   it('does not touch the roster when the owner is not connected (adapter returns null)', async () => {
     const plugin = newPlugin();
     let store: Record<string, unknown> = {};
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (plugin as any).loadData = async () => store;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (plugin as any).saveData = async (data: Record<string, unknown>) => {
+    internals(plugin).loadData = async () => store;
+    internals(plugin).saveData = async (data: Record<string, unknown>) => {
       store = data;
     };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (plugin as any).recordRosterMember({
+    await internals(plugin).recordRosterMember({
       membershipId: 'm-magda',
       displayName: 'Magda',
       role: 'editor',
@@ -587,8 +535,7 @@ describe('F9 rejoin wiring', () => {
       removeMember: (id: string) => Promise<void>;
     }).removeMember('m-magda');
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const members = (plugin as any).rosterMembers as Array<{ membershipId: string }>;
+    const members = internals(plugin).rosterMembers as Array<{ membershipId: string }>;
     expect(members.map((m) => m.membershipId)).toEqual(['m-magda']);
   });
 
@@ -603,36 +550,28 @@ describe('F9 rejoin wiring', () => {
     adapterMocks.startHavemindConnection.mockResolvedValue(fakeHandle('resumed'));
 
     // A terminal auth failure arms the rejoin poll from the persisted binding.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (plugin as any).handleStatus('reconnect-required', STATUS_VIEW);
+    internals(plugin).handleStatus('reconnect-required', STATUS_VIEW);
     await flushMicrotasks();
     expect(adapterMocks.buildRejoinControllerForInvitee).toHaveBeenCalledTimes(1);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((plugin as any).rejoinController).toBe(controller);
+    expect(internals(plugin).rejoinController).toBe(controller);
 
     // A second terminal status while armed is idempotent, no second controller.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (plugin as any).handleStatus('reconnect-required', STATUS_VIEW);
+    internals(plugin).handleStatus('reconnect-required', STATUS_VIEW);
     await flushMicrotasks();
     expect(adapterMocks.buildRejoinControllerForInvitee).toHaveBeenCalledTimes(1);
 
     // First poll: no grant yet, stays armed, no restart.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (plugin as any).pollRejoinOnce();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((plugin as any).rejoinController).toBe(controller);
+    await internals(plugin).pollRejoinOnce();
+    expect(internals(plugin).rejoinController).toBe(controller);
     expect(adapterMocks.startHavemindConnection).not.toHaveBeenCalled();
 
     // Second poll: syncing, disarm and restart the connection once.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (plugin as any).pollRejoinOnce();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((plugin as any).rejoinController).toBeNull();
+    await internals(plugin).pollRejoinOnce();
+    expect(internals(plugin).rejoinController).toBeNull();
     expect(adapterMocks.startHavemindConnection).toHaveBeenCalledTimes(1);
 
     // A stray late poll must never start a second connection.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (plugin as any).pollRejoinOnce();
+    await internals(plugin).pollRejoinOnce();
     expect(adapterMocks.startHavemindConnection).toHaveBeenCalledTimes(1);
 
     plugin.unload();
@@ -647,24 +586,18 @@ describe('F9 rejoin wiring', () => {
     const controller = { attempt, getState: () => 'terminal-auth' };
     adapterMocks.buildRejoinControllerForInvitee.mockResolvedValue(controller);
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (plugin as any).handleStatus('reconnect-required', STATUS_VIEW);
+    internals(plugin).handleStatus('reconnect-required', STATUS_VIEW);
     await flushMicrotasks();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((plugin as any).rejoinController).toBe(controller);
+    expect(internals(plugin).rejoinController).toBe(controller);
 
     // The poll ticks and the controller reports a terminal failure.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (plugin as any).pollRejoinOnce();
+    await internals(plugin).pollRejoinOnce();
 
     // The interval is disarmed …
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((plugin as any).rejoinController).toBeNull();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((plugin as any).rejoinPollTimer).toBeNull();
+    expect(internals(plugin).rejoinController).toBeNull();
+    expect(internals(plugin).rejoinPollTimer).toBeNull();
     // … and the failure is surfaced to the user (not swallowed).
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((plugin as any).connectionError).toContain('Rejoin');
+    expect(internals(plugin).connectionError).toContain('Rejoin');
   });
 
   it('routes a throwing attempt() to the surfaced failure path (no unhandled rejection) (FIX C1)', async () => {
@@ -679,24 +612,18 @@ describe('F9 rejoin wiring', () => {
     const controller = { attempt, getState: () => 'terminal-auth' };
     adapterMocks.buildRejoinControllerForInvitee.mockResolvedValue(controller);
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (plugin as any).handleStatus('reconnect-required', STATUS_VIEW);
+    internals(plugin).handleStatus('reconnect-required', STATUS_VIEW);
     await flushMicrotasks();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((plugin as any).rejoinController).toBe(controller);
+    expect(internals(plugin).rejoinController).toBe(controller);
 
     // The poll ticks and the attempt rejects, the tick must resolve, not throw.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await expect((plugin as any).pollRejoinOnce()).resolves.toBeUndefined();
+    await expect(internals(plugin).pollRejoinOnce()).resolves.toBeUndefined();
 
     // The interval is disarmed …
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((plugin as any).rejoinController).toBeNull();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((plugin as any).rejoinPollTimer).toBeNull();
+    expect(internals(plugin).rejoinController).toBeNull();
+    expect(internals(plugin).rejoinPollTimer).toBeNull();
     // … and the failure is surfaced to the user (not swallowed).
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((plugin as any).connectionError).toContain('Rejoin');
+    expect(internals(plugin).connectionError).toContain('Rejoin');
   });
 
   it('does not arm the doomed rejoin poll for an OWNER dead-end but still surfaces the error (sweep-P1)', async () => {
@@ -707,30 +634,24 @@ describe('F9 rejoin wiring', () => {
     const plugin = newPlugin();
     adapterMocks.buildRejoinControllerForInvitee.mockResolvedValue(null);
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (plugin as any).handleStatus('reconnect-required', STATUS_VIEW);
+    internals(plugin).handleStatus('reconnect-required', STATUS_VIEW);
     await flushMicrotasks();
 
     // No doomed background poll is armed …
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((plugin as any).rejoinController).toBeNull();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((plugin as any).rejoinPollTimer).toBeNull();
+    expect(internals(plugin).rejoinController).toBeNull();
+    expect(internals(plugin).rejoinPollTimer).toBeNull();
     // … but the surfaced error state still drives the retry / re-pair flow.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((plugin as any).connectionError).toBeTruthy();
+    expect(internals(plugin).connectionError).toBeTruthy();
   });
 
   it('does not arm when no persisted rejoin identity exists', async () => {
     const plugin = newPlugin();
     adapterMocks.buildRejoinControllerForInvitee.mockResolvedValue(null);
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (plugin as any).handleStatus('reconnect-required', STATUS_VIEW);
+    internals(plugin).handleStatus('reconnect-required', STATUS_VIEW);
     await flushMicrotasks();
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((plugin as any).rejoinController).toBeNull();
+    expect(internals(plugin).rejoinController).toBeNull();
   });
 
   it('surfaces a controller-setup failure instead of leaking an unhandled rejection', async () => {
@@ -739,14 +660,11 @@ describe('F9 rejoin wiring', () => {
       new Error('keychain unavailable'),
     );
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (plugin as any).handleStatus('reconnect-required', STATUS_VIEW);
+    internals(plugin).handleStatus('reconnect-required', STATUS_VIEW);
     await flushMicrotasks();
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((plugin as any).rejoinController).toBeNull();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((plugin as any).connectionError).toContain('could not prepare reconnection');
+    expect(internals(plugin).rejoinController).toBeNull();
+    expect(internals(plugin).connectionError).toContain('could not prepare reconnection');
   });
 
   it('cancels the rejoin restart cleanly when unload races an in-flight poll', async () => {
@@ -761,12 +679,10 @@ describe('F9 rejoin wiring', () => {
     adapterMocks.buildRejoinControllerForInvitee.mockResolvedValue(controller);
     adapterMocks.startHavemindConnection.mockResolvedValue(fakeHandle('resumed'));
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (plugin as any).handleStatus('reconnect-required', STATUS_VIEW);
+    internals(plugin).handleStatus('reconnect-required', STATUS_VIEW);
     await flushMicrotasks();
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const poll = (plugin as any).pollRejoinOnce() as Promise<void>;
+    const poll = internals(plugin).pollRejoinOnce() as Promise<void>;
     // The plugin unloads while the redemption attempt is still in flight.
     plugin.unload();
     // Only now does the attempt resolve with a success that must be ignored.

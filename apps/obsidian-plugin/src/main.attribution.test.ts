@@ -25,6 +25,7 @@ import {
   registrationState,
   resetObsidianMock,
 } from './test/obsidian.mock';
+import { internals } from './test/plugin-internals';
 
 const manifest: PluginManifest = {
   author: 'Mikolaj Pawel Sapek',
@@ -60,10 +61,8 @@ function newPlugin(): {
 } {
   const plugin = new HavemindPlugin(new App(), manifest);
   let disk: Record<string, unknown> = {};
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (plugin as any).loadData = async () => disk;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (plugin as any).saveData = async (data: unknown) => {
+  internals(plugin).loadData = async () => disk;
+  internals(plugin).saveData = async (data: unknown) => {
     disk = data as Record<string, unknown>;
   };
   return { plugin, disk: () => disk };
@@ -191,8 +190,7 @@ describe('author overlay wiring (FINDING 1)', () => {
 
   it('survives a data.json that cannot be read, staying session-only', async () => {
     const plugin = new HavemindPlugin(new App(), manifest);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (plugin as any).loadData = async () => {
+    internals(plugin).loadData = async () => {
       throw new Error('data.json is unreadable');
     };
     await plugin.onload();
