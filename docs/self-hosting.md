@@ -53,6 +53,27 @@ you will front the server with in step (e) below (it must be set correctly
 HAVEMIND_API_BASE_URL=https://your-server.your-tailnet.ts.net
 ```
 
+### The database key secret
+
+`deploy/compose.yaml` mounts `/srv/secrets/havemind_db_key` as a Docker secret,
+so the file has to exist before the first `up`, or Compose refuses to start the
+stack. Generate it and put it there, readable only by you:
+
+```bash
+sudo mkdir -p /srv/secrets
+# The command prints the key on the first line, then a fingerprint and notes as
+# comments. Only the first line belongs in the file.
+node apps/server/bin/havemind.js generate-db-key | head -1 \
+  | sudo tee /srv/secrets/havemind_db_key >/dev/null
+sudo chmod 0600 /srv/secrets/havemind_db_key
+```
+
+Record the fingerprint the command prints; it identifies the key without
+revealing it.
+
+This key seals checkpoint snapshots. It does **not** encrypt the live database,
+which stays plaintext on the volume.
+
 Build and start the container:
 
 ```bash
@@ -65,6 +86,15 @@ Confirm it is healthy:
 ```bash
 docker compose -f deploy/compose.yaml ps
 # STATUS should read "Up (healthy)" within about 40 seconds
+```
+
+`havemind doctor` checks the rest of the deployment (the key file and its
+permissions, the data directory, the configured base URL) and prints no secret
+values:
+
+```bash
+docker compose -f deploy/compose.yaml exec havemind-server \
+  node apps/server/bin/havemind.js doctor
 ```
 
 ### One-time volume ownership fix

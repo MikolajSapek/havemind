@@ -1538,6 +1538,15 @@
   color: var(--text-normal);
   font: inherit;
   cursor: pointer;
+  /* Obsidian gives every <button> a fixed height and `white-space: nowrap`.
+     Both are wrong here: this button holds two lines (title + cost), so the
+     fixed height clipped the second line behind the next card and nowrap ran
+     the text past the pane's right edge. Height comes from the content, and
+     the cost line wraps. */
+  height: auto;
+  min-height: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .havemind-entry-option:hover { background: var(--background-modifier-hover); }
 .havemind-entry-option-title { font-weight: 500; margin-bottom: 2px; }
