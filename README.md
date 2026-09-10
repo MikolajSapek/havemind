@@ -2,6 +2,10 @@
   <img src="design/brand/havemind-banner-white.png" alt="Havemind, a shared Obsidian vault for people you trust" width="100%">
 </p>
 
+<p align="center">
+  <img src="design/brand/havemind-hero.gif" alt="A note typed on a MacBook appearing on an iPhone about a second later, the Havemind pane visible on both" width="100%">
+</p>
+
 # Havemind
 
 ### Share one Obsidian vault with people you trust.
@@ -14,11 +18,11 @@ changed what.
 Use it with people first. If you choose to use Claude, MCP, or another local
 agent in that vault, Havemind keeps those changes in the same history too.
 
-**Version 1.2.3, clean teardown.** A seven-day,
-two-device pilot completed without data loss. Havemind does not provide
-end-to-end encryption: the self-hosted server stores synced content in plaintext.
-Read the [security model](#security-model) before connecting a vault you care
-about.
+**Version 1.4.7, desktop and mobile.** Runs on macOS, Windows and Linux, and on
+iOS and Android through the Obsidian mobile app. A seven-day, two-device pilot
+completed without data loss. Havemind does not provide end-to-end encryption:
+the self-hosted server stores synced content in plaintext. Read the
+[security model](#security-model) before connecting a vault you care about.
 
 **Self-hosting your own instance?** See
 [docs/self-hosting.md](docs/self-hosting.md) for the full zero-to-working
@@ -30,6 +34,11 @@ requirements and the steps.
 
 ## What it does
 
+- **Desktop and mobile, the same vault.** Havemind runs on macOS, Windows and
+  Linux, and on iOS and Android through the Obsidian mobile app. The pane docks
+  into the sidebar on a desktop and fills the screen on a phone, with touch
+  targets and safe areas sized for it. Edit a note on your phone and it is on
+  your laptop about a second later.
 - **Real-time two-way sync (~1 second).** A long-poll wake channel pushes a
   peer's change to your device in roughly a second, with a periodic poll as a
   fallback. You do not need to manually refresh.

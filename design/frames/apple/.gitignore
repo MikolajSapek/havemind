@@ -1,0 +1,4 @@
+# Apple Design Resources bezels. Licensed for making mock-ups of software that
+# runs on Apple systems, NOT for redistribution. Fetch them, use them, never
+# commit them. See docs/APPLE-BEZELS.md in blaineam/Monkr for the workflow.
+*.png

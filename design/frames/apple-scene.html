@@ -1,0 +1,59 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Havemind, Apple bezels</title>
+<style>
+  /*
+   * Screen cutouts measured from each bezel's alpha channel by flood-filling
+   * the outside transparency first, so the hole can never be confused with the
+   * page behind the frame. Cross-checked against Apple's own display.svg masks:
+   *
+   *   iPhone 17 Pro   measured 1205x2621   mask 1206x2623
+   *   MacBook Pro 16  measured 3260x2105   mask 3262x2109
+   *
+   * Percentages, so a screen stays locked to its frame at any width.
+   */
+  :root { --scene: 1; }
+  body { margin:0; background:#12101c; min-height:100vh;
+         display:flex; align-items:center; justify-content:center;
+         font:14px system-ui, -apple-system, sans-serif; }
+  .scene { display:flex; align-items:flex-end;
+           transform:scale(var(--scene)); transform-origin:center; }
+
+  .device { position:relative; flex:none; }
+  .device > img { display:block; width:100%; height:auto;
+                  position:relative; z-index:2; pointer-events:none; }
+  .device .screen { position:absolute; overflow:hidden; z-index:1; background:#000; }
+  .device .screen > * { width:100%; height:100%; border:0; display:block; }
+
+  /* MacBook Pro 16, frame 4893x3164, hole 817,530 -> 4077,2635. Square corners:
+     the mask is a plain rectangle, M0 0 H3262 V2109 H0 Z. */
+  .macbook { width:820px; }
+  .macbook .screen {
+    left:16.697%; top:16.751%; width:66.626%; height:66.530%;
+  }
+
+  /* iPhone 17 Pro, frame 1508x3278, hole 152,329 -> 1357,2950 (1205x2621).
+     The corner radius is 191px, found by fitting a circle to the cutout's
+     corner arc and confirmed by sweeping values against the rendered frame:
+     191 leaves no gap, and anything larger opens one (222 -> 1385 stray
+     pixels). Expressed against the frame width so the corner stays circular;
+     a percentage border-radius would stretch into an ellipse on a tall box. */
+  .iphone { width:210px; margin-left:-96px; margin-bottom:-40px; z-index:5;
+            --frame-w:210px; }
+  .iphone .screen {
+    left:10.080%; top:10.037%; width:79.907%; height:79.957%;
+    border-radius:calc(var(--frame-w) * 191 / 1508);
+  }
+
+  .ph { display:flex; align-items:center; justify-content:center;
+        background:#1e222b; color:#B69CF5; font-weight:600; letter-spacing:.5px; }
+</style></head><body>
+<div class="scene">
+  <div class="device macbook">
+    <img src="apple/macbook-pro-16.png" alt="MacBook Pro 16">
+    <div class="screen"><div class="ph" style="font-size:34px">desktop</div></div>
+  </div>
+  <div class="device iphone">
+    <img src="apple/iphone-17-pro.png" alt="iPhone 17 Pro">
+    <div class="screen"><div class="ph" style="font-size:15px">phone</div></div>
+  </div>
+</div>
+</body></html>

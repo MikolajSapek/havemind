@@ -1,0 +1,174 @@
+/*
+ * Device frames for the Havemind README, drawn in CSS.
+ *
+ * Two devices only, the two the README claims support for: a MacBook Pro and
+ * an iPhone 17 Pro. Nothing here is an image, so there is no third-party asset
+ * to license and nothing to re-download when a frame needs a tweak.
+ *
+ * Put whatever you like inside .screen; it is clipped to the device's screen.
+ *
+ *   <div class="hm-scene">
+ *     <div class="hm-macbook"><div class="screen"> ... </div></div>
+ *     <div class="hm-iphone"><div class="screen"> ... </div></div>
+ *   </div>
+ *
+ * Scale a device by setting --u on it (1 = the sizes below).
+ */
+
+.hm-scene {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 0;
+}
+
+/* ---------------------------------------------------------------- MacBook */
+
+.hm-macbook {
+  --u: 1;
+  --screen-w: calc(760px * var(--u));
+  --screen-h: calc(475px * var(--u));
+  --bezel: calc(11px * var(--u));
+  position: relative;
+  flex: none;
+}
+
+.hm-macbook .lid {
+  width: calc(var(--screen-w) + var(--bezel) * 2);
+  height: calc(var(--screen-h) + var(--bezel) * 2);
+  padding: var(--bezel);
+  box-sizing: border-box;
+  background: #1d1d1f;
+  border-radius: calc(12px * var(--u)) calc(12px * var(--u)) calc(3px * var(--u)) calc(3px * var(--u));
+  box-shadow:
+    inset 0 0 0 calc(1px * var(--u)) #3a3a3c,
+    0 calc(18px * var(--u)) calc(40px * var(--u)) rgba(0, 0, 0, 0.35);
+}
+
+.hm-macbook .screen {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+  border-radius: calc(3px * var(--u));
+  position: relative;
+}
+
+/* The camera notch, drawn over the top edge of the screen. */
+.hm-macbook .lid::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: calc(150px * var(--u));
+  height: calc(var(--bezel) + 8px * var(--u));
+  background: #000;
+  border-radius: 0 0 calc(7px * var(--u)) calc(7px * var(--u));
+  z-index: 2;
+}
+
+/* The base: a wide slab under the lid, plus the lip cut into its front edge. */
+.hm-macbook .base {
+  position: relative;
+  width: calc(var(--screen-w) + var(--bezel) * 2 + 150px * var(--u));
+  height: calc(11px * var(--u));
+  margin-left: calc(-75px * var(--u));
+  background: linear-gradient(180deg, #b8bcc2 0%, #86898f 55%, #5f6268 100%);
+  border-radius: 0 0 calc(9px * var(--u)) calc(9px * var(--u));
+  box-shadow: 0 calc(10px * var(--u)) calc(22px * var(--u)) rgba(0, 0, 0, 0.3);
+}
+
+.hm-macbook .base::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: calc(120px * var(--u));
+  height: calc(4px * var(--u));
+  background: #6f7278;
+  border-radius: 0 0 calc(5px * var(--u)) calc(5px * var(--u));
+}
+
+/* ----------------------------------------------------------- iPhone 17 Pro */
+
+.hm-iphone {
+  --u: 1;
+  --screen-w: calc(300px * var(--u));
+  --screen-h: calc(650px * var(--u));
+  --bezel: calc(9px * var(--u));
+  --radius: calc(52px * var(--u));
+  position: relative;
+  flex: none;
+  width: calc(var(--screen-w) + var(--bezel) * 2);
+  height: calc(var(--screen-h) + var(--bezel) * 2);
+  padding: var(--bezel);
+  box-sizing: border-box;
+  background: linear-gradient(145deg, #3a3a3c 0%, #1c1c1e 45%, #2c2c2e 100%);
+  border-radius: var(--radius);
+  box-shadow:
+    inset 0 0 0 calc(2px * var(--u)) #48484a,
+    0 calc(16px * var(--u)) calc(38px * var(--u)) rgba(0, 0, 0, 0.4);
+}
+
+.hm-iphone .screen {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+  border-radius: calc(var(--radius) - var(--bezel));
+  position: relative;
+}
+
+/* Dynamic Island. */
+.hm-iphone::after {
+  content: '';
+  position: absolute;
+  top: calc(var(--bezel) + 9px * var(--u));
+  left: 50%;
+  transform: translateX(-50%);
+  width: calc(104px * var(--u));
+  height: calc(30px * var(--u));
+  background: #000;
+  border-radius: calc(15px * var(--u));
+  z-index: 3;
+}
+
+/* Side buttons. Each is anchored to its own edge, no transforms. */
+.hm-iphone .buttons::before,
+.hm-iphone .buttons::after,
+.hm-iphone .buttons i {
+  content: '';
+  position: absolute;
+  background: #4a4a4c;
+  border-radius: calc(2px * var(--u));
+  width: calc(3px * var(--u));
+}
+
+.hm-iphone .buttons::before {   /* volume up */
+  left: calc(-3px * var(--u));
+  top: calc(150px * var(--u));
+  height: calc(56px * var(--u));
+}
+
+.hm-iphone .buttons::after {    /* volume down */
+  left: calc(-3px * var(--u));
+  top: calc(220px * var(--u));
+  height: calc(56px * var(--u));
+}
+
+.hm-iphone .buttons i {         /* power */
+  right: calc(-3px * var(--u));
+  top: calc(190px * var(--u));
+  height: calc(96px * var(--u));
+}
+
+/* --------------------------------------------------------------- Overlaps */
+
+/* The phone standing in front of the laptop, as in the reference photo. */
+.hm-scene .hm-iphone.overlap {
+  margin-left: calc(-90px * var(--u));
+  margin-bottom: calc(-26px * var(--u));
+  z-index: 5;
+}

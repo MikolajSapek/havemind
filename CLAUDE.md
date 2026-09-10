@@ -138,6 +138,25 @@ After tagging the source repo, mirror it:
 
 A release is reported as done only after step 4.
 
+### The README is part of the release, not documentation about it
+
+Bump the version in `apps/obsidian-plugin/manifest.json` and `manifest-beta.json`
+AND in the README's `**Version X.Y.Z` line, in the same commit. The README's
+first paragraph is the first thing a visitor reads, and it sat at "Version 1.2.3"
+while 1.4.7 was live in the catalogue: seven releases, every one of them
+announcing the wrong version (2026-09-10).
+
+`tests/readme-version.test.ts` fails when the README version and the manifest
+disagree, so `npm run verify` catches it before the tag exists. Do not delete
+that test to make a release pass, fix the README.
+
+Before tagging, re-read the README for anything the release made untrue:
+
+- the version line, including its short description of what the release is;
+- **What it does**, when the release added or removed a user-visible capability;
+- the platform claims, when support changes;
+- screenshots and `design/brand/*.png`, when the pane's appearance changed.
+
 **After every push to `origin/main`, append an entry to
 `Havemind - dziennik wydan`** before reporting the push as done: the date,
 the commits with one line each, what changed, and the state of
