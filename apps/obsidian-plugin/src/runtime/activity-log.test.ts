@@ -204,3 +204,68 @@ describe('remoteAppliedToActivityEntry', () => {
     ).toMatchObject({ kind: 'delete', hasContent: false });
   });
 });
+
+describe('remote attribution with more than two members', () => {
+  const roster: RosterMember[] = [
+    { membershipId: 'm-you', displayName: 'You', role: 'owner', self: true },
+    { membershipId: 'm-hubert', displayName: 'Hubert', role: 'editor', self: false },
+    { membershipId: 'm-miki', displayName: 'Miki telfon', role: 'editor', self: false },
+  ];
+
+  it('names the author when the revision carries a membership id', () => {
+    // The pull payload now surfaces the author, so a three-person vault
+    // attributes precisely instead of falling back to "Remote". Before this,
+    // soleOtherMember() returned null for any roster past two people and every
+    // remote change in the feed read "Remote edit".
+    const entry = remoteAppliedToActivityEntry(
+      {
+        revisionId: 'r1',
+        fileId: 'f1',
+        path: 'Notes/Kiln.md',
+        operation: 'update',
+        authorMembershipId: 'm-hubert',
+      },
+      1_000,
+    );
+    const records = activityEntriesToRecords([entry], roster);
+    expect(records[0]?.actor).toEqual({
+      kind: 'author',
+      actorId: 'm-hubert',
+      displayName: 'Hubert',
+    });
+  });
+
+  it('stays neutral when the revision carries no author', () => {
+    const entry = remoteAppliedToActivityEntry(
+      { revisionId: 'r2', fileId: 'f2', path: 'Notes/Other.md', operation: 'update' },
+      2_000,
+    );
+    const records = activityEntriesToRecords([entry], roster);
+    expect(records[0]?.actor).toEqual({
+      kind: 'author',
+      actorId: expect.any(String),
+      displayName: 'Remote',
+    });
+  });
+
+  it('names an author the roster does not know yet', () => {
+    // A member approved on another device is in the vault before this client
+    // has seen them. Better an honest placeholder than someone else's name.
+    const entry = remoteAppliedToActivityEntry(
+      {
+        revisionId: 'r3',
+        fileId: 'f3',
+        path: 'Notes/New.md',
+        operation: 'update',
+        authorMembershipId: 'm-unseen',
+      },
+      3_000,
+    );
+    const records = activityEntriesToRecords([entry], roster);
+    expect(records[0]?.actor).toEqual({
+      kind: 'author',
+      actorId: 'm-unseen',
+      displayName: 'Unknown member',
+    });
+  });
+});

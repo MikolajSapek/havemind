@@ -11,6 +11,7 @@ import {
 import Fastify, { LogController, type FastifyInstance } from 'fastify';
 
 import { registerAuthRoutes, type AuthRoutesDeps } from './auth/auth-routes.js';
+import { registerMemberRosterRoutes } from './auth/member-roster-routes.js';
 import { registerRejoinRoutes } from './auth/rejoin-routes.js';
 import { registerRevokeRoutes } from './auth/revoke-routes.js';
 import type { ServerConfig } from './config.js';
@@ -112,6 +113,13 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
       ...(options.auth.rateLimit === undefined
         ? {}
         : { rateLimit: options.auth.rateLimit }),
+    });
+    // The vault roster, read from the server rather than assembled from what
+    // each device witnessed. Same access rule as /bootstrap: any active member
+    // of the vault may read who else is in it.
+    registerMemberRosterRoutes(app, {
+      database: options.auth.database,
+      sessions: options.auth.sessions,
     });
   }
 

@@ -32,6 +32,54 @@ guide (Docker Compose + Tailscale, tailnet-only).
 [docs/using-with-ai-agents.md](docs/using-with-ai-agents.md) for the
 requirements and the steps.
 
+## Install
+
+Havemind needs two things: the plugin, and a server you run.
+
+**The plugin.** In Obsidian, open Settings, then Community plugins, then
+Browse, and search for **Havemind**. Install it and enable it. It runs on
+macOS, Windows, Linux, iOS and Android.
+
+**The server.** There is no Havemind cloud to sign up for: you host it, or you
+join someone who does. See [Quick start](#quick-start) below.
+
+## Quick start
+
+Two paths, depending on whether you are the one running the server.
+
+### You are hosting
+
+1. **Install Tailscale** on the machine that will run the server, and log in.
+   Everyone who syncs joins the same tailnet; that is the whole access
+   boundary, and nothing is exposed to the public internet.
+2. **Start the server.** On that machine, from a checkout of this repository:
+   `docker compose up -d`. You need Docker Engine with the Compose v2 plugin.
+3. **Put Tailscale in front of it** with `tailscale serve`, so the other
+   devices on your tailnet can reach it. Full commands are in the
+   [self-hosting guide](docs/self-hosting.md).
+4. **Connect the plugin.** Open the Havemind pane in Obsidian, go to the
+   Connect tab, and enter your server's tailnet address
+   (`something.tailnet-name.ts.net`). The Status tab turns green when it is
+   working.
+5. **Invite the other person.** People tab, then Invite someone. Send them the
+   invitation; it works once.
+6. **Approve their device.** They read a 6-digit code aloud to you, you type
+   it in. Three attempts. That handshake is what binds their identity, so do
+   it by voice, never by message.
+
+The long version, including backups and multiple vaults, is in
+[docs/self-hosting.md](docs/self-hosting.md).
+
+### You are joining someone else's vault
+
+1. Install Tailscale, log in, and accept the invitation to their tailnet.
+2. Install the Havemind plugin in Obsidian.
+3. Open the invitation the owner sent you.
+4. Your device shows a **6-digit code**. Read it aloud to the owner over a
+   call, never in a chat message.
+5. Once they approve, the vault syncs. It appears in your Obsidian like any
+   other vault.
+
 ## What it does
 
 - **Desktop and mobile, the same vault.** Havemind runs on macOS, Windows and

@@ -131,6 +131,12 @@ export interface RemoteAppliedInfo {
   readonly fileId: string;
   readonly path: string;
   readonly operation: RemoteRevisionOperation;
+  /**
+   * The membership that authored the revision, when the pull payload carries
+   * it. Absent for a revision written before the server surfaced the author,
+   * which is why the feed still has a neutral fallback.
+   */
+  readonly authorMembershipId?: string;
 }
 
 /**
@@ -149,7 +155,12 @@ export function remoteAppliedToActivityEntry(
     fileId: info.fileId,
     path: info.path,
     kind: toRemoteActivityKind(info.operation),
-    author: { kind: 'remote' },
+    // Attribute precisely when the payload names the author; only fall back to
+    // the neutral 'remote' marker when it genuinely does not.
+    author:
+      info.authorMembershipId === undefined
+        ? { kind: 'remote' }
+        : { kind: 'member', membershipId: info.authorMembershipId },
     timestamp,
     hasContent: info.operation !== 'delete',
   };
@@ -256,9 +267,10 @@ function resolveAuthor(
       displayName: member?.displayName ?? 'Unknown member',
     };
   }
-  // Remote revision with no author id in the pull stream. Attribute it to the
-  // sole other member when unambiguous (two-person pilot); otherwise stay
-  // neutral. Colour keyed by a resolved membershipId or a stable remote id.
+  // Remote revision whose payload carried no author id: an older revision, or
+  // a server that predates the author field. Attribute it to the sole other
+  // member when that is unambiguous, otherwise stay neutral rather than guess
+  // among several people. Colour keyed by a membershipId or a stable remote id.
   const other = soleOtherMember(roster);
   if (other !== null) {
     return {
