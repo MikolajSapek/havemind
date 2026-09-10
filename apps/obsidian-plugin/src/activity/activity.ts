@@ -2,12 +2,12 @@
  * Havemind Activity model: history feed, revision diff and append-only restore.
  *
  * This module implements the pure logic behind the Activity surface described in
- * `plan/06-plugin-activity-i-overlay.md` (issue F5-01 / T028). It consumes
+ * `plan/06-plugin-activity-and-overlay.md` (issue F5-01 / T028). It consumes
  * `@havemind/sync-core` for the revision DAG and the diff/provenance engine, and
  * never talks to Obsidian, the DOM or the network so it can be exercised in
  * isolation.
  *
- * Hard rules enforced here (see `plan/01-zasady-i-slownik.md`):
+ * Hard rules enforced here (see `plan/01-rules-and-glossary.md`):
  *  - Restore is append-only: it creates a NEW revision on top of the current
  *    head and never rewrites, deletes or mutates any historical revision
  *    (rule 4, zero silent overwrites).

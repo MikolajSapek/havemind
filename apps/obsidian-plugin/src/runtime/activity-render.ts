@@ -1,5 +1,5 @@
 /**
- * View-model helpers for the Activity surface (`plan/06-plugin-activity-i-overlay.md`).
+ * View-model helpers for the Activity surface (`plan/06-plugin-activity-and-overlay.md`).
  *
  * These stay pure so the desktop shell can render a newest-first feed and a line
  * diff without the DOM. They wrap the already-tested `buildActivityFeed` and

@@ -13,7 +13,7 @@
 
 This plan covers only *how to distribute an already-built plugin artifact*. It does not change
 the sync protocol, the trust model, or the opaque-server boundary. Any conflict with
-`specs/`/`plans/001` → `specs/`/`plans/001` win (`plan/01-zasady-i-slownik.md` rule 1).
+`specs/`/`plans/001` → `specs/`/`plans/001` win (`plan/01-rules-and-glossary.md` rule 1).
 
 ---
 
@@ -77,7 +77,7 @@ Phase 8):
 - No `.github/` in the repo, **there is no CI or release workflow yet**. Needs adding (gate
   below), per `specs/003` "Continuous integration and releases".
 - Remote: private repo under `github.com/MikolajSapek/...` (owner's account). Making it public =
-  a gate requiring a question to the user (`plan/01-zasady-i-slownik.md` rule 9,
+  a gate requiring a question to the user (`plan/01-rules-and-glossary.md` rule 9,
   `plans/001` §14 "Ask first").
 
 ### Version model

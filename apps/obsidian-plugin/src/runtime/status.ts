@@ -1,9 +1,9 @@
 /**
- * Status-bar model per `plan/05-plugin-polaczenie-i-sync.md`. Pure formatting so
+ * Status-bar model per `plan/05-plugin-connection-and-sync.md`. Pure formatting so
  * the desktop shell can render a stable label plus a hover tooltip carrying the
  * last-sync time. The tooltip always states that sync runs over a private
  * Tailscale network only, with no end-to-end encryption, honesty as a feature
- * (`plan/01-zasady-i-slownik.md`).
+ * (`plan/01-rules-and-glossary.md`).
  */
 
 import type { SyncCycleStatus } from '../sync/sync-runner';

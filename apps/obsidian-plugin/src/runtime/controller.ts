@@ -2,7 +2,7 @@
  * Composes the sync runtime for a connected vault: it drives the injected sync
  * runner through the scheduler and publishes a status-bar view after every
  * cycle. The controller is the single place that turns a raw cycle result into a
- * connection status (`plan/05-plugin-polaczenie-i-sync.md`).
+ * connection status (`plan/05-plugin-connection-and-sync.md`).
  *
  * The runner, scheduler hooks and status sink are all injected, so the whole
  * composition is exercised without Obsidian, HTTP or a real clock.
@@ -185,7 +185,7 @@ export class HavemindSyncController {
       // Below the threshold the connection is not declared lost, but nothing is
       // progressing either, so this reports `retrying`, never `syncing`. A
       // spinner labelled "Syncing" during an outage claims work that is not
-      // happening (honesty as a feature, `plan/01-zasady-i-slownik.md`).
+      // happening (honesty as a feature, `plan/01-rules-and-glossary.md`).
       const status: ConnectionStatus =
         this.consecutiveFailures >= OFFLINE_FAILURE_THRESHOLD
           ? 'offline'

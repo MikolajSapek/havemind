@@ -2,7 +2,7 @@
 
 Havemind is a private synchronisation layer for Obsidian (see `README.md`). This file applies
 within this repository and overrides conflicting upstream context (global CLAUDE.md, skills
-other than those listed below) to the extent that `plan/01-zasady-i-slownik.md` rule 8-9
+other than those listed below) to the extent that `plan/01-rules-and-glossary.md` rule 8-9
 explicitly describes it (access to `sapserver`, local commit within the `/loop` loop).
 
 ## Repo structure
@@ -18,7 +18,7 @@ explicitly describes it (access to `sapserver`, local commit within the `/loop` 
 
 Do not guess requirements or architecture. Everything is in `specs/`, `plans/`, `docs/research.md`.
 Where `plan/` conflicts with these files → `specs/`/`plans/` win (see
-`plan/01-zasady-i-slownik.md` rule 1), except for explicitly documented deviations in the
+`plan/01-rules-and-glossary.md` rule 1), except for explicitly documented deviations in the
 `plan/README.md` "Open decisions" section.
 
 ## Commands
@@ -36,7 +36,7 @@ npm run compose:smoke
 npm run test:e2e
 ```
 
-## Hard-rules summary (full version: `plan/01-zasady-i-slownik.md`)
+## Hard-rules summary (full version: `plan/01-rules-and-glossary.md`)
 
 1. TDD red-green-refactor, no exceptions.
 2. The server is opaque, it never computes diff/provenance/merge.

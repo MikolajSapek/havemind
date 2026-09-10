@@ -1,7 +1,7 @@
 # 08, Sapserver operations
 
 A phase parallel to F7/F8, but with a separate blocker: **the backup must be ready BEFORE
-T032**, not in parallel with it (see `01-zasady-i-slownik.md` rule 8-9). The figures below come
+T032**, not in parallel with it (see `01-rules-and-glossary.md` rule 8-9). The figures below come
 from the operator's private setup note (outside this repo), re-verify them
 (`ssh sapserver` plus the commands in that note's "Przydatne polecenia" section) before starting
 this phase, since the note may have changed since its last update.

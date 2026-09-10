@@ -6,7 +6,7 @@
  * Pre-auth onboarding secrets travel in headers, never in the query string:
  * the pending credential goes in `x-havemind-pending-credential` and the refresh
  * token in `x-havemind-refresh-token`, mirroring the server contract and the
- * anti-spec in `plan/05-plugin-polaczenie-i-sync.md`.
+ * anti-spec in `plan/05-plugin-connection-and-sync.md`.
  *
  * `finalUrl` echoes the URL the onboarding controller asked for. Obsidian's
  * `requestUrl` follows redirects transparently and does not surface the resolved

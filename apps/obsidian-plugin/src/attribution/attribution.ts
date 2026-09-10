@@ -2,7 +2,7 @@
  * Havemind author overlay: pure attribution decoration model.
  *
  * This module implements the logic behind the author overlay described in
- * `plan/06-plugin-activity-i-overlay.md` (issue F6-01 / T029). It consumes the
+ * `plan/06-plugin-activity-and-overlay.md` (issue F6-01 / T029). It consumes the
  * provenance runs produced by `@havemind/sync-core` and the Activity surface
  * (F5-01) and turns them into visual decoration descriptors for the two editor
  * surfaces (Live Preview inline segments and Reading-view block markers).
@@ -10,7 +10,7 @@
  * It never talks to Obsidian, the DOM or the network, so the accessibility and
  * "never guess" guarantees can be exercised deterministically in isolation.
  *
- * Hard rules enforced here (see `plan/01-zasady-i-slownik.md` and the anti-spec
+ * Hard rules enforced here (see `plan/01-rules-and-glossary.md` and the anti-spec
  * in `plan/06`):
  *  - Colour is NEVER the only signal: every emitted decoration carries an
  *    underline plus a non-empty tooltip and aria-label alongside its colour

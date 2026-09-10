@@ -33,7 +33,7 @@ session's memory.
   secrets only in `/srv/secrets` or `0600` files.
 - Application port: only `127.0.0.1:8787` (never `0.0.0.0`), access via Tailscale Serve.
 - User `mikolaj` is NOT in the `docker` group, administrative commands go through `sudo`,
-  performed knowingly by the user when a password is required (see `01-zasady-i-slownik.md`
+  performed knowingly by the user when a password is required (see `01-rules-and-glossary.md`
   rule 9).
 - UFW: `22/tcp` only from `192.168.x.0/24` and the `tailscale0` interface; no rules for other
   ports until they are explicitly added as part of a specific issue.

@@ -6,7 +6,7 @@
  *
  * Refresh tokens and invitation secrets never live here, those stay in
  * Obsidian SecretStorage (see `storage/secret-store.ts` and
- * `plan/05-plugin-polaczenie-i-sync.md`). Only non-secret sync bookkeeping is
+ * `plan/05-plugin-connection-and-sync.md`). Only non-secret sync bookkeeping is
  * persisted through this port, so `data.json` never carries a credential.
  *
  * The persisted blob is treated as untrusted input: a malformed or partial blob

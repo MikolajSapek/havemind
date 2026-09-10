@@ -1,7 +1,7 @@
 # 04, Server: invites, auth-routes, sync API, backup/epoch
 
 Surface: `apps/server`. Source tasks: T019, T020, T021, T022 from `plans/002-pilot-tasks.md`.
-Token primitives: `03-systemy-przekrojowe.md`. Don't duplicate protocol content, cite
+Token primitives: `03-cross-cutting-systems.md`. Don't duplicate protocol content, cite
 `plans/001-technical-plan.md` §7–8 when in doubt.
 
 ## Event → reaction table (the API as a "surface" with no UI, events = HTTP requests)

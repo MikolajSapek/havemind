@@ -2,7 +2,7 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 
 /**
  * Every operator-facing Havemind secret (database key, pairing token) carries at
- * least this much entropy. Anchored to `plan/03-systemy-przekrojowe.md`, where
+ * least this much entropy. Anchored to `plan/03-cross-cutting-systems.md`, where
  * both the access/refresh tokens and the onboarding pairing token are specified
  * at 256 bits.
  */

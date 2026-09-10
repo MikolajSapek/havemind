@@ -3,7 +3,7 @@
 This package (`plan/`) closes out Havemind, from the current implementation state (see
 `plans/002-pilot-tasks.md`) to a successful seven-day pilot on `sapserver` (Phase 7 of
 `plans/001-technical-plan.md`) and the Phase 8 gates. The package is self-contained: the building
-agent reads ONLY this folder plus the canonical files listed in `02-fundamenty.md`.
+agent reads ONLY this folder plus the canonical files listed in `02-foundations.md`.
 
 ## Hard rules (numbered, enforceable, breaking one = rejected commit/PR)
 

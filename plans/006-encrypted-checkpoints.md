@@ -15,7 +15,7 @@
 
 ## Canonical facts and boundaries (non-negotiable)
 
-Per `plan/01-zasady-i-slownik.md` rule 1, on conflict, `specs/`/`plans/` win.
+Per `plan/01-rules-and-glossary.md` rule 1, on conflict, `specs/`/`plans/` win.
 This plan does not change any of the boundaries below, it only adds a layer:
 
 - **The server is opaque** (`plans/001` §3, rule 3): the Havemind process builds the checkpoint

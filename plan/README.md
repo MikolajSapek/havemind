@@ -8,15 +8,15 @@ to a successful seven-day pilot on `sapserver` and the Phase 8 gates. Generated 
 
 | File | Contents |
 |---|---|
-| `01-zasady-i-slownik.md` | Hard rules (1-10), glossary, read FIRST |
-| `02-fundamenty.md` | Canonical data, workspace conventions, hidden work (S8) |
-| `03-systemy-przekrojowe.md` | Token/rotation primitives (T018) |
-| `04-serwer-auth-i-api.md` | Invitations, auth-routes, sync API, backup/epoch (T019-T022) |
-| `05-plugin-polaczenie-i-sync.md` | Onboarding, vault-adapter, sync runner (T025-T027) |
-| `06-plugin-activity-i-overlay.md` | Activity, diff, restore, author overlay (T028-T029) |
-| `07-pakiet-wdrozeniowy-i-e2e.md` | Hardened Compose, e2e fault harness (T030-T031) |
+| `01-rules-and-glossary.md` | Hard rules (1-10), glossary, read FIRST |
+| `02-foundations.md` | Canonical data, workspace conventions, hidden work (S8) |
+| `03-cross-cutting-systems.md` | Token/rotation primitives (T018) |
+| `04-server-auth-and-api.md` | Invitations, auth-routes, sync API, backup/epoch (T019-T022) |
+| `05-plugin-connection-and-sync.md` | Onboarding, vault-adapter, sync runner (T025-T027) |
+| `06-plugin-activity-and-overlay.md` | Activity, diff, restore, author overlay (T028-T029) |
+| `07-deployment-package-and-e2e.md` | Hardened Compose, e2e fault harness (T030-T031) |
 | `08-sapserver-operations.md` | The real target server: backup, constraints, agent access |
-| `09-pilotaz-i-decyzje.md` | The pilot phase (T032) and Phase 8 gates (T033) |
+| `09-pilot-and-decisions.md` | The pilot phase (T032) and Phase 8 gates (T033) |
 | `10-MASTER-PROMPT.md` | The block to paste to a fresh agent, the orchestrator contract |
 | `11-BACKLOG.md` | Issues F0-F9 + SRV-01..07, acceptance criteria, GITLAB-IMPORT |
 
@@ -50,7 +50,7 @@ to a successful seven-day pilot on `sapserver` and the Phase 8 gates. Generated 
 1. **Scope of rule 8 (agent access to sapserver) vs `plans/001-technical-plan.md` §14
    "Ask first: deploy or change privileged configuration on sapserver."** The user explicitly
    asked for standing permission for the building agent to modify `sapserver` without asking
-   every time. Resolution: rule 8 (`01-zasady-i-slownik.md`) narrows the canon's meaning of
+   every time. Resolution: rule 8 (`01-rules-and-glossary.md`) narrows the canon's meaning of
    "privileged configuration" to ONLY the items in rule 9 (sudo, Funnel, the docker group,
    irreversible operations, publishing the repo, changing the encryption model). Everything
    outside that list, routine `docker compose up`, creating Compose files, configuring
@@ -82,7 +82,7 @@ to a successful seven-day pilot on `sapserver` and the Phase 8 gates. Generated 
 
 A new Claude Code session in the `havemind` repo, in this order:
 1. Read `CLAUDE.md` (repo).
-2. Read `plan/01-zasady-i-slownik.md` → `plan/02-fundamenty.md` → the rest of `plan/0X-*.md`
+2. Read `plan/01-rules-and-glossary.md` → `plan/02-foundations.md` → the rest of `plan/0X-*.md`
    in numeric order.
 3. Verify the environment: `node --version`, `ssh sapserver` (connection test), the
    ponytail/caveman plugins.

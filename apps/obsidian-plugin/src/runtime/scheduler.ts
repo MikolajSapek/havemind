@@ -1,5 +1,5 @@
 /**
- * Sync scheduler wiring per `plan/05-plugin-polaczenie-i-sync.md`:
+ * Sync scheduler wiring per `plan/05-plugin-connection-and-sync.md`:
  * a sync is triggered on startup, on window focus, on regaining network and on
  * a periodic interval. Every trigger funnels into the runner's single-flight
  * entry point, so overlapping schedules coalesce rather than racing.

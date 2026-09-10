@@ -1,7 +1,7 @@
 # Pilot checklist (T032 / F8-02)
 
 Pre-pilot confirmations and the daily 7-day pilot log live here
-(see `plan/09-pilotaz-i-decyzje.md` for the acceptance criteria).
+(see `plan/09-pilot-and-decisions.md` for the acceptance criteria).
 
 ## Pre-pilot confirmations
 

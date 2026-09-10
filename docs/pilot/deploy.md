@@ -11,7 +11,7 @@ Paste-ready runbook for standing up the single-service Havemind server on
 `deploy/.env.example`, `apps/server/Dockerfile` and the `havemind` CLI as they
 exist in the repo today.
 
-Conventions (from `plan/08-sapserver-operations.md` and `plan/02-fundamenty.md`):
+Conventions (from `plan/08-sapserver-operations.md` and `plan/02-foundations.md`):
 
 - Compose file lives at `/srv/compose/havemind/`.
 - Secrets are files under `/srv/secrets/` (mode `0600`), never inline env values.
@@ -21,7 +21,7 @@ Conventions (from `plan/08-sapserver-operations.md` and `plan/02-fundamenty.md`)
   stack does **not** use a `/srv/appdata/havemind` bind mount.
 
 > **Steps marked `[sudo]` require the sapserver sudo password.** Per
-> `plan/01-zasady-i-slownik.md` rule 5 the agent must not run these without the
+> `plan/01-rules-and-glossary.md` rule 5 the agent must not run these without the
 > user; the user runs them. Everything else can run as the ordinary login user.
 
 > **Historical security note:** the pilot did not use end-to-end encryption.

@@ -9,7 +9,7 @@
  * Activity feed (`runtime/activity-log.ts`) records one entry per revision with
  * no provenance at all, `activityEntriesToRecords` emits `provenance: []`, and
  * the pull stream carries no per-run source ids either. Synthesising runs would
- * be invented attribution, which `plan/01-zasady-i-slownik.md` rule 3 forbids.
+ * be invented attribution, which `plan/01-rules-and-glossary.md` rule 3 forbids.
  *
  * So this slice attributes PER FILE: one run spanning the whole document,
  * sourced from the most recent recorded revision for that path. The visible

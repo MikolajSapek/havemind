@@ -1,7 +1,7 @@
 # 11, BACKLOG.md
 
 Ordering rule: F0→F9 strictly sequential; SRV-* runs in parallel from F0, but SRV-03/04/05
-are a hard blocker for F8 (see `09-pilotaz-i-decyzje.md`). Labels: `server`, `plugin`,
+are a hard blocker for F8 (see `09-pilot-and-decisions.md`). Labels: `server`, `plugin`,
 `sapserver`, `security`, `user-decision`. Milestones = phases (F0…F9, SRV). Checkboxes in this
 file are the source of truth for progress, the subagent checks one off only after the AC passes,
 not before.
@@ -27,7 +27,7 @@ in the phase report (what works, what's deferred, evidence).
 - [x] **F0-02** `foundation` Verify canonical data without duplication
   - AC: grep of the `plan/` package for phrases copied 1:1 from `specs/*.md`/`plans/*.md` longer than
     one sentence → 0 hits (functional, method: manual review + grep).
-  - AC: table from `02-fundamenty.md` verified, every referenced file exists (curl/cat
+  - AC: table from `02-foundations.md` verified, every referenced file exists (curl/cat
     the path).
   - Evidence (2026-07-16): sentence-level diff plan/*.md vs specs/*.md+plans/*.md → 0 duplicated
     sentences (≥12 words); 6/6 repo files exist; Sapserver note confirmed to exist as
@@ -43,7 +43,7 @@ in the phase report (what works, what's deferred, evidence).
     stmts 90.67 / branch 85.17 / funcs 93.43 / lines 91.52.
   - AC: `npm test --workspace @havemind/server -- auth` green (functional).
   - AC: retry with the same `rotation_id` succeeds, reuse with a different one → family revocation
-    (functional, method: property test with ≥1000 random combinations from `03-systemy-przekrojowe.md`).
+    (functional, method: property test with ≥1000 random combinations from `03-cross-cutting-systems.md`).
   - AC: 100% branch coverage on the revocation path (qualitative, method: coverage report).
   - AC negative: no raw token ever reaches the logs (grep test fixtures for `console.log`
     with a token in plaintext).
@@ -60,7 +60,7 @@ in the phase report (what works, what's deferred, evidence).
   - AC: 256-bit/15-min/single-use invitation, race-safe verification phrase (functional,
     `npm test --workspace @havemind/server -- invitations`).
   - AC: redeem with an invitation older than 15 min → `410 Gone`, invitation marked used,
-    no retry (functional, row 2 of the table in `04-serwer-auth-i-api.md`).
+    no retry (functional, row 2 of the table in `04-server-auth-and-api.md`).
   - AC: owner rejects the phrase or the phrase doesn't match → pending device removed, zero token
     issued (functional, row 4 of the table in `04`).
   - AC negative: redeeming the same token a second time → `409`, no second pending device.
@@ -70,7 +70,7 @@ in the phase report (what works, what's deferred, evidence).
     actor-id header 403 + log without the header value; nonexistent vs. no-access identical
     byte-for-byte; 429 before auth with no account info. Workspace 323 pass / 3 skipped, branch 84.66%.
   - AC: cross-vault IDOR attempt → `403` with no leak of resource existence (functional + regression
-    against the event table in `04-serwer-auth-i-api.md`).
+    against the event table in `04-server-auth-and-api.md`).
   - AC: a header spoofing a different `actor_id` → `403`, the log doesn't contain the header content
     in plaintext (functional + security, method: grep test logs for the header value).
   - AC: "vault does not exist" and "vault exists without access" return an identical status code/response
@@ -186,7 +186,7 @@ in the phase report (what works, what's deferred, evidence).
     security, method: test against a fixture with an injected secret, grep output → 0 hits).
   - Prerequisite for: F8-02 (this issue's "diagnostics" AC assumes this command exists).
 
-## F8, Decision gate (⏳ STOP and ask the user before starting, see `09-pilotaz-i-decyzje.md`)
+## F8, Decision gate (⏳ STOP and ask the user before starting, see `09-pilot-and-decisions.md`)
 
 - [x] **F8-01** `security` E2E fault harness (T031)
   - Evidence (2026-07-16): tests/e2e/fault-matrix.test.ts, 6/6 fault matrix rows from plan/07
@@ -195,7 +195,7 @@ in the phase report (what works, what's deferred, evidence).
     → the same serverSequence; restore → 409 CURSOR_INVALID and reconciliation; conflict on the
     same line → 2 heads + a Havemind Conflicts/ artifact, zero silent overwrites). `npm run
     test:e2e` exit 0; workspace 450 pass, branch 83.82%.
-  - AC: a two-client simulation passes the whole fault matrix from `07-pakiet-wdrozeniowy-i-e2e.md`
+  - AC: a two-client simulation passes the whole fault matrix from `07-deployment-package-and-e2e.md`
     (functional, `npm run test:e2e`).
 
 - [x] **F8-02a** `plugin` Plugin runtime integration (pilot prerequisite, uncovered at the
@@ -254,7 +254,7 @@ in the phase report (what works, what's deferred, evidence).
     `docs/pilot/checklist.md` ("Pilot closure"): 4/7 df-h entries (window restarted
     on redeploys), backup still deferred (gate before 1.0). Real usage
     25.07–07.08, zero data loss, 3 detected incidents fixed.
-  - AC: full checklist from `09-pilotaz-i-decyzje.md`, recorded in `docs/pilot/checklist.md`.
+  - AC: full checklist from `09-pilot-and-decisions.md`, recorded in `docs/pilot/checklist.md`.
   - AC: daily `df -h /` entry in `docs/pilot/checklist.md` for 7 days; alarm and entry in
     `DECISIONS.md` if growth exceeds 20 GB relative to the start day (qualitative, method: 7 dated
     entries in the checklist).

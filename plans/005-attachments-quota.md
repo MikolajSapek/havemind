@@ -24,7 +24,7 @@ What is **missing** and what this plan designs:
 2. Per-file and per-vault enforcement on the push path.
 3. A new, stable opaque-server error code for exceeding the quota + client UX.
 4. Interaction between the quota and the append-only history + `blob-gc` (old revisions retain blobs, accounting must account for that).
-5. Protection against disk pressure on `sapserver` (a single ITX box, rule 7 from `plan/01-zasady-i-slownik.md`: 16 GB RAM, ~96 GB free disk).
+5. Protection against disk pressure on `sapserver` (a single ITX box, rule 7 from `plan/01-rules-and-glossary.md`: 16 GB RAM, ~96 GB free disk).
 6. A way for the owner/admin to view and set the quota.
 
 ## Spec
@@ -319,7 +319,7 @@ All tests are functional, RED-first (rule 2), against real temporary SQLite + a 
 
 Per the established operational boundary: the agent performs only unprivileged operations
 (rsync of sources); **the Docker rebuild and restart are done by the user** (operations requiring
-`docker`/`sudo`, rule 9 from `plan/01-zasady-i-slownik.md`). The redeploy sequence is unchanged
+`docker`/`sudo`, rule 9 from `plan/01-rules-and-glossary.md`). The redeploy sequence is unchanged
 from the current one (rebuild container → reload both plugins → smoke-test with an attachment
 sync), extended with a smoke test for exceeding the quota on one disposable vault. The restart
 runs migration `002-*` and rebuilds the counter automatically.

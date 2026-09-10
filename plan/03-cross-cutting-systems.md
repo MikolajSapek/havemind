@@ -33,7 +33,7 @@ Budgets/acceptance criteria as numbers:
 - Token generation + hashing: no hard time budget in the MVP (not real-time UI), but the
   property test must cover ≥1000 random retry/reuse combinations with no false acceptance.
 - Test coverage for this module: 100% of branches on the revocation path (this is the security
-  path, the 80% threshold from `02-fundamenty.md` is the MINIMUM here, not the target).
+  path, the 80% threshold from `02-foundations.md` is the MINIMUM here, not the target).
 
 File structure (from `plans/002-pilot-tasks.md` T018):
 `apps/server/src/auth/tokens.ts`, `apps/server/src/auth/setup.ts`,

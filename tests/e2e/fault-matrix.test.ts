@@ -3,7 +3,7 @@
  *
  * Each test drives two real clients against one real, opaque Fastify server and
  * asserts the exact reaction from the fault matrix in
- * `plan/07-pakiet-wdrozeniowy-i-e2e.md`. Rows, in table order:
+ * `plan/07-deployment-package-and-e2e.md`. Rows, in table order:
  *
  *  1. Server restart mid-push        → no revision duplication (idempotency).
  *  2. Client restart mid-apply       → file materializes, no partial state.

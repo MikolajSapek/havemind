@@ -5,7 +5,7 @@
 - Implements the gate: `specs/003-open-source-release.md` → **Stage 3, general beta** (`0.5.x`)
 - Fulfils the hard public-access requirement from: `specs/002-public-access.md`
 - Extends: `plans/001-technical-plan.md` §7 (revision envelope), §10 (E2EE compatibility path)
-- Subject to: `plan/01-zasady-i-slownik.md` (hard rules), `CLAUDE.md` (hard-rules summary)
+- Subject to: `plan/01-rules-and-glossary.md` (hard rules), `CLAUDE.md` (hard-rules summary)
 
 This document does NOT change the revision protocol or the opaque server model. It only designs
 the contents of `opaque_payload` (plaintext → ciphertext) and key management and recovery,
