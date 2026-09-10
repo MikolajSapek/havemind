@@ -146,18 +146,16 @@ The long version, including backups and multiple vaults, is in
 
 ## What it will not do
 
-- **Run in our cloud.** There isn't one. The server sits on your hardware,
-  reachable only over your [Tailscale](https://tailscale.com) network. Do not
-  put it on the public internet.
-- **Sync your plugins.** All of `.obsidian/plugins/` stays out: no plugin code,
-  no plugin state, no `data.json` secrets. Same for the enabled-plugins list and
-  your window layout. Nobody in the vault can swap out someone else's plugin
-  code and have Obsidian run it, and two machines can keep completely different
-  plugin sets. Two separate layers enforce this, the producer guard and the
-  wire schema, so a revision for a blocked path is refused when it arrives as
-  well as when it is written.
-- **Think about your notes.** The server stores blobs and revision headers and
-  nothing else. Diffs, merges and provenance all happen on your machine.
+- **Run in our cloud.** There isn't one. The server is your hardware, reachable
+  only over your [Tailscale](https://tailscale.com) network.
+- **Sync your plugins.** `.obsidian/plugins/` never crosses: not the code, not
+  the state, not the `data.json` secrets. Nor does your enabled-plugin list or
+  window layout. So nobody can swap out your plugin code and have Obsidian run
+  it, and two machines can keep entirely different plugin sets. Blocked paths
+  are refused twice, once when a revision is written and again when one
+  arrives, so an older peer cannot push what a newer one forbids.
+- **Think about your notes.** The server holds blobs and revision headers.
+  Diffs, merges and authorship happen on your machine.
 
 ## Architecture
 
@@ -167,22 +165,21 @@ Obsidian plugin (Vault A) ─┐
 Obsidian plugin (Vault B) ─┘   real-time /wait wake     content-addressed blob store
 ```
 
-All the thinking happens in the plugin: watching the vault, a durable outbox
-that survives a crash, the pull-and-apply loop, three-way merges, conflict
-copies, the activity log. Files on disk are never rewritten to canonicalise
-them; that happens on the hash side only.
+The plugin does the thinking: watching the vault, a durable outbox that
+survives a crash, the pull-and-apply loop, three-way merges, conflict copies,
+the activity log. Your files are never rewritten to canonicalise them; that
+happens on the hash side only.
 
-The server is deliberately dumb. Fastify and SQLite in WAL mode, storing blobs
-by content hash and revision headers, holding the long-poll that wakes your
-other devices. It rotates refresh tokens and detects reuse, rate-limits per
-device, enforces a quota per vault, and sweeps orphaned blobs at startup. It
-runs non-root, read-only, with capabilities dropped.
+The server is deliberately dumb. Fastify and SQLite in WAL mode, blobs stored
+by content hash, and the long-poll that wakes your other devices. It rotates
+refresh tokens and spots reuse, rate-limits per device, holds each vault to its
+quota, and sweeps orphaned blobs at startup. Non-root, read-only, capabilities
+dropped.
 
-`packages/crypto` seals checkpoints with libsodium `crypto_box_seal` (X25519).
-The server holds only the public half, so it can write an encrypted checkpoint
-and never open one; the secret key lives in the owner's recovery kit, off the
-server. Live data on the volume stays plaintext. The symmetric vault-key
-helpers in that package are unused.
+Checkpoints are sealed with libsodium `crypto_box_seal` (X25519). The server
+holds only the public half, so it can write an encrypted snapshot and never
+open one. The secret key lives in your recovery kit, off the server. Live data
+on the volume stays plaintext.
 
 ## Security model
 
@@ -191,11 +188,11 @@ answers only on your private tailnet, never the public internet, and Tailscale
 (WireGuard) encrypts everything in transit with per-device authentication.
 
 Between members of a vault, the line is drawn at code. Appearance settings
-cross: themes, snippets, hotkeys, `graph.json`, `appearance.json`, `app.json`,
-and `core-plugins.json` (the enabled built-in modules).
-`.obsidian/plugins/` never does. Plugin code, plugin state and plugin secrets
-stay on the machine they live on, so one member cannot overwrite another's
-plugin and have Obsidian run it on the next reload.
+cross: themes, snippets, hotkeys, `graph.json`, `appearance.json`, `app.json`
+and `core-plugins.json`, which toggles Obsidian's own built-in modules.
+`.obsidian/plugins/` never crosses. Plugin code, state and secrets stay on the
+machine they live on, so one member cannot overwrite another's plugin and have
+Obsidian run it on the next reload.
 
 The vault sits on the server in plaintext. **Whoever controls that machine can
 read everything.** Run it on hardware you and your people trust, keep it on the
