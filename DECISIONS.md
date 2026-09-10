@@ -54,7 +54,7 @@ by inspection (no implementation attempts spent):
   invitation review/redeem, device approval, bootstrap, or refresh→access
   token issuance. `InvitationService` and `SessionRepository` implement the
   logic but nothing exposes it over HTTP.
-- `plans/002-pilot-tasks.md` **T019** ("Implement invitations and device
+- the pilot task matrix (removed 2026-09-10, all 33 closed) **T019** ("Implement invitations and device
   approval", target files `apps/server/src/auth/context.ts`,
   `apps/server/src/auth/routes.ts`) is `[ ]`, those files do not exist.
 

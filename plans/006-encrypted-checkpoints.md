@@ -5,7 +5,7 @@
 - Date: 2026-07-24
 - Extends: `plans/001-technical-plan.md` §7 (offline delivery, "Real-vault compaction
   requires an encrypted checkpoint"), §8 (backup/restore), §10 (E2EE); fulfils the gate
-  `specs/003-open-source-release.md` **Stage 3, general beta (`0.5.x`)** row "Supported
+  the open-source readiness amendment (removed 2026-09-10) **Stage 3, general beta (`0.5.x`)** row "Supported
   backup and restore work on a clean machine".
 - Composes with: `plans/004-*` (E2EE/device recovery). This plan assumes either that E2EE
   already exists, or that the checkpoint also works for the plaintext pilot as a degraded
@@ -166,7 +166,7 @@ Any failure in steps 1–4 = the restore is aborted, the epoch unchanged, no fil
 
 This model extends the documented deployment threat model (`specs/003` "A threat model documents
 what the server administrator, network provider and collaborators can observe"). The
-**Stage 3, general beta (`0.5.x`)** gate from `specs/003-open-source-release.md` explicitly
+**Stage 3, general beta (`0.5.x`)** gate from the open-source readiness amendment (removed 2026-09-10) explicitly
 requires: "Supported backup and restore work on a clean machine" and "A security review and
 documented threat-model review are complete", this section is part of that documentation and
 must be reviewed before checkpoints are considered to satisfy the Stage 3, general beta gate.

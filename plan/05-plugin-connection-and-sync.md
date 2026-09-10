@@ -33,7 +33,7 @@ Surface: `apps/obsidian-plugin`. Source tasks: T025, T026, T027.
 ## Anti-spec (S5)
 
 - Never put the invite secret in the `obsidian://` query string, only in the URL fragment and
-  via manual paste of the envelope (see `specs/002-public-access.md`).
+  via manual paste of the envelope (see the zero-configuration amendment (removed 2026-09-10)).
 - Never auto-merge two existing vaults during onboarding.
 - Never overwrite the active (open, diverging) editor buffer without a conflict/defer path.
 - Never introduce any Node.js/Electron-only dependency in the plugin code, it breaks mobile

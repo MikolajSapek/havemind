@@ -28,7 +28,7 @@ Forbidden: React, Redis, PostgreSQL, message brokers, ORM, custom cryptography, 
 Portainer, Watchtower, per plan/02 and plan/08.
 
 DATA: canonical files per the table in plan/02-foundations.md. The status of source tasks
-T001-T033 is in `plans/002-pilot-tasks.md` (Havemind repo), verify the checkboxes as you go,
+T001-T033 is in the pilot task matrix (removed 2026-09-10, all 33 closed) (Havemind repo), verify the checkboxes as you go,
 don't trust memory.
 
 SERVER ACCESS: you have a verified `ssh sapserver` connection (Tailscale) and you ARE ALLOWED to

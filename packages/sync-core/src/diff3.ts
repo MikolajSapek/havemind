@@ -17,7 +17,7 @@
  *
  * On any failure the caller writes a conflict copy, this engine never
  * auto-resolves an overlapping hunk (the prose-degradation caveat from
- * `docs/research-conflicts.md`). It only ever COMBINES text; it can never drop
+ * a 2026-07 survey of how other sync apps handle conflicts). It only ever COMBINES text; it can never drop
  * either side's change (zero-silent-overwrite, rule 3): a span only one side
  * touched is taken verbatim, and any contested span fails to a conflict copy.
  *

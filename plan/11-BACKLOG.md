@@ -270,7 +270,7 @@ in the phase report (what works, what's deferred, evidence).
   - AC: 4 files `plans/00X-*.md` exist, each containing the headings `## Spec`, `## Threat model`,
     `## Acceptance tests`, `## Rollout/rollback` (functional, method: script/grep checking
     the presence of the 4 headings in each of the 4 files → 16/16 hits).
-  - AC: each plan cites a specific Stage gate from `specs/003-open-source-release.md` (e.g.
+  - AC: each plan cites a specific Stage gate from the open-source readiness amendment (removed 2026-09-10) (e.g.
     "Stage 2, public technical alpha") by name, not generically (functional).
   - ⏳ BLOCKED: waiting on F8-02 closure.
 
@@ -638,7 +638,7 @@ re-hash from the blob `read` hot path); below is what was deliberately deferred.
 
 ## MERGE-3WAY (user decision 2026-07-22: modeled on Obsidian Sync / obsidian-livesync)
 
-Research: `docs/research-conflicts.md`. Execution order AFTER the conflict-cascade fix.
+Research: the conflict-handling survey (removed 2026-09-10). Execution order AFTER the conflict-cascade fix.
 
 - [x] **MRG-01** `plugin,sync-core` Automatic three-way merge from a common ancestor
   - `0f32f65`, diff3 in sync-core (LCS, zero dependencies), ancestor = durable baseContents
@@ -670,7 +670,7 @@ Research: `docs/research-conflicts.md`. Execution order AFTER the conflict-casca
   - Found 2 MAJOR (keepTheirs on a vanished copy = data loss; silently swallowed pre-enqueue
     errors) + 2 MINOR, all fixed in `4a59817`. The send path now has no silent loss
     points.
-- [x] **MRG-04** `docs` CRDT deliberately rejected at this stage (docs/research-conflicts.md) (cost
+- [x] **MRG-04** `docs` CRDT deliberately rejected at this stage (conflict-handling survey, removed 2026-09-10) (cost
   of persistent per-file state, no coverage for binaries/rename, "not production-ready" even at
   large vendors), revisit only if a real need for live concurrent editing arises.
 

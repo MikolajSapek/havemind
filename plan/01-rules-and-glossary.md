@@ -1,7 +1,7 @@
 # 01, Hard rules and glossary
 
 This package (`plan/`) closes out Havemind, from the current implementation state (see
-`plans/002-pilot-tasks.md`) to a successful seven-day pilot on `sapserver` (Phase 7 of
+the pilot task matrix (removed 2026-09-10, all 33 closed)) to a successful seven-day pilot on `sapserver` (Phase 7 of
 `plans/001-technical-plan.md`) and the Phase 8 gates. The package is self-contained: the building
 agent reads ONLY this folder plus the canonical files listed in `02-foundations.md`.
 
@@ -9,7 +9,7 @@ agent reads ONLY this folder plus the canonical files listed in `02-foundations.
 
 1. **Canonical data always wins.** Functional requirements live in `specs/00X-*.md`,
    architecture and the technical contract in `plans/001-technical-plan.md`, task status in
-   `plans/002-pilot-tasks.md`. This package (`plan/*`) does NOT duplicate their content, it only
+   the pilot task matrix (removed 2026-09-10, all 33 closed). This package (`plan/*`) does NOT duplicate their content, it only
    translates them into phases F0–F9 and Fx-NN issues. A conflict between `plan/` and
    `specs/`/`plans/` → `specs/`/`plans/` wins; report it in `DECISIONS.md`.
 2. **Red-green-refactor, no exceptions.** A test must fail before the production behaviour exists.

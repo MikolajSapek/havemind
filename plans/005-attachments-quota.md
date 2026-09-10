@@ -3,7 +3,7 @@
 - Status: **Shipped.** `apps/server/src/quota.ts` and migration 005. Kept for the
   reasoning behind the limit, not as pending work.
 - Date: 2026-07-24
-- Implements: `specs/003-open-source-release.md` (the gate "Stage 3, general beta": "Attachment synchronization, quotas and retention behavior are implemented"), extends `plans/001-technical-plan.md` §8 ("enforces explicit limits for bodies, batches, parent counts, note size and vault quota") and §11 Phase 8 (c) "attachments/quota".
+- Implements: the open-source readiness amendment (removed 2026-09-10) (the gate "Stage 3, general beta": "Attachment synchronization, quotas and retention behavior are implemented"), extends `plans/001-technical-plan.md` §8 ("enforces explicit limits for bodies, batches, parent counts, note size and vault quota") and §11 Phase 8 (c) "attachments/quota".
 - Dependencies: binary attachments are already implemented end-to-end (F9). This plan adds ONLY the aggregate storage limit; it does not change the payload format or the opaque-server boundary.
 
 ## Context, what already exists (do not re-plan this)
@@ -173,7 +173,7 @@ against the sum of all vaults + WAL + backups. Hence an independent **free-disk 
 ## Threat model
 
 Gate quote: the server's network surface becomes more broadly reachable only from **"Stage 2,
-public technical alpha"** (`specs/003-open-source-release.md`, "## Release stages and gates"),
+public technical alpha"** (the open-source readiness amendment (removed 2026-09-10), "## Release stages and gates"),
 when the repository becomes public and a "one-command server quick start" appears, other
 self-hosters start running this code on their own machines. Therefore the DoS/disk-pressure
 protections in this plan (S3 pre-check, S6 free-disk guard) MUST be ready and tested **before**

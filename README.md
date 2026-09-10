@@ -240,15 +240,8 @@ which is why this section exists.
 
 - [Technical plan](plans/001-technical-plan.md), the architecture and the
   engineering contract
+- [MVP spec](specs/001-mvp.md), what the product promised to be
 - [Contributing](CONTRIBUTING.md) and [decisions](DECISIONS.md)
-
-**How it got here** (dated, historical, kept for provenance)
-
-- [MVP spec](specs/001-mvp.md) and its two amendments,
-  [zero-configuration connection](specs/002-public-access.md) and
-  [open-source readiness](specs/003-open-source-release.md)
-- [Pilot task matrix](plans/002-pilot-tasks.md), all 33 closed
-- [Existing-solutions research](docs/research.md), why this was built at all
 
 ## Local verification
 

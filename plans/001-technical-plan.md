@@ -2,7 +2,7 @@
 
 - Status: **Approved by owner on 2026-07-15**
 - Date: 2026-07-15
-- Implements: `specs/001-mvp.md`, `specs/002-public-access.md`, `specs/003-open-source-release.md`
+- Implements: `specs/001-mvp.md`, the zero-configuration amendment (removed 2026-09-10), the open-source readiness amendment (removed 2026-09-10)
 
 ## 1. Outcome
 
@@ -360,7 +360,7 @@ Gate: seven-day pilot, forced network outages, service restart, client restart a
 
 After the disposable pilot passes, write separate implementation plans for (a) public GitHub/BRAT alpha packaging, (b) E2EE/device recovery, (c) attachments/quota and (d) encrypted checkpoints/retention. Execute them sequentially rather than combining four high-risk changes.
 
-Gate: each follow-up plan preserves this protocol's safety invariants and satisfies the relevant release stage in `003-open-source-release.md` before implementation or publication.
+Gate: each follow-up plan preserves this protocol's safety invariants and satisfies the relevant release stage in the open-source readiness amendment (removed) before implementation or publication.
 
 ## 12. Test strategy
 

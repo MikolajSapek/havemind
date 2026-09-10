@@ -1,7 +1,7 @@
 # 03, Cross-cutting systems
 
 Systems used by ≥2 surfaces. Most of `sync-core` is already built (T004–T013, `[x]` in
-`plans/002-pilot-tasks.md`), this file covers ONLY what's left and cross-cutting: the
+the pilot task matrix (removed 2026-09-10, all 33 closed)), this file covers ONLY what's left and cross-cutting: the
 authorisation primitives (T018), because they're used by invites (04), routing (04), and plugin
 onboarding (05) alike.
 
@@ -35,7 +35,7 @@ Budgets/acceptance criteria as numbers:
 - Test coverage for this module: 100% of branches on the revocation path (this is the security
   path, the 80% threshold from `02-foundations.md` is the MINIMUM here, not the target).
 
-File structure (from `plans/002-pilot-tasks.md` T018):
+File structure (from the pilot task matrix (removed 2026-09-10, all 33 closed) T018):
 `apps/server/src/auth/tokens.ts`, `apps/server/src/auth/setup.ts`,
 `apps/server/src/auth/tokens.test.ts`, `apps/server/src/auth/setup.test.ts`, `apps/server/src/db.ts`.
 

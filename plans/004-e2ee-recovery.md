@@ -4,8 +4,8 @@
   no end-to-end encryption. This is the design study for adding it, kept because
   the recovery problem it works through is the hard part.
 - Date: 2026-07-24
-- Implements the gate: `specs/003-open-source-release.md` → **Stage 3, general beta** (`0.5.x`)
-- Fulfils the hard public-access requirement from: `specs/002-public-access.md`
+- Implements the gate: the open-source readiness amendment (removed 2026-09-10) → **Stage 3, general beta** (`0.5.x`)
+- Fulfils the hard public-access requirement from: the zero-configuration amendment (removed 2026-09-10)
 - Extends: `plans/001-technical-plan.md` §7 (revision envelope), §10 (E2EE compatibility path)
 - Subject to: `plan/01-rules-and-glossary.md` (hard rules), `CLAUDE.md` (hard-rules summary)
 
@@ -20,9 +20,9 @@ this file and `specs/`/`plans/001` → `specs/`/`plans/001` win (`plan/01` rule 
 
 ### Goal and gate
 
-E2EE for vault content and a recovery history are a hard gate in `specs/002-public-access.md`
+E2EE for vault content and a recovery history are a hard gate in the zero-configuration amendment (removed 2026-09-10)
 (without E2EE there is no public access to real vaults) and an explicit requirement of
-**Stage 3, general beta** from `specs/003-open-source-release.md` "## Release stages and gates":
+**Stage 3, general beta** from the open-source readiness amendment (removed 2026-09-10) "## Release stages and gates":
 
 > "End-to-end encryption for note contents and attachments passes multi-device recovery tests."
 

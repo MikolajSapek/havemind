@@ -27,7 +27,7 @@ Before T032 starts, the orchestrator STOPS the loop and asks the user about:
 
 Each follow-up plan is a SEPARATE document in `plans/00X-*.md`, executed sequentially:
 
-| Follow-up plan | Gate required before starting (from `specs/003-open-source-release.md`) |
+| Follow-up plan | Gate required before starting (from the open-source readiness amendment (removed 2026-09-10)) |
 |---|---|
 | GitHub/BRAT alpha (public repo) | Stage 2 checklist: SECURITY.md/CONTRIBUTING.md/CODE_OF_CONDUCT.md/CHANGELOG.md, diagnostics with no secret leakage, quick-start documentation |
 | E2EE and recovery kit | `plans/001-technical-plan.md` §10 in full; a dedicated threat-model spike BEFORE implementation; zero custom cryptography |
@@ -46,4 +46,4 @@ If the backlog needs rebuilding during Phase 8 (e.g. new sub-phases for E2EE), u
 | Power outage during the 7-day pilot | SRV-07 (BIOS autostart) as a prerequisite for F8 |
 | 120 GB disk filled during the pilot | Data budget from `08-sapserver-operations.md`, monitored via `df -h /` daily during the pilot |
 | Agent performs an operation requiring `sudo` without the user's knowledge | Rule 9 from `01-rules-and-glossary.md`, hard stop, ask the user |
-| Public repo opened before E2EE is ready | Stage gates from `specs/003-open-source-release.md`, enforced in the table above |
+| Public repo opened before E2EE is ready | Stage gates from the open-source readiness amendment (removed 2026-09-10), enforced in the table above |

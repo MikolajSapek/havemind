@@ -40,10 +40,7 @@ for (const file of [
   'LICENSE',
   'README.md',
   'specs/001-mvp.md',
-  'specs/002-public-access.md',
-  'specs/003-open-source-release.md',
   'plans/001-technical-plan.md',
-  'plans/002-pilot-tasks.md',
 ]) {
   await access(resolve(root, file));
 }

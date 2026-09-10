@@ -1,6 +1,6 @@
 # 04, Server: invites, auth-routes, sync API, backup/epoch
 
-Surface: `apps/server`. Source tasks: T019, T020, T021, T022 from `plans/002-pilot-tasks.md`.
+Surface: `apps/server`. Source tasks: T019, T020, T021, T022 from the pilot task matrix (removed 2026-09-10, all 33 closed).
 Token primitives: `03-cross-cutting-systems.md`. Don't duplicate protocol content, cite
 `plans/001-technical-plan.md` §7–8 when in doubt.
 

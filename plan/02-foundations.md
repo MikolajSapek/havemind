@@ -5,11 +5,11 @@
 | Data | Canonical file | Do not duplicate in |
 |---|---|---|
 | MVP product requirements | `specs/001-mvp.md` | any `plan/*` file |
-| Zero-config connection | `specs/002-public-access.md` | " |
-| Open-source gates / stage gates | `specs/003-open-source-release.md` | " |
+| Zero-config connection | the zero-configuration amendment (removed 2026-09-10) | " |
+| Open-source gates / stage gates | the open-source readiness amendment (removed 2026-09-10) | " |
 | Architecture, protocol, engineering contract | `plans/001-technical-plan.md` | " |
-| T001–T033 task status | `plans/002-pilot-tasks.md` | `11-BACKLOG.md` only MAPS Txxx → Fx-NN, doesn't rewrite the content |
-| Research on existing solutions | `docs/research.md` |, |
+| T001–T033 task status | the pilot task matrix (removed 2026-09-10, all 33 closed) | `11-BACKLOG.md` only MAPS Txxx → Fx-NN, doesn't rewrite the content |
+| Research on existing solutions | the existing-solutions research (removed 2026-09-10) |, |
 | Sapserver access, hardware, network, Docker, backup | the operator's private setup note (outside this repo) | `08-sapserver-operations.md` cites the numbers, doesn't guess |
 
 The building agent reads the files above BEFORE each phase they concern, not from the planning
@@ -45,7 +45,7 @@ session's memory.
    `10-MASTER-PROMPT.md`.
 3. `.env.example` with no working secrets + a strong-secret generator on `havemind setup`.
 4. `SECURITY.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `CHANGELOG.md`, required before the
-   public alpha (`specs/003-open-source-release.md`), not required before the private pilot,
+   public alpha (the open-source readiness amendment (removed 2026-09-10)), not required before the private pilot,
    added to Phase 8, not Phase 0-7, so as not to block the pilot.
 5. Diagnostics with no secret leakage (`havemind doctor` or an equivalent command), required
    before T032.
