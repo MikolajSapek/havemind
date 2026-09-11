@@ -17,7 +17,7 @@ you own passes the changes around and remembers who wrote what.
 Built for people. If you also run Claude, MCP or another local agent in that
 vault, its edits land in the same history.
 
-**Version 1.4.7, desktop and mobile.** A two-week pilot on two devices lost no
+**Version 1.4.8, desktop and mobile.** A two-week pilot on two devices lost no
 data, including through three real incidents.
 
 There is no end-to-end encryption. Your server stores the vault in plaintext,

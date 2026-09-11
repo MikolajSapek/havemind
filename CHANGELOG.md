@@ -5,6 +5,33 @@ All notable changes to this project are documented here. The format is based on
 follows independent [Semantic Versioning](https://semver.org) for the plugin
 and the server.
 
+## [1.4.8], 2026-09-11
+
+### Fixed
+
+- A remote delete could take an unsent local edit with it. The delete path
+  checked only that the revision owned the file, never that the copy on disk
+  still matched the last synced version, so a note edited while Obsidian was
+  closed could be removed with no conflict copy left behind. It now compares
+  the content first and writes a conflict copy when they differ, the same
+  guard the rename path already had.
+- Renaming onto an occupied path destroyed the original. The destination was
+  checked only after the source had been deleted, so the operation correctly
+  reported a conflict while the file the user had been working on was already
+  gone. The check now runs first.
+- The two choice cards on the disconnected screen overlapped, the second
+  sitting on top of the first card's description, with text running past the
+  pane edge.
+
+### Added
+
+- The People tab reads the member list from the server, so everyone in a vault
+  sees the same people. An offline device keeps showing the list it last knew
+  rather than emptying the panel.
+- Activity names the author of a remote change. The author travels with the
+  revision from the server, so it is never inferred: a change from someone the
+  roster does not know reads as a remote edit rather than the wrong name.
+
 ## [1.4.7], 2026-09-05
 
 ### Fixed
