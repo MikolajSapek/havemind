@@ -5,6 +5,18 @@ All notable changes to this project are documented here. The format is based on
 follows independent [Semantic Versioning](https://semver.org) for the plugin
 and the server.
 
+## [1.4.10], 2026-09-14
+
+### Fixed
+
+- The adjacent-line merge shipped in 1.4.9 could drop a line. It checked
+  whether the other side had touched the line the walk was standing on, but not
+  the rest of the span a multi-line change covers, so a change overlapping on
+  its second line passed the check and was then skipped over. CI's property
+  battery found it after 437 random cases, having lost the text "foo" from
+  ancestor "b\n", local "# h\n- a", remote "b\nfoo". Overlap is now tested
+  across the whole span, and such a region falls back to a conflict copy.
+
 ## [1.4.9], 2026-09-14
 
 ### Fixed

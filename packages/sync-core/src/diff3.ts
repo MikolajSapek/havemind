@@ -332,9 +332,19 @@ function mergeDisjointRegion(
   const inRegion = (hunk: Hunk): boolean =>
     hunk.oStart < regionEnd && hunk.oStart + hunk.oLength > regionStart;
   const balanced = (hunks: readonly Hunk[]): boolean =>
-    hunks
-      .filter(inRegion)
-      .every((hunk) => hunk.oLength > 0 && hunk.oLength === hunk.abLength);
+    hunks.filter(inRegion).every(
+      (hunk) =>
+        // One ancestor line in, one replacement line out, so the walk below can
+        // attribute each line to exactly one side.
+        hunk.oLength > 0 &&
+        hunk.oLength === hunk.abLength &&
+        // Wholly inside the region. A hunk that straddles the boundary has part
+        // of its replacement outside the span this function rebuilds, and that
+        // part would simply vanish (CI counterexample: ancestor "b\n", local
+        // "# h\n- a", remote "b\nfoo" lost "foo").
+        hunk.oStart >= regionStart &&
+        hunk.oStart + hunk.oLength <= regionEnd,
+    );
   if (!balanced(localHunks) || !balanced(remoteHunks)) {
     return null;
   }
@@ -363,14 +373,21 @@ function mergeDisjointRegion(
     // the one edit whose intent cannot be recovered from the text, so it falls
     // back to a conflict copy where both versions survive.
     const own = (local ?? remote) as Hunk;
+    // The opposite side must not touch ANY line this hunk spans, not just the
+    // line the walk is standing on. A multi-line hunk that overlaps a
+    // single-line change on its second line used to pass this check and then
+    // skip past it, dropping the other side's text (CI counterexample:
+    // ancestor "b\n", local "# h\n- a", remote "b\nfoo" lost "foo").
     if (
-      own.abLength === 0 &&
       regionHasOppositeChange(
         local !== undefined ? remoteHunks : localHunks,
-        regionStart,
-        regionEnd,
+        own.oStart,
+        own.oStart + own.oLength,
       )
     ) {
+      return null;
+    }
+    if (own.abLength === 0) {
       return null;
     }
     if (local === undefined && remote === undefined) {

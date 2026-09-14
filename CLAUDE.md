@@ -157,6 +157,32 @@ Before tagging, re-read the README for anything the release made untrue:
 - the platform claims, when support changes;
 - screenshots and `design/brand/*.png`, when the pane's appearance changed.
 
+### A push is not done until CI is green
+
+**After every `git push`, watch the run to completion before reporting the push
+as finished:**
+
+```bash
+gh run list --repo MikolajSapek/havemind --limit 3 \
+  --json status,conclusion,name --jq '.[] | "\(.status) \(.conclusion // "-") \(.name)"'
+```
+
+A green `npm run verify` locally does NOT mean CI passes. The property battery
+in `diff3.property.test.ts` draws fresh random cases on every run: the merge fix
+in 1.4.9 passed 25 local draws three times in a row and failed in CI after 437,
+having silently dropped a line. Anything random, timing-dependent, or
+platform-dependent can only be caught by looking at the run that actually ran
+(2026-09-14).
+
+When CI fails, pull the counterexample out of the log rather than guessing:
+
+```bash
+gh run view <id> --repo MikolajSapek/havemind --log-failed | grep -aE "Counterexample|seed:"
+```
+
+Reproduce it in a scratch test first, fix, then re-run the property file several
+times before pushing again.
+
 **After every push to `origin/main`, append an entry to
 `Havemind - dziennik wydan`** before reporting the push as done: the date,
 the commits with one line each, what changed, and the state of

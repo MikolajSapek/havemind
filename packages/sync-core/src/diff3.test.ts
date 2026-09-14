@@ -177,3 +177,13 @@ describe('deletion next to an opposite-side edit (MRG-05 guard)', () => {
     expect(result.status).toBe('merged');
   });
 });
+
+describe('overlap across a whole hunk span (MRG-05 guard)', () => {
+  it('conflicts when a multi-line hunk overlaps the other side on a later line', () => {
+    // The local hunk spans both ancestor lines; the remote one rewrites the
+    // second. Checking only the line the walk stands on let this through and
+    // then skipped past the overlap, dropping "foo". Found by the property
+    // battery in CI after 437 cases, not by any hand-written example.
+    expect(mergeText('b\n', '# h\n- a', 'b\nfoo').status).toBe('conflict');
+  });
+});
