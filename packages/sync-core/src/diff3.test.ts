@@ -63,12 +63,18 @@ describe('mergeText (line diff3)', () => {
     );
   });
 
-  it('fails when opposite-side edits touch (no unchanged line between them)', () => {
-    // Local edits line B (index 1), remote edits line C (index 2): adjacent,
-    // zero untouched lines between → conservative conflict (N=1).
-    expect(mergeText('A\nB\nC\nD\n', 'A\nB1\nC\nD\n', 'A\nB\nC1\nD\n').status).toBe(
-      'conflict',
-    );
+  it('merges opposite-side edits on touching but distinct lines', () => {
+    // Local edits line B (index 1), remote edits line C (index 2). They are
+    // adjacent, so the grouping loop folds them into one region, but each line
+    // was rewritten by only ONE side: the result is not ambiguous and the merge
+    // recovers it (MRG-05). This test asserted a conflict until 1.4.9, which
+    // described the old limitation rather than correct behaviour: neighbouring
+    // table rows and list items hit it constantly in a shared vault.
+    const result = mergeText('A\nB\nC\nD\n', 'A\nB1\nC\nD\n', 'A\nB\nC1\nD\n');
+    expect(result.status).toBe('merged');
+    if (result.status === 'merged') {
+      expect(result.text).toBe('A\nB1\nC1\nD\n');
+    }
   });
 
   it('fails when both sides append different content at the end', () => {
@@ -105,5 +111,69 @@ describe('mergeText (line diff3)', () => {
     expect(
       mergedText('A\nB\nC\nD\n', 'A\nB\nInserted\nC\nD\n', 'A\nB\nC\nD1\n'),
     ).toBe('A\nB\nInserted\nC\nD1\n');
+  });
+});
+
+describe('adjacent edits from opposite sides (MRG-05)', () => {
+  // Two people editing neighbouring lines is the commonest shape of a shared
+  // vault: consecutive table rows, list items, or a heading and the paragraph
+  // under it. The grouping loop used to fold both changes into one region and
+  // fail the whole merge, even though each individual line was touched by only
+  // ONE side, so the outcome was never ambiguous. Real conflicts (the SAME line
+  // changed on both sides) still fail, which is the case the ceremony exists for.
+  it('merges when each adjacent line is changed by only one side', () => {
+    const ancestor = 'a\nb\nc\nd';
+    const local = 'a\nLOCAL\nc\nd';
+    const remote = 'a\nb\nREMOTE\nd';
+    const result = mergeText(ancestor, local, remote);
+    expect(result.status).toBe('merged');
+    if (result.status === 'merged') {
+      expect(result.text).toBe('a\nLOCAL\nREMOTE\nd');
+    }
+  });
+
+  it('merges neighbouring table rows edited by two people', () => {
+    const ancestor = '| x | 1 |\n| y | 2 |\n| z | 3 |';
+    const local = '| x | 1 |\n| y | CHANGED |\n| z | 3 |';
+    const remote = '| x | 1 |\n| y | 2 |\n| z | ALSO |';
+    const result = mergeText(ancestor, local, remote);
+    expect(result.status).toBe('merged');
+    if (result.status === 'merged') {
+      expect(result.text).toBe('| x | 1 |\n| y | CHANGED |\n| z | ALSO |');
+    }
+  });
+
+  it('still conflicts when both sides change the SAME line', () => {
+    const ancestor = 'a\nb\nc';
+    const local = 'a\nMINE\nc';
+    const remote = 'a\nTHEIRS\nc';
+    expect(mergeText(ancestor, local, remote).status).toBe('conflict');
+  });
+
+  it('still conflicts when one side deletes a line the other edits', () => {
+    const ancestor = 'a\nb\nc';
+    const local = 'a\nEDITED\nc';
+    const remote = 'a\nc';
+    expect(mergeText(ancestor, local, remote).status).toBe('conflict');
+  });
+});
+
+describe('deletion next to an opposite-side edit (MRG-05 guard)', () => {
+  it('conflicts when one side deletes a line next to the other side edit', () => {
+    // Auto-resolving this would silently drop a line the other person was still
+    // working around, and nothing in the text says whether they meant to keep
+    // it. Deletion is the one edit whose intent cannot be recovered.
+    expect(mergeText('a\nb\nc\nd', 'a\nc\nd', 'a\nb\nR\nd').status).toBe(
+      'conflict',
+    );
+  });
+
+  it('conflicts when both sides delete different adjacent lines', () => {
+    expect(mergeText('a\nb\nc\nd', 'a\nc\nd', 'a\nb\nd').status).toBe('conflict');
+  });
+
+  it('still merges a pure insertion next to an opposite-side edit', () => {
+    const result = mergeText('a\nb\nc', 'a\nNEW\nb\nc', 'a\nb\nR');
+    expect(result.status).toBe('merged');
   });
 });

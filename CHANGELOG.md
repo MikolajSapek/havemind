@@ -5,6 +5,26 @@ All notable changes to this project are documented here. The format is based on
 follows independent [Semantic Versioning](https://semver.org) for the plugin
 and the server.
 
+## [1.4.9], 2026-09-14
+
+### Fixed
+
+- Two people editing neighbouring lines no longer produce a conflict copy. The
+  merge groups changes that sit within one unchanged line of each other into a
+  single region, and any region both sides had touched failed outright, even
+  when each individual line had been rewritten by only one of them. That is the
+  commonest shape of a shared vault: consecutive table rows, list items, or a
+  heading and the paragraph under it. Such a region is now resolved line by
+  line, and only a line claimed by both sides still becomes a conflict copy.
+
+  The recovery is deliberately narrow. It applies when every change in the
+  region replaces ancestor lines one for one; an insertion, a deletion, or a
+  change in line count still falls back to a conflict copy, because line
+  ownership alone cannot say where the new text belongs. A deletion next to
+  someone else's edit stays a conflict for the same reason: combining them
+  would silently drop a line the other person was working around, and nothing
+  in the text says whether they meant to keep it.
+
 ## [1.4.8], 2026-09-11
 
 ### Fixed

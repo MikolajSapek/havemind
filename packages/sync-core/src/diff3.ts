@@ -270,9 +270,25 @@ export function mergeText(
       // Both sides made the identical change: collapse to one copy.
       merged.push(...localSegment);
     } else {
-      // Both sides changed the same span differently, or two changes touch:
-      // never auto-resolve, fail the whole merge to a conflict copy.
-      return { status: 'conflict' };
+      // Both sides touched this span. Before failing, check whether they
+      // touched DIFFERENT ancestor lines within it: two people editing
+      // neighbouring rows of a table, or a heading and the paragraph under it,
+      // is the commonest shape of a shared vault, and the outcome is not
+      // ambiguous when no single line was changed twice. Only a line claimed by
+      // both sides is a genuine conflict.
+      const disjoint = mergeDisjointRegion(
+        o,
+        localHunks,
+        remoteHunks,
+        a,
+        b,
+        regionStart,
+        regionEnd,
+      );
+      if (disjoint === null) {
+        return { status: 'conflict' };
+      }
+      merged.push(...disjoint);
     }
 
     oCursor = regionEnd;
@@ -283,4 +299,132 @@ export function mergeText(
   }
 
   return { status: 'merged', text: merged.join('\n') };
+}
+
+/**
+ * Rebuilds a region that BOTH sides touched, but on disjoint ancestor lines.
+ *
+ * The grouping loop folds changes that sit within `adjacency` unchanged lines
+ * into one region, so two people editing neighbouring lines land in the same
+ * span even though neither overwrote the other. Walking the span line by line
+ * and asking which side owns each one recovers the unambiguous result; a line
+ * claimed by both sides returns null, and the caller falls back to a conflict
+ * copy exactly as before.
+ *
+ * Returns the merged lines, or null when the region is a genuine conflict.
+ */
+function mergeDisjointRegion(
+  o: readonly string[],
+  localHunks: readonly Hunk[],
+  remoteHunks: readonly Hunk[],
+  a: readonly string[],
+  b: readonly string[],
+  regionStart: number,
+  regionEnd: number,
+): string[] | null {
+  // This path recovers only the unambiguous shape: every hunk in the region
+  // REPLACES ancestor lines one for one, and no ancestor line is claimed by
+  // both sides. Anything else (an insertion, a deletion, a hunk that changes
+  // the line count) cannot be reassembled from line ownership alone, and a
+  // property test proved the attempt silently dropped lines: ancestor "\n",
+  // local "\na", remote "#" lost "a". Those regions go back to the caller as
+  // conflicts, where both versions survive.
+  const inRegion = (hunk: Hunk): boolean =>
+    hunk.oStart < regionEnd && hunk.oStart + hunk.oLength > regionStart;
+  const balanced = (hunks: readonly Hunk[]): boolean =>
+    hunks
+      .filter(inRegion)
+      .every((hunk) => hunk.oLength > 0 && hunk.oLength === hunk.abLength);
+  if (!balanced(localHunks) || !balanced(remoteHunks)) {
+    return null;
+  }
+  // A pure insertion is anchored between lines, so it never satisfies the
+  // check above; guard it explicitly too, since `inRegion` skips zero-width
+  // hunks entirely.
+  if (
+    insertionsIn(localHunks, regionStart, regionEnd).length > 0 ||
+    insertionsIn(remoteHunks, regionStart, regionEnd).length > 0
+  ) {
+    return null;
+  }
+
+  const out: string[] = [];
+  let line = regionStart;
+  while (line < regionEnd) {
+    const local = hunkCovering(localHunks, line);
+    const remote = hunkCovering(remoteHunks, line);
+    if (local !== undefined && remote !== undefined) {
+      // One ancestor line rewritten by both sides: the case a human must settle.
+      return null;
+    }
+    // A DELETION next to an opposite-side edit is not safe to auto-resolve.
+    // Combining them silently drops a line the other person was still working
+    // around, and no rule can tell whether they meant to keep it. Deleting is
+    // the one edit whose intent cannot be recovered from the text, so it falls
+    // back to a conflict copy where both versions survive.
+    const own = (local ?? remote) as Hunk;
+    if (
+      own.abLength === 0 &&
+      regionHasOppositeChange(
+        local !== undefined ? remoteHunks : localHunks,
+        regionStart,
+        regionEnd,
+      )
+    ) {
+      return null;
+    }
+    if (local === undefined && remote === undefined) {
+      out.push(o[line] as string);
+      line += 1;
+      continue;
+    }
+    const hunk = (local ?? remote) as Hunk;
+    const source = local !== undefined ? a : b;
+    // Emit the hunk's replacement once, when the walk reaches its first line
+    // inside the region. A hunk grouped in from the left starts earlier, and its
+    // replacement was already emitted, so skip it and just advance past it.
+    if (hunk.oStart >= line) {
+      for (let k = 0; k < hunk.abLength; k += 1) {
+        out.push(source[hunk.abStart + k] as string);
+      }
+    }
+    line = hunk.oStart + hunk.oLength;
+  }
+  return out;
+}
+
+/** Zero-width hunks (pure insertions) anchored inside the region. */
+function insertionsIn(
+  hunks: readonly Hunk[],
+  regionStart: number,
+  regionEnd: number,
+): readonly Hunk[] {
+  return hunks.filter(
+    (hunk) =>
+      hunk.oLength === 0 &&
+      hunk.oStart >= regionStart &&
+      hunk.oStart <= regionEnd,
+  );
+}
+
+/** The hunk whose ancestor span covers `line`, if any. */
+function hunkCovering(
+  hunks: readonly Hunk[],
+  line: number,
+): Hunk | undefined {
+  return hunks.find(
+    (hunk) => line >= hunk.oStart && line < hunk.oStart + hunk.oLength,
+  );
+}
+
+/** Whether the other side changed anything inside the region at all. */
+function regionHasOppositeChange(
+  hunks: readonly Hunk[],
+  regionStart: number,
+  regionEnd: number,
+): boolean {
+  return hunks.some(
+    (hunk) =>
+      hunk.oStart < regionEnd && hunk.oStart + hunk.oLength > regionStart,
+  );
 }
