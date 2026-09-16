@@ -102,25 +102,28 @@ export interface PushProducerHandle {
   retryFailedCommit(path: string): RetryFailedCommitOutcome;
 }
 
-export function startPushProducer(
-  plugin: Plugin,
-  state: DurableSyncState,
-  identity: PushIdentity,
-  triggerSync: () => void,
-  producerRef: { current: OutboxLocalChangeRepository | null },
-  hooks?: RuntimeHooks,
-  fileApplyLock?: KeyedMutex,
-): PushProducerHandle {
-  const vault = (plugin.app as unknown as AppWithVault).vault;
+export interface PushProducerRepositoryOptions {
+  readonly plugin: Plugin;
+  readonly state: DurableSyncState;
+  readonly identity: PushIdentity;
+}
+
+/**
+ * Builds the durable outbox/mapping repository and binds it for remote-apply
+ * adoption. Must run BEFORE the first `syncNow` bootstrap so materialised heads
+ * are adopted into the producer map; otherwise connect-time reconcile treats
+ * every just-written note as a local create and storms conflicts on an empty
+ * phone vault.
+ */
+export function createPushProducerRepository(
+  options: PushProducerRepositoryOptions,
+): OutboxLocalChangeRepository {
+  const { plugin, state, identity } = options;
   const store: ProducerStorePort = {
     async load() {
       const data = await plugin.loadData();
       const raw = isRecord(data) ? data[PUSH_PRODUCER_KEY] : null;
       const result = parseProducerStateResult(raw);
-      // GAP-3: preserve unparseable producer bytes to a sidecar so a lost mapping
-      // can't silently fork a duplicate fileId. Connect-safety: the persist may
-      // fail (loadData/mutex), but that must NEVER abort producer setup, degrade
-      // defensively and fall through to the (empty-or-partial) parsed state.
       try {
         if (result.status === 'corrupt') {
           await preserveCorruptProducerState(plugin, raw, Date.now());
@@ -136,9 +139,6 @@ export function startPushProducer(
           'Havemind: failed to preserve corrupt producer state to a sidecar.',
         );
       }
-      // AUD-12 one-time compaction. Persist the metadata-only projection before
-      // reconciliation so a phone immediately sheds legacy multi-megabyte
-      // base64 bodies instead of waiting for each attachment to change.
       if (result.status === 'ok' && result.migrated) {
         await getPluginDataMutex(plugin).update((base) => ({
           ...base,
@@ -155,28 +155,32 @@ export function startPushProducer(
     },
   };
 
-  const repository = new OutboxLocalChangeRepository({
+  return new OutboxLocalChangeRepository({
     identity,
     store,
     enqueue: (envelope) => state.enqueue(envelope),
     generateRevisionId: () => globalThis.crypto.randomUUID(),
-    // FIX 1: seed the SHARED apply store for every file this device authors or
-    // pushes, so a later peer edit to a locally-authored file resolves to its
-    // real fileId and updates in place instead of forever forking to a conflict
-    // artifact. A rename also forgets the stale owner of the previous path.
-    //
-    // DATA-SAFETY (rule 3): the base is SEEDED only on first authorship and is
-    // NEVER advanced by a local push, advancing it here reopened the silent-
-    // overwrite window (a concurrent peer revision matching the just-authored
-    // base slips past the on-disk guard). The single source of truth for that
-    // rule lives in `local-base-lifecycle.ts`, shared with the integration
-    // harness so a regression can't hide behind a differently-modelled test.
     onLocalMaterialized: (materialization) =>
       applyLocalMaterialization(state, materialization),
     onLocalForgotten: (forget) => forgetLocalMaterialization(state, forget),
   });
-  // Bind the late-bound coordinator so the apply adapter can adopt remote
-  // fileIds into this producer's mapping (FIX 2).
+}
+
+export function startPushProducer(
+  plugin: Plugin,
+  state: DurableSyncState,
+  identity: PushIdentity,
+  triggerSync: () => void,
+  producerRef: { current: OutboxLocalChangeRepository | null },
+  hooks?: RuntimeHooks,
+  fileApplyLock?: KeyedMutex,
+): PushProducerHandle {
+  const vault = (plugin.app as unknown as AppWithVault).vault;
+  // Prefer a repository already bound for bootstrap adoption; only mint one when
+  // the caller did not pre-bind (tests / owner paths without an early bind).
+  const repository =
+    producerRef.current ??
+    createPushProducerRepository({ plugin, state, identity });
   producerRef.current = repository;
 
   const snapshot: VaultSnapshotPort = {

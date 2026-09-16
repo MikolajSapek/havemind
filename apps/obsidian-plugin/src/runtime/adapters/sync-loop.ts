@@ -29,7 +29,7 @@ import {
   runCanonicalizationRebase,
 } from './plugin-data-ports';
 import { gateLocalSyncState } from './local-state-gate';
-import { startPushProducer, type PushProducerHandle } from './push-producer';
+import { startPushProducer, createPushProducerRepository, type PushProducerHandle } from './push-producer';
 import { createRequestUrlFn } from './request-url';
 import type { RuntimeHooks } from './runtime-hooks';
 import { buildSyncController } from './sync-controller';
@@ -181,6 +181,22 @@ export async function startSyncLoop(
     producerSync,
     fileApplyLock,
   );
+
+  // Bind the producer repository BEFORE the first pull so bootstrap adopts each
+  // materialised head into the mapping. Without this, syncNow writes the vault
+  // while producerRef is still null, connect-time reconcile treats every note as
+  // a fresh local create, and an empty phone fills Havemind Conflicts.
+  if (hasPushIdentity) {
+    producerRef.current = createPushProducerRepository({
+      plugin,
+      state,
+      identity: {
+        vaultId: connection.vaultId,
+        memberId: connection.memberId as string,
+        deviceId: connection.deviceId as string,
+      },
+    });
+  }
 
   // AUD-03 PART 2, one-time migration. BEFORE the first sync cycle, rebase any
   // persisted base hashes / producer-mapping content hashes that were computed

@@ -153,7 +153,16 @@ async function ensureParentFolders(
     prefix = prefix === '' ? segment : `${prefix}/${segment}`;
     const existing = vault.getAbstractFileByPath(prefix);
     if (existing === null) {
-      await vault.createFolder(prefix);
+      try {
+        await vault.createFolder(prefix);
+      } catch (error) {
+        // Concurrent bootstrap may create the same folder between the probe and
+        // createFolder. A real folder is success; a file still fails permanent.
+        const raced = vault.getAbstractFileByPath(prefix);
+        if (raced instanceof TFolder) continue;
+        if (raced !== null) throw new ParentFolderOccupiedError(prefix);
+        throw error;
+      }
       continue;
     }
     if (existing instanceof TFolder) {

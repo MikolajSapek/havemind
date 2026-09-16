@@ -5,6 +5,15 @@ All notable changes to this project are documented here. The format is based on
 follows independent [Semantic Versioning](https://semver.org) for the plugin
 and the server.
 
+## [1.4.19], 2026-09-16
+
+### Fixed
+
+- **An empty phone vault no longer fills with false conflicts on join.** The
+  producer mapping is bound before the first bootstrap pull, so materialised
+  heads are adopted instead of being re-enumerated as local creates. Concurrent
+  folder creation during bootstrap is also race-safe.
+
 ## [1.4.18], 2026-09-16
 
 ### Fixed
