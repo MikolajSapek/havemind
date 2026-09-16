@@ -328,6 +328,38 @@ function makeHarness() {
 }
 
 describe('two-person steady-state sync (integration)', () => {
+  it('bootstrap tombstone retires a stale fileId without a reflected re-push', async () => {
+    const h = makeHarness();
+    const path = 'Notes/deleted-on-desktop.md';
+    const staleFileId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const serverFileId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    await h.userCreate(path, 'OLD-SERVER-VERSION\n', staleFileId);
+    const outboxBeforeDelete = h.outbox.length;
+    expect(h.localHead(staleFileId)).toBeDefined();
+
+    h.setRemote('server-delete', {
+      operation: 'delete',
+      path,
+      previousPath: null,
+      content: null,
+    });
+    const outcome = await h.adapter.applyRemote(
+      h.remoteEvent('server-delete', serverFileId),
+      { bootstrap: true },
+    );
+    await h.drainEvents();
+
+    expect(outcome).toBe('applied');
+    expect(h.vault.contents.has(path)).toBe(false);
+    expect(h.state.fileIdAtPath(path)).toBeNull();
+    expect(h.state.baseHashFor(staleFileId)).toBeNull();
+    expect(h.state.baseContentFor(staleFileId)).toBeNull();
+    expect(h.producerMappings()).toEqual([]);
+    expect(h.localHead(staleFileId)).toBeUndefined();
+    expect(h.localHead(serverFileId)).toBeUndefined();
+    expect(h.outbox).toHaveLength(outboxBeforeDelete);
+  });
+
   it('(a) a peer edit to a locally-authored file updates IN PLACE with a matching base', async () => {
     const h = makeHarness();
     await h.userCreate('Notes/note.md', 'V1\n', FILE_A);

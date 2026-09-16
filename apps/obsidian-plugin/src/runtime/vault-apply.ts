@@ -340,6 +340,78 @@ export class VaultApplyAdapter implements VaultApplyPort {
     );
   }
 
+  private async applyDelete(
+    event: RemoteEvent,
+    decoded: DecodedRevisionPayload,
+    fileId: string,
+    origin: RemoteAppliedOrigin,
+  ): Promise<RemoteApplyOutcome> {
+    const path = decoded.path;
+    const owner = this.files.fileIdAtPath(path);
+    const binary = decoded.kind === 'binary';
+    const onDisk = binary ? null : await this.files.readByPath(path);
+    const binaryOnDisk = binary
+      ? await this.files.readBinaryByPath(path)
+      : null;
+    const exists = onDisk !== null || binaryOnDisk !== null;
+    const base = owner === null ? null : this.files.baseHashFor(owner);
+    const diskHash =
+      binaryOnDisk !== null
+        ? await hashBlob(binaryOnDisk)
+        : onDisk === null
+          ? null
+          : await this.hashContent(onDisk);
+    const unchanged = base !== null && diskHash === base;
+    const bootstrapStale =
+      origin === 'bootstrap' &&
+      (owner === null || unchanged);
+
+    if (exists && !resolvesLastWriterWins(path)) {
+      if (owner === fileId && !unchanged && !bootstrapStale) {
+        await this.writeConflict(event, decoded);
+        return 'conflict';
+      }
+      if (owner !== null && owner !== fileId && !unchanged) {
+        if (origin === 'bootstrap') {
+          await this.writeConflict(event, decoded);
+          return 'conflict';
+        }
+        return 'applied';
+      }
+    }
+
+    // A live tombstone never removes an unrelated/untracked path. Bootstrap is
+    // different: the snapshot is the server's current state, so a stale file
+    // left by an earlier phone sync must not survive and be reconciled as a new
+    // create immediately afterwards.
+    if (origin !== 'bootstrap' && owner !== fileId) return 'applied';
+
+    if (owner !== null && owner !== fileId) {
+      await this.producerSync?.onRemoteDelete({ fileId: owner, path });
+      await this.files.forgetBaseHash(owner);
+      await this.files.forgetBaseContent(owner);
+    }
+    // Forget the producer mapping BEFORE the disk delete. Its reflected vault
+    // event then finds no mapping and cannot re-push the tombstone or recreate
+    // the stale path during connect-time reconciliation.
+    await this.producerSync?.onRemoteDelete({ fileId, path });
+    await this.files.deleteByPath(path);
+    await this.files.forgetPath(path);
+    await this.files.forgetBaseHash(fileId);
+    await this.files.forgetBaseContent(fileId);
+    this.onRemoteApplied?.({
+      revisionId: event.revision.revisionId,
+      fileId,
+      path,
+      operation: decoded.operation,
+      origin,
+      ...(event.revision.authorMembershipId === undefined
+        ? {}
+        : { authorMembershipId: event.revision.authorMembershipId }),
+    });
+    return 'applied';
+  }
+
   private async applyDecoded(
     event: RemoteEvent,
     decoded: DecodedRevisionPayload,
@@ -347,50 +419,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
     origin: RemoteAppliedOrigin,
   ): Promise<RemoteApplyOutcome> {
     if (decoded.operation === 'delete') {
-      // Only remove a file this revision actually owns.
-      if (this.files.fileIdAtPath(decoded.path) === fileId) {
-        // Owning the path is not enough to destroy it (rule 3, P1). A file
-        // edited on THIS device while closed holds an unsent local change; a
-        // remote tombstone must not take it with no copy left behind. Same
-        // shape as the rename branch below: read the path, hash it, compare to
-        // the recorded base, and divert the incoming revision to a conflict
-        // artifact when they diverge (a null base cannot prove the file clean,
-        // so it diverts too). An allowlisted `.obsidian/` settings file keeps
-        // resolving by recency and is deleted regardless.
-        if (!resolvesLastWriterWins(decoded.path)) {
-          const onDisk = await this.files.readByPath(decoded.path);
-          if (onDisk !== null) {
-            const base = this.files.baseHashFor(fileId);
-            const onDiskHash = await this.hashContent(onDisk);
-            if (base === null || onDiskHash !== base) {
-              await this.writeConflict(event, decoded);
-              return 'conflict';
-            }
-          }
-        }
-        // Forget the producer mapping BEFORE the delete so the reflected vault
-        // 'delete' event finds no mapping and is not re-pushed as a local
-        // tombstone (re-entrancy guard).
-        await this.producerSync?.onRemoteDelete({ fileId, path: decoded.path });
-        await this.files.deleteByPath(decoded.path);
-        await this.files.forgetPath(decoded.path);
-        await this.files.forgetBaseHash(fileId);
-        // Forget the base CONTENT too (F3): the local-delete path already does
-        // this (`forgetLocalMaterialization`); omitting it here leaked one
-        // baseContents entry per remote delete, growing data.json unbounded.
-        await this.files.forgetBaseContent(fileId);
-        this.onRemoteApplied?.({
-          revisionId: event.revision.revisionId,
-          fileId,
-          path: decoded.path,
-          operation: decoded.operation,
-          origin,
-          ...(event.revision.authorMembershipId === undefined
-            ? {}
-            : { authorMembershipId: event.revision.authorMembershipId }),
-        });
-      }
-      return 'applied';
+      return this.applyDelete(event, decoded, fileId, origin);
     }
 
     // Binary attachments (F9) are whole-file byte replaces: a separate path that
@@ -475,10 +504,16 @@ export class VaultApplyAdapter implements VaultApplyPort {
     if (owner !== null && owner !== fileId) {
       const bootstrapVacant =
         origin === 'bootstrap' && onDisk !== null && isVacantMarkdown(onDisk);
-      if (bootstrapVacant) {
+      const ownerBase = this.files.baseHashFor(owner);
+      const bootstrapUnchanged =
+        origin === 'bootstrap' &&
+        onDisk !== null &&
+        ownerBase !== null &&
+        (await this.hashContent(onDisk)) === ownerBase;
+      if (bootstrapVacant || bootstrapUnchanged) {
         // A vacant placeholder (empty note iOS created when the user opened the
-        // vault) is not a real second note. Retire the locally minted owner and
-        // fall through to write the server head.
+        // vault), or content unchanged from a stale local fileId, is not a real
+        // concurrent edit. Retire the old owner and take the server head.
         await this.producerSync?.onRemoteDelete({ fileId: owner, path: decoded.path });
         await this.files.forgetBaseHash(owner);
         await this.files.forgetBaseContent(owner);

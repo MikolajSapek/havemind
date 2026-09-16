@@ -430,6 +430,26 @@ describe('VaultApplyAdapter', () => {
       expect(files.conflicts).toHaveLength(1);
     });
 
+    it('bootstrap: replaces content unchanged from a stale local fileId', async () => {
+      const { adapter, files } = build(() => content('Notes/a.md', 'REMOTE\n'));
+      files.owners.set('Notes/a.md', 'stale-phone-file');
+      files.onDisk.set('Notes/a.md', 'OLD-SERVER-VERSION\n');
+      files.baseHashes.set(
+        'stale-phone-file',
+        await fakeHash('OLD-SERVER-VERSION\n'),
+      );
+
+      const outcome = await adapter.applyRemote(event('rev-9', 'file-1'), {
+        bootstrap: true,
+      });
+
+      expect(outcome).toBe('applied');
+      expect(files.writes).toEqual([{ path: 'Notes/a.md', content: 'REMOTE\n' }]);
+      expect(files.conflicts).toEqual([]);
+      expect(files.owners.get('Notes/a.md')).toBe('file-1');
+      expect(files.baseHashes.has('stale-phone-file')).toBe(false);
+    });
+
     it('bootstrap: adopts a vacant placeholder owned by a locally-minted fileId', async () => {
       const { adapter, files } = build(() => content('Notes/a.md', 'REMOTE\n'));
       files.owners.set('Notes/a.md', 'local-minted');
@@ -859,6 +879,89 @@ describe('VaultApplyAdapter', () => {
       expect(files.conflicts).toEqual([]);
     });
 
+    it('bootstrap: applies a tombstone to an untracked stale phone file', async () => {
+      const { adapter, files } = build(() => tombstone('Notes/a.md'));
+      files.onDisk.set('Notes/a.md', 'OLD-SERVER-VERSION\n');
+
+      const outcome = await adapter.applyRemote(event('rev-d', 'file-1'), {
+        bootstrap: true,
+      });
+
+      expect(outcome).toBe('applied');
+      expect(files.deletes).toEqual(['Notes/a.md']);
+      expect(files.onDisk.has('Notes/a.md')).toBe(false);
+      expect(files.conflicts).toEqual([]);
+    });
+
+    it('bootstrap: preserves the file when its local base was lost', async () => {
+      const { adapter, files } = build(() => tombstone('Notes/a.md'));
+      files.owners.set('Notes/a.md', 'file-1');
+      files.onDisk.set('Notes/a.md', 'OLD-SERVER-VERSION\n');
+
+      const outcome = await adapter.applyRemote(event('rev-d', 'file-1'), {
+        bootstrap: true,
+      });
+
+      expect(outcome).toBe('conflict');
+      expect(files.deletes).toEqual([]);
+      expect(files.onDisk.get('Notes/a.md')).toBe('OLD-SERVER-VERSION\n');
+      expect(files.conflicts).toHaveLength(1);
+    });
+
+    it('bootstrap: retires a stale fileId when its content is unchanged', async () => {
+      const { adapter, files } = build(() => tombstone('Notes/a.md'));
+      files.owners.set('Notes/a.md', 'stale-phone-file');
+      files.onDisk.set('Notes/a.md', 'OLD-SERVER-VERSION\n');
+      files.baseHashes.set(
+        'stale-phone-file',
+        await fakeHash('OLD-SERVER-VERSION\n'),
+      );
+
+      const outcome = await adapter.applyRemote(event('rev-d', 'file-1'), {
+        bootstrap: true,
+      });
+
+      expect(outcome).toBe('applied');
+      expect(files.deletes).toEqual(['Notes/a.md']);
+      expect(files.owners.has('Notes/a.md')).toBe(false);
+      expect(files.baseHashes.has('stale-phone-file')).toBe(false);
+      expect(files.conflicts).toEqual([]);
+    });
+
+    it('bootstrap: preserves a real offline edit despite a tombstone', async () => {
+      const { adapter, files } = build(() => tombstone('Notes/a.md'));
+      files.owners.set('Notes/a.md', 'file-1');
+      files.onDisk.set('Notes/a.md', 'PHONE-EDIT\n');
+      files.baseHashes.set('file-1', await fakeHash('OLD-SERVER-VERSION\n'));
+
+      const outcome = await adapter.applyRemote(event('rev-d', 'file-1'), {
+        bootstrap: true,
+      });
+
+      expect(outcome).toBe('conflict');
+      expect(files.deletes).toEqual([]);
+      expect(files.onDisk.get('Notes/a.md')).toBe('PHONE-EDIT\n');
+    });
+
+    it('bootstrap: deletes an unchanged tracked binary file', async () => {
+      const bytes = new Uint8Array([0, 1, 2, 255]);
+      const { adapter, files } = build(() =>
+        binaryContent('Files/deleted.pdf', new Uint8Array(0), 'delete'),
+      );
+      files.owners.set('Files/deleted.pdf', 'file-bin');
+      files.binaryOnDisk.set('Files/deleted.pdf', bytes);
+      files.baseHashes.set('file-bin', await hashBlob(bytes));
+
+      const outcome = await adapter.applyRemote(event('rev-d', 'file-bin'), {
+        bootstrap: true,
+      });
+
+      expect(outcome).toBe('applied');
+      expect(files.deletes).toEqual(['Files/deleted.pdf']);
+      expect(files.binaryOnDisk.has('Files/deleted.pdf')).toBe(false);
+      expect(files.binaryConflicts).toEqual([]);
+    });
+
     it('still deletes an allowlisted settings file that diverged (last writer wins)', async () => {
       const { adapter, files } = build(() => tombstone('.obsidian/appearance.json'));
       files.owners.set('.obsidian/appearance.json', 'file-1');
@@ -869,6 +972,23 @@ describe('VaultApplyAdapter', () => {
 
       expect(outcome).toBe('applied');
       expect(files.deletes).toEqual(['.obsidian/appearance.json']);
+      expect(files.conflicts).toEqual([]);
+    });
+
+    it('bootstrap: a settings tombstone retires a stale local fileId', async () => {
+      const { adapter, files } = build(() => tombstone('.obsidian/appearance.json'));
+      files.owners.set('.obsidian/appearance.json', 'stale-settings-file');
+      files.onDisk.set('.obsidian/appearance.json', '{"local":true}\n');
+      files.baseHashes.set('stale-settings-file', await fakeHash('{}\n'));
+
+      const outcome = await adapter.applyRemote(event('rev-d', 'server-settings-file'), {
+        bootstrap: true,
+      });
+
+      expect(outcome).toBe('applied');
+      expect(files.deletes).toEqual(['.obsidian/appearance.json']);
+      expect(files.owners.has('.obsidian/appearance.json')).toBe(false);
+      expect(files.baseHashes.has('stale-settings-file')).toBe(false);
       expect(files.conflicts).toEqual([]);
     });
   });

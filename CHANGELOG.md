@@ -5,6 +5,19 @@ All notable changes to this project are documented here. The format is based on
 follows independent [Semantic Versioning](https://semver.org) for the plugin
 and the server.
 
+## [1.4.16], 2026-09-16
+
+### Fixed
+
+- **A phone reconnect can no longer bring back a file deleted elsewhere.**
+  Bootstrap now applies the server tombstone to an untracked stale phone copy
+  and retires an unchanged obsolete file identity before reconciliation runs.
+  A real offline edit still becomes a conflict instead of being deleted.
+
+- **Old phone identities no longer create a conflict for every unchanged file.**
+  When local content still matches its recorded base, bootstrap safely adopts
+  the current server identity. Binary tombstones compare raw bytes as well.
+
 ## [1.4.15], 2026-09-16
 
 ### Fixed
