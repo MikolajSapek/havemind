@@ -353,6 +353,22 @@ export class DurableSyncState implements SyncStatePort {
    * synchronous assignment, so any read sees a complete, consistent snapshot.
    */
   private mutationTail: Promise<unknown> = Promise.resolve();
+  /**
+   * Depth of nested {@link runBatched} sections. Above zero, `mutate` updates the
+   * in-memory cache but does NOT hit the persist port; the outermost section
+   * flushes once on the way out.
+   *
+   * Why: every `record*` call used to re-serialise the WHOLE blob, and the
+   * persist port turns one save into two full load+save round trips (stage, then
+   * promote) over a blob that itself grows with the vault, because it carries the
+   * base CONTENT of every note. Materialising N heads was therefore O(N) writes
+   * of an O(N) blob: a few hundred notes took twenty minutes to join on a phone,
+   * which is long enough for iOS to background the app mid-bootstrap and leave
+   * the half-applied state this batching also makes recoverable.
+   */
+  private batchDepth = 0;
+  /** True when a `mutate` was swallowed by an open batch and still needs a flush. */
+  private batchDirty = false;
 
   constructor(options: DurableSyncStateOptions) {
     this.persist = options.persist;
@@ -906,8 +922,44 @@ export class DurableSyncState implements SyncStatePort {
     await this.persist.save(this.toDiskForm(this.cache));
   }
 
+  /**
+   * Runs `body` with persistence coalesced into ONE write at the end.
+   *
+   * Every mutation inside still updates the in-memory cache immediately, so
+   * readers (`fileIdAtPath`, `baseHashFor`, …) behave exactly as they do outside
+   * a batch and the on-disk result is identical, only the number of writes
+   * changes. Re-entrant: a nested call joins the outer batch and the flush
+   * happens once, when the outermost section exits.
+   *
+   * The flush also runs when `body` REJECTS, then the error is re-thrown. That
+   * is the important half for the bootstrap: an interrupted join must still
+   * durably record the heads it already materialised, or the next connect finds
+   * cursor zero over a populated vault and replays the whole history onto it.
+   */
+  async runBatched<T>(body: () => Promise<T>): Promise<T> {
+    this.batchDepth += 1;
+    try {
+      return await body();
+    } finally {
+      this.batchDepth -= 1;
+      if (this.batchDepth === 0 && this.batchDirty) {
+        this.batchDirty = false;
+        const current = this.cache;
+        if (current !== null) {
+          await this.persist.save(this.toDiskForm(current));
+        }
+      }
+    }
+  }
+
   private async mutate(next: PersistedSyncState): Promise<void> {
     this.cache = next;
+    // Inside a batch the cache is authoritative and the single flush in
+    // `runBatched` writes the final state; skip the per-mutation round trip.
+    if (this.batchDepth > 0) {
+      this.batchDirty = true;
+      return;
+    }
     // GAP-1: `recoveryRequired` is a purely OBSERVABLE signal (surfaced via
     // {@link isRecoveryRequired}), never a save lock. The earlier design blocked
     // every future save while set, but nothing here ever cleared it and

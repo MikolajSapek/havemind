@@ -143,6 +143,20 @@ export interface SyncStatePort {
   quarantineOutboxItem(revisionId: string, reason: string): Promise<void>;
   /** Echo suppression: was this revision authored by this device? */
   isLocallyAuthored(revisionId: string): Promise<boolean>;
+  /**
+   * Runs `body` with this state's durable writes coalesced into ONE flush at the
+   * end (including when `body` throws, so an interrupted run still records what
+   * it materialised). Optional: a port without it simply persists per mutation,
+   * which is the previous behaviour and still correct.
+   *
+   * The runner wraps the bootstrap apply pass in it. Each materialised head
+   * records a path owner, a base hash and a base content, and on the Obsidian
+   * port every one of those re-serialises the whole `data.json`, a blob that
+   * itself grows with the vault. Left per-mutation that is quadratic: a few
+   * hundred notes took twenty minutes to join on a phone, long enough for iOS
+   * to background the app mid-bootstrap.
+   */
+  runBatched?<T>(body: () => Promise<T>): Promise<T>;
 }
 
 export interface OpenBuffer {
@@ -250,6 +264,15 @@ export type SyncCycleStatus =
   | 'synced'
   | 'conflict'
   | 'deferred'
+  /**
+   * The cycle reached the server, but at least one queued revision was neither
+   * accepted nor dead-lettered (a transient server rejection, or a parent that
+   * has not landed yet). It stays in the outbox and the next cycle retries it,
+   * so this is quieter than `offline`, but it must never read as `synced`: that
+   * is the state where the panel showed "Connected · synced" next to "2 changes
+   * waiting to send" while nothing moved.
+   */
+  | 'unsent'
   | 'offline'
   | 'unauthenticated';
 
@@ -511,7 +534,13 @@ export class SyncRunner {
         deferred: apply.deferred,
         pushed: push.pushed,
         quarantined: push.quarantined,
-        status: apply.status,
+        // An outbox this cycle could not ship keeps the status off "synced". A
+        // conflict or a deferred apply still outranks it: both concern content
+        // already on disk, while an unsent revision only needs another cycle.
+        status:
+          apply.status === 'synced' && push.unsent > 0
+            ? 'unsent'
+            : apply.status,
         suppressed: apply.suppressed,
       };
     } catch (error) {
@@ -556,10 +585,14 @@ export class SyncRunner {
    * stop retrying, and the `quarantined` count reflects the full lineage so the
    * status surface can never read a clean "synced" while a lineage is dead.
    */
-  private async runPush(): Promise<{ pushed: number; quarantined: number }> {
+  private async runPush(): Promise<{
+    pushed: number;
+    quarantined: number;
+    unsent: number;
+  }> {
     const outbox = await this.options.state.listOutbox();
     if (outbox.length === 0) {
-      return { pushed: 0, quarantined: 0 };
+      return { pushed: 0, quarantined: 0, unsent: 0 };
     }
 
     // A work queue so a multi-item batch that fails permanently can be split into
@@ -661,7 +694,12 @@ export class SyncRunner {
       }
     }
 
-    return { pushed, quarantined: quarantinedIds.size };
+    // Whatever is still `pending` was neither accepted nor dead-lettered: the
+    // server rejected it transiently, or its parent has not landed yet. It stays
+    // queued for the next cycle, but the cycle must not read "synced" while it
+    // does, that is the state where the panel showed "Connected · synced" beside
+    // "2 changes waiting to send" and nothing ever moved.
+    return { pushed, quarantined: quarantinedIds.size, unsent: pending.size };
   }
 
   /**
@@ -842,16 +880,23 @@ export class SyncRunner {
       complete = page.complete === true;
     }
 
-    const outcomes = await mapPool(
-      collected,
-      this.options.bootstrapApplyConcurrency,
-      (item) => this.applyPulledEvent(item, true),
+    // One batch around the applies AND the cursor save: on the Obsidian port
+    // they then land in a single `data.json` write, so the cursor can never be
+    // durably behind the path owners the same pass recorded.
+    const { applied, conflicts, deferred, suppressed } = await this.batched(
+      async () => {
+        const outcomes = await mapPool(
+          collected,
+          this.options.bootstrapApplyConcurrency,
+          (item) => this.applyPulledEvent(item, true),
+        );
+        const tally = tallyApplyOutcomes(outcomes);
+        if (tally.deferred === 0) {
+          await this.options.state.saveCursor(serverHead);
+        }
+        return tally;
+      },
     );
-    const { applied, conflicts, deferred, suppressed } =
-      tallyApplyOutcomes(outcomes);
-    if (deferred === 0) {
-      await this.options.state.saveCursor(serverHead);
-    }
     return {
       applied,
       conflicts,
@@ -908,20 +953,25 @@ export class SyncRunner {
       (item) => !supersededRevisionIds.has(item.revision.revisionId),
     );
 
-    const outcomes = await mapPool(
-      heads,
-      this.options.bootstrapApplyConcurrency,
-      (item) => this.applyPulledEvent(item, true),
+    // Same single-batch treatment as the snapshot path: the applies and the
+    // cursor save flush together (see `batched`).
+    const { applied, conflicts, deferred, suppressed } = await this.batched(
+      async () => {
+        const outcomes = await mapPool(
+          heads,
+          this.options.bootstrapApplyConcurrency,
+          (item) => this.applyPulledEvent(item, true),
+        );
+        const tally = tallyApplyOutcomes(outcomes);
+        // Never skip a head that could not yet be applied. Successful/no-op and
+        // conflict outcomes are durable, so the full boundary may advance only
+        // when every terminal head reached one of those outcomes.
+        if (tally.deferred === 0) {
+          await this.options.state.saveCursor(serverHead);
+        }
+        return tally;
+      },
     );
-    const { applied, conflicts, deferred, suppressed } =
-      tallyApplyOutcomes(outcomes);
-
-    // Never skip a head that could not yet be applied. Successful/no-op and
-    // conflict outcomes are durable, so the full boundary may advance only when
-    // every terminal head reached one of those outcomes.
-    if (deferred === 0) {
-      await this.options.state.saveCursor(serverHead);
-    }
     return {
       applied,
       conflicts,
@@ -929,6 +979,17 @@ export class SyncRunner {
       status: resolveStatus({ conflicts, deferred }),
       suppressed,
     };
+  }
+
+  /**
+   * Runs `body` inside the state port's durable-write batch when it offers one,
+   * otherwise calls it directly (the port method is optional). Used for the
+   * bootstrap apply pass, where the per-mutation persistence is quadratic.
+   */
+  private batched<T>(body: () => Promise<T>): Promise<T> {
+    const state = this.options.state;
+    if (state.runBatched === undefined) return body();
+    return state.runBatched(body);
   }
 
   /** Applies one pulled event without advancing the cursor. */

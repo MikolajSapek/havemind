@@ -117,6 +117,10 @@ export async function startSyncLoop(
       serverName: serverNameFromUrl(connection.apiBaseUrl),
     };
   }
+  // A bootstrap that was interrupted part-way (a long join backgrounded by iOS)
+  // is safe to finish, it is only the connect-time reconcile that must sit this
+  // session out. See `local-state-gate.ts`.
+  const resumingBootstrap = localStateGate.kind === 'resume-bootstrap';
 
   const clientInstanceId = await ensureClientInstanceId(
     createClientInstanceRepo(plugin),
@@ -236,6 +240,11 @@ export async function startSyncLoop(
       producerRef,
       extras.hooks,
       fileApplyLock,
+      // An interrupted bootstrap left heads on disk that never reached the
+      // producer mapping. The `syncNow` above has just re-run and converged them;
+      // letting reconcile enumerate the vault in the same session would push them
+      // back as fresh local creates (see the gate's `resume-bootstrap`).
+      resumingBootstrap ? { skipInitialReconcile: true } : undefined,
     );
   }
 

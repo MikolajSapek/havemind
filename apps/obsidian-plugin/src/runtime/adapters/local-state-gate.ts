@@ -20,6 +20,21 @@ export type LocalSyncStateRecoveryReason =
 
 export type LocalSyncStateGate =
   | { readonly kind: 'allow' }
+  /**
+   * Heads are materialised on disk but no cursor was ever saved: a bootstrap that
+   * did not finish. The bootstrap records a path owner per applied head and saves
+   * the cursor once at the end, so this is exactly what an interrupted join leaves
+   * behind (a long join is interrupted by iOS backgrounding the app).
+   *
+   * The state is not damaged, so this is NOT `recovery-required`: re-running the
+   * bootstrap is safe and converges, every head that already matches disk applies
+   * as a no-op. What is unsafe is the connect-time RECONCILE that normally follows:
+   * it would see materialised notes whose producer mapping never landed, push them
+   * as fresh local creates under new fileIds, and so resurrect notes the owner
+   * deleted while filling their vault with empty "Target unknown" conflict copies.
+   * The caller therefore finishes the bootstrap first and skips that one reconcile.
+   */
+  | { readonly kind: 'resume-bootstrap' }
   | {
       readonly kind: 'recovery-required';
       readonly reason: LocalSyncStateRecoveryReason;
@@ -120,6 +135,14 @@ export function gateLocalSyncState(rawData: unknown): LocalSyncStateGate {
     sync.ownedPathCount === 0
   ) {
     return { kind: 'recovery-required', reason: 'cursor-reset' };
+  }
+
+  // Cursor zero while remote heads are already materialised on disk: a bootstrap
+  // that never reached its single end-of-pass cursor save. Owned paths are the
+  // tell, they are only ever recorded by an apply, whereas an outbox or authored
+  // revision is this device's OWN work and does not imply a replay hazard.
+  if (sync !== null && sync.cursor === 0 && sync.ownedPathCount > 0) {
+    return { kind: 'resume-bootstrap' };
   }
 
   return { kind: 'allow' };

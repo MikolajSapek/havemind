@@ -28,6 +28,13 @@ export type ConnectionStatus =
    * conflict.
    */
   | 'deferred'
+  /**
+   * The server is reachable and everything incoming is applied, but a queued
+   * local change could not be shipped this cycle and is still in the outbox.
+   * Distinct from `deferred` (which is about an APPLY held back by an open
+   * buffer) and from `offline` (nothing reached the server at all).
+   */
+  | 'unsent'
   | 'reconnect-required'
   /**
    * The connection is valid, but cursor/file identity state is missing or
@@ -55,6 +62,7 @@ const LABELS: Readonly<Record<ConnectionStatus, string>> = {
   offline: 'Offline',
   conflict: 'Conflict',
   deferred: 'Waiting to apply',
+  unsent: 'Changes not sent yet',
   'reconnect-required': 'Reconnect required',
   'recovery-required': 'Recovery required',
   'reset-required': 'Reset required',
@@ -82,6 +90,14 @@ const PANE_NETWORK_NOTE = 'Private Tailscale network · Encrypted in transit';
 export const DEFERRED_DETAIL =
   'A change waits for an open note to settle before applying.';
 
+/**
+ * What the user sees while a local change is still queued. It says the change is
+ * safe and will retry, and never points at the Conflicts folder (nothing was
+ * written there) nor at an open note (the hold-up is the send, not an apply).
+ */
+export const UNSENT_DETAIL =
+  'A local change is still queued to send and will retry automatically.';
+
 /** Maps a completed sync cycle status onto a status-bar connection status. */
 export function connectionStatusFromCycle(
   status: SyncCycleStatus,
@@ -97,6 +113,10 @@ export function connectionStatusFromCycle(
     // its own waiting state rather than the conflict warning.
     case 'deferred':
       return 'deferred';
+    // Reached the server, but a queued revision did not land. Quieter than
+    // offline, never "synced".
+    case 'unsent':
+      return 'unsent';
     case 'unauthenticated':
       return 'reconnect-required';
   }
@@ -265,6 +285,15 @@ const PANEL_STYLES: Readonly<Record<ConnectionStatus, PanelStyle>> = {
     spin: false,
     showForm: false,
   },
+  // Nothing is broken and no user action is required: the next cycle retries the
+  // send, so this is muted like `deferred` rather than a warning.
+  unsent: {
+    icon: 'clock',
+    label: 'Changes not sent yet',
+    colorToken: '--text-muted',
+    spin: false,
+    showForm: false,
+  },
   'reconnect-required': {
     icon: 'alert-triangle',
     label: 'Reconnect required',
@@ -313,6 +342,9 @@ export function buildConnectionPanel(
   }
   if (input.status === 'deferred') {
     parts.push(DEFERRED_DETAIL);
+  }
+  if (input.status === 'unsent') {
+    parts.push(UNSENT_DETAIL);
   }
   // A damaged local record is never the server's fault, so it gets its own
   // explanation rather than the session-refused line.

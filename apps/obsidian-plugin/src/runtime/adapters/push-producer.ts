@@ -166,6 +166,19 @@ export function createPushProducerRepository(
   });
 }
 
+export interface StartPushProducerOptions {
+  /**
+   * Skip the one connect-time vault enumeration. Set when the startup gate
+   * reported `resume-bootstrap`: the vault holds heads an unfinished join wrote,
+   * and reconcile cannot tell them from new local notes, so it would push them
+   * back under fresh fileIds (resurrecting notes the owner deleted, and minting
+   * a conflict copy per path). The live vault listeners still run, so anything
+   * the user actually edits from now on syncs normally, and the next connect,
+   * once the bootstrap has saved its cursor, reconciles as usual.
+   */
+  readonly skipInitialReconcile?: boolean;
+}
+
 export function startPushProducer(
   plugin: Plugin,
   state: DurableSyncState,
@@ -174,6 +187,7 @@ export function startPushProducer(
   producerRef: { current: OutboxLocalChangeRepository | null },
   hooks?: RuntimeHooks,
   fileApplyLock?: KeyedMutex,
+  options?: StartPushProducerOptions,
 ): PushProducerHandle {
   const vault = (plugin.app as unknown as AppWithVault).vault;
   // Prefer a repository already bound for bootstrap adoption; only mint one when
@@ -416,6 +430,11 @@ export function startPushProducer(
   // connect and push any that are new or drifted, then sync. A per-file failure
   // (an oversized note) is skipped rather than aborting the whole scan; surface
   // the count so a silently un-synced file is visible to the user.
+  //
+  // Skipped while resuming an interrupted bootstrap: the files on disk are heads
+  // that join wrote, not local work, and reconcile cannot tell the difference
+  // (see {@link StartPushProducerOptions.skipInitialReconcile}).
+  if (options?.skipInitialReconcile !== true) {
   afterChange(
     reconcileVaultState({ observer, repository, vault: snapshot }).then(
       (result) => {
@@ -438,6 +457,7 @@ export function startPushProducer(
       },
     ),
   );
+  }
 
   // `.obsidian/` config sync (theme, colours, hotkeys, snippets, foreign plugin
   // code). Obsidian emits NO vault events for hidden files, so this cannot use
