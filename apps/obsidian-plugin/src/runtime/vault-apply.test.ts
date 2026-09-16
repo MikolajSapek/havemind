@@ -383,6 +383,67 @@ describe('VaultApplyAdapter', () => {
       expect(files.conflicts).toHaveLength(1);
     });
 
+    it('bootstrap: fills an empty phone placeholder instead of minting a conflict', async () => {
+      // Opening a note on iOS creates an empty file before Havemind maps it.
+      // A join that treats that vacancy as a divergence produced the field
+      // storm ("22 conflicts", Target unknown) when checking the vault from
+      // the phone.
+      const { adapter, files } = build(() => content('Notes/a.md', 'REMOTE\n'));
+      files.onDisk.set('Notes/a.md', '');
+
+      const outcome = await adapter.applyRemote(event('rev-1', 'file-1'), {
+        bootstrap: true,
+      });
+
+      expect(outcome).toBe('applied');
+      expect(files.writes).toEqual([{ path: 'Notes/a.md', content: 'REMOTE\n' }]);
+      expect(files.conflicts).toEqual([]);
+    });
+
+    it('bootstrap: takes the server head over an untracked local copy', async () => {
+      // A phone that already holds the vault (iCloud / copied files) has no
+      // Havemind mapping. Join materialises the current server version rather
+      // than dumping every file into Havemind Conflicts.
+      const { adapter, files } = build(() => content('Notes/a.md', 'SERVER\n'));
+      files.onDisk.set('Notes/a.md', 'STALE-COPY\n');
+
+      const outcome = await adapter.applyRemote(event('rev-9', 'file-1'), {
+        bootstrap: true,
+      });
+
+      expect(outcome).toBe('applied');
+      expect(files.writes).toEqual([{ path: 'Notes/a.md', content: 'SERVER\n' }]);
+      expect(files.conflicts).toEqual([]);
+    });
+
+    it('bootstrap: still conflicts when another fileId owns real local content', async () => {
+      const { adapter, files } = build(() => content('Notes/a.md', 'REMOTE\n'));
+      files.owners.set('Notes/a.md', 'other-file');
+      files.onDisk.set('Notes/a.md', 'LOCAL-NOTE\n');
+
+      const outcome = await adapter.applyRemote(event('rev-9', 'file-1'), {
+        bootstrap: true,
+      });
+
+      expect(outcome).toBe('conflict');
+      expect(files.writes).toEqual([]);
+      expect(files.conflicts).toHaveLength(1);
+    });
+
+    it('bootstrap: adopts a vacant placeholder owned by a locally-minted fileId', async () => {
+      const { adapter, files } = build(() => content('Notes/a.md', 'REMOTE\n'));
+      files.owners.set('Notes/a.md', 'local-minted');
+      files.onDisk.set('Notes/a.md', '\n');
+
+      const outcome = await adapter.applyRemote(event('rev-1', 'file-1'), {
+        bootstrap: true,
+      });
+
+      expect(outcome).toBe('applied');
+      expect(files.writes).toEqual([{ path: 'Notes/a.md', content: 'REMOTE\n' }]);
+      expect(files.conflicts).toEqual([]);
+    });
+
     it('skips a destructive write when on-disk already equals the incoming content', async () => {
       const { adapter, files } = build(() => content('Notes/a.md', 'CONVERGED\n'));
       files.owners.set('Notes/a.md', 'file-1');

@@ -271,6 +271,47 @@ describe('RevisionRepository', () => {
     expect(rowCount(fixture.database, 'idempotency_records')).toBe(2);
   });
 
+  it('lists only current file heads, dropping superseded parent revisions', async () => {
+    const fixture = await makeFixture();
+    await fixture.repository.commitRevision(
+      await storedInput(fixture, REVISION_1, [], 'r1', 'opaque-r1'),
+    );
+    await fixture.repository.commitRevision(
+      await storedInput(fixture, REVISION_2, [REVISION_1], 'r2', 'opaque-r2'),
+    );
+    await fixture.repository.commitRevision(
+      await storedInput(fixture, REVISION_3, [], 'r3', 'opaque-r3', {
+        header: revisionHeader(REVISION_3, [], { fileId: FILE_B }),
+      }),
+    );
+
+    expect(
+      fixture.repository.listEvents(VAULT_A, 0, 10).map((event) => event.revisionId),
+    ).toEqual([REVISION_1, REVISION_2, REVISION_3]);
+    expect(
+      fixture.repository
+        .listHeadEvents(VAULT_A, 0, 10)
+        .map((event) => event.revisionId),
+    ).toEqual([REVISION_2, REVISION_3]);
+  });
+
+  it('compacts superseded revisions once they are no longer file heads', async () => {
+    const fixture = await makeFixture();
+    await fixture.repository.commitRevision(
+      await storedInput(fixture, REVISION_1, [], 'r1', 'opaque-r1'),
+    );
+    await fixture.repository.commitRevision(
+      await storedInput(fixture, REVISION_2, [REVISION_1], 'r2', 'opaque-r2'),
+    );
+
+    expect(fixture.repository.compactSupersededRevisions(VAULT_A)).toBe(1);
+    expect(rowCount(fixture.database, 'revisions')).toBe(1);
+    expect(
+      fixture.repository.listEvents(VAULT_A, 0, 10).map((event) => event.revisionId),
+    ).toEqual([REVISION_2]);
+    expect(fixture.repository.getHeads(VAULT_A, FILE_A)).toEqual([REVISION_2]);
+  });
+
   it('returns REVISION_ID_REUSE for different blob bytes or a changed header', async () => {
     const fixture = await makeFixture();
     const input = await storedInput(

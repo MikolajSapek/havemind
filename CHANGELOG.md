@@ -5,6 +5,29 @@ All notable changes to this project are documented here. The format is based on
 follows independent [Semantic Versioning](https://semver.org) for the plugin
 and the server.
 
+## [1.4.13], 2026-09-16
+
+### Changed
+
+- **A joining device now downloads the current vault, not the edit log.** The
+  first pull asks the server for file heads (`?snapshot=1`). Ten edits to one
+  note become one blob fetch. Onboarding `/bootstrap` pages those same heads,
+  so connect no longer walks every historical event just to collect file ids.
+  Older servers that reject the query still work: the client falls back to
+  collapsing the log locally (1.4.12).
+
+- **Checking the vault from a phone no longer mints a conflict per note.**
+  Opening Obsidian on iOS creates empty placeholders, and a copied or iCloud
+  vault already has files with no Havemind mapping. Join treated both as
+  divergences ("22 conflicts", Target unknown). Bootstrap now writes the
+  server head over a vacant placeholder or an untracked local copy. Two real
+  notes on the same path still conflict.
+
+- **The server drops superseded history once every approved device has caught
+  up.** Each pull records that device's cursor. When every live device has
+  acked the vault head, parent revisions that are no longer file heads are
+  deleted. A phone that has not opened the vault yet blocks compaction.
+
 ## [1.4.12], 2026-09-16
 
 ### Changed

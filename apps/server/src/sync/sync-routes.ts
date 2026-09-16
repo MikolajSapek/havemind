@@ -21,6 +21,10 @@ import {
   type RevisionRepository,
   type RevisionRepositoryErrorCode,
 } from '../revision-repository.js';
+import {
+  compactIfAllDevicesCaughtUp,
+  recordDevicePullAck,
+} from '../history-compaction.js';
 import type { AccessSession } from '../auth/session-repository.js';
 import { BlobByteRateLimiter, HeldWaitLimiter } from './device-throttles.js';
 import type { VaultWakeRegistry } from './vault-wake-registry.js';
@@ -171,6 +175,7 @@ const pullQuerySchema = z
     after: z.coerce.number().int().nonnegative().safe().optional(),
     epoch: z.string().min(1).max(200).optional(),
     limit: z.coerce.number().int().positive().max(MAX_PULL_LIMIT).optional(),
+    snapshot: z.enum(['0', '1']).optional(),
   })
   .strict();
 
@@ -784,15 +789,33 @@ export function registerSyncRoutes(
       if (after > cursor) {
         return sendSyncError(reply, 409, 'CURSOR_INVALID');
       }
-      const events = deps.revisions.listEvents(
-        params.data.vaultId,
+      const snapshot = query.data.snapshot === '1';
+      const events = snapshot
+        ? deps.revisions.listHeadEvents(params.data.vaultId, after, limit)
+        : deps.revisions.listEvents(params.data.vaultId, after, limit);
+      recordDevicePullAck(
+        deps.database,
+        session.deviceId,
         after,
-        limit,
+        (deps.now?.() ?? new Date()).toISOString(),
       );
+      // Compact only in steady state: this device already holds the current
+      // head, so the pull is empty. Doing it on a catch-up pull can drop a
+      // parent while a peer is still applying that page.
+      if (after >= cursor && events.length === 0) {
+        compactIfAllDevicesCaughtUp(
+          deps.database,
+          deps.revisions,
+          params.data.vaultId,
+        );
+      }
       reply.header('cache-control', 'no-store');
       return {
         cursor,
         ...(epoch === null ? {} : { epoch: epoch.serverEpoch }),
+        ...(snapshot
+          ? { complete: events.length < limit, snapshot: true }
+          : {}),
         events,
       };
     } catch (error) {

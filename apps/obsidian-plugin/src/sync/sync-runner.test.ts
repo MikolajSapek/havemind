@@ -974,7 +974,7 @@ describe('SyncRunner bootstrap origin', () => {
 
     await runner.trigger();
 
-    expect(pull).toHaveBeenNthCalledWith(1, 0);
+    expect(pull).toHaveBeenNthCalledWith(1, 0, { snapshot: true });
     expect(pull).toHaveBeenNthCalledWith(2, 2);
     expect(vault.applied.map((item) => item.revision.revisionId)).toEqual([
       'rev-3',
@@ -1012,6 +1012,58 @@ describe('SyncRunner bootstrap origin', () => {
     await runner.trigger();
     // The live edit beyond the connect-time head is NOT bootstrap.
     expect(vault.appliedBootstrap).toEqual([true, true, true, false]);
+  });
+
+  it('applies a server snapshot of heads without paging the superseded log', async () => {
+    const pull = vi.fn<SyncTransport['pull']>().mockResolvedValue({
+      complete: true,
+      cursor: 11,
+      events: [event(10, 'file-1', 'current', 'rev-10'), event(11, 'file-2', 'other', 'rev-11')],
+      snapshot: true,
+    });
+    const { runner, vault, state } = makeRunner({
+      transport: { push: vi.fn(async () => []), pull },
+    });
+
+    const result = await runner.trigger();
+
+    expect(pull).toHaveBeenCalledWith(0, { snapshot: true });
+    expect(pull).toHaveBeenCalledTimes(1);
+    expect(vault.applied.map((item) => item.revision.revisionId)).toEqual([
+      'rev-10',
+      'rev-11',
+    ]);
+    expect(vault.appliedBootstrap).toEqual([true, true]);
+    expect(result.applied).toBe(2);
+    expect(state.cursor).toBe(11);
+  });
+
+  it('does not latch an empty-vault snapshot as cursor zero forever', async () => {
+    const pull = vi
+      .fn<SyncTransport['pull']>()
+      .mockResolvedValueOnce({
+        complete: true,
+        cursor: 0,
+        events: [],
+        snapshot: true,
+      })
+      .mockResolvedValueOnce({
+        complete: true,
+        cursor: 1,
+        events: [event(1, 'file-1', 'head', 'rev-1')],
+        snapshot: true,
+      });
+    const { runner, vault, state } = makeRunner({
+      transport: { push: vi.fn(async () => []), pull },
+    });
+
+    await runner.trigger();
+    expect(state.cursor).toBe(0);
+
+    const result = await runner.trigger();
+    expect(vault.applied.map((item) => item.revision.revisionId)).toEqual(['rev-1']);
+    expect(result.applied).toBe(1);
+    expect(state.cursor).toBe(1);
   });
 });
 

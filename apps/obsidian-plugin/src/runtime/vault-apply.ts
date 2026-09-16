@@ -473,16 +473,16 @@ export class VaultApplyAdapter implements VaultApplyPort {
 
     const owner = this.files.fileIdAtPath(decoded.path);
     if (owner !== null && owner !== fileId) {
-      // Content-addressed reconciliation on connect (F3). Two devices that
-      // already held the SAME note each minted an independent random fileId for
-      // it, so the incoming revision's canonical path is "owned" by a fileId that
-      // is not this revision's. If the on-disk content is byte-identical to the
-      // incoming revision it is genuinely the same logical file: adopt the remote
-      // fileId for this path and seed the shared base (a REMOTE convergence, the
-      // only safe moment to seed a base, never on a local push). Both peers
-      // already hold the content, so this converges in place with no write and no
-      // conflict artifact.
-      if (onDisk !== null && contentMatches(onDisk, text)) {
+      const bootstrapVacant =
+        origin === 'bootstrap' && onDisk !== null && isVacantMarkdown(onDisk);
+      if (bootstrapVacant) {
+        // A vacant placeholder (empty note iOS created when the user opened the
+        // vault) is not a real second note. Retire the locally minted owner and
+        // fall through to write the server head.
+        await this.producerSync?.onRemoteDelete({ fileId: owner, path: decoded.path });
+        await this.files.forgetBaseHash(owner);
+        await this.files.forgetBaseContent(owner);
+      } else if (onDisk !== null && contentMatches(onDisk, text)) {
         const contentHash = await this.hashContent(text);
         // The path is switching from the superseded local fileId (`owner`) to
         // the incoming remote fileId. Forget the superseded fileId's state
@@ -517,23 +517,23 @@ export class VaultApplyAdapter implements VaultApplyPort {
           revisionId: event.revision.revisionId,
         });
         return 'noop';
-      }
-      // The path holds genuinely different content, a real divergence. Never
-      // overwrite it and never claim ownership: preserve both via a conflict
-      // artifact (the F2 conflict path). No shared ancestor exists across two
-      // independently-minted fileIds, so a three-way merge is not attempted here.
-      if (!lastWriterWins) {
+      } else if (!lastWriterWins) {
+        // The path holds genuinely different content, a real divergence. Never
+        // overwrite it and never claim ownership: preserve both via a conflict
+        // artifact (the F2 conflict path). No shared ancestor exists across two
+        // independently-minted fileIds, so a three-way merge is not attempted here.
         await this.writeConflict(event, decoded);
         return 'conflict';
+      } else {
+        // A SETTINGS file instead resolves by recency: the incoming revision is the
+        // later writer, so it takes the path over. Retire the superseded fileId's
+        // state FIRST (same ordering requirement as the convergence branch above:
+        // a later same-path forget would otherwise undo the adoption below), then
+        // fall through to the ordinary write.
+        await this.producerSync?.onRemoteDelete({ fileId: owner, path: decoded.path });
+        await this.files.forgetBaseHash(owner);
+        await this.files.forgetBaseContent(owner);
       }
-      // A SETTINGS file instead resolves by recency: the incoming revision is the
-      // later writer, so it takes the path over. Retire the superseded fileId's
-      // state FIRST (same ordering requirement as the convergence branch above:
-      // a later same-path forget would otherwise undo the adoption below), then
-      // fall through to the ordinary write.
-      await this.producerSync?.onRemoteDelete({ fileId: owner, path: decoded.path });
-      await this.files.forgetBaseHash(owner);
-      await this.files.forgetBaseContent(owner);
     }
 
     // On-disk overwrite guard (rule 3, zero silent overwrites). The runner's
@@ -572,6 +572,12 @@ export class VaultApplyAdapter implements VaultApplyPort {
         return 'noop';
       }
       const base = this.files.baseHashFor(fileId);
+      // Join/bootstrap of a phone that already holds files: empty placeholders
+      // and untracked local copies take the current server head instead of
+      // minting a conflict per note.
+      if (origin === 'bootstrap' && isBootstrapReplaceable(onDisk, base)) {
+        // Fall through to the write below.
+      } else {
       const onDiskHash = await this.hashContent(onDisk);
       // A divergence is either: on-disk drifted from the shared base, OR on-disk
       // still equals the base but the incoming revision is not a provable causal
@@ -598,6 +604,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
           await this.writeConflict(event, decoded);
           return 'conflict';
         }
+      }
       }
     }
 
@@ -632,6 +639,12 @@ export class VaultApplyAdapter implements VaultApplyPort {
       !contentMatches(preWriteOnDisk, text)
     ) {
       const preWriteBase = this.files.baseHashFor(fileId);
+      if (
+        origin === 'bootstrap' &&
+        isBootstrapReplaceable(preWriteOnDisk, preWriteBase)
+      ) {
+        // Join already decided to take the server head; do not re-conflict here.
+      } else {
       const preWriteHash = await this.hashContent(preWriteOnDisk);
       if (preWriteBase === null || preWriteHash !== preWriteBase) {
         await this.producerSync?.onRemoteDelete({ fileId, path: decoded.path });
@@ -649,6 +662,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
         }
         await this.writeConflict(event, decoded);
         return 'conflict';
+      }
       }
     }
     try {
@@ -853,7 +867,13 @@ export class VaultApplyAdapter implements VaultApplyPort {
 
     const owner = this.files.fileIdAtPath(decoded.path);
     if (owner !== null && owner !== fileId) {
-      if (onDisk !== null && bytesEqual(onDisk, bytes)) {
+      const bootstrapVacant =
+        origin === 'bootstrap' && onDisk !== null && onDisk.byteLength === 0;
+      if (bootstrapVacant) {
+        await this.producerSync?.onRemoteDelete({ fileId: owner, path: decoded.path });
+        await this.files.forgetBaseHash(owner);
+        await this.files.forgetBaseContent(owner);
+      } else if (onDisk !== null && bytesEqual(onDisk, bytes)) {
         await this.producerSync?.onRemoteDelete({ fileId: owner, path: decoded.path });
         await this.files.forgetBaseHash(owner);
         await this.files.recordPathOwner(fileId, decoded.path);
@@ -867,16 +887,16 @@ export class VaultApplyAdapter implements VaultApplyPort {
           revisionId: event.revision.revisionId,
         });
         return 'noop';
-      }
-      if (!lastWriterWins) {
+      } else if (!lastWriterWins) {
         await this.writeConflict(event, decoded);
         return 'conflict';
+      } else {
+        // Settings asset: the incoming revision is the later writer and takes the
+        // path over. Retire the superseded fileId's state before the adoption below.
+        await this.producerSync?.onRemoteDelete({ fileId: owner, path: decoded.path });
+        await this.files.forgetBaseHash(owner);
+        await this.files.forgetBaseContent(owner);
       }
-      // Settings asset: the incoming revision is the later writer and takes the
-      // path over. Retire the superseded fileId's state before the adoption below.
-      await this.producerSync?.onRemoteDelete({ fileId: owner, path: decoded.path });
-      await this.files.forgetBaseHash(owner);
-      await this.files.forgetBaseContent(owner);
     }
 
     if (onDisk !== null) {
@@ -896,6 +916,12 @@ export class VaultApplyAdapter implements VaultApplyPort {
       // A settings asset skips both diversions below: the incoming revision is
       // the later writer, so the write further down replaces the bytes.
       const base = this.files.baseHashFor(fileId);
+      if (
+        origin === 'bootstrap' &&
+        (base === null || onDisk.byteLength === 0)
+      ) {
+        // Join: take the current attachment bytes instead of conflicting.
+      } else {
       const onDiskHash = await hashBlob(onDisk);
       if (!lastWriterWins && (base === null || onDiskHash !== base)) {
         await this.writeConflict(event, decoded);
@@ -904,6 +930,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
       if (!lastWriterWins && !(await this.isCausalFastForward(fileId, event))) {
         await this.writeConflict(event, decoded);
         return 'conflict';
+      }
       }
     }
 
@@ -927,11 +954,18 @@ export class VaultApplyAdapter implements VaultApplyPort {
       !bytesEqual(preWriteOnDisk, bytes)
     ) {
       const preWriteBase = this.files.baseHashFor(fileId);
+      if (
+        origin === 'bootstrap' &&
+        (preWriteBase === null || preWriteOnDisk.byteLength === 0)
+      ) {
+        // Join takes the current attachment.
+      } else {
       const preWriteHash = await hashBlob(preWriteOnDisk);
       if (preWriteBase === null || preWriteHash !== preWriteBase) {
         await this.producerSync?.onRemoteDelete({ fileId, path: decoded.path });
         await this.writeConflict(event, decoded);
         return 'conflict';
+      }
       }
     }
     try {
@@ -1075,4 +1109,19 @@ function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
  */
 function contentMatches(onDisk: string, incoming: string): boolean {
   return canonicalizeMarkdown(onDisk) === canonicalizeMarkdown(incoming);
+}
+
+/** Empty or whitespace-only on-disk markdown, including iOS placeholder notes. */
+function isVacantMarkdown(text: string): boolean {
+  return canonicalizeMarkdown(text).trim().length === 0;
+}
+
+/**
+ * During the one-time join catch-up, a local file with no Havemind base is an
+ * untracked copy (iCloud, a copied vault, or an empty note the phone created
+ * when the user opened it). Taking the server head is the join contract;
+ * a later live edit with a recorded base still conflicts as before.
+ */
+function isBootstrapReplaceable(onDisk: string, base: string | null): boolean {
+  return base === null || isVacantMarkdown(onDisk);
 }

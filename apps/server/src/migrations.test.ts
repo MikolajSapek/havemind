@@ -182,9 +182,9 @@ describe('controlled migrations', () => {
 
   it('backfills the device vault scope only where a single membership proves it', () => {
     const database = trackDatabase(openDatabase(temporaryDatabasePath()));
-    // Upgrade path: stop one version short of the vault-scope migration, seed
-    // devices as a pre-007 server would have, then apply 007.
-    runMigrations(database, DEFAULT_MIGRATIONS.slice(0, CURRENT_SCHEMA_VERSION - 1));
+    // Upgrade path: stop one version short of the vault-scope migration (007),
+    // seed devices as a pre-007 server would have, then apply 007+.
+    runMigrations(database, DEFAULT_MIGRATIONS.slice(0, 6));
 
     const at = '2026-07-16T03:00:00.000Z';
     const users = ['single', 'multi', 'none'] as const;
@@ -225,7 +225,7 @@ describe('controlled migrations', () => {
     }
 
     expect(runMigrations(database)).toEqual({
-      appliedVersions: [CURRENT_SCHEMA_VERSION],
+      appliedVersions: [7, 8],
       currentVersion: CURRENT_SCHEMA_VERSION,
     });
 

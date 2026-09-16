@@ -97,9 +97,18 @@ export interface PushItemResult {
   readonly missingParent?: boolean;
 }
 
+export interface PullOptions {
+  /** Ask the server for current file heads only, not the superseded log. */
+  readonly snapshot?: boolean;
+}
+
 export interface PullResult {
   readonly cursor: number;
   readonly events: readonly RemoteEvent[];
+  /** True when `events` are the current vault heads, not a contiguous log page. */
+  readonly snapshot?: boolean;
+  /** True when this snapshot page is the last. Omitted on ordinary log pages. */
+  readonly complete?: boolean;
 }
 
 /**
@@ -109,7 +118,7 @@ export interface PullResult {
  */
 export interface SyncTransport {
   push(revisions: readonly PushRevision[]): Promise<readonly PushItemResult[]>;
-  pull(after: number): Promise<PullResult>;
+  pull(after: number, options?: PullOptions): Promise<PullResult>;
 }
 
 /**
@@ -658,13 +667,24 @@ export class SyncRunner {
     PullApplyResult
   > {
     let cursor = await this.options.state.loadCursor();
-    const { cursor: serverHead, events } = await this.options.transport.pull(cursor);
+    const pulled = await this.options.transport.pull(
+      cursor,
+      cursor === 0 ? { snapshot: true } : undefined,
+    );
+    const { cursor: serverHead, events } = pulled;
     // Latch the bootstrap boundary on the first successful pull: the server head
     // known at connect. Everything at or below it is the initial catch-up.
-    if (this.bootstrapTarget === null) {
+    if (this.bootstrapTarget === null && serverHead > 0) {
       this.bootstrapTarget = serverHead;
     }
     const bootstrapTarget = this.bootstrapTarget;
+
+    // Preferred path: the server already reduced the log to current file heads.
+    // Apply those and jump the cursor to the live server head. Older servers omit
+    // `snapshot` and we fall through to collapsing the log locally.
+    if (cursor === 0 && pulled.snapshot === true && serverHead > 0) {
+      return this.runSnapshotBootstrap(pulled, serverHead);
+    }
 
     // A cursor-zero client has no trustworthy proof that historical revisions
     // were already materialised. Applying the log one revision at a time is
@@ -723,6 +743,56 @@ export class SyncRunner {
       await this.options.state.saveCursor(cursor);
     }
 
+    return {
+      applied,
+      conflicts,
+      deferred,
+      status: resolveStatus({ conflicts, deferred }),
+      suppressed,
+    };
+  }
+
+  /**
+   * Materialises a server-supplied snapshot of current file heads. Pages until
+   * `complete` (or an empty page) so a vault larger than one pull still lands
+   * as one all-or-nothing cursor jump.
+   */
+  private async runSnapshotBootstrap(
+    firstPage: PullResult,
+    serverHead: number,
+  ): Promise<PullApplyResult> {
+    const collected: RemoteEvent[] = [...firstPage.events];
+    let scanCursor = lastSequence(collected);
+    let complete = firstPage.complete === true || firstPage.events.length === 0;
+    while (!complete && scanCursor < serverHead) {
+      const page = await this.options.transport.pull(scanCursor, {
+        snapshot: true,
+      });
+      if (page.snapshot !== true || page.events.length === 0) {
+        break;
+      }
+      collected.push(...page.events);
+      scanCursor = lastSequence(collected);
+      complete = page.complete === true;
+    }
+
+    let applied = 0;
+    let conflicts = 0;
+    let deferred = 0;
+    let suppressed = 0;
+    for (const item of collected) {
+      const outcome = await this.applyPulledEvent(item, true);
+      if (outcome === 'deferred') {
+        deferred += 1;
+        break;
+      }
+      if (outcome === 'suppressed') suppressed += 1;
+      else if (outcome === 'conflict') conflicts += 1;
+      else applied += 1;
+    }
+    if (deferred === 0) {
+      await this.options.state.saveCursor(serverHead);
+    }
     return {
       applied,
       conflicts,
@@ -910,6 +980,14 @@ function idleCycleResult(): SyncCycleResult {
     status: 'synced',
     suppressed: 0,
   };
+}
+
+function lastSequence(events: readonly RemoteEvent[]): number {
+  let highest = 0;
+  for (const event of events) {
+    if (event.serverSequence > highest) highest = event.serverSequence;
+  }
+  return highest;
 }
 
 function emptyPullResult(): PullApplyResult {

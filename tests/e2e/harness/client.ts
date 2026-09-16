@@ -56,6 +56,7 @@ import { reconcileVaultState } from '../../../apps/obsidian-plugin/src/sync/reco
 import {
   SyncRunner,
   type OpenBuffer,
+  type PullOptions,
   type PullResult,
   type PushItemResult,
   type PushReceipt,
@@ -640,7 +641,7 @@ export class HarnessClient {
 
   #transport(): SyncTransport {
     return {
-      pull: async (after) => this.#pull(after),
+      pull: async (after, options) => this.#pull(after, options),
       push: async (revisions) => this.#push(revisions),
     };
   }
@@ -743,7 +744,7 @@ export class HarnessClient {
     return results;
   }
 
-  async #pull(after: number): Promise<PullResult> {
+  async #pull(after: number, options?: PullOptions): Promise<PullResult> {
     if (this.#offline) {
       throw new Error('simulated transport offline');
     }
@@ -751,10 +752,11 @@ export class HarnessClient {
       this.#state.storedEpoch === undefined
         ? ''
         : `&epoch=${encodeURIComponent(this.#state.storedEpoch)}`;
+    const snapshotQuery = options?.snapshot === true ? '&snapshot=1' : '';
     const response = await this.#harness.app.inject({
       headers: { authorization: `Bearer ${this.#identity.accessToken}` },
       method: 'GET',
-      url: `/vaults/${this.#identity.vaultId}/events?after=${after}${epochQuery}`,
+      url: `/vaults/${this.#identity.vaultId}/events?after=${after}${epochQuery}${snapshotQuery}`,
     });
 
     if (response.statusCode === 409) {
@@ -773,6 +775,7 @@ export class HarnessClient {
     }
 
     const body = response.json() as {
+      complete?: boolean;
       cursor: number;
       epoch?: string;
       events: Array<{
@@ -785,6 +788,7 @@ export class HarnessClient {
         revisionId: string;
         serverSequence: number;
       }>;
+      snapshot?: boolean;
     };
     if (body.epoch !== undefined) {
       this.#state.storedEpoch = body.epoch;
@@ -808,7 +812,12 @@ export class HarnessClient {
       },
       serverSequence: event.serverSequence,
     }));
-    return { cursor: body.cursor, events };
+    return {
+      cursor: body.cursor,
+      events,
+      ...(body.snapshot === true ? { snapshot: true } : {}),
+      ...(body.complete === true ? { complete: true } : {}),
+    };
   }
 
   async #applyRemote(event: RemoteEvent): Promise<void> {

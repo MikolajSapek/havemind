@@ -783,6 +783,25 @@ describe('sync push/pull routes', () => {
     expect(first.cursor).toBe(3);
     expect(first.events.map((event) => event.serverSequence)).toEqual([1, 2]);
 
+    const snapshotPage = await app.inject({
+      headers: { authorization: `Bearer ${fixture.accessTokenA}` },
+      method: 'GET',
+      url: `/vaults/${VAULT_A}/events?after=0&snapshot=1`,
+    });
+    const snapshot = snapshotPage.json() as {
+      complete: boolean;
+      cursor: number;
+      events: Array<{ revisionId: string; serverSequence: number }>;
+      snapshot: boolean;
+    };
+    expect(snapshot.snapshot).toBe(true);
+    expect(snapshot.complete).toBe(true);
+    expect(snapshot.cursor).toBe(3);
+    expect(snapshot.events.map((event) => event.serverSequence)).toEqual([3]);
+    expect(snapshot.events.map((event) => event.revisionId)).toEqual([
+      REVISION_3,
+    ]);
+
     const secondPage = await app.inject({
       headers: { authorization: `Bearer ${fixture.accessTokenA}` },
       method: 'GET',

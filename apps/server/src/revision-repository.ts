@@ -523,6 +523,97 @@ export class RevisionRepository {
     return rows.map((row) => this.#parseEventRow(row));
   }
 
+  /**
+   * Current file heads only, paged by `server_sequence`. A joining device uses
+   * this instead of replaying superseded edits.
+   */
+  public listHeadEvents(
+    vaultId: string,
+    afterSequence: number,
+    limit: number,
+  ): StoredRevisionEvent[] {
+    if (!Number.isSafeInteger(afterSequence) || afterSequence < 0) {
+      throw new RevisionRepositoryError(
+        ERROR_CODES.INVALID_REQUEST,
+        'Event cursor must be a non-negative safe integer.',
+      );
+    }
+    if (!Number.isSafeInteger(limit) || limit <= 0 || limit > MAX_EVENT_PAGE_SIZE) {
+      throw new RevisionRepositoryError(
+        ERROR_CODES.INVALID_REQUEST,
+        `Event page size must be between 1 and ${MAX_EVENT_PAGE_SIZE}.`,
+      );
+    }
+
+    const rows = this.#database
+      .prepare(
+        `SELECT
+           vault_events.server_sequence AS serverSequence,
+           vault_events.event_type AS eventType,
+           vault_events.revision_id AS revisionId,
+           vault_events.event_payload AS eventPayload
+         FROM file_heads
+         INNER JOIN revisions ON revisions.id = file_heads.revision_id
+         INNER JOIN files ON files.id = file_heads.file_id
+         INNER JOIN vault_events
+           ON vault_events.vault_id = files.vault_id
+          AND vault_events.revision_id = file_heads.revision_id
+         WHERE files.vault_id = ? AND vault_events.server_sequence > ?
+         ORDER BY vault_events.server_sequence
+         LIMIT ?`,
+      )
+      .all(vaultId, afterSequence, limit) as EventRow[];
+
+    return rows.map((row) => this.#parseEventRow(row));
+  }
+
+  /**
+   * Deletes revisions that are not a current file head, once every approved
+   * device has already caught up past them. Parent links to those revisions are
+   * dropped first so SQLite's RESTRICT on `revision_parents` does not block.
+   */
+  public compactSupersededRevisions(vaultId: string): number {
+    const superseded = this.#database
+      .prepare(
+        `SELECT revisions.id AS id
+         FROM revisions
+         INNER JOIN files ON files.id = revisions.file_id
+         WHERE files.vault_id = ?
+           AND NOT EXISTS (
+             SELECT 1 FROM file_heads WHERE file_heads.revision_id = revisions.id
+           )`,
+      )
+      .all(vaultId) as Array<{ id: string }>;
+    if (superseded.length === 0) {
+      return 0;
+    }
+
+    const remove = this.#database.transaction((ids: readonly string[]) => {
+      const batchSize = 200;
+      let removed = 0;
+      for (let offset = 0; offset < ids.length; offset += batchSize) {
+        const chunk = ids.slice(offset, offset + batchSize);
+        const placeholders = chunk.map(() => '?').join(',');
+        this.#database
+          .prepare(
+            `DELETE FROM revision_parents WHERE parent_revision_id IN (${placeholders})`,
+          )
+          .run(...chunk);
+        this.#database
+          .prepare(
+            `DELETE FROM revision_parents WHERE revision_id IN (${placeholders})`,
+          )
+          .run(...chunk);
+        const result = this.#database
+          .prepare(`DELETE FROM revisions WHERE id IN (${placeholders})`)
+          .run(...chunk);
+        removed += result.changes;
+      }
+      return removed;
+    });
+    return remove(superseded.map((row) => row.id));
+  }
+
   async #prepareCommit(input: CommitRevisionInput): Promise<PreparedCommit> {
     const base = await this.#prepareHeader(input);
     const blobBytes = await this.#readVerifiedBlob(base.blobHash);

@@ -14,6 +14,7 @@
  */
 
 import type {
+  PullOptions,
   PullResult,
   PushItemResult,
   PushRevision,
@@ -186,17 +187,41 @@ export class RequestUrlTransport implements SyncTransport {
     return parsePushResponse(response);
   }
 
-  async pull(after: number): Promise<PullResult> {
+  async pull(after: number, options?: PullOptions): Promise<PullResult> {
     const epoch = this.options.serverEpoch?.() ?? null;
-    const query =
-      epoch === null
-        ? `after=${after}`
-        : `after=${after}&epoch=${encodeURIComponent(epoch)}`;
-    const response = await this.request({
-      method: 'GET',
-      url: `${this.options.apiBaseUrl}/vaults/${this.options.vaultId}/events?${query}`,
-    });
-    return parsePullResponse(response);
+    const params = [`after=${after}`];
+    if (epoch !== null) {
+      params.push(`epoch=${encodeURIComponent(epoch)}`);
+    }
+    if (options?.snapshot === true) {
+      params.push('snapshot=1');
+    }
+    try {
+      const response = await this.request({
+        method: 'GET',
+        url: `${this.options.apiBaseUrl}/vaults/${this.options.vaultId}/events?${params.join('&')}`,
+      });
+      return parsePullResponse(response);
+    } catch (error) {
+      // An older server rejects the unknown `snapshot` query (strict schema).
+      // Fall back to the full log; the runner still collapses it locally.
+      if (
+        options?.snapshot === true &&
+        error instanceof RequestUrlTransportError &&
+        error.permanent
+      ) {
+        const fallback = [`after=${after}`];
+        if (epoch !== null) {
+          fallback.push(`epoch=${encodeURIComponent(epoch)}`);
+        }
+        const response = await this.request({
+          method: 'GET',
+          url: `${this.options.apiBaseUrl}/vaults/${this.options.vaultId}/events?${fallback.join('&')}`,
+        });
+        return parsePullResponse(response);
+      }
+      throw error;
+    }
   }
 
   private async request(
@@ -323,7 +348,12 @@ function parsePullResponse(response: RequestUrlResponseLike): PullResult {
       },
     };
   });
-  return { cursor: body.cursor as number, events };
+  return {
+    cursor: body.cursor as number,
+    events,
+    ...(body.snapshot === true ? { snapshot: true } : {}),
+    ...(body.complete === true ? { complete: true } : {}),
+  };
 }
 
 function malformed(detail: string): RequestUrlTransportError {

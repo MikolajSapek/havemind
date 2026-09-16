@@ -4,7 +4,7 @@ import type Database from 'better-sqlite3';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
-import type { RevisionRepository } from '../revision-repository.js';
+import type { StoredRevisionEvent } from '../revision-repository.js';
 import {
   InvitationError,
   type InvitationRole,
@@ -29,7 +29,18 @@ export interface OnboardingRoutesDeps {
   readonly invitations: InvitationService;
   readonly sessions: SessionRepository;
   readonly database: Database.Database;
-  readonly revisions?: Pick<RevisionRepository, 'listEvents'>;
+  readonly revisions?: {
+    listEvents(
+      vaultId: string,
+      after: number,
+      limit: number,
+    ): StoredRevisionEvent[];
+    listHeadEvents?(
+      vaultId: string,
+      after: number,
+      limit: number,
+    ): StoredRevisionEvent[];
+  };
 }
 
 /** Stable, secret-free machine error code for the onboarding surface. */
@@ -407,6 +418,11 @@ export function registerPreAuthOnboardingRoutes(
       return sendError(reply, 400, 'INVALID_REQUEST');
     }
     const events =
+      deps.revisions?.listHeadEvents?.(
+        vaultId,
+        after,
+        DEFAULT_BOOTSTRAP_PAGE_ITEMS,
+      ) ??
       deps.revisions?.listEvents(vaultId, after, DEFAULT_BOOTSTRAP_PAGE_ITEMS) ??
       [];
     const items = events.map((event) => ({
