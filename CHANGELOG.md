@@ -5,6 +5,26 @@ All notable changes to this project are documented here. The format is based on
 follows independent [Semantic Versioning](https://semver.org) for the plugin
 and the server.
 
+## [1.4.12], 2026-09-16
+
+### Changed
+
+- **A joining device now materialises the vault's current state, not its whole
+  history.** A new device replayed every revision ever made: a note edited ten
+  times was written ten times, arriving at its final content only at the end.
+  The intermediate versions are superseded revisions in the DAG, so writing
+  them was pure waste, and on a device that already held files it was worse
+  than waste: an early empty create could collide with real content before its
+  own later update arrived, turning a routine join into conflict copies.
+
+  The first sync after joining now reads the log without touching the vault,
+  reduces it to the terminal head of each file, and writes only those. Ten
+  edits to one file become one write. The cursor still advances only when
+  every head landed, so an interrupted join resumes rather than skipping.
+
+  Activity stays quiet for these applies, as it already did, so joining does
+  not flood the feed.
+
 ## [1.4.11], 2026-09-16
 
 ### Fixed

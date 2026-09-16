@@ -255,6 +255,9 @@ export interface SyncCycleResult {
   readonly cycleId?: number;
 }
 
+type PullApplyResult = Omit<SyncCycleResult, 'pushed' | 'quarantined'>;
+type AppliedEventResult = 'applied' | 'conflict' | 'deferred' | 'suppressed';
+
 type RemoteApplyDecision = 'apply' | 'conflict' | 'defer';
 
 /** Quarantine reason for a revision dead-lettered because a parent was quarantined. */
@@ -652,7 +655,7 @@ export class SyncRunner {
   }
 
   private async runPull(): Promise<
-    Omit<SyncCycleResult, 'pushed' | 'quarantined'>
+    PullApplyResult
   > {
     let cursor = await this.options.state.loadCursor();
     const { cursor: serverHead, events } = await this.options.transport.pull(cursor);
@@ -662,6 +665,17 @@ export class SyncRunner {
       this.bootstrapTarget = serverHead;
     }
     const bootstrapTarget = this.bootstrapTarget;
+
+    // A cursor-zero client has no trustworthy proof that historical revisions
+    // were already materialised. Applying the log one revision at a time is
+    // unsafe against a populated phone: an old empty create collides before its
+    // later update arrives and becomes a false conflict. Collect the complete
+    // initial log, reduce it to terminal DAG heads, and materialise only those
+    // current states. Cursor persistence remains all-or-nothing at serverHead.
+    if (cursor === 0 && bootstrapTarget !== null && bootstrapTarget > 0) {
+      return this.runCollapsedBootstrap(events, bootstrapTarget);
+    }
+
     const ordered = [...events].sort(
       (left, right) => left.serverSequence - right.serverSequence,
     );
@@ -689,47 +703,20 @@ export class SyncRunner {
         break;
       }
 
-      if (await this.options.state.isLocallyAuthored(remoteEvent.revision.revisionId)) {
-        suppressed += 1;
-        cursor = remoteEvent.serverSequence;
-        await this.options.state.saveCursor(cursor);
-        continue;
-      }
-
-      const buffers = await this.options.vault.openBuffers(
-        remoteEvent.revision.fileId,
+      const outcome = await this.applyPulledEvent(
+        remoteEvent,
+        bootstrapTarget !== null && remoteEvent.serverSequence <= bootstrapTarget,
       );
-      const decision = decideRemoteApply(
-        buffers,
-        remoteEvent.revision.contentHash,
-      );
-
-      if (decision === 'defer') {
+      if (outcome === 'deferred') {
         deferred += 1;
         break;
       }
-
-      if (decision === 'conflict') {
-        await this.options.vault.recordConflict(remoteEvent);
+      if (outcome === 'suppressed') {
+        suppressed += 1;
+      } else if (outcome === 'conflict') {
         conflicts += 1;
       } else {
-        // The open-buffer guard cleared this event, but the vault runs a second
-        // on-disk overwrite guard before writing. A divergent on-disk file is
-        // diverted to a conflict artifact rather than silently overwritten
-        // (rule 3), and the runner counts it as a conflict so the status
-        // surfaces it.
-        const outcome = await this.options.vault.applyRemote(remoteEvent, {
-          // At or below the connect-time head → part of the initial catch-up, so
-          // its Activity entry is suppressed (baseline). Beyond it → a live edit.
-          bootstrap:
-            bootstrapTarget !== null &&
-            remoteEvent.serverSequence <= bootstrapTarget,
-        });
-        if (outcome === 'conflict') {
-          conflicts += 1;
-        } else {
-          applied += 1;
-        }
+        applied += 1;
       }
 
       cursor = remoteEvent.serverSequence;
@@ -743,6 +730,105 @@ export class SyncRunner {
       status: resolveStatus({ conflicts, deferred }),
       suppressed,
     };
+  }
+
+  /**
+   * Reads the complete cursor-zero bootstrap without touching the vault, then
+   * applies only revisions that are not a parent of another revision. The
+   * server's event cursor is the current head, while each page may be bounded;
+   * follow-up pulls advance an in-memory scan cursor until that fixed boundary.
+   */
+  private async runCollapsedBootstrap(
+    firstPage: readonly RemoteEvent[],
+    serverHead: number,
+  ): Promise<PullApplyResult> {
+    const collected: RemoteEvent[] = [];
+    let scanCursor = 0;
+    let page: readonly RemoteEvent[] = firstPage;
+
+    while (scanCursor < serverHead) {
+      const ordered = [...page].sort(
+        (left, right) => left.serverSequence - right.serverSequence,
+      );
+      let progressed = false;
+      for (const item of ordered) {
+        if (item.serverSequence <= scanCursor || item.serverSequence > serverHead) {
+          continue;
+        }
+        if (item.serverSequence !== scanCursor + 1) {
+          // A missing sequence makes the snapshot incomplete. Touch nothing and
+          // retain cursor zero so the next cycle requests the run again.
+          return emptyPullResult();
+        }
+        collected.push(item);
+        scanCursor = item.serverSequence;
+        progressed = true;
+      }
+      if (scanCursor >= serverHead) break;
+      if (!progressed) return emptyPullResult();
+      page = (await this.options.transport.pull(scanCursor)).events;
+    }
+
+    const supersededRevisionIds = new Set<string>();
+    for (const item of collected) {
+      for (const parentId of item.revision.parentRevisionIds ?? []) {
+        supersededRevisionIds.add(parentId);
+      }
+    }
+    const heads = collected.filter(
+      (item) => !supersededRevisionIds.has(item.revision.revisionId),
+    );
+
+    let applied = 0;
+    let conflicts = 0;
+    let deferred = 0;
+    let suppressed = 0;
+    for (const item of heads) {
+      const outcome = await this.applyPulledEvent(item, true);
+      if (outcome === 'deferred') {
+        deferred += 1;
+        break;
+      }
+      if (outcome === 'suppressed') suppressed += 1;
+      else if (outcome === 'conflict') conflicts += 1;
+      else applied += 1;
+    }
+
+    // Never skip a head that could not yet be applied. Successful/no-op and
+    // conflict outcomes are durable, so the full boundary may advance only when
+    // every terminal head reached one of those outcomes.
+    if (deferred === 0) {
+      await this.options.state.saveCursor(serverHead);
+    }
+    return {
+      applied,
+      conflicts,
+      deferred,
+      status: resolveStatus({ conflicts, deferred }),
+      suppressed,
+    };
+  }
+
+  /** Applies one pulled event without advancing the cursor. */
+  private async applyPulledEvent(
+    remoteEvent: RemoteEvent,
+    bootstrap: boolean,
+  ): Promise<AppliedEventResult> {
+    if (await this.options.state.isLocallyAuthored(remoteEvent.revision.revisionId)) {
+      return 'suppressed';
+    }
+
+    const buffers = await this.options.vault.openBuffers(remoteEvent.revision.fileId);
+    const decision = decideRemoteApply(buffers, remoteEvent.revision.contentHash);
+    if (decision === 'defer') return 'deferred';
+    if (decision === 'conflict') {
+      await this.options.vault.recordConflict(remoteEvent);
+      return 'conflict';
+    }
+
+    // The on-disk guard may still divert a divergent file to a conflict copy.
+    const outcome = await this.options.vault.applyRemote(remoteEvent, { bootstrap });
+    return outcome === 'conflict' ? 'conflict' : 'applied';
   }
 
   private scheduleBackoff(): void {
@@ -821,6 +907,16 @@ function idleCycleResult(): SyncCycleResult {
     deferred: 0,
     pushed: 0,
     quarantined: 0,
+    status: 'synced',
+    suppressed: 0,
+  };
+}
+
+function emptyPullResult(): PullApplyResult {
+  return {
+    applied: 0,
+    conflicts: 0,
+    deferred: 0,
     status: 'synced',
     suppressed: 0,
   };

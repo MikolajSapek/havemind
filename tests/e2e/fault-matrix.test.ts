@@ -255,8 +255,16 @@ describe('F8-01 fault matrix, two clients against a real opaque server', () => {
       cycles += 1;
     }
 
-    expect(cycles).toBeGreaterThanOrEqual(2); // proves >1 page was actually pulled
-    expect(bob.cursor()).toBe(REVISION_COUNT); // cursor advanced contiguously to the end
+    // Cycle COUNT is not the contract. A joining device collapses the backlog
+    // to its terminal heads and materialises the vault's current state in one
+    // pass (`runCollapsedBootstrap`), so demanding two cycles would pin the old
+    // one-page-at-a-time replay rather than the behaviour that matters: every
+    // file present, at its final content, applied exactly once. Here each of
+    // the 120 revisions is a distinct file with no successor, so every one of
+    // them IS a terminal head and the totals below are unchanged by the
+    // collapse.
+    expect(cycles).toBeLessThanOrEqual(MAX_CYCLES);
+    expect(bob.cursor()).toBe(REVISION_COUNT); // cursor advanced to the end
     expect(totalApplied).toBe(REVISION_COUNT); // no event skipped or double-applied
     expect(bob.paths()).toHaveLength(REVISION_COUNT);
 
@@ -269,6 +277,43 @@ describe('F8-01 fault matrix, two clients against a real opaque server', () => {
     for (const path of paths) {
       expect(bob.read(path)).toBe(contents.get(path));
     }
+  });
+
+  it('row 7b: a joining device materialises the CURRENT vault, not its history', async () => {
+    // The complaint this answers: "a device that joins walks through basically
+    // the whole history of the vault; it should just take the newest version".
+    // A file edited ten times must arrive once, at its tenth content. The
+    // intermediate nine are superseded revisions in the DAG and materialising
+    // them wastes work and, worse, lets an early empty create collide with a
+    // populated device before its own later update arrives.
+    const { alice, bob } = await makeHarness({
+      authRateLimit: { maxRequests: 10_000, windowMs: 60_000 },
+    });
+
+    const EDITS = 10;
+    for (let round = 1; round <= EDITS; round += 1) {
+      await alice.edit('busy.md', `revision ${round}\n`);
+      await alice.sync();
+    }
+    // A second file edited once, so the test also covers the ordinary case
+    // alongside the heavily-revised one.
+    await alice.edit('calm.md', 'only content\n');
+    await alice.sync();
+
+    let applied = 0;
+    let cycles = 0;
+    while (bob.cursor() < EDITS + 1 && cycles < 10) {
+      applied += (await bob.sync()).applied;
+      cycles += 1;
+    }
+
+    // Two files, so two applies: the nine superseded revisions of busy.md are
+    // never materialised. Before the collapse this was EDITS + 1 = 11.
+    expect(applied).toBe(2);
+    expect(bob.read('busy.md')).toBe(`revision ${EDITS}\n`);
+    expect(bob.read('calm.md')).toBe('only content\n');
+    expect(bob.paths()).toEqual(['busy.md', 'calm.md']);
+    expect(bob.cursor()).toBe(EDITS + 1);
   });
 
   it('row 8: refresh-token rotation retry after a dropped response succeeds idempotently, and stale-token reuse is rejected', async () => {

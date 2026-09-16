@@ -899,6 +899,90 @@ describe('SyncRunner remote apply', () => {
 });
 
 describe('SyncRunner bootstrap origin', () => {
+  it('materialises only terminal DAG heads during cursor-zero bootstrap', async () => {
+    // Replaying rev-1 (an old empty create) against an already-populated phone
+    // is what produced the field conflict storm. rev-2 supersedes it, so a
+    // cursor-zero rebuild must apply only rev-2 plus the independent file head.
+    const first = event(1, 'file-1', 'empty', 'rev-1');
+    const second: RemoteEvent = {
+      serverSequence: 2,
+      revision: {
+        contentHash: 'current',
+        fileId: 'file-1',
+        revisionId: 'rev-2',
+        parentRevisionIds: ['rev-1'],
+      },
+    };
+    const independent = event(3, 'file-2', 'other', 'rev-3');
+    const { runner, vault, state } = makeRunner({
+      transport: {
+        push: vi.fn(async () => []),
+        pull: vi.fn(async () => ({
+          cursor: 3,
+          events: [first, second, independent],
+        })),
+      },
+    });
+
+    const result = await runner.trigger();
+
+    expect(vault.applied.map((item) => item.revision.revisionId)).toEqual([
+      'rev-2',
+      'rev-3',
+    ]);
+    expect(vault.appliedBootstrap).toEqual([true, true]);
+    expect(result.applied).toBe(2);
+    expect(state.cursor).toBe(3);
+  });
+
+  it('collects every bootstrap page before selecting terminal heads', async () => {
+    const pull = vi
+      .fn<SyncTransport['pull']>()
+      .mockResolvedValueOnce({
+        cursor: 4,
+        events: [
+          event(1, 'file-1', 'empty', 'rev-1'),
+          event(2, 'file-2', 'old', 'rev-2'),
+        ],
+      })
+      .mockResolvedValueOnce({
+        cursor: 4,
+        events: [
+          {
+            serverSequence: 3,
+            revision: {
+              contentHash: 'current',
+              fileId: 'file-1',
+              revisionId: 'rev-3',
+              parentRevisionIds: ['rev-1'],
+            },
+          },
+          {
+            serverSequence: 4,
+            revision: {
+              contentHash: 'current-2',
+              fileId: 'file-2',
+              revisionId: 'rev-4',
+              parentRevisionIds: ['rev-2'],
+            },
+          },
+        ],
+      });
+    const { runner, vault, state } = makeRunner({
+      transport: { push: vi.fn(async () => []), pull },
+    });
+
+    await runner.trigger();
+
+    expect(pull).toHaveBeenNthCalledWith(1, 0);
+    expect(pull).toHaveBeenNthCalledWith(2, 2);
+    expect(vault.applied.map((item) => item.revision.revisionId)).toEqual([
+      'rev-3',
+      'rev-4',
+    ]);
+    expect(state.cursor).toBe(4);
+  });
+
   it('flags every apply at or below the connect-time head as bootstrap, and later live edits as not', async () => {
     // Cycle 1: a fresh device catches up 1..3 with the server head at 3, the
     // whole initial bootstrap. Cycle 2: a live peer edit at 4 (head now 4).
@@ -1000,9 +1084,10 @@ describe('SyncRunner cursor contiguity gate', () => {
     expect(vault.applied.map((e) => e.serverSequence)).toEqual([1, 2, 3]);
   });
 
-  it('stops at a mid-page hole and advances only to the last contiguous sequence', async () => {
-    // [#1, #3] after 0: #1 is contiguous, #3 is beyond the gap at #2. The cursor
-    // advances only to 1; #3 is held until #2 arrives.
+  it('touches nothing when a cursor-zero bootstrap page has a hole', async () => {
+    // [#1, #3] after 0 cannot describe the current terminal heads because #2 is
+    // missing. Applying #1 could recreate an old empty note, so bootstrap stays
+    // atomic and retries the complete snapshot without touching the vault.
     const { runner, vault, state } = makeRunner({
       transport: {
         push: vi.fn(async () => []),
@@ -1015,9 +1100,29 @@ describe('SyncRunner cursor contiguity gate', () => {
 
     const result = await runner.trigger();
 
-    expect(state.cursor).toBe(1);
+    expect(state.cursor).toBe(0);
+    expect(result.applied).toBe(0);
+    expect(vault.applied).toEqual([]);
+  });
+
+  it('still advances a healthy nonzero cursor to the contiguous prefix', async () => {
+    const state = new FakeState({ cursor: 1 });
+    const { runner, vault } = makeRunner({
+      state,
+      transport: {
+        push: vi.fn(async () => []),
+        pull: vi.fn(async () => ({
+          cursor: 4,
+          events: [event(2, 'file-b', 'hash-2'), event(4, 'file-d', 'hash-4')],
+        })),
+      },
+    });
+
+    const result = await runner.trigger();
+
+    expect(state.cursor).toBe(2);
     expect(result.applied).toBe(1);
-    expect(vault.applied.map((e) => e.serverSequence)).toEqual([1]);
+    expect(vault.applied.map((item) => item.serverSequence)).toEqual([2]);
   });
 
   it('never regresses the cursor when a page arrives entirely below it', async () => {

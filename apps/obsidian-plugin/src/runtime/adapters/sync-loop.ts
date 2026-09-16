@@ -182,7 +182,13 @@ export async function startSyncLoop(
   // marker in plugin data makes this run exactly once.
   await runCanonicalizationRebase(plugin);
 
-  controller.start();
+  // Finish one pull before the producer enumerates the local vault. On a fresh
+  // or recovered phone this lets SyncRunner's cursor-zero bootstrap reduce the
+  // server history to terminal heads first; otherwise the local reconciliation
+  // races the historical pull and may mint duplicate fileIds for paths the pull
+  // is about to adopt. An offline cycle returns normally, so local observation
+  // still starts and preserves edits while the controller retries.
+  await controller.syncNow();
 
   // The push producer detects local edits, enumerates pre-existing files and
   // enqueues revisions the runner POSTs. Without a server-issued memberId +
@@ -208,6 +214,11 @@ export async function startSyncLoop(
       fileApplyLock,
     );
   }
+
+  // Arm focus/online/interval/push only after the initial pull and producer
+  // construction. start() fires its normal immediate cycle; by then both sides
+  // share the settled bootstrap mapping and cannot race first materialisation.
+  controller.start();
 
   // The local member's own persistent roster entry, when the server issued a
   // membership id. Presence is connection state, so this is recorded once and
