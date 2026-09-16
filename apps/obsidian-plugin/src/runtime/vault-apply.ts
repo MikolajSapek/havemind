@@ -5,10 +5,13 @@
  * The remote payload is decoded (`@havemind/sync-core` `decodeRevisionPayload`)
  * into an operation + canonical path + content by the injected `resolveRevision`,
  * so this adapter writes at the payload's own path. It never blindly overwrites:
- *  - a path already owned by a DIFFERENT local file is a collision → the incoming
- *    content is written to `Havemind Conflicts/` and the live file is untouched;
- *  - a delete tombstone removes a file only if that path is owned by the same
- *    fileId; otherwise it is skipped (rule 4, zero silent overwrites/deletes).
+ *  - a path already owned by a DIFFERENT local file is a collision → a foreign
+ *    UPDATE is written to `Havemind Conflicts/` and the live file is untouched;
+ *    a foreign CREATE (typical phone fork) is suppressed so the owner vault is
+ *    never polluted with conflict copies;
+ *  - a delete tombstone removes a matching, untracked, or unchanged-fork path;
+ *    a diverged local edit under any fileId becomes a conflict, never a silent
+ *    delete (rule 4, zero silent overwrites/deletes).
  * The runner has already ruled out overwriting a divergent OPEN buffer before it
  * calls `applyRemote`; `recordConflict` handles that separate case.
  */
@@ -362,29 +365,24 @@ export class VaultApplyAdapter implements VaultApplyPort {
           ? null
           : await this.hashContent(onDisk);
     const unchanged = base !== null && diskHash === base;
-    const bootstrapStale =
-      origin === 'bootstrap' &&
-      (owner === null || unchanged);
 
     if (exists && !resolvesLastWriterWins(path)) {
-      if (owner === fileId && !unchanged && !bootstrapStale) {
+      if (owner === fileId && !unchanged) {
         await this.writeConflict(event, decoded);
         return 'conflict';
       }
       if (owner !== null && owner !== fileId && !unchanged) {
-        if (origin === 'bootstrap') {
-          await this.writeConflict(event, decoded);
-          return 'conflict';
-        }
-        return 'applied';
+        // Real local edit under a different fileId (a fork or a replacement at
+        // the same path). Preserve it; never delete silently.
+        await this.writeConflict(event, decoded);
+        return 'conflict';
       }
     }
 
-    // A live tombstone never removes an unrelated/untracked path. Bootstrap is
-    // different: the snapshot is the server's current state, so a stale file
-    // left by an earlier phone sync must not survive and be reconciled as a new
-    // create immediately afterwards.
-    if (origin !== 'bootstrap' && owner !== fileId) return 'applied';
+    // Nothing on disk under a foreign owner: mapping-only noise, leave it.
+    // An untracked or unchanged-fork file that IS on disk falls through and is
+    // deleted — otherwise reconnect reconcile mints a create onto the owner.
+    if (!exists && owner !== fileId) return 'applied';
 
     if (owner !== null && owner !== fileId) {
       await this.producerSync?.onRemoteDelete({ fileId: owner, path });
@@ -553,6 +551,15 @@ export class VaultApplyAdapter implements VaultApplyPort {
         });
         return 'noop';
       } else if (!lastWriterWins) {
+        // A phone-side fork often arrives as a live CREATE under a fresh fileId
+        // for a path this device already owns. Writing Havemind Conflicts for
+        // that would pollute the owner vault; keep the live note and ignore the
+        // create. Bootstrap still conflicts so a real offline edit on join is
+        // preserved visibly. A genuine concurrent UPDATE under a foreign fileId
+        // still becomes a conflict copy so both edits survive.
+        if (decoded.operation === 'create' && origin !== 'bootstrap') {
+          return 'noop';
+        }
         // The path holds genuinely different content, a real divergence. Never
         // overwrite it and never claim ownership: preserve both via a conflict
         // artifact (the F2 conflict path). No shared ancestor exists across two
@@ -923,6 +930,11 @@ export class VaultApplyAdapter implements VaultApplyPort {
         });
         return 'noop';
       } else if (!lastWriterWins) {
+        // Same owner-vault shield as markdown: a live forked CREATE must not
+        // dump a conflict artifact onto a path this device already owns.
+        if (decoded.operation === 'create' && origin !== 'bootstrap') {
+          return 'noop';
+        }
         await this.writeConflict(event, decoded);
         return 'conflict';
       } else {

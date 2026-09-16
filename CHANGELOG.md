@@ -5,6 +5,16 @@ All notable changes to this project are documented here. The format is based on
 follows independent [Semantic Versioning](https://semver.org) for the plugin
 and the server.
 
+## [1.4.20], 2026-09-16
+
+### Fixed
+
+- **A reconnecting phone can no longer dump conflict copies or resurrected notes
+  onto the owner vault.** Live tombstones now remove untracked and unchanged
+  forked copies (not only during bootstrap), so reconcile cannot republish them
+  as creates. A live foreign CREATE against a path the owner already holds is
+  suppressed instead of writing Havemind Conflicts.
+
 ## [1.4.19], 2026-09-16
 
 ### Fixed
