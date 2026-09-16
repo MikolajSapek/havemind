@@ -212,6 +212,8 @@ export default class HavemindPlugin extends Plugin {
    * data.json (endpoint-free). Never derived from sync activity.
    */
   private rosterMembers: RosterMember[] = [];
+  /** Serializes roster reads so a slow older response cannot win a race. */
+  private rosterRefreshTail: Promise<void> = Promise.resolve();
   /**
    * F9 Rejoin (owner side). Membership ids the owner has asserted are dead
    * (pilot heuristic, no server liveness signal yet, see renderRejoinRoster):
@@ -352,6 +354,9 @@ export default class HavemindPlugin extends Plugin {
         arrivedWithInvitationProvider: () => this.arrivedWithInvitation,
         onOpenComposer: () => {
           void this.openCreateConnectionView();
+        },
+        onPeopleVisible: () => {
+          void this.refreshRoster();
         },
         onCloseComposer: () => this.closeCreateConnectionView(),
         onSyncNow: () => {
@@ -705,6 +710,10 @@ export default class HavemindPlugin extends Plugin {
       this.connectionNotice = connectedMessage;
       this.connectionNoticeKind = 'success';
       report(connectedMessage);
+      // Approval commits the membership on the server. Pull the canonical list
+      // immediately so every open People tab sees the same members without
+      // waiting for a reconnect.
+      void this.refreshRoster();
       // Re-render to drop the approved row while keeping the create section
       // (invitation + role/name) fully alive.
       this.views.refreshOnboardingNow();
@@ -989,10 +998,27 @@ export default class HavemindPlugin extends Plugin {
    * blanking the People pane. The next connect or reconnect retries.
    */
   private async refreshRoster(): Promise<void> {
-    const self = this.rosterMembers.find((member) => member.self);
+    const refresh = this.rosterRefreshTail.then(() =>
+      this.fetchAndPersistRoster(),
+    );
+    this.rosterRefreshTail = refresh;
+    return refresh;
+  }
+
+  private async fetchAndPersistRoster(): Promise<void> {
+    // The connection handle is authoritative for this device's identity. On a
+    // fresh join the persisted roster may still be empty, so deriving self only
+    // from that cache rendered every row as somebody else.
+    const selfMembershipId =
+      this.connection?.selfMembership?.membershipId ??
+      this.rosterMembers.find((member) => member.self)?.membershipId ??
+      null;
     try {
       const members = await fetchMemberRosterForVault(this, {
-        selfMembershipId: self?.membershipId ?? null,
+        selfMembershipId,
+        ...(this.connection?.getAccessToken === undefined
+          ? {}
+          : { getAccessToken: this.connection.getAccessToken }),
       });
       // `null` means this device is not connected to a vault, there is nothing
       // authoritative to render, so the existing list stands.

@@ -256,17 +256,19 @@ export async function revokeMembershipForOwner(
 }
 
 /**
- * Reads the vault's server-authoritative roster (`GET /members`), the single
- * list every member of the vault sees. Returns `null` when this device is not
- * connected to a vault, so the caller keeps the roster it already has rather
- * than rendering an empty People pane. Unlike the four owner actions above this
- * is readable by ANY active member (same access rule as `/bootstrap`), and it
- * authenticates with the stored refresh token rather than a minted access
- * token, which is what the route expects.
+ * Reads the vault's server-authoritative roster, the single list every member
+ * of the vault sees. Prefers the live Bearer session (`GET /vaults/:id/members`)
+ * when the sync loop can mint an access token; otherwise uses the refresh-token
+ * `GET /members` path. Returns `null` when this device is not connected to a
+ * vault, so the caller keeps the roster it already has rather than rendering an
+ * empty People pane. Readable by ANY active member (same access rule as sync).
  */
 export async function fetchMemberRosterForVault(
   plugin: Plugin,
-  options: { selfMembershipId: string | null },
+  options: {
+    selfMembershipId: string | null;
+    getAccessToken?: () => Promise<string | null>;
+  },
 ): Promise<RosterMember[] | null> {
   const connected = await resolveConnectedVault(plugin);
   if (connected === null) {
@@ -281,8 +283,34 @@ export async function fetchMemberRosterForVault(
     secretStorage: plugin.app.secretStorage,
   });
 
+  // When the caller did not hand a live access-token getter (e.g. a reconnect
+  // before the sync loop returned), mint one the same way the owner actions do
+  // so People still prefers the Bearer path over a second refresh-token call.
+  let getAccessToken = options.getAccessToken;
+  if (getAccessToken === undefined) {
+    const accessProvider = new RefreshTokenAccessProvider({
+      requestUrl: createRequestUrlFn(),
+      apiBaseUrl: connected.apiBaseUrl,
+      getRefreshToken: () => secrets.getRefreshToken(),
+      saveRefreshToken: (value) => secrets.saveRefreshToken(value),
+      generateRotationId: generateRotationIdValue,
+      generateSuccessorToken: generateRefreshTokenValue,
+      loadPendingRotation: () => secrets.getPendingRotation(),
+      savePendingRotation: (record) => secrets.savePendingRotation(record),
+      clearPendingRotation: () => secrets.clearPendingRotation(),
+    });
+    getAccessToken = async () => {
+      try {
+        return await accessProvider.getAccessToken();
+      } catch {
+        return null;
+      }
+    };
+  }
+
   return fetchMemberRoster({
     apiBaseUrl: connected.apiBaseUrl,
+    getAccessToken,
     getRefreshToken: () => secrets.getRefreshToken(),
     requestUrl: createRequestUrlFn(),
     selfMembershipId: options.selfMembershipId,

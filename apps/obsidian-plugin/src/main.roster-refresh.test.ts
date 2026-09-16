@@ -15,6 +15,7 @@ const adapterMocks = vi.hoisted(() => ({
   connectFromInput: vi.fn(),
   listPendingApprovalsForOwner: vi.fn(),
   fetchMemberRosterForVault: vi.fn(),
+  approvePendingDeviceForOwner: vi.fn(),
 }));
 
 vi.mock('./runtime/obsidian-adapters', async (importOriginal) => {
@@ -25,6 +26,7 @@ vi.mock('./runtime/obsidian-adapters', async (importOriginal) => {
     connectFromInput: adapterMocks.connectFromInput,
     listPendingApprovalsForOwner: adapterMocks.listPendingApprovalsForOwner,
     fetchMemberRosterForVault: adapterMocks.fetchMemberRosterForVault,
+    approvePendingDeviceForOwner: adapterMocks.approvePendingDeviceForOwner,
   };
 });
 
@@ -84,6 +86,7 @@ describe('server-sourced member roster (P3)', () => {
     adapterMocks.listPendingApprovalsForOwner.mockReset();
     adapterMocks.listPendingApprovalsForOwner.mockResolvedValue(null);
     adapterMocks.fetchMemberRosterForVault.mockReset();
+    adapterMocks.approvePendingDeviceForOwner.mockReset();
   });
 
   it('renders People from GET /members after a connect, not from data.json', async () => {
@@ -192,5 +195,116 @@ describe('server-sourced member roster (P3)', () => {
     await internals(plugin).loadRoster();
 
     expect(memberIds(plugin).sort()).toEqual(['m-magda', 'm-owner']);
+  });
+
+  it('identifies You from the live connection when the local roster is still empty', async () => {
+    const plugin = newPlugin();
+    adapterMocks.startHavemindConnection.mockResolvedValue({
+      stop: vi.fn(),
+      serverName: 'sapserver',
+      selfMembership: { membershipId: 'm-magda', role: 'editor' },
+      getAccessToken: async () => 'hm_at_live',
+    });
+    adapterMocks.fetchMemberRosterForVault.mockResolvedValue(SERVER_ROSTER);
+
+    await internals(plugin).startConnection();
+    await flushMicrotasks();
+
+    expect(adapterMocks.fetchMemberRosterForVault).toHaveBeenCalledWith(
+      plugin,
+      expect.objectContaining({
+        getAccessToken: expect.any(Function),
+        selfMembershipId: 'm-magda',
+      }),
+    );
+  });
+
+  it('refetches the People list after the owner approves a joining device', async () => {
+    const plugin = newPlugin();
+    const owner: RosterMember = {
+      membershipId: 'm-owner',
+      displayName: 'You',
+      role: 'owner',
+      self: true,
+    };
+    const guest: RosterMember = {
+      membershipId: 'm-phone',
+      displayName: 'Telefon',
+      role: 'editor',
+      self: false,
+    };
+    adapterMocks.startHavemindConnection.mockResolvedValue({
+      stop: vi.fn(),
+      serverName: 'sapserver',
+      selfMembership: { membershipId: 'm-owner', role: 'owner' },
+      getAccessToken: async () => 'hm_at_live',
+    });
+    adapterMocks.fetchMemberRosterForVault
+      .mockResolvedValueOnce([owner])
+      .mockResolvedValueOnce([owner, guest]);
+    adapterMocks.approvePendingDeviceForOwner.mockResolvedValue({
+      membershipId: 'm-phone',
+    });
+
+    await internals(plugin).startConnection();
+    await flushMicrotasks();
+    expect(memberIds(plugin)).toEqual(['m-owner']);
+
+    internals(plugin).pendingApprovals = [
+      {
+        invitationId: 'inv-1',
+        intendedMemberDisplayName: 'Telefon',
+        intendedRole: 'editor',
+      },
+    ];
+    await internals(plugin).approvePendingDevice('inv-1', '123456', () => {
+      /* progress is unused */
+    });
+    await flushMicrotasks();
+
+    expect(adapterMocks.fetchMemberRosterForVault).toHaveBeenCalledTimes(2);
+    expect(memberIds(plugin).sort()).toEqual(['m-owner', 'm-phone']);
+  });
+
+  it('does not let an older slow roster response overwrite a newer refresh', async () => {
+    const plugin = newPlugin();
+    const owner: RosterMember = {
+      membershipId: 'm-owner',
+      displayName: 'You',
+      role: 'owner',
+      self: true,
+    };
+    const guest: RosterMember = {
+      membershipId: 'm-phone',
+      displayName: 'Telefon',
+      role: 'editor',
+      self: false,
+    };
+    let resolveFirst: ((members: RosterMember[]) => void) | undefined;
+    adapterMocks.startHavemindConnection.mockResolvedValue({
+      stop: vi.fn(),
+      serverName: 'sapserver',
+      selfMembership: { membershipId: 'm-owner', role: 'owner' },
+      getAccessToken: async () => 'hm_at_live',
+    });
+    adapterMocks.fetchMemberRosterForVault
+      .mockImplementationOnce(
+        () =>
+          new Promise<RosterMember[]>((resolve) => {
+            resolveFirst = resolve;
+          }),
+      )
+      .mockResolvedValueOnce([owner, guest]);
+
+    await internals(plugin).startConnection();
+    await flushMicrotasks();
+    const newerRefresh = internals(plugin).refreshRoster();
+    await flushMicrotasks();
+
+    resolveFirst?.([owner]);
+    await newerRefresh;
+    await flushMicrotasks();
+
+    expect(memberIds(plugin).sort()).toEqual(['m-owner', 'm-phone']);
   });
 });

@@ -43,6 +43,8 @@ export interface ConnectionHandle {
   stop(): void;
   /** Human-readable server name for the Connect panel (empty when disconnected). */
   readonly serverName: string;
+  /** Mints/reuses the live access token; null means authentication failed. */
+  readonly getAccessToken?: () => Promise<string | null>;
   /**
    * The local user's own membership for the presence roster, when known. The
    * plugin records this as the persistent "self" roster entry. Absent when no
@@ -230,6 +232,13 @@ export async function startSyncLoop(
 
   return {
     ...(selfMembership === undefined ? {} : { selfMembership }),
+    getAccessToken: async () => {
+      try {
+        return await accessProvider.getAccessToken();
+      } catch {
+        return null;
+      }
+    },
     // The live durable state, so the plugin can read the send-queue (SND-01) and
     // drive the auto-repair sweep (MRG-05) off the same store the runner uses.
     state,

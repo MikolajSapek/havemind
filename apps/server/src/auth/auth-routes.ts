@@ -97,6 +97,7 @@ interface MembershipRow {
 }
 
 interface MemberRow {
+  readonly membershipId: string;
   readonly displayName: string;
   readonly role: string;
 }
@@ -308,7 +309,9 @@ function loadVaultMembers(
 ): readonly MemberRow[] {
   return database
     .prepare(
-      `SELECT users.display_name AS displayName, memberships.role AS role
+      `SELECT memberships.id AS membershipId,
+              users.display_name AS displayName,
+              memberships.role AS role
        FROM memberships
        INNER JOIN users ON users.id = memberships.user_id
        WHERE memberships.vault_id = ? AND memberships.status = 'active'

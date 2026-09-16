@@ -1,5 +1,5 @@
 /**
- * The vault roster read from the server (`GET /members`).
+ * The vault roster read from the server.
  *
  * The presence roster used to be assembled from what each device happened to
  * witness: the owner recorded a member at the moment it approved that member's
@@ -8,11 +8,13 @@
  * `users`) and hands it back to any active member of the vault, so this module
  * fetches it and the plugin renders People from the answer.
  *
- * Access is the same rule `/bootstrap` applies: the refresh token travels in the
- * `x-havemind-refresh-token` header, never in the query string. The response
- * carries no endpoint, token or device detail, only who is in the vault and in
- * what role. Dependency-injected and free of Obsidian/DOM, mirroring
- * `remove-member.ts`, so it unit tests in isolation.
+ * Prefer the same Bearer path sync already uses (`GET /vaults/:vaultId/members`).
+ * That route is behind the live access-token rotation the sync loop keeps warm,
+ * so a connected device does not open a second auth path just to draw People.
+ * When that response lacks membership ids (older servers) or no access token is
+ * available yet, fall back to `GET /members` with the refresh token — the same
+ * access rule `/bootstrap` applies. Dependency-injected and free of Obsidian/DOM,
+ * mirroring `remove-member.ts`, so it unit tests in isolation.
  */
 
 import type { MemberRole, RosterMember } from './roster';
@@ -23,6 +25,11 @@ const REFRESH_TOKEN_HEADER = 'x-havemind-refresh-token';
 export interface FetchMemberRosterOptions {
   readonly apiBaseUrl: string;
   readonly requestUrl: RequestUrlFn;
+  /**
+   * Short-lived access token from the live sync session. When present and the
+   * vault id is known, the Bearer roster is tried first.
+   */
+  readonly getAccessToken?: () => Promise<string | null>;
   /** The stored refresh token; null when this device holds none. */
   readonly getRefreshToken: () => Promise<string | null>;
   /** Scopes the read to one vault; null lets the server pick the caller's own. */
@@ -59,6 +66,33 @@ function parseMember(value: unknown, selfMembershipId: string | null): RosterMem
   };
 }
 
+function parseMembersPayload(
+  json: unknown,
+  selfMembershipId: string | null,
+): RosterMember[] {
+  const members = isRecord(json) ? json.members : undefined;
+  if (!Array.isArray(members)) {
+    throw new MemberRosterError('The member roster response was malformed.');
+  }
+  return members.map((entry) => parseMember(entry, selfMembershipId));
+}
+
+/**
+ * True when every row carries a membership id. Older `/vaults/:id/members`
+ * responses listed only displayName + role; those cannot drive the People list
+ * (colour, remove, rejoin) and must fall through to `GET /members`.
+ */
+function hasMembershipIds(json: unknown): boolean {
+  const members = isRecord(json) ? json.members : undefined;
+  if (!Array.isArray(members) || members.length === 0) {
+    // Empty is a valid roster; the Bearer path already answered.
+    return Array.isArray(members);
+  }
+  return members.every(
+    (entry) => isRecord(entry) && typeof entry.membershipId === 'string',
+  );
+}
+
 /**
  * Reads the server-authoritative roster for the connected vault. Throws on any
  * transport, auth or shape failure so the caller can keep the roster it already
@@ -68,6 +102,32 @@ function parseMember(value: unknown, selfMembershipId: string | null): RosterMem
 export async function fetchMemberRoster(
   options: FetchMemberRosterOptions,
 ): Promise<RosterMember[]> {
+  if (options.vaultId !== null && options.getAccessToken !== undefined) {
+    const accessToken = await options.getAccessToken();
+    if (accessToken !== null) {
+      const bearerResponse = await options.requestUrl({
+        url: `${options.apiBaseUrl}/vaults/${options.vaultId}/members`,
+        method: 'GET',
+        headers: { Authorization: `Bearer ${accessToken}` },
+        throw: false,
+      });
+      if (bearerResponse.status >= 200 && bearerResponse.status < 300) {
+        if (hasMembershipIds(bearerResponse.json)) {
+          return parseMembersPayload(
+            bearerResponse.json,
+            options.selfMembershipId,
+          );
+        }
+        // Older server: quota route without membership ids. Fall through.
+      } else if (bearerResponse.status !== 401 && bearerResponse.status !== 403) {
+        throw new MemberRosterError(
+          `The member roster request returned HTTP ${bearerResponse.status}.`,
+        );
+      }
+      // 401/403: try the refresh-token path before giving up.
+    }
+  }
+
   const refreshToken = await options.getRefreshToken();
   if (refreshToken === null) {
     throw new MemberRosterError(
@@ -89,9 +149,5 @@ export async function fetchMemberRoster(
       `The member roster request returned HTTP ${response.status}.`,
     );
   }
-  const members = isRecord(response.json) ? response.json.members : undefined;
-  if (!Array.isArray(members)) {
-    throw new MemberRosterError('The member roster response was malformed.');
-  }
-  return members.map((entry) => parseMember(entry, options.selfMembershipId));
+  return parseMembersPayload(response.json, options.selfMembershipId);
 }

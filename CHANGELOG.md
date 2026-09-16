@@ -5,6 +5,16 @@ All notable changes to this project are documented here. The format is based on
 follows independent [Semantic Versioning](https://semver.org) for the plugin
 and the server.
 
+## [1.4.15], 2026-09-16
+
+### Fixed
+
+- **People now shows every active member of the vault on desktop and phone.**
+  The pane reads the roster through the same authenticated vault endpoint as
+  sync, identifies the current device from its live connection, and refreshes
+  after approval and whenever People is opened. Older servers still fall back
+  to the refresh-token roster endpoint.
+
 ## [1.4.14], 2026-09-16
 
 ### Fixed

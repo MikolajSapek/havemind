@@ -125,6 +125,22 @@ describe('UI-02, a healthy panel is nearly empty', () => {
     expect(tabLabels.some((l) => /people/i.test(l))).toBe(true);
   });
 
+  it('asks the plugin to refresh the roster when People is opened', () => {
+    let peopleOpens = 0;
+    const root = pane({
+      onPeopleVisible: () => {
+        peopleOpens += 1;
+      },
+    });
+    const people = flatten(root).find(
+      (el) =>
+        el.attrs['role'] === 'tab' && /people/i.test(el.attrs['aria-label'] ?? ''),
+    );
+    expect(people).toBeDefined();
+    people?.triggerClick();
+    expect(peopleOpens).toBe(1);
+  });
+
   it('AT2-4: the tutorial stays behind its affordance in a healthy pane', () => {
     const root = pane();
     expect(texts(root).some((t) => /Install Docker/i.test(t))).toBe(false);
