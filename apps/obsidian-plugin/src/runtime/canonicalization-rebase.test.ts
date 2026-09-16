@@ -322,7 +322,9 @@ describe('rebaseCanonicalizedHashes', () => {
     const saved = port.current();
     const producer = saved[PRODUCER_KEY] as { mappings: LocalFileMapping[] };
     const binaryMapping = producer.mappings.find((m) => m.fileId === binaryFileId);
-    expect(binaryMapping?.content).toBe(binaryContent);
+    // The hash is what the rebase must not touch. The bytes are no longer kept
+    // in a mapping at all (AUD-12): they cost a third more than the file in
+    // base64 and nothing reads them, since binaries never merge.
     expect(binaryMapping?.contentHash).toBe(binaryContentHash);
 
     const markdownMapping = producer.mappings.find((m) => m.fileId === markdownFileId);
@@ -403,8 +405,10 @@ describe('rebaseCanonicalizedHashes', () => {
     const binaryMapping = producer.mappings.find((m) => m.fileId === binaryFileId);
     // The discriminator survived the round-trip …
     expect(binaryMapping?.contentKind).toBe('binary');
-    // … so its raw-byte content/hash were left untouched by the rebase.
-    expect(binaryMapping?.content).toBe(binaryBase64);
+    // … so its raw-byte hash is left untouched by the rebase. AUD-12 compacts
+    // the legacy base64 body during the production load before this round-trip;
+    // binary change detection needs only the hash.
+    expect(binaryMapping?.content).toBeNull();
     expect(binaryMapping?.contentHash).toBe(rawHash);
     const persist = saved[PERSIST_KEY] as { baseHashes: Record<string, string> };
     expect(persist.baseHashes[binaryFileId]).toBe(rawHash);
@@ -448,6 +452,9 @@ describe('rebaseCanonicalizedHashes', () => {
     const saved = port.current();
     const producer = saved[PRODUCER_KEY] as { mappings: LocalFileMapping[] };
     expect(producer.mappings[0]?.contentHash).toBe(rawHash);
+    // This mapping has no discriminator by construction, so the rebase must
+    // recognise it as binary from the extension alone and leave it untouched:
+    // hash unchanged, content exactly as stored, mappingsRebased 0 below.
     expect(producer.mappings[0]?.content).toBe(binaryBase64);
     const persist = saved[PERSIST_KEY] as { baseHashes: Record<string, string> };
     expect(persist.baseHashes[binaryFileId]).toBe(rawHash);
