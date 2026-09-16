@@ -1065,6 +1065,29 @@ describe('SyncRunner bootstrap origin', () => {
     expect(result.applied).toBe(1);
     expect(state.cursor).toBe(1);
   });
+
+  it('stops paging a snapshot when the cursor does not advance', async () => {
+    const stuckPage = {
+      complete: false,
+      cursor: 50,
+      events: [event(10, 'file-1', 'head', 'rev-10'), event(20, 'file-2', 'other', 'rev-20')],
+      snapshot: true as const,
+    };
+    const pull = vi.fn<SyncTransport['pull']>().mockResolvedValue(stuckPage);
+    const { runner, vault, state } = makeRunner({
+      transport: { push: vi.fn(async () => []), pull },
+    });
+
+    const result = await runner.trigger();
+
+    expect(pull.mock.calls.length).toBeLessThan(5);
+    expect(vault.applied.map((item) => item.revision.revisionId)).toEqual([
+      'rev-10',
+      'rev-20',
+    ]);
+    expect(result.applied).toBe(2);
+    expect(state.cursor).toBe(50);
+  });
 });
 
 describe('SyncRunner cursor contiguity gate', () => {

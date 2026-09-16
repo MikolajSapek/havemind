@@ -977,6 +977,71 @@ describe('onboarding HTTP surface', () => {
     });
   });
 
+  it('serves current file heads from listHeadEvents rather than replaying the log', async () => {
+    const fixture = makeFixture();
+    const rawRefresh = generateRefreshToken();
+    fixture.database
+      .transaction(() =>
+        fixture.sessions.createInitialSessionInCurrentTransaction({
+          deviceId: OWNER_DEVICE,
+          initialRefreshToken: rawRefresh,
+          refreshTokenTtlSeconds: REFRESH_TTL_SECONDS,
+          userId: OWNER_USER,
+        }),
+      )
+      .immediate();
+
+    const head = {
+      fileId: '90000000-0000-4000-8000-0000000000f1',
+      receipt: {
+        blobHash: 'b'.repeat(64),
+        byteLength: 3,
+        deviceId: OWNER_DEVICE,
+        memberId: OWNER_MEMBERSHIP,
+        revisionId: '90000000-0000-4000-8000-0000000000f9',
+        serverSequence: 9,
+        serverTime: START_TIME,
+      },
+      revisionId: '90000000-0000-4000-8000-0000000000f9',
+      serverSequence: 9,
+      type: 'revision-accepted',
+    };
+
+    const app = Fastify();
+    applications.push(app as unknown as ReturnType<typeof buildApp>);
+    registerPreAuthOnboardingRoutes(app, {
+      database: fixture.database,
+      invitations: fixture.invitations,
+      revisions: {
+        listEvents: () => {
+          throw new Error('bootstrap must not replay the superseded log');
+        },
+        listHeadEvents: () => [head] as unknown as StoredRevisionEvent[],
+      },
+      sessions: fixture.sessions,
+    });
+
+    const bootstrap = await app.inject({
+      headers: { 'x-havemind-refresh-token': rawRefresh },
+      method: 'GET',
+      url: '/bootstrap',
+    });
+    expect(bootstrap.statusCode).toBe(200);
+    expect(bootstrap.json()).toEqual({
+      complete: true,
+      items: [
+        {
+          contentHash: 'b'.repeat(64),
+          fileId: head.fileId,
+          revisionId: head.revisionId,
+          serverSequence: 9,
+        },
+      ],
+      nextCursor: null,
+      version: 1,
+    });
+  });
+
   it('serves the vault named by ?vault= when the caller holds an active membership there', async () => {
     const fixture = makeFixture();
     insertSecondVaultForOwner(fixture.database, generatePairingToken());

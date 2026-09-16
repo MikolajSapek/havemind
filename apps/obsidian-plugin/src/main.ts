@@ -1082,6 +1082,12 @@ export default class HavemindPlugin extends Plugin {
       void this.refreshRoster();
       // MRG-05: sweep any pre-existing conflict copies now that a base is loaded.
       this.scheduleConflictSweep();
+    } else if (!attempt.signal.aborted && !this.unloaded) {
+      // Connect failed after the handshake (bootstrap error, first-pull stall,
+      // timeout). Leave the six-digit waiting screen or the pane stays there
+      // forever, which is what a phone join looked like after 1.4.13.
+      this.awaitingApproval = null;
+      this.views.refreshOnboardingNow();
     }
     } finally {
       this.connectionAttemptAborters.delete(attempt);

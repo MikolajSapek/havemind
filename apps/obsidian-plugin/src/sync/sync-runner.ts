@@ -771,6 +771,13 @@ export class SyncRunner {
       if (page.snapshot !== true || page.events.length === 0) {
         break;
       }
+      const pageHigh = lastSequence(page.events);
+      // A page that does not move the cursor would retry forever and leave the
+      // joining phone on the six-digit waiting screen (connect waits for this
+      // first pull before it can leave that view).
+      if (pageHigh <= scanCursor) {
+        break;
+      }
       collected.push(...page.events);
       scanCursor = lastSequence(collected);
       complete = page.complete === true;

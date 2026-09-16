@@ -25,6 +25,27 @@ const MAX_IDEMPOTENCY_TTL_MS = 365 * 24 * 60 * 60 * 1_000;
 const MAX_IDEMPOTENCY_KEY_LENGTH = 200;
 const MAX_EVENT_PAGE_SIZE = 1_000;
 
+/**
+ * Current file heads, paged by `server_sequence`. Join `vault_events` on the
+ * `(vault_id, server_sequence)` primary key. Joining on `revision_id` instead
+ * scans the whole log: there is no index on that column, so a phone join hung
+ * on GET /bootstrap after the owner typed the six-digit code.
+ */
+export const LIST_HEAD_EVENTS_SQL = `SELECT
+           vault_events.server_sequence AS serverSequence,
+           vault_events.event_type AS eventType,
+           vault_events.revision_id AS revisionId,
+           vault_events.event_payload AS eventPayload
+         FROM file_heads
+         INNER JOIN revisions ON revisions.id = file_heads.revision_id
+         INNER JOIN files ON files.id = file_heads.file_id
+         INNER JOIN vault_events
+           ON vault_events.vault_id = files.vault_id
+          AND vault_events.server_sequence = revisions.server_sequence
+         WHERE files.vault_id = ? AND revisions.server_sequence > ?
+         ORDER BY revisions.server_sequence
+         LIMIT ?`;
+
 export type RevisionRepositoryErrorCode =
   | 'CORRUPT_BLOB'
   | 'FILE_ALREADY_EXISTS'
@@ -546,22 +567,7 @@ export class RevisionRepository {
     }
 
     const rows = this.#database
-      .prepare(
-        `SELECT
-           vault_events.server_sequence AS serverSequence,
-           vault_events.event_type AS eventType,
-           vault_events.revision_id AS revisionId,
-           vault_events.event_payload AS eventPayload
-         FROM file_heads
-         INNER JOIN revisions ON revisions.id = file_heads.revision_id
-         INNER JOIN files ON files.id = file_heads.file_id
-         INNER JOIN vault_events
-           ON vault_events.vault_id = files.vault_id
-          AND vault_events.revision_id = file_heads.revision_id
-         WHERE files.vault_id = ? AND vault_events.server_sequence > ?
-         ORDER BY vault_events.server_sequence
-         LIMIT ?`,
-      )
+      .prepare(LIST_HEAD_EVENTS_SQL)
       .all(vaultId, afterSequence, limit) as EventRow[];
 
     return rows.map((row) => this.#parseEventRow(row));

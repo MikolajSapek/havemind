@@ -14,6 +14,7 @@ import { BlobStore } from './blob-store.js';
 import { openDatabase } from './db.js';
 import { runMigrations } from './migrations.js';
 import {
+  LIST_HEAD_EVENTS_SQL,
   RevisionRepository,
   RevisionRepositoryError,
   type CommitRevisionInput,
@@ -293,6 +294,20 @@ describe('RevisionRepository', () => {
         .listHeadEvents(VAULT_A, 0, 10)
         .map((event) => event.revisionId),
     ).toEqual([REVISION_2, REVISION_3]);
+  });
+
+  it('looks up head events by vault sequence instead of scanning the log', async () => {
+    const fixture = await makeFixture();
+    await fixture.repository.commitRevision(
+      await storedInput(fixture, REVISION_1, [], 'r1', 'opaque-r1'),
+    );
+    const plan = fixture.database
+      .prepare(`EXPLAIN QUERY PLAN ${LIST_HEAD_EVENTS_SQL}`)
+      .all(VAULT_A, 0, 10) as Array<{ detail: string }>;
+    const details = plan.map((row) => row.detail).join('\n');
+    expect(details, details).toMatch(
+      /SEARCH vault_events USING INDEX sqlite_autoindex_vault_events_1 \(vault_id=\? AND server_sequence=\?\)/,
+    );
   });
 
   it('compacts superseded revisions once they are no longer file heads', async () => {

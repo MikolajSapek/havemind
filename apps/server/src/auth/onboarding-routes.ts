@@ -417,30 +417,34 @@ export function registerPreAuthOnboardingRoutes(
     if (after === null) {
       return sendError(reply, 400, 'INVALID_REQUEST');
     }
-    const events =
-      deps.revisions?.listHeadEvents?.(
-        vaultId,
-        after,
-        DEFAULT_BOOTSTRAP_PAGE_ITEMS,
-      ) ??
-      deps.revisions?.listEvents(vaultId, after, DEFAULT_BOOTSTRAP_PAGE_ITEMS) ??
-      [];
-    const items = events.map((event) => ({
-      contentHash: event.receipt.blobHash,
-      fileId: event.fileId,
-      revisionId: event.revisionId,
-      serverSequence: event.serverSequence,
-    }));
-    const complete = items.length < DEFAULT_BOOTSTRAP_PAGE_ITEMS;
-    const lastSequence = events.at(-1)?.serverSequence ?? after;
+    try {
+      const events =
+        deps.revisions?.listHeadEvents?.(
+          vaultId,
+          after,
+          DEFAULT_BOOTSTRAP_PAGE_ITEMS,
+        ) ??
+        deps.revisions?.listEvents(vaultId, after, DEFAULT_BOOTSTRAP_PAGE_ITEMS) ??
+        [];
+      const items = events.map((event) => ({
+        contentHash: event.receipt.blobHash,
+        fileId: event.fileId,
+        revisionId: event.revisionId,
+        serverSequence: event.serverSequence,
+      }));
+      const complete = items.length < DEFAULT_BOOTSTRAP_PAGE_ITEMS;
+      const lastSequence = events.at(-1)?.serverSequence ?? after;
 
-    reply.header('cache-control', 'no-store');
-    return {
-      complete,
-      items,
-      nextCursor: complete ? null : String(lastSequence),
-      version: 1,
-    };
+      reply.header('cache-control', 'no-store');
+      return {
+        complete,
+        items,
+        nextCursor: complete ? null : String(lastSequence),
+        version: 1,
+      };
+    } catch {
+      return sendError(reply, 500, 'INVALID_REQUEST');
+    }
   });
 }
 
