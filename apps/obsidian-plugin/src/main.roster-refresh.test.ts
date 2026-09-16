@@ -50,6 +50,20 @@ const SERVER_ROSTER: RosterMember[] = [
   { membershipId: 'm-magda', displayName: 'You', role: 'editor', self: true },
 ];
 
+function liveHandle(
+  self: { membershipId: string; role: 'owner' | 'editor' },
+  extra: Record<string, unknown> = {},
+) {
+  return {
+    stop: vi.fn(),
+    serverName: 'sapserver',
+    apiBaseUrl: 'https://sapserver.test/api/v1',
+    vaultId: 'vault-1',
+    selfMembership: self,
+    ...extra,
+  };
+}
+
 function newPlugin(): HavemindPlugin {
   const plugin = new HavemindPlugin(new App(), manifest);
   let store: Record<string, unknown> = {};
@@ -99,11 +113,9 @@ describe('server-sourced member roster (P3)', () => {
       role: 'editor',
       self: true,
     });
-    adapterMocks.startHavemindConnection.mockResolvedValue({
-      stop: vi.fn(),
-      serverName: 'sapserver',
-      selfMembership: { membershipId: 'm-magda', role: 'editor' },
-    });
+    adapterMocks.startHavemindConnection.mockResolvedValue(
+      liveHandle({ membershipId: 'm-magda', role: 'editor' }),
+    );
     adapterMocks.fetchMemberRosterForVault.mockResolvedValue(SERVER_ROSTER);
 
     await internals(plugin).startConnection();
@@ -116,11 +128,9 @@ describe('server-sourced member roster (P3)', () => {
 
   it('refetches the roster on reconnect', async () => {
     const plugin = newPlugin();
-    adapterMocks.startHavemindConnection.mockResolvedValue({
-      stop: vi.fn(),
-      serverName: 'sapserver',
-      selfMembership: { membershipId: 'm-magda', role: 'editor' },
-    });
+    adapterMocks.startHavemindConnection.mockResolvedValue(
+      liveHandle({ membershipId: 'm-magda', role: 'editor' }),
+    );
     adapterMocks.fetchMemberRosterForVault.mockResolvedValue(SERVER_ROSTER);
 
     await internals(plugin).startConnection();
@@ -129,62 +139,49 @@ describe('server-sourced member roster (P3)', () => {
     await flushMicrotasks();
 
     expect(adapterMocks.fetchMemberRosterForVault).toHaveBeenCalledTimes(2);
-    expect(memberIds(plugin).sort()).toEqual(['m-magda', 'm-owner']);
   });
 
-  it('keeps the previously rendered roster when the request fails (offline device)', async () => {
+  it('keeps the previous People list when the roster request fails', async () => {
     const plugin = newPlugin();
-    adapterMocks.startHavemindConnection.mockResolvedValue({
-      stop: vi.fn(),
-      serverName: 'sapserver',
-      selfMembership: { membershipId: 'm-magda', role: 'editor' },
-    });
+    adapterMocks.startHavemindConnection.mockResolvedValue(
+      liveHandle({ membershipId: 'm-magda', role: 'editor' }),
+    );
     adapterMocks.fetchMemberRosterForVault.mockResolvedValue(SERVER_ROSTER);
 
     await internals(plugin).startConnection();
     await flushMicrotasks();
-    expect(memberIds(plugin).sort()).toEqual(['m-magda', 'm-owner']);
 
-    // The device goes offline; the next connect cannot reach /members.
     adapterMocks.fetchMemberRosterForVault.mockRejectedValue(
-      new Error('network unreachable'),
+      new Error('offline'),
     );
-    await internals(plugin).retryConnection();
+    await internals(plugin).refreshRoster();
     await flushMicrotasks();
 
-    // The pane still shows what it last knew, never a blank People list.
     expect(memberIds(plugin).sort()).toEqual(['m-magda', 'm-owner']);
   });
 
-  it('keeps the previously rendered roster when the server is not reachable as this member', async () => {
+  it('keeps the previous People list when the device is not connected', async () => {
     const plugin = newPlugin();
-    await internals(plugin).recordRosterMember({
-      membershipId: 'm-magda',
-      displayName: 'You',
-      role: 'editor',
-      self: true,
-    });
-    adapterMocks.startHavemindConnection.mockResolvedValue({
-      stop: vi.fn(),
-      serverName: 'sapserver',
-      selfMembership: { membershipId: 'm-magda', role: 'editor' },
-    });
-    // Not connected as a member of any vault: the adapter reports null.
-    adapterMocks.fetchMemberRosterForVault.mockResolvedValue(null);
+    adapterMocks.startHavemindConnection.mockResolvedValue(
+      liveHandle({ membershipId: 'm-magda', role: 'editor' }),
+    );
+    adapterMocks.fetchMemberRosterForVault.mockResolvedValue(SERVER_ROSTER);
 
     await internals(plugin).startConnection();
     await flushMicrotasks();
 
-    expect(memberIds(plugin)).toEqual(['m-magda']);
+    adapterMocks.fetchMemberRosterForVault.mockResolvedValue(null);
+    await internals(plugin).refreshRoster();
+    await flushMicrotasks();
+
+    expect(memberIds(plugin).sort()).toEqual(['m-magda', 'm-owner']);
   });
 
-  it('persists the server roster so a reopened pane shows it before the next fetch', async () => {
+  it('persists the server roster so a reopen shows every member', async () => {
     const plugin = newPlugin();
-    adapterMocks.startHavemindConnection.mockResolvedValue({
-      stop: vi.fn(),
-      serverName: 'sapserver',
-      selfMembership: { membershipId: 'm-magda', role: 'editor' },
-    });
+    adapterMocks.startHavemindConnection.mockResolvedValue(
+      liveHandle({ membershipId: 'm-magda', role: 'editor' }),
+    );
     adapterMocks.fetchMemberRosterForVault.mockResolvedValue(SERVER_ROSTER);
 
     await internals(plugin).startConnection();
@@ -199,12 +196,12 @@ describe('server-sourced member roster (P3)', () => {
 
   it('identifies You from the live connection when the local roster is still empty', async () => {
     const plugin = newPlugin();
-    adapterMocks.startHavemindConnection.mockResolvedValue({
-      stop: vi.fn(),
-      serverName: 'sapserver',
-      selfMembership: { membershipId: 'm-magda', role: 'editor' },
-      getAccessToken: async () => 'hm_at_live',
-    });
+    adapterMocks.startHavemindConnection.mockResolvedValue(
+      liveHandle(
+        { membershipId: 'm-magda', role: 'editor' },
+        { getAccessToken: async () => 'hm_at_live' },
+      ),
+    );
     adapterMocks.fetchMemberRosterForVault.mockResolvedValue(SERVER_ROSTER);
 
     await internals(plugin).startConnection();
@@ -215,6 +212,10 @@ describe('server-sourced member roster (P3)', () => {
       expect.objectContaining({
         getAccessToken: expect.any(Function),
         selfMembershipId: 'm-magda',
+        connected: {
+          apiBaseUrl: 'https://sapserver.test/api/v1',
+          vaultId: 'vault-1',
+        },
       }),
     );
   });
@@ -233,12 +234,12 @@ describe('server-sourced member roster (P3)', () => {
       role: 'editor',
       self: false,
     };
-    adapterMocks.startHavemindConnection.mockResolvedValue({
-      stop: vi.fn(),
-      serverName: 'sapserver',
-      selfMembership: { membershipId: 'm-owner', role: 'owner' },
-      getAccessToken: async () => 'hm_at_live',
-    });
+    adapterMocks.startHavemindConnection.mockResolvedValue(
+      liveHandle(
+        { membershipId: 'm-owner', role: 'owner' },
+        { getAccessToken: async () => 'hm_at_live' },
+      ),
+    );
     adapterMocks.fetchMemberRosterForVault
       .mockResolvedValueOnce([owner])
       .mockResolvedValueOnce([owner, guest]);
@@ -280,28 +281,34 @@ describe('server-sourced member roster (P3)', () => {
       role: 'editor',
       self: false,
     };
-    let resolveFirst: ((members: RosterMember[]) => void) | undefined;
-    adapterMocks.startHavemindConnection.mockResolvedValue({
-      stop: vi.fn(),
-      serverName: 'sapserver',
-      selfMembership: { membershipId: 'm-owner', role: 'owner' },
-      getAccessToken: async () => 'hm_at_live',
-    });
+    let resolveSlow: ((members: RosterMember[]) => void) | undefined;
+    adapterMocks.startHavemindConnection.mockResolvedValue(
+      liveHandle(
+        { membershipId: 'm-owner', role: 'owner' },
+        { getAccessToken: async () => 'hm_at_live' },
+      ),
+    );
+    // Connect awaits the first refresh, so give it a fast answer first.
     adapterMocks.fetchMemberRosterForVault
+      .mockResolvedValueOnce([owner])
       .mockImplementationOnce(
         () =>
           new Promise<RosterMember[]>((resolve) => {
-            resolveFirst = resolve;
+            resolveSlow = resolve;
           }),
       )
       .mockResolvedValueOnce([owner, guest]);
 
     await internals(plugin).startConnection();
     await flushMicrotasks();
+
+    const slowRefresh = internals(plugin).refreshRoster();
+    await flushMicrotasks();
     const newerRefresh = internals(plugin).refreshRoster();
     await flushMicrotasks();
 
-    resolveFirst?.([owner]);
+    resolveSlow?.([owner]);
+    await slowRefresh;
     await newerRefresh;
     await flushMicrotasks();
 

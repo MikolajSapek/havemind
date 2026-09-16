@@ -796,11 +796,13 @@ export default class HavemindPlugin extends Plugin {
     // rejoin poll that captured an earlier value no-ops instead of tearing this
     // one down (FINDING 1b).
     this.connectGeneration += 1;
-    this.adoptSelfMembership(this.connection);
     // P3: the People list comes from the server, not from what this device
     // witnessed. Runs on every connect AND reconnect (retryConnection routes
-    // through startConnection), so a guest sees the whole vault.
-    void this.refreshRoster();
+    // through startConnection), so a guest sees the whole vault. Await it
+    // before seeding self: a parallel self-seed used to race the replace and
+    // clobber the server list back to "You" only on the phone.
+    await this.refreshRoster();
+    this.adoptSelfMembershipIfNeeded(this.connection);
     void this.restorePendingApprovals();
     // MRG-05: on start (after the canonicalization rebase inside the handle
     // build), sweep any pre-existing conflict copies that a persisted ancestor
@@ -971,6 +973,24 @@ export default class HavemindPlugin extends Plugin {
     });
   }
 
+  /**
+   * Seeds "You" only when the server roster did not already identify this
+   * device. Calling this after `refreshRoster` avoids the connect-time race
+   * where a parallel self-seed clobbered the full People list.
+   */
+  private adoptSelfMembershipIfNeeded(handle: ConnectionHandle | null): void {
+    const self = handle?.selfMembership;
+    if (self === undefined) return;
+    if (
+      this.rosterMembers.some(
+        (member) => member.self || member.membershipId === self.membershipId,
+      )
+    ) {
+      return;
+    }
+    this.adoptSelfMembership(handle);
+  }
+
   /** The durable roster store over the shared plugin-data blob. */
   private rosterStore(): RosterStore {
     // Route the roster's read-modify-save through the shared per-plugin mutex so
@@ -1013,12 +1033,21 @@ export default class HavemindPlugin extends Plugin {
       this.connection?.selfMembership?.membershipId ??
       this.rosterMembers.find((member) => member.self)?.membershipId ??
       null;
+    const connected =
+      this.connection?.apiBaseUrl !== undefined &&
+      this.connection.vaultId !== undefined
+        ? {
+            apiBaseUrl: this.connection.apiBaseUrl,
+            vaultId: this.connection.vaultId,
+          }
+        : undefined;
     try {
       const members = await fetchMemberRosterForVault(this, {
         selfMembershipId,
         ...(this.connection?.getAccessToken === undefined
           ? {}
           : { getAccessToken: this.connection.getAccessToken }),
+        ...(connected === undefined ? {} : { connected }),
       });
       // `null` means this device is not connected to a vault, there is nothing
       // authoritative to render, so the existing list stands.
@@ -1103,11 +1132,10 @@ export default class HavemindPlugin extends Plugin {
       this.syncState = handle.state ?? null;
       // A live connection was (re-)established, advance the generation (FINDING 1b).
       this.connectGeneration += 1;
-      // Record this device's own membership as a persistent roster member so the
-      // invitee's UI clearly shows it is connected.
-      this.adoptSelfMembership(handle);
-      // P3: pull the server-authoritative roster for this freshly paired vault.
-      void this.refreshRoster();
+      // P3: pull the server-authoritative roster first so a guest sees everyone,
+      // then seed self only when the fetch left this device out of the list.
+      await this.refreshRoster();
+      this.adoptSelfMembershipIfNeeded(handle);
       // MRG-05: sweep any pre-existing conflict copies now that a base is loaded.
       this.scheduleConflictSweep();
       this.views.refreshOnboardingNow();

@@ -268,9 +268,17 @@ export async function fetchMemberRosterForVault(
   options: {
     selfMembershipId: string | null;
     getAccessToken?: () => Promise<string | null>;
+    /**
+     * Live sync-loop vault identity. Prefer this over re-resolving onboarding
+     * state: a phone can be syncing while `resume()` fails, and People must
+     * still read the same vault sync already uses.
+     */
+    connected?: { readonly apiBaseUrl: string; readonly vaultId: string };
   },
 ): Promise<RosterMember[] | null> {
-  const connected = await resolveConnectedVault(plugin);
+  const connected =
+    options.connected ??
+    (await resolveConnectedVault(plugin).catch(() => null));
   if (connected === null) {
     return null;
   }

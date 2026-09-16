@@ -115,10 +115,20 @@ export function buildRosterView(
 
 const ROSTER_KEY = 'approvedMembersRoster';
 
-/** Persistence boundary; wraps raw `Plugin.loadData`/`saveData` in production. */
+/**
+ * Persistence boundary; wraps raw `Plugin.loadData`/`saveData` in production.
+ *
+ * Mutations MUST go through `update` (one critical section). A split
+ * `load` → modify → `save` races another writer to the same roster key and can
+ * clobber a server-sourced People list back to a single local "You" row, the
+ * phone bug where sync works but People stays empty of other members.
+ */
 export interface RosterPersistPort {
   load(): Promise<unknown>;
   save(data: Record<string, unknown>): Promise<void>;
+  update(
+    mutator: (current: Record<string, unknown>) => Record<string, unknown>,
+  ): Promise<void>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -176,10 +186,12 @@ export class RosterStore {
 
   /** Upserts a member (idempotent by membershipId) and persists the roster. */
   async recordMember(member: RosterMember): Promise<RosterMember[]> {
-    const data = await this.persist.load();
-    const base = isRecord(data) ? data : {};
-    const next = upsertRosterMember(parseRoster(data), member);
-    await this.persist.save({ ...base, [ROSTER_KEY]: next });
+    let next: RosterMember[] = [];
+    await this.persist.update((data) => {
+      const base = isRecord(data) ? data : {};
+      next = upsertRosterMember(parseRoster(base), member);
+      return { ...base, [ROSTER_KEY]: next };
+    });
     return next;
   }
 
@@ -190,10 +202,11 @@ export class RosterStore {
    * is rewritten; every other plugin-data key is preserved.
    */
   async replaceMembers(members: readonly RosterMember[]): Promise<RosterMember[]> {
-    const data = await this.persist.load();
-    const base = isRecord(data) ? data : {};
     const next = [...members];
-    await this.persist.save({ ...base, [ROSTER_KEY]: next });
+    await this.persist.update((data) => {
+      const base = isRecord(data) ? data : {};
+      return { ...base, [ROSTER_KEY]: next };
+    });
     return next;
   }
 
@@ -204,10 +217,12 @@ export class RosterStore {
    * drops the departed member.
    */
   async removeMember(membershipId: string): Promise<RosterMember[]> {
-    const data = await this.persist.load();
-    const base = isRecord(data) ? data : {};
-    const next = removeRosterMember(parseRoster(data), membershipId);
-    await this.persist.save({ ...base, [ROSTER_KEY]: next });
+    let next: RosterMember[] = [];
+    await this.persist.update((data) => {
+      const base = isRecord(data) ? data : {};
+      next = removeRosterMember(parseRoster(base), membershipId);
+      return { ...base, [ROSTER_KEY]: next };
+    });
     return next;
   }
 }

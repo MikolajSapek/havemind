@@ -113,10 +113,48 @@ describe('RosterStore', () => {
         save: async (data) => {
           store = data;
         },
+        update: async (mutator) => {
+          store = mutator({ ...store });
+        },
       },
       data: () => store,
     };
   }
+
+  it('keeps the server roster when a self-seed races a replace on the same key', async () => {
+    // Mirrors connect: adoptSelfMembership (recordMember) and refreshRoster
+    // (replaceMembers) fire together. Split load/save used to let the seed
+    // write clobber the authoritative server list back to "You" only.
+    const { PluginDataMutex, createSerializedDataPort } = await import(
+      './plugin-data-mutex'
+    );
+    let blob: Record<string, unknown> = {};
+    const mutex = new PluginDataMutex({
+      loadData: async () => {
+        await Promise.resolve();
+        return JSON.parse(JSON.stringify(blob)) as unknown;
+      },
+      saveData: async (data) => {
+        await Promise.resolve();
+        blob = JSON.parse(JSON.stringify(data)) as Record<string, unknown>;
+      },
+    });
+    // main.ts builds a fresh RosterStore (and port) per call, so the race is
+    // between two ports sharing one mutex, not two methods on one port.
+    const seed = new RosterStore({ persist: createSerializedDataPort(mutex) });
+    const refresh = new RosterStore({
+      persist: createSerializedDataPort(mutex),
+    });
+
+    await Promise.all([
+      seed.recordMember(magda()),
+      refresh.replaceMembers([owner(), magda()]),
+    ]);
+
+    expect(
+      (await refresh.readMembers()).map((m) => m.membershipId).sort(),
+    ).toEqual(['m-magda', 'm-owner']);
+  });
 
   it('persists approved members as the owner approves each one', async () => {
     const { port, data } = fakePersist();

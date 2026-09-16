@@ -5,6 +5,16 @@ All notable changes to this project are documented here. The format is based on
 follows independent [Semantic Versioning](https://semver.org) for the plugin
 and the server.
 
+## [1.4.18], 2026-09-16
+
+### Fixed
+
+- **People on a phone no longer stays stuck on only "You".** Connecting used to
+  seed the local row and fetch the server roster at the same time; the seed could
+  overwrite the full list on disk. Roster writes are now atomic, the server list
+  loads first, and the live sync connection supplies the vault identity so a
+  phone does not depend on re-running onboarding just to draw People.
+
 ## [1.4.17], 2026-09-16
 
 ### Changed

@@ -43,6 +43,10 @@ export interface ConnectionHandle {
   stop(): void;
   /** Human-readable server name for the Connect panel (empty when disconnected). */
   readonly serverName: string;
+  /** API base the live sync loop talks to; absent on the no-op handle. */
+  readonly apiBaseUrl?: string;
+  /** Vault id the live sync loop is bound to; absent on the no-op handle. */
+  readonly vaultId?: string;
   /** Mints/reuses the live access token; null means authentication failed. */
   readonly getAccessToken?: () => Promise<string | null>;
   /**
@@ -108,6 +112,8 @@ export async function startSyncLoop(
     onStatus('recovery-required', HAVEMIND_STATUS_RECOVERY_REQUIRED);
     return {
       ...NOOP_HANDLE,
+      apiBaseUrl: connection.apiBaseUrl,
+      vaultId: connection.vaultId,
       serverName: serverNameFromUrl(connection.apiBaseUrl),
     };
   }
@@ -232,6 +238,8 @@ export async function startSyncLoop(
 
   return {
     ...(selfMembership === undefined ? {} : { selfMembership }),
+    apiBaseUrl: connection.apiBaseUrl,
+    vaultId: connection.vaultId,
     getAccessToken: async () => {
       try {
         return await accessProvider.getAccessToken();
