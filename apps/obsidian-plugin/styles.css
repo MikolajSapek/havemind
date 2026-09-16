@@ -1338,6 +1338,16 @@
   .havemind-view button.havemind-tab {
     height: var(--havemind-tab-height-touch);
   }
+  .havemind-view button.havemind-header-action,
+  .havemind-view button.havemind-pane-more {
+    width: 44px;
+    height: 44px;
+    color: var(--text-normal);
+  }
+  .havemind-header-action .svg-icon {
+    width: 20px;
+    height: 20px;
+  }
   /* The last row has to clear the home indicator. `max()` keeps the designed
      16px wherever there is no inset. */
   .havemind-tab-body {
@@ -1607,6 +1617,19 @@
   color: var(--havemind-quiet);
   font-size: 0.9em;
   margin-bottom: var(--havemind-gap);
+}
+
+.havemind-view button.havemind-handshake-cancel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  margin-top: var(--havemind-gap);
+  padding: 10px 16px;
+  background: var(--interactive-normal);
+  color: var(--text-normal);
+  border: 1px solid var(--havemind-hairline);
+  border-radius: 8px;
 }
 
 /* =========================================================================

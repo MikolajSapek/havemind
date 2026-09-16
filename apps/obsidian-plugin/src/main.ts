@@ -763,6 +763,7 @@ export default class HavemindPlugin extends Plugin {
       (status, view) => this.handleStatus(status, view),
       this.activityHooks(),
       attempt.signal,
+      (phase) => this.leaveHandshake(phase),
     );
     // Guard the assignment against two races that resolve only after the await:
     //  - FIX 1: the plugin was unloaded while this build was in flight. `onunload`
@@ -1048,6 +1049,7 @@ export default class HavemindPlugin extends Plugin {
         this.guestInvitationInvalid = true;
         this.views.refreshOnboardingNow();
       },
+      onPhase: (phase) => this.leaveHandshake(phase),
       signal: attempt.signal,
     });
     if (handle !== null) {
@@ -1082,6 +1084,7 @@ export default class HavemindPlugin extends Plugin {
       void this.refreshRoster();
       // MRG-05: sweep any pre-existing conflict copies now that a base is loaded.
       this.scheduleConflictSweep();
+      this.views.refreshOnboardingNow();
     } else if (!attempt.signal.aborted && !this.unloaded) {
       // Connect failed after the handshake (bootstrap error, first-pull stall,
       // timeout). Leave the six-digit waiting screen or the pane stays there
@@ -1128,6 +1131,28 @@ export default class HavemindPlugin extends Plugin {
     this.awaitingApproval = null;
     this.guestInvitationInvalid = false;
     this.setStatus(formatStatusBar({ status: 'disconnected' }));
+    this.views.refreshOnboardingNow();
+  }
+
+  /**
+   * Drops the six-digit waiting screen as soon as approval or bootstrap starts.
+   * The first vault pull still runs after that, so files appear in the vault
+   * while the pane would otherwise stay on the handshake with no Havemind
+   * buttons.
+   */
+  private leaveHandshake(phase: string): void {
+    if (this.unloaded || this.awaitingApproval === null) return;
+    if (
+      phase === 'pending-approval' ||
+      phase === 'idle' ||
+      phase === 'cancelled'
+    ) {
+      return;
+    }
+    this.awaitingApproval = null;
+    if (phase !== 'rejected') {
+      this.connectionStatus = 'syncing';
+    }
     this.views.refreshOnboardingNow();
   }
 

@@ -5,6 +5,16 @@ All notable changes to this project are documented here. The format is based on
 follows independent [Semantic Versioning](https://semver.org) for the plugin
 and the server.
 
+## [1.4.14], 2026-09-16
+
+### Fixed
+
+- **After the owner types the six-digit code, the joining phone shows the
+  Havemind pane immediately.** Connect used to keep the handshake screen up
+  until the first vault pull finished, so notes appeared on disk while the pane
+  still had no tabs or actions. Approval now drops that screen; header actions
+  on a phone are 44px so they stay visible under a fingertip.
+
 ## [1.4.13], 2026-09-16
 
 ### Changed

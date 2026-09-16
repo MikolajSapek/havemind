@@ -23,6 +23,8 @@ export interface DriveToConnectedOptions {
   readonly maxSteps: number;
   /** Ends the drive promptly when the owning plugin operation is torn down. */
   readonly signal?: AbortSignal;
+  /** Fires after every resume so the pane can leave the six-digit screen. */
+  readonly onPhase?: (phase: string) => void;
 }
 
 const CANCELLED = Symbol('cancelled');
@@ -65,6 +67,7 @@ export async function driveToConnected(
     );
     if (resumed === CANCELLED) return { phase: 'cancelled' };
     state = resumed;
+    options.onPhase?.(state.phase);
     if (state.phase === 'connected' || state.phase === 'rejected') {
       // 'connected' succeeds; 'rejected' is the terminal owner-rejection/lockout
       // signal. Both leave the poll loop immediately rather than sleeping.

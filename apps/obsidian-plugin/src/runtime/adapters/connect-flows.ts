@@ -54,6 +54,7 @@ export async function startHavemindConnection(
   onStatus: StatusListener,
   hooks?: RuntimeHooks,
   signal?: AbortSignal,
+  onPhase?: (phase: string) => void,
 ): Promise<ConnectionHandle> {
   // An owner paired via /owner/pair persists a connection record and takes
   // precedence; otherwise resume any in-flight invitee onboarding.
@@ -94,6 +95,7 @@ export async function startHavemindConnection(
     pollIntervalMs: APPROVAL_POLL_INTERVAL_MS,
     maxSteps: MAX_CONNECT_STEPS,
     ...(signal === undefined ? {} : { signal }),
+    ...(onPhase === undefined ? {} : { onPhase }),
   });
 
   if (!isConnectedOnboardingState(connectedState)) {
@@ -122,6 +124,12 @@ export interface ConnectFromInputOptions {
    * on the waiting screen (an auth rejection is never a connection loss).
    */
   readonly onInvitationRejected?: () => void;
+  /**
+   * Called after every onboarding phase. Lets the pane leave the six-digit
+   * handshake as soon as approval lands, instead of waiting for the first
+   * vault pull (which is when files appear but the Havemind buttons do not).
+   */
+  readonly onPhase?: (phase: string) => void;
   /** Live UI hooks (activity feed) threaded into the started sync loop. */
   readonly hooks?: RuntimeHooks;
   /** Cancels a pending invitation-approval drive when its UI owner disappears. */
@@ -246,6 +254,7 @@ async function connectAsInvitee(
     pollIntervalMs: APPROVAL_POLL_INTERVAL_MS,
     maxSteps: MAX_CONNECT_STEPS,
     ...(options.signal === undefined ? {} : { signal: options.signal }),
+    ...(options.onPhase === undefined ? {} : { onPhase: options.onPhase }),
   });
   if (state.phase === 'rejected') {
     // An auth rejection is an expected in-flow response, not a connection loss:
