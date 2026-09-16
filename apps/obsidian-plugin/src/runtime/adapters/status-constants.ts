@@ -15,3 +15,8 @@ export const HAVEMIND_STATUS_DISCONNECTED = formatStatusBar({
 export const HAVEMIND_STATUS_RESET_REQUIRED = formatStatusBar({
   status: 'reset-required',
 });
+
+/** Status-bar view for a fail-closed local sync-state gate (AUD-12). */
+export const HAVEMIND_STATUS_RECOVERY_REQUIRED = formatStatusBar({
+  status: 'recovery-required',
+});

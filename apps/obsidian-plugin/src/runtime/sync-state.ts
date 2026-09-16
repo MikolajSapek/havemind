@@ -235,6 +235,19 @@ export function parseFailedToQueuePath(revisionId: string): string | null {
   return path.length === 0 ? null : path;
 }
 
+/**
+ * The cursor from a blob that failed the strict parse, or 0 when it is not a
+ * readable non-negative integer. Deliberately tolerant: this runs only on a
+ * state that is already corrupt, where any recoverable position beats none.
+ */
+function readableCursor(raw: unknown): number {
+  if (!isRecord(raw)) return 0;
+  const cursor = raw.cursor;
+  return Number.isSafeInteger(cursor) && (cursor as number) >= 0
+    ? (cursor as number)
+    : 0;
+}
+
 function emptyState(): PersistedSyncState {
   return {
     version: 1,
@@ -879,7 +892,13 @@ export class DurableSyncState implements SyncStatePort {
       // UNRECOVERABLE queue: resume from a clean, writable empty state and set the
       // observable recovery signal so the UI can tell the user their local queue
       // needs recovery. The unsent revisions live on in the sidecar.
-      this.cache = emptyState();
+      //
+      // `outcome.state` is that empty state carrying any cursor the corrupt
+      // blob still held (AUD-13). Resuming at 0 would replay the vault's whole
+      // history and resurrect long-deleted notes as conflict copies, which is
+      // a far worse outcome than re-applying a few revisions that already
+      // match the disk and converge without a write.
+      this.cache = outcome.state;
       if (outcome.outboxAtRisk) this.recoveryRequired = true;
     }
     // Arch P1: `reconcilePayloads` (which populates `externalized`) runs after
@@ -1161,9 +1180,15 @@ function parsePersistedState(raw: unknown): ParseResult {
   }
   // Corrupt: classify for recovery. A readable outbox is salvageable; an
   // unreadable one resumes empty with the recovery signal (see hydrate()).
+  //
+  // Even then the CURSOR is rescued if it survived (AUD-13). Resuming at 0
+  // makes the next pull replay the vault's whole history, so notes deleted
+  // long ago return as fresh remote creates and land as conflict copies.
+  // Replaying a few already-applied revisions is far cheaper: an apply whose
+  // content already matches the disk converges with no write at all.
   return {
     status: 'corrupt',
-    state: emptyState(),
+    state: { ...emptyState(), cursor: readableCursor(raw) },
     salvage: salvageState(raw),
     outboxAtRisk: outboxAtRisk(raw),
   };

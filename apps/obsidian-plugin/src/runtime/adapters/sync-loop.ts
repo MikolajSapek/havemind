@@ -28,6 +28,7 @@ import {
   createClientInstanceRepo,
   runCanonicalizationRebase,
 } from './plugin-data-ports';
+import { gateLocalSyncState } from './local-state-gate';
 import { startPushProducer, type PushProducerHandle } from './push-producer';
 import { createRequestUrlFn } from './request-url';
 import type { RuntimeHooks } from './runtime-hooks';
@@ -36,6 +37,7 @@ import {
   generateRefreshTokenValue,
   generateRotationIdValue,
 } from './tokens';
+import { HAVEMIND_STATUS_RECOVERY_REQUIRED } from './status-constants';
 
 export interface ConnectionHandle {
   stop(): void;
@@ -92,6 +94,22 @@ export async function startSyncLoop(
   onStatus: StatusListener,
   extras: SyncLoopExtras = {},
 ): Promise<ConnectionHandle> {
+  // AUD-12 fail-closed gate. It runs before transport/controller construction,
+  // controller.start(), and vault listener registration. A paired device that
+  // lost its cursor or producer identity therefore performs zero network and
+  // zero vault mutations instead of replaying history from sequence zero.
+  const localStateGate = gateLocalSyncState(await plugin.loadData());
+  if (localStateGate.kind === 'recovery-required') {
+    console.error(
+      `Havemind: local sync state recovery required (${localStateGate.reason}); sync was not started.`,
+    );
+    onStatus('recovery-required', HAVEMIND_STATUS_RECOVERY_REQUIRED);
+    return {
+      ...NOOP_HANDLE,
+      serverName: serverNameFromUrl(connection.apiBaseUrl),
+    };
+  }
+
   const clientInstanceId = await ensureClientInstanceId(
     createClientInstanceRepo(plugin),
   );

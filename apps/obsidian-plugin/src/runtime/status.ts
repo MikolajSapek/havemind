@@ -30,6 +30,12 @@ export type ConnectionStatus =
   | 'deferred'
   | 'reconnect-required'
   /**
+   * The connection is valid, but cursor/file identity state is missing or
+   * inconsistent. Sync is intentionally stopped before networking so an event
+   * log replay cannot create a burst of false conflicts.
+   */
+  | 'recovery-required'
+  /**
    * The persisted connection state is broken, a half-written record, or a
    * structurally valid one whose refresh secret is gone (P1 #5). Distinct from
    * `offline` (the server is unreachable but the pairing is sound) and from
@@ -50,6 +56,7 @@ const LABELS: Readonly<Record<ConnectionStatus, string>> = {
   conflict: 'Conflict',
   deferred: 'Waiting to apply',
   'reconnect-required': 'Reconnect required',
+  'recovery-required': 'Recovery required',
   'reset-required': 'Reset required',
 };
 
@@ -60,6 +67,9 @@ const LABELS: Readonly<Record<ConnectionStatus, string>> = {
  */
 export const RESET_REQUIRED_DETAIL =
   'The stored connection data is incomplete or unreadable. Reset the connection and pair this device again.';
+
+export const RECOVERY_REQUIRED_DETAIL =
+  'The local sync state is incomplete or inconsistent. Sync was stopped before any files were changed.';
 
 const NO_E2EE_NOTE = 'Private Tailscale network only, no end-to-end encryption.';
 const PANE_NETWORK_NOTE = 'Private Tailscale network · Encrypted in transit';
@@ -262,6 +272,13 @@ const PANEL_STYLES: Readonly<Record<ConnectionStatus, PanelStyle>> = {
     spin: false,
     showForm: true,
   },
+  'recovery-required': {
+    icon: 'shield-alert',
+    label: 'Recovery required',
+    colorToken: '--text-error',
+    spin: false,
+    showForm: false,
+  },
   // The paste form stays available alongside the Reset button: pairing this
   // device afresh overwrites the broken record and is an equally valid way out.
   'reset-required': {
@@ -301,6 +318,9 @@ export function buildConnectionPanel(
   // explanation rather than the session-refused line.
   if (input.status === 'reset-required') {
     parts.push(input.errorMessage ?? RESET_REQUIRED_DETAIL);
+  }
+  if (input.status === 'recovery-required') {
+    parts.push(input.errorMessage ?? RECOVERY_REQUIRED_DETAIL);
   }
   parts.push(PANE_NETWORK_NOTE);
 

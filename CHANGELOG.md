@@ -5,6 +5,29 @@ All notable changes to this project are documented here. The format is based on
 follows independent [Semantic Versioning](https://semver.org) for the plugin
 and the server.
 
+## [1.4.11], 2026-09-16
+
+### Fixed
+
+- **Sync could go back in time and resurrect deleted notes.** Two faults
+  combined. Every attachment kept a full base64 copy of itself in the plugin's
+  `data.json`, even though binary files never merge and only their hash is ever
+  compared; base64 is a third larger than the file, so four PDFs and a dozen
+  images grew one vault's state file to 9.4 MB, 8.15 MB of it dead weight.
+  Obsidian rewrites that file whole on every save, and an interrupted write
+  (quitting, a phone going to sleep) left it unparseable. The recovery path
+  then resumed from an empty state whose cursor was 0, so the next pull
+  replayed the vault's entire history and long-deleted notes arrived as fresh
+  remote creates, landing as conflict copies.
+
+  Binary mappings now store the hash alone, which cuts that vault's state file
+  from 9.0 MB to 0.85 MB, and a cursor that survived the corruption is kept
+  rather than reset. Replaying a few already-applied revisions is harmless: an
+  apply whose content already matches the disk converges without writing.
+
+  Existing state shrinks on the next push per file; nothing needs to be
+  re-paired.
+
 ## [1.4.10], 2026-09-14
 
 ### Fixed

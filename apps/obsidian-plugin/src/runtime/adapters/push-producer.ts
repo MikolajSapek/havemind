@@ -136,6 +136,15 @@ export function startPushProducer(
           'Havemind: failed to preserve corrupt producer state to a sidecar.',
         );
       }
+      // AUD-12 one-time compaction. Persist the metadata-only projection before
+      // reconciliation so a phone immediately sheds legacy multi-megabyte
+      // base64 bodies instead of waiting for each attachment to change.
+      if (result.status === 'ok' && result.migrated) {
+        await getPluginDataMutex(plugin).update((base) => ({
+          ...base,
+          [PUSH_PRODUCER_KEY]: result.state,
+        }));
+      }
       return result.state;
     },
     async save(next) {

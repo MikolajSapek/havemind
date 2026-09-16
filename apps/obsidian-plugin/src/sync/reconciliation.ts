@@ -1,4 +1,4 @@
-import { canonicalizeMarkdown } from '@havemind/protocol';
+import { canonicalizeMarkdown, hashBlob } from '@havemind/protocol';
 
 import { isSyncableConfigPath } from './appearance-scope';
 import { normalizeConfigContent } from './config-normalize';
@@ -122,6 +122,8 @@ export function warnSkippedPaths(result: ReconcileResult): void {
 interface EligibleVaultFile {
   collisionKey: string;
   content: string;
+  contentHash: string | null;
+  kind: SyncContentKind;
   readPath: string;
 }
 
@@ -136,11 +138,11 @@ async function readEligibleContent(
   vault: VaultSnapshotPort,
   readPath: string,
   kind: SyncContentKind,
-): Promise<{ content: string } | 'too-large'> {
+): Promise<{ content: string; contentHash: string | null } | 'too-large'> {
   if (kind === 'binary') {
     const bytes = await vault.readBinary(readPath);
     if (bytes.byteLength > MAX_BINARY_FILE_BYTES) return 'too-large';
-    return { content: bytesToBase64(bytes) };
+    return { content: bytesToBase64(bytes), contentHash: await hashBlob(bytes) };
   }
   // Same volatile-field filter the observer applies when it hashes a config file
   // (`config-normalize.ts`), so a graph.json whose zoom changed since the last
@@ -150,6 +152,7 @@ async function readEligibleContent(
     content: normalizeContent(
       normalizeConfigContent(readPath, await vault.readText(readPath)),
     ),
+    contentHash: null,
   };
 }
 
@@ -216,15 +219,19 @@ export async function reconcileVaultState(
       mappingsByCollision.delete(collisionKey);
       continue;
     }
-    const { content } = read;
+    const { content, contentHash } = read;
     const mapping = mappingsByCollision.get(collisionKey);
     if (mapping === undefined) {
-      unmatchedVault.push({ collisionKey, content, readPath });
+      unmatchedVault.push({ collisionKey, content, contentHash, kind, readPath });
       continue;
     }
 
     mappingsByCollision.delete(collisionKey);
-    if (mapping.content === content) {
+    if (
+      kind === 'binary'
+        ? mapping.contentHash === contentHash
+        : mapping.content === content
+    ) {
       unchanged += 1;
     } else if (
       await observeResilient(readPath, recordSkip, () => observer.observeModify(readPath))
@@ -305,8 +312,19 @@ async function applyRenamesCreatesDeletes(
   unmatchedMappings: readonly LocalFileMapping[],
   onSkip: (detail: SkippedFileDetail) => void,
 ): Promise<{ created: number; deleted: number; renamed: number; skipped: number }> {
-  const vaultByContent = groupBy(unmatchedVault, (file) => file.content);
-  const mappingsByContent = groupBy(unmatchedMappings, (m) => m.content);
+  // Text identity needs the canonical body so an old or synthetic hash cannot
+  // create a false rename. Binary identity uses its raw-byte hash because AUD-12
+  // deliberately no longer persists the base64 body.
+  const vaultByContent = groupBy(unmatchedVault, (file) =>
+    file.kind === 'binary'
+      ? `binary:${file.contentHash ?? ''}`
+      : `markdown:${file.content}`,
+  );
+  const mappingsByContent = groupBy(unmatchedMappings, (mapping) =>
+    mapping.contentKind === 'binary'
+      ? `binary:${mapping.contentHash}`
+      : `markdown:${mapping.content ?? ''}`,
+  );
 
   const consumedVault = new Set<EligibleVaultFile>();
   const consumedMappings = new Set<LocalFileMapping>();

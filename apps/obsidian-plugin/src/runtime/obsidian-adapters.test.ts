@@ -850,6 +850,59 @@ describe('parseProducerStateResult (GAP-3 fail-closed producer state)', () => {
     expect(result.state.mappings).toHaveLength(1);
   });
 
+  it('migrates a legacy binary mapping by dropping its base64 body', async () => {
+    const { parseProducerStateResult } = await import('./obsidian-adapters');
+    const result = parseProducerStateResult({
+      mappings: [
+        {
+          collisionKey: 'image.png',
+          content: 'AQIDBA==',
+          contentHash: 'raw-byte-hash',
+          contentKind: 'binary',
+          fileId: 'binary-file',
+          path: 'Image.png',
+        },
+      ],
+      heads: { 'binary-file': 'rev-1' },
+    });
+
+    expect(result.status).toBe('ok');
+    expect(result.migrated).toBe(true);
+    expect(result.state.mappings[0]).toMatchObject({
+      content: null,
+      contentHash: 'raw-byte-hash',
+      contentKind: 'binary',
+    });
+  });
+
+  it('accepts a compact binary mapping but rejects null markdown content', async () => {
+    const { parseProducerStateResult } = await import('./obsidian-adapters');
+    const compactBinary = {
+      collisionKey: 'image.png',
+      content: null,
+      contentHash: 'raw-byte-hash',
+      contentKind: 'binary',
+      fileId: 'binary-file',
+      path: 'Image.png',
+    };
+    const invalidMarkdown = {
+      collisionKey: 'note.md',
+      content: null,
+      contentHash: 'text-hash',
+      fileId: 'markdown-file',
+      path: 'Note.md',
+    };
+    const result = parseProducerStateResult({
+      mappings: [compactBinary, invalidMarkdown],
+      heads: {},
+    });
+
+    expect(result.status).toBe('ok');
+    expect(result.migrated).toBe(false);
+    expect(result.state.mappings).toEqual([compactBinary]);
+    expect(result.quarantinedMappings).toEqual([invalidMarkdown]);
+  });
+
   it('NEVER throws on arbitrary garbage (connect-safety)', async () => {
     const { parseProducerStateResult } = await import('./obsidian-adapters');
     for (const raw of [42, 'string', true, [1, 2, 3], { mappings: 5 }]) {

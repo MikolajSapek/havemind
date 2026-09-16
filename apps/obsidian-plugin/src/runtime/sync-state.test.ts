@@ -218,8 +218,10 @@ describe('DurableSyncState', () => {
     { version: 1, cursor: 0, outbox: [], locallyAuthored: [1], deferred: [] },
     { version: 1, cursor: 0, outbox: [], locallyAuthored: [], deferred: [{ serverSequence: 'x' }] },
     { version: 1, cursor: -1, outbox: [], locallyAuthored: [], deferred: [] },
-    { version: 1, cursor: 0, outbox: 'no', locallyAuthored: [], deferred: [] },
   ])('falls back to empty for a structurally invalid blob %#', async (blob) => {
+    // Every blob here carries cursor 0 or a cursor that is itself unreadable,
+    // so an empty result says nothing about cursor RESCUE. A readable cursor
+    // now survives an unreadable outbox; see the AUD-13 block below.
     const recovered = new DurableSyncState({ persist: new MemoryPersist(blob) });
     expect(await recovered.loadCursor()).toBe(0);
     expect(await recovered.listOutbox()).toEqual([]);
@@ -949,5 +951,45 @@ describe('DurableSyncState outbox payload externalization (arch P1)', () => {
 
     const recovered = new DurableSyncState({ persist, payloadStore: store });
     expect(await recovered.loadCursor()).toBe(11);
+  });
+});
+
+describe('a torn state must not rewind the cursor (AUD-13)', () => {
+  // Losing the cursor is the most expensive way to fail. At 0 the next pull
+  // replays the vault's entire history, so notes deleted weeks ago arrive as
+  // fresh remote creates and land as conflict copies. Replaying a handful of
+  // already-applied revisions costs nothing by comparison: an apply whose
+  // content already matches the disk converges with no write.
+  //
+  // Seen in a real vault whose data.json had grown to 9.4 MB: Obsidian rewrites
+  // that file whole, an interrupted write left it unparseable, and the client
+  // went back in time.
+  it('keeps a readable cursor when the outbox container is unreadable', async () => {
+    const recovered = new DurableSyncState({
+      persist: new MemoryPersist({
+        version: 1,
+        cursor: 1026,
+        outbox: 'truncated by a partial write',
+        locallyAuthored: [],
+        deferred: [],
+      }),
+    });
+    expect(await recovered.loadCursor()).toBe(1026);
+    // The outbox itself is genuinely gone; only the cursor is recoverable.
+    expect(await recovered.listOutbox()).toEqual([]);
+  });
+
+  it('keeps a readable cursor when the blob is truncated mid-object', async () => {
+    const recovered = new DurableSyncState({
+      persist: new MemoryPersist({ version: 1, cursor: 512 }),
+    });
+    expect(await recovered.loadCursor()).toBe(512);
+  });
+
+  it('still starts at 0 when the cursor itself is unreadable', async () => {
+    const recovered = new DurableSyncState({
+      persist: new MemoryPersist({ version: 1, cursor: 'nope', outbox: 'gone' }),
+    });
+    expect(await recovered.loadCursor()).toBe(0);
   });
 });
