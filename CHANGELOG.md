@@ -5,6 +5,18 @@ All notable changes to this project are documented here. The format is based on
 follows independent [Semantic Versioning](https://semver.org) for the plugin
 and the server.
 
+## [1.4.21], 2026-09-16
+
+### Fixed
+
+- **An interrupted phone join no longer resurrects notes or floods empty
+  conflicts.** Bootstrap writes `data.json` once instead of once per note, so a
+  long join finishes before iOS backgrounds Obsidian. A half-finished join
+  (`cursor: 0` with owned paths) is resumed and skips the one-shot reconcile that
+  used to push materialised heads back as new local creates. Status also reports
+  unsent outbox items honestly instead of "synced", and a device that stops
+  pulling for 30 days no longer blocks history compaction forever.
+
 ## [1.4.20], 2026-09-16
 
 ### Fixed
