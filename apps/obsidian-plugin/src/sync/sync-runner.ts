@@ -230,6 +230,12 @@ export interface SyncRunnerOptions {
   /** Maximum revisions in one push request; defaults to the server's 64. */
   readonly maxPushBatchItems?: number;
   /**
+   * How many independent snapshot/collapsed-bootstrap heads may apply at once.
+   * Each apply fetches its own blob; serialising that on a phone made a text
+   * vault feel like a full rebuild. Live ordered pulls stay sequential. Default 8.
+   */
+  readonly bootstrapApplyConcurrency?: number;
+  /**
    * Observes the outcome of every completed cycle, including cycles the runner
    * drives itself through its internal backoff scheduler. Wiring the controller
    * here (not only through `trigger()`'s return value) is what lets a background
@@ -312,6 +318,56 @@ const DEFAULT_MAX_BACKOFF_MS = 60_000;
 const DEFAULT_MAX_PUSH_BATCH_BYTES = 512 * 1024;
 /** Mirrors the server's DEFAULT_MAX_BATCH_SIZE. */
 const DEFAULT_MAX_PUSH_BATCH_ITEMS = 64;
+/** Overlap enough blob GETs to keep a phone's network busy without flooding it. */
+const DEFAULT_BOOTSTRAP_APPLY_CONCURRENCY = 8;
+
+/**
+ * Runs `worker` over `items` with at most `concurrency` in flight. Order of
+ * completion is free; results keep input order. Used for snapshot heads, which
+ * do not depend on each other.
+ */
+async function mapPool<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  worker: (item: T) => Promise<R>,
+): Promise<R[]> {
+  if (items.length === 0) return [];
+  const limit = Math.max(1, Math.min(concurrency, items.length));
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  async function runWorker(): Promise<void> {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      const item = items[index];
+      if (item === undefined) return;
+      results[index] = await worker(item);
+    }
+  }
+  await Promise.all(Array.from({ length: limit }, () => runWorker()));
+  return results;
+}
+
+function tallyApplyOutcomes(
+  outcomes: readonly AppliedEventResult[],
+): {
+  applied: number;
+  conflicts: number;
+  deferred: number;
+  suppressed: number;
+} {
+  let applied = 0;
+  let conflicts = 0;
+  let deferred = 0;
+  let suppressed = 0;
+  for (const outcome of outcomes) {
+    if (outcome === 'deferred') deferred += 1;
+    else if (outcome === 'suppressed') suppressed += 1;
+    else if (outcome === 'conflict') conflicts += 1;
+    else applied += 1;
+  }
+  return { applied, conflicts, deferred, suppressed };
+}
 
 /**
  * Decides how to handle a remote event given the open editor buffers for its
@@ -351,6 +407,7 @@ export class SyncRunner {
       | 'random'
       | 'maxPushBatchBytes'
       | 'maxPushBatchItems'
+      | 'bootstrapApplyConcurrency'
     >
   > &
     SyncRunnerOptions;
@@ -381,6 +438,8 @@ export class SyncRunner {
       random: options.random ?? Math.random,
       maxPushBatchBytes: options.maxPushBatchBytes ?? DEFAULT_MAX_PUSH_BATCH_BYTES,
       maxPushBatchItems: options.maxPushBatchItems ?? DEFAULT_MAX_PUSH_BATCH_ITEMS,
+      bootstrapApplyConcurrency:
+        options.bootstrapApplyConcurrency ?? DEFAULT_BOOTSTRAP_APPLY_CONCURRENCY,
       ...options,
     };
   }
@@ -783,20 +842,13 @@ export class SyncRunner {
       complete = page.complete === true;
     }
 
-    let applied = 0;
-    let conflicts = 0;
-    let deferred = 0;
-    let suppressed = 0;
-    for (const item of collected) {
-      const outcome = await this.applyPulledEvent(item, true);
-      if (outcome === 'deferred') {
-        deferred += 1;
-        break;
-      }
-      if (outcome === 'suppressed') suppressed += 1;
-      else if (outcome === 'conflict') conflicts += 1;
-      else applied += 1;
-    }
+    const outcomes = await mapPool(
+      collected,
+      this.options.bootstrapApplyConcurrency,
+      (item) => this.applyPulledEvent(item, true),
+    );
+    const { applied, conflicts, deferred, suppressed } =
+      tallyApplyOutcomes(outcomes);
     if (deferred === 0) {
       await this.options.state.saveCursor(serverHead);
     }
@@ -856,20 +908,13 @@ export class SyncRunner {
       (item) => !supersededRevisionIds.has(item.revision.revisionId),
     );
 
-    let applied = 0;
-    let conflicts = 0;
-    let deferred = 0;
-    let suppressed = 0;
-    for (const item of heads) {
-      const outcome = await this.applyPulledEvent(item, true);
-      if (outcome === 'deferred') {
-        deferred += 1;
-        break;
-      }
-      if (outcome === 'suppressed') suppressed += 1;
-      else if (outcome === 'conflict') conflicts += 1;
-      else applied += 1;
-    }
+    const outcomes = await mapPool(
+      heads,
+      this.options.bootstrapApplyConcurrency,
+      (item) => this.applyPulledEvent(item, true),
+    );
+    const { applied, conflicts, deferred, suppressed } =
+      tallyApplyOutcomes(outcomes);
 
     // Never skip a head that could not yet be applied. Successful/no-op and
     // conflict outcomes are durable, so the full boundary may advance only when

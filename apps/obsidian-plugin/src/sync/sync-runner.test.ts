@@ -747,7 +747,9 @@ describe('SyncRunner remote apply', () => {
     expect(state.cursor).toBe(1);
   });
 
-  it('defers when a divergent buffer has an unknown base and stops advancing', async () => {
+  it('defers an unknown-base buffer without blocking other cursor-zero heads', async () => {
+    // Cursor-zero collapsed bootstrap applies independent heads concurrently.
+    // A deferred open buffer on one file must not strand the rest of the vault.
     const vault = new FakeVault();
     vault.buffers.set('file-a', [{ baseHash: null, currentHash: 'local-edit' }]);
     const { runner, state } = makeRunner({
@@ -766,11 +768,11 @@ describe('SyncRunner remote apply', () => {
 
     const result = await runner.trigger();
 
-    expect(vault.applied).toHaveLength(0);
     expect(vault.conflicts).toHaveLength(0);
     expect(result.status).toBe('deferred');
-    // The cursor never advanced past the deferred event, so nothing after it
-    // is materialized this cycle.
+    expect(result.deferred).toBe(1);
+    expect(vault.applied.map((item) => item.revision.fileId)).toEqual(['file-b']);
+    // Cursor stays at zero until every head can apply (including the deferred one).
     expect(state.cursor).toBe(0);
   });
 
@@ -1087,6 +1089,82 @@ describe('SyncRunner bootstrap origin', () => {
     ]);
     expect(result.applied).toBe(2);
     expect(state.cursor).toBe(50);
+  });
+
+  it('applies snapshot heads concurrently so a text vault is not one blob at a time', async () => {
+    // Field: phone join felt like rebuilding the vault because each head waited
+    // for the previous blob GET to finish. Snapshot heads are independent, so
+    // the runner must overlap several applies (and their blob fetches).
+    let inFlight = 0;
+    let peakInFlight = 0;
+    const vault = new FakeVault();
+    vault.applyRemote = async (remote, options) => {
+      inFlight += 1;
+      peakInFlight = Math.max(peakInFlight, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      inFlight -= 1;
+      vault.applied.push(remote);
+      vault.appliedBootstrap.push(options?.bootstrap);
+      return 'applied';
+    };
+    const pull = vi.fn<SyncTransport['pull']>().mockResolvedValue({
+      complete: true,
+      cursor: 4,
+      events: [
+        event(1, 'file-1', 'h1', 'rev-1'),
+        event(2, 'file-2', 'h2', 'rev-2'),
+        event(3, 'file-3', 'h3', 'rev-3'),
+        event(4, 'file-4', 'h4', 'rev-4'),
+      ],
+      snapshot: true,
+    });
+    const { runner, state } = makeRunner({
+      transport: { push: vi.fn(async () => []), pull },
+      vault,
+      bootstrapApplyConcurrency: 4,
+    });
+
+    const result = await runner.trigger();
+
+    expect(peakInFlight).toBeGreaterThan(1);
+    expect(result.applied).toBe(4);
+    expect(state.cursor).toBe(4);
+    expect(vault.applied.map((item) => item.revision.revisionId).sort()).toEqual([
+      'rev-1',
+      'rev-2',
+      'rev-3',
+      'rev-4',
+    ]);
+  });
+
+  it('still applies other snapshot heads when one file is deferred', async () => {
+    const vault = new FakeVault();
+    vault.buffers.set('file-2', [{ baseHash: null, currentHash: 'dirty' }]);
+    const pull = vi.fn<SyncTransport['pull']>().mockResolvedValue({
+      complete: true,
+      cursor: 3,
+      events: [
+        event(1, 'file-1', 'h1', 'rev-1'),
+        event(2, 'file-2', 'h2', 'rev-2'),
+        event(3, 'file-3', 'h3', 'rev-3'),
+      ],
+      snapshot: true,
+    });
+    const { runner, state } = makeRunner({
+      transport: { push: vi.fn(async () => []), pull },
+      vault,
+      bootstrapApplyConcurrency: 3,
+    });
+
+    const result = await runner.trigger();
+
+    expect(result.deferred).toBe(1);
+    expect(result.applied).toBe(2);
+    expect(state.cursor).toBe(0);
+    expect(vault.applied.map((item) => item.revision.revisionId).sort()).toEqual([
+      'rev-1',
+      'rev-3',
+    ]);
   });
 });
 

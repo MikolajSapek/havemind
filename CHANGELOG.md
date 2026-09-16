@@ -5,6 +5,15 @@ All notable changes to this project are documented here. The format is based on
 follows independent [Semantic Versioning](https://semver.org) for the plugin
 and the server.
 
+## [1.4.17], 2026-09-16
+
+### Changed
+
+- **Joining a vault no longer downloads one note at a time.** Snapshot and
+  collapsed bootstrap now apply independent file heads with bounded concurrency
+  (eight at once), so a phone fills a text vault from the current heads instead
+  of waiting on a serial blob GET per note. Live ordered pulls stay sequential.
+
 ## [1.4.16], 2026-09-16
 
 ### Fixed
