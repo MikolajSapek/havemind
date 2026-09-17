@@ -17,10 +17,11 @@ you own passes the changes around and remembers who wrote what.
 Built for people. If you also run Claude, MCP or another local agent in that
 vault, its edits land in the same history.
 
-**Version 1.4.24, desktop and mobile.** A two-week pilot on two devices lost no
+**Version 1.4.25, desktop and mobile.** A two-week pilot on two devices lost no
 data, including through three real incidents. Repeated edits between two devices
-now converge in place instead of piling up conflict copies, and the server keeps
-its event log contiguous so a device never stops receiving changes.
+now converge in place instead of piling up conflict copies, the server keeps its
+event log contiguous so a device never stops receiving changes, and a device
+whose cursor the server cannot serve re-joins itself instead of sitting offline.
 
 There is no end-to-end encryption. Your server stores the vault in plaintext,
 so whoever runs that machine can read it. Read the

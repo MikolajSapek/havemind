@@ -771,10 +771,27 @@ export class SyncRunner {
     PullApplyResult
   > {
     let cursor = await this.options.state.loadCursor();
-    const pulled = await this.options.transport.pull(
-      cursor,
-      cursor === 0 ? { snapshot: true } : undefined,
-    );
+    let pulled: PullResult;
+    try {
+      pulled = await this.options.transport.pull(
+        cursor,
+        cursor === 0 ? { snapshot: true } : undefined,
+      );
+    } catch (error) {
+      // CURSOR_INVALID (HTTP 409): the server cannot serve this position because
+      // its sequence numbering moved underneath us (a restore, or the repair that
+      // renumbers a log damaged by the old compaction). Retrying the same cursor
+      // can never succeed and the device would sit "offline" forever, so reset to
+      // zero and re-bootstrap, which is exactly a fresh join: current heads are
+      // materialised and content already on disk converges without a write.
+      // Only from a NON-zero cursor: if zero is refused too, the cursor is not
+      // the problem, so let it surface as offline and back off.
+      if (!isCursorInvalid(error) || cursor === 0) throw error;
+      await this.options.state.saveCursor(0);
+      cursor = 0;
+      this.bootstrapTarget = null;
+      pulled = await this.options.transport.pull(0, { snapshot: true });
+    }
     const { cursor: serverHead, events } = pulled;
     // Latch the bootstrap boundary on the first successful pull: the server head
     // known at connect. Everything at or below it is the initial catch-up.
@@ -1082,6 +1099,18 @@ function isAuthDenied(error: unknown): boolean {
  * offending revision is quarantined instead. Structural check keeps the runner
  * decoupled from the concrete error classes.
  */
+/**
+ * A 409 CURSOR_INVALID from the sync transport. Structural check, so the runner
+ * stays decoupled from the concrete error class.
+ */
+function isCursorInvalid(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    (error as { cursorInvalid?: unknown }).cursorInvalid === true
+  );
+}
+
 function isPermanentError(error: unknown): boolean {
   return (
     typeof error === 'object' &&

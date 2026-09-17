@@ -79,6 +79,15 @@ export class RequestUrlTransportError extends Error {
 
   /** True on HTTP 401, the session was refused; the loop must stop, not retry. */
   readonly authDenied: boolean;
+  /**
+   * HTTP 409 CURSOR_INVALID: this device holds a position the server cannot
+   * serve, because the server's sequence numbering moved underneath it (a
+   * restore from backup, or the repair that renumbers a log damaged by the old
+   * compaction). Neither an auth failure nor a transport failure, and retrying
+   * the same cursor can never succeed, so the runner resets to zero and
+   * re-bootstraps rather than reporting a permanent offline.
+   */
+  readonly cursorInvalid: boolean;
 
   /**
    * True on a whole-request 4xx the same bytes will never satisfy (400 bad
@@ -91,10 +100,15 @@ export class RequestUrlTransportError extends Error {
   constructor(
     readonly reason: 'unresolved-envelope' | 'http-status' | 'malformed-response',
     message: string,
-    options?: { authDenied?: boolean; permanent?: boolean },
+    options?: {
+      authDenied?: boolean;
+      permanent?: boolean;
+      cursorInvalid?: boolean;
+    },
   ) {
     super(message);
     this.authDenied = options?.authDenied ?? false;
+    this.cursorInvalid = options?.cursorInvalid ?? false;
     this.permanent = options?.permanent ?? false;
   }
 }
@@ -246,6 +260,7 @@ export class RequestUrlTransport implements SyncTransport {
         {
           authDenied: response.status === 401,
           permanent: isPermanentStatus(response.status),
+          cursorInvalid: response.status === 409,
         },
       );
     }

@@ -5,6 +5,20 @@ All notable changes to this project are documented here. The format is based on
 follows independent [Semantic Versioning](https://semver.org) for the plugin
 and the server.
 
+## [1.4.25], 2026-09-17
+
+### Fixed
+
+- **A device the server cannot place re-joins itself.** When the server's
+  sequence numbering moves underneath a client (a restore, or the repair that
+  renumbers a damaged log) the pull is answered with 409 CURSOR_INVALID. The
+  client referenced that code nowhere, so it fell through as a generic failure:
+  the panel read "Offline, the server refused the session" and the runner
+  retried the same impossible cursor forever. It now resets the cursor once and
+  re-bootstraps, which converges without rewriting content already on disk. An
+  ordinary network failure still keeps its cursor, and a refusal at cursor zero
+  still reports offline rather than looping.
+
 ## [1.4.24], 2026-09-17
 
 ### Fixed
