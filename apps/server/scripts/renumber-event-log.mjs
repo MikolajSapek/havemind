@@ -124,14 +124,26 @@ function renumberVault(database, vaultId) {
   // revision still carries the old sequence resolves to no event, the snapshot
   // pull returns a short page, and the vault looks half-empty to every client.
   // So both tables move together, inside one transaction.
+  // The payload carries its OWN copy of serverSequence inside the receipt, and
+  // `#parseEventRow` rejects a row where the two disagree ("Event receipt does
+  // not match its cursor row"), which the events route returns as a 500 on every
+  // pull. So the embedded number moves with the column, in the same statement.
   const shiftEvent = database.prepare(
-    `UPDATE vault_events SET server_sequence = ? WHERE vault_id = ? AND server_sequence = ?`,
+    `UPDATE vault_events
+        SET server_sequence = ?,
+            event_payload = CASE
+              WHEN json_valid(event_payload)
+                   AND json_extract(event_payload, '$.receipt.serverSequence') IS NOT NULL
+              THEN json_set(event_payload, '$.receipt.serverSequence', ?)
+              ELSE event_payload
+            END
+      WHERE vault_id = ? AND server_sequence = ?`,
   );
   const shiftRevision = database.prepare(
     `UPDATE revisions SET server_sequence = ? WHERE vault_id = ? AND server_sequence = ?`,
   );
   const shift = (next, vault, current) => {
-    shiftEvent.run(next, vault, current);
+    shiftEvent.run(next, next, vault, current);
     shiftRevision.run(next, vault, current);
   };
 
@@ -163,6 +175,29 @@ function renumberVault(database, vaultId) {
   });
   run();
   return { renumbered: events.length, nextSequence: events.length + 1 };
+}
+
+/**
+ * Rewrites the sequence embedded in each event payload to match its column.
+ *
+ * `#parseEventRow` rejects a row whose `receipt.serverSequence` disagrees with
+ * `vault_events.server_sequence`, and the events route turns that into a 500, so
+ * a database renumbered before this was handled answers 500 on every pull even
+ * though its log is contiguous and its revisions line up.
+ */
+function resyncPayloadSequences(database, vaultId) {
+  const result = database
+    .prepare(
+      `UPDATE vault_events
+          SET event_payload = json_set(event_payload, '$.receipt.serverSequence', server_sequence)
+        WHERE json_valid(event_payload)
+          AND json_extract(event_payload, '$.receipt.serverSequence') IS NOT NULL
+          AND CAST(json_extract(event_payload, '$.receipt.serverSequence') AS INTEGER)
+              <> server_sequence
+          ${vaultId === null ? '' : 'AND vault_id = ?'}`,
+    )
+    .run(...(vaultId === null ? [] : [vaultId]));
+  return result.changes;
 }
 
 /**
@@ -264,9 +299,35 @@ function main() {
     }
   }
 
+  // Independent of both checks above: a database renumbered before payload
+  // rewriting existed has a contiguous log AND aligned revisions, and still
+  // fails every pull on the embedded sequence.
+  const stalePayloads = database
+    .prepare(
+      `SELECT COUNT(*) AS count FROM vault_events
+        WHERE json_valid(event_payload)
+          AND json_extract(event_payload, '$.receipt.serverSequence') IS NOT NULL
+          AND CAST(json_extract(event_payload, '$.receipt.serverSequence') AS INTEGER)
+              <> server_sequence
+          ${vaultId === null ? '' : 'AND vault_id = ?'}`,
+    )
+    .get(...(vaultId === null ? [] : [vaultId])).count;
+  if (stalePayloads > 0) {
+    console.log(
+      `\n${stalePayloads} event payload(s) carry a stale sequence (every pull 500s on these).`,
+    );
+    if (resyncRevisions && apply) {
+      console.log(
+        `rewrote ${resyncPayloadSequences(database, vaultId)} event payload(s).`,
+      );
+    } else if (!resyncRevisions) {
+      console.log('Re-run with --resync-revisions --apply to repair that.');
+    }
+  }
+
   const damaged = vaults.filter((vault) => !vault.dense && vault.eventCount > 0);
   if (damaged.length === 0) {
-    if (desynced === 0) {
+    if (desynced === 0 && stalePayloads === 0) {
       console.log('\nNothing to repair: every log is already contiguous.');
       return;
     }
@@ -315,6 +376,20 @@ function verifyInvariants(database, vaultId) {
   if (orphans > 0) {
     throw new Error(
       `${orphans} revision(s) have no matching event; the database is half-renumbered.`,
+    );
+  }
+  const badPayloads = database
+    .prepare(
+      `SELECT COUNT(*) AS count FROM vault_events
+        WHERE json_valid(event_payload)
+          AND json_extract(event_payload, '$.receipt.serverSequence') IS NOT NULL
+          AND CAST(json_extract(event_payload, '$.receipt.serverSequence') AS INTEGER)
+              <> server_sequence`,
+    )
+    .get().count;
+  if (badPayloads > 0) {
+    throw new Error(
+      `${badPayloads} event payload(s) still carry a stale sequence; pulls would 500.`,
     );
   }
   console.log(

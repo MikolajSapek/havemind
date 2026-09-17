@@ -102,7 +102,7 @@ async function makeGappyVault(sequences: readonly number[]): Promise<{
   const insertEvent = database.prepare(
     `INSERT INTO vault_events
        (vault_id, server_sequence, event_type, revision_id, event_payload, created_at)
-     VALUES (?, ?, 'revision-accepted', ?, '{}', ?)`,
+     VALUES (?, ?, 'revision-accepted', ?, ?, ?)`,
   );
   for (const sequence of sequences) {
     const revisionId = `60000000-0000-4000-8000-${String(sequence).padStart(12, '0')}`;
@@ -119,7 +119,16 @@ async function makeGappyVault(sequences: readonly number[]): Promise<{
       TIME,
       TIME,
     );
-    insertEvent.run(VAULT, sequence, revisionId, TIME);
+    insertEvent.run(
+      VAULT,
+      sequence,
+      revisionId,
+      JSON.stringify({
+        fileId: FILE,
+        receipt: { revisionId, serverSequence: sequence },
+      }),
+      TIME,
+    );
   }
   const lastSequence = sequences[sequences.length - 1] ?? 0;
   database
@@ -322,6 +331,26 @@ describe('renumber-event-log --resync-revisions', () => {
           `SELECT COUNT(*) AS c FROM vault_events e
              JOIN revisions r ON r.id = e.revision_id
             WHERE r.server_sequence <> e.server_sequence`,
+        )
+        .get() as { c: number }
+    ).c;
+    expect(mismatches).toBe(0);
+  });
+
+  it('rewrites the sequence embedded in each event payload', async () => {
+    // `#parseEventRow` rejects a row whose payload receipt disagrees with the
+    // cursor column ("Event receipt does not match its cursor row"), which the
+    // route turns into a 500 on every pull. The payload carries its own copy of
+    // serverSequence, so renumbering has to rewrite it too.
+    const { path, database } = await makeGappyVault([3, 5, 6, 9]);
+    run(path, '--vault', VAULT, '--apply');
+
+    const mismatches = (
+      database
+        .prepare(
+          `SELECT COUNT(*) AS c FROM vault_events
+            WHERE CAST(json_extract(event_payload, '$.receipt.serverSequence') AS INTEGER)
+                  <> server_sequence`,
         )
         .get() as { c: number }
     ).c;
