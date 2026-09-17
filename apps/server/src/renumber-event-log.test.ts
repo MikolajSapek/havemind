@@ -206,6 +206,62 @@ describe('renumber-event-log', () => {
     expect(device.ack).toBeNull();
   });
 
+  it('renumbers revisions in lockstep with their events', async () => {
+    // `listHeadEvents` joins `vault_events` to `revisions` ON server_sequence.
+    // Renumbering only one side silently breaks that join: a head whose revision
+    // still carries the OLD sequence resolves to no event, so the snapshot pull
+    // returns a short page and the vault looks half-empty. Both tables carry the
+    // same sequence for the same commit and must move together.
+    const { path, database } = await makeGappyVault([3, 5, 6, 9]);
+    run(path, '--vault', VAULT, '--apply');
+
+    const revisionSequences = (
+      database
+        .prepare(
+          `SELECT server_sequence AS s FROM revisions WHERE vault_id = ? ORDER BY s`,
+        )
+        .all(VAULT) as Array<{ s: number }>
+    ).map((row) => row.s);
+    expect(revisionSequences).toEqual([1, 2, 3, 4]);
+
+    // Every revision still pairs with its own event, which is what the head
+    // lookup depends on.
+    const orphans = (
+      database
+        .prepare(
+          `SELECT COUNT(*) AS c
+             FROM revisions r
+             LEFT JOIN vault_events e
+               ON e.vault_id = r.vault_id AND e.server_sequence = r.server_sequence
+            WHERE r.vault_id = ? AND e.server_sequence IS NULL`,
+        )
+        .get(VAULT) as { c: number }
+    ).c;
+    expect(orphans).toBe(0);
+  });
+
+  it('keeps each event paired with the revision it was committed for', async () => {
+    const { path, database } = await makeGappyVault([3, 5, 6, 9]);
+    run(path, '--vault', VAULT, '--apply');
+
+    const pairs = (
+      database
+        .prepare(
+          `SELECT e.server_sequence AS seq, e.revision_id AS eventRevision,
+                  r.id AS revisionId
+             FROM vault_events e
+             JOIN revisions r
+               ON r.vault_id = e.vault_id AND r.server_sequence = e.server_sequence
+            WHERE e.vault_id = ? ORDER BY e.server_sequence`,
+        )
+        .all(VAULT) as Array<{ seq: number; eventRevision: string; revisionId: string }>
+    );
+    expect(pairs).toHaveLength(4);
+    for (const pair of pairs) {
+      expect(pair.eventRevision).toBe(pair.revisionId);
+    }
+  });
+
   it('leaves an already-contiguous log alone', async () => {
     const { path, database } = await makeGappyVault([1, 2, 3]);
     const output = run(path, '--vault', VAULT, '--apply');

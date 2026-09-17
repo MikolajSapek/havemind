@@ -100,25 +100,49 @@ function renumberVault(database, vaultId) {
     .all(vaultId);
   if (events.length === 0) return { renumbered: 0, nextSequence: 1 };
 
+  // Above the highest sequence in EITHER table, so the parking range cannot
+  // collide with a revision that outlives its event (or vice versa).
   const offset =
-    database
-      .prepare(
-        `SELECT COALESCE(MAX(server_sequence), 0) AS max FROM vault_events WHERE vault_id = ?`,
-      )
-      .get(vaultId).max + 1_000_000;
+    Math.max(
+      database
+        .prepare(
+          `SELECT COALESCE(MAX(server_sequence), 0) AS max FROM vault_events WHERE vault_id = ?`,
+        )
+        .get(vaultId).max,
+      database
+        .prepare(
+          `SELECT COALESCE(MAX(server_sequence), 0) AS max FROM revisions WHERE vault_id = ?`,
+        )
+        .get(vaultId).max,
+    ) + 1_000_000;
 
-  const shift = database.prepare(
+  // `revisions.server_sequence` and `vault_events.server_sequence` are the SAME
+  // number for the same commit, and `listHeadEvents` joins the two tables on it.
+  // Renumbering only one side silently breaks that join: a file head whose
+  // revision still carries the old sequence resolves to no event, the snapshot
+  // pull returns a short page, and the vault looks half-empty to every client.
+  // So both tables move together, inside one transaction.
+  const shiftEvent = database.prepare(
     `UPDATE vault_events SET server_sequence = ? WHERE vault_id = ? AND server_sequence = ?`,
   );
+  const shiftRevision = database.prepare(
+    `UPDATE revisions SET server_sequence = ? WHERE vault_id = ? AND server_sequence = ?`,
+  );
+  const shift = (next, vault, current) => {
+    shiftEvent.run(next, vault, current);
+    shiftRevision.run(next, vault, current);
+  };
 
   const run = database.transaction(() => {
-    // Pass 1: move every row out of the way, preserving order.
+    // Pass 1: move every row out of the way, preserving order. Two passes are
+    // needed because (vault_id, server_sequence) is unique in both tables, so a
+    // direct update would collide with a row still holding the target number.
     events.forEach((event, index) => {
-      shift.run(offset + index, vaultId, event.sequence);
+      shift(offset + index, vaultId, event.sequence);
     });
     // Pass 2: settle them at 1..N.
     events.forEach((_event, index) => {
-      shift.run(index + 1, vaultId, offset + index);
+      shift(index + 1, vaultId, offset + index);
     });
     database
       .prepare(`UPDATE vaults SET next_server_sequence = ? WHERE id = ?`)
@@ -179,13 +203,32 @@ function main() {
     );
   }
 
-  // Prove the invariant the clients depend on rather than assuming it.
+  // Prove the invariants the clients depend on rather than assuming them.
   for (const vault of surveyVaults(database, vaultId)) {
     if (vault.eventCount > 0 && !vault.dense) {
       throw new Error(`Vault ${vault.vaultId} is still not contiguous.`);
     }
   }
-  console.log('\nVerified: every repaired log is now contiguous.');
+  // Every revision must still pair with its own event on server_sequence: that
+  // join is how a file head resolves to the event a client receives, and a
+  // half-renumbered database silently serves a fraction of the vault.
+  const orphans = database
+    .prepare(
+      `SELECT COUNT(*) AS count
+         FROM revisions r
+         LEFT JOIN vault_events e
+           ON e.vault_id = r.vault_id AND e.server_sequence = r.server_sequence
+        WHERE e.server_sequence IS NULL`,
+    )
+    .get().count;
+  if (orphans > 0) {
+    throw new Error(
+      `${orphans} revision(s) have no matching event; the database is half-renumbered.`,
+    );
+  }
+  console.log(
+    '\nVerified: every repaired log is contiguous and every revision still pairs with its event.',
+  );
 }
 
 main();
