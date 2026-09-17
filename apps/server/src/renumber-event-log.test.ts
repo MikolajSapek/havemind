@@ -270,3 +270,79 @@ describe('renumber-event-log', () => {
     expect(sequences(database)).toEqual([1, 2, 3]);
   });
 });
+
+/**
+ * Repairing a database left half-renumbered by the first version of this script.
+ *
+ * That version moved `vault_events.server_sequence` but not
+ * `revisions.server_sequence`, so the two tables disagree and the head lookup
+ * (which joins them on that column) resolves most files to nothing. The link
+ * that survives is `vault_events.revision_id`, so each revision can be put back
+ * on the sequence its own event carries.
+ */
+describe('renumber-event-log --resync-revisions', () => {
+  it('restores each revision to the sequence its event carries', async () => {
+    const { path, database } = await makeGappyVault([1, 2, 3, 4]);
+    // Simulate the half-renumbered damage: shift revisions away from events.
+    database
+      .prepare(
+        `UPDATE revisions SET server_sequence = server_sequence + 500 WHERE vault_id = ?`,
+      )
+      .run(VAULT);
+    const before = (
+      database
+        .prepare(
+          `SELECT COUNT(*) AS c FROM revisions r
+             LEFT JOIN vault_events e
+               ON e.vault_id = r.vault_id AND e.server_sequence = r.server_sequence
+            WHERE e.server_sequence IS NULL`,
+        )
+        .get() as { c: number }
+    ).c;
+    expect(before).toBe(4);
+
+    run(path, '--vault', VAULT, '--resync-revisions', '--apply');
+
+    const after = (
+      database
+        .prepare(
+          `SELECT COUNT(*) AS c FROM revisions r
+             LEFT JOIN vault_events e
+               ON e.vault_id = r.vault_id AND e.server_sequence = r.server_sequence
+            WHERE e.server_sequence IS NULL`,
+        )
+        .get() as { c: number }
+    ).c;
+    expect(after).toBe(0);
+
+    // Each revision sits on the sequence of the event that names it.
+    const mismatches = (
+      database
+        .prepare(
+          `SELECT COUNT(*) AS c FROM vault_events e
+             JOIN revisions r ON r.id = e.revision_id
+            WHERE r.server_sequence <> e.server_sequence`,
+        )
+        .get() as { c: number }
+    ).c;
+    expect(mismatches).toBe(0);
+  });
+
+  it('leaves a healthy database untouched', async () => {
+    const { path, database } = await makeGappyVault([1, 2, 3]);
+    const before = (
+      database
+        .prepare(`SELECT group_concat(server_sequence) AS s FROM revisions WHERE vault_id = ?`)
+        .get(VAULT) as { s: string }
+    ).s;
+
+    run(path, '--vault', VAULT, '--resync-revisions', '--apply');
+
+    const after = (
+      database
+        .prepare(`SELECT group_concat(server_sequence) AS s FROM revisions WHERE vault_id = ?`)
+        .get(VAULT) as { s: string }
+    ).s;
+    expect(after).toBe(before);
+  });
+});

@@ -46,15 +46,17 @@ function parseArgs(argv) {
   }
   let vaultId = null;
   let apply = false;
+  let resyncRevisions = false;
   for (let index = 0; index < rest.length; index += 1) {
     const flag = rest[index];
     if (flag === '--apply') apply = true;
+    else if (flag === '--resync-revisions') resyncRevisions = true;
     else if (flag === '--vault') {
       vaultId = rest[index + 1] ?? null;
       index += 1;
     } else throw new Error(`Unknown argument: ${flag}`);
   }
-  return { databasePath, vaultId, apply };
+  return { databasePath, vaultId, apply, resyncRevisions };
 }
 
 /** Vaults with at least one missing sequence between 1 and their max event. */
@@ -163,8 +165,60 @@ function renumberVault(database, vaultId) {
   return { renumbered: events.length, nextSequence: events.length + 1 };
 }
 
+/**
+ * Puts each revision back on the sequence its OWN event carries.
+ *
+ * Repairs a database left half-renumbered by an earlier version of this script,
+ * which moved `vault_events.server_sequence` without moving
+ * `revisions.server_sequence`. The head lookup joins those two columns, so most
+ * files resolved to no event and the server answered 409/500 on every pull.
+ *
+ * `vault_events.revision_id` is untouched by that damage, so it is the
+ * authority: for every event, its named revision belongs at its sequence.
+ * Two passes for the same uniqueness reason as `renumberVault`.
+ */
+function resyncRevisionsToEvents(database, vaultId) {
+  const pairs = database
+    .prepare(
+      `SELECT e.server_sequence AS target, r.id AS revisionId,
+              r.server_sequence AS current
+         FROM vault_events e
+         JOIN revisions r ON r.id = e.revision_id
+        WHERE e.vault_id = ? AND r.server_sequence <> e.server_sequence
+        ORDER BY e.server_sequence`,
+    )
+    .all(vaultId);
+  if (pairs.length === 0) return 0;
+
+  const offset =
+    Math.max(
+      database
+        .prepare(
+          `SELECT COALESCE(MAX(server_sequence), 0) AS max FROM revisions WHERE vault_id = ?`,
+        )
+        .get(vaultId).max,
+      database
+        .prepare(
+          `SELECT COALESCE(MAX(server_sequence), 0) AS max FROM vault_events WHERE vault_id = ?`,
+        )
+        .get(vaultId).max,
+    ) + 1_000_000;
+
+  const setById = database.prepare(
+    `UPDATE revisions SET server_sequence = ? WHERE id = ?`,
+  );
+  const run = database.transaction(() => {
+    pairs.forEach((pair, index) => setById.run(offset + index, pair.revisionId));
+    pairs.forEach((pair) => setById.run(pair.target, pair.revisionId));
+  });
+  run();
+  return pairs.length;
+}
+
 function main() {
-  const { databasePath, vaultId, apply } = parseArgs(process.argv.slice(2));
+  const { databasePath, vaultId, apply, resyncRevisions } = parseArgs(
+    process.argv.slice(2),
+  );
   const database = new Database(databasePath);
   database.pragma('foreign_keys = ON');
 
@@ -182,9 +236,42 @@ function main() {
     );
   }
 
+  // Revision/event desync is reported (and repaired) independently of holes: a
+  // half-renumbered database has a perfectly contiguous log and is still broken.
+  const desynced = database
+    .prepare(
+      `SELECT COUNT(*) AS count
+         FROM vault_events e
+         JOIN revisions r ON r.id = e.revision_id
+        WHERE r.server_sequence <> e.server_sequence
+          ${vaultId === null ? '' : 'AND e.vault_id = ?'}`,
+    )
+    .get(...(vaultId === null ? [] : [vaultId])).count;
+  if (desynced > 0) {
+    console.log(
+      `\n${desynced} revision(s) sit on a different sequence than their event.`,
+    );
+    if (resyncRevisions && apply) {
+      const targets =
+        vaultId === null
+          ? vaults.map((vault) => vault.vaultId)
+          : [vaultId];
+      let fixed = 0;
+      for (const target of targets) fixed += resyncRevisionsToEvents(database, target);
+      console.log(`resynced ${fixed} revision(s) to their event sequence.`);
+    } else if (!resyncRevisions) {
+      console.log('Re-run with --resync-revisions --apply to repair that.');
+    }
+  }
+
   const damaged = vaults.filter((vault) => !vault.dense && vault.eventCount > 0);
   if (damaged.length === 0) {
-    console.log('\nNothing to repair: every log is already contiguous.');
+    if (desynced === 0) {
+      console.log('\nNothing to repair: every log is already contiguous.');
+      return;
+    }
+    if (!(resyncRevisions && apply)) return;
+    verifyInvariants(database, vaultId);
     return;
   }
 
@@ -203,7 +290,11 @@ function main() {
     );
   }
 
-  // Prove the invariants the clients depend on rather than assuming them.
+  verifyInvariants(database, vaultId);
+}
+
+/** Fails loudly unless every log is contiguous and every revision has its event. */
+function verifyInvariants(database, vaultId) {
   for (const vault of surveyVaults(database, vaultId)) {
     if (vault.eventCount > 0 && !vault.dense) {
       throw new Error(`Vault ${vault.vaultId} is still not contiguous.`);
