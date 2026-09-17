@@ -4,7 +4,10 @@ import type { RevisionRepository } from './revision-repository.js';
 
 export interface CompactHistoryResult {
   readonly compactable: boolean;
+  /** Always 0: superseded revisions are retained (see `countSupersededRevisions`). */
   readonly removedRevisions: number;
+  /** How many superseded revisions exist, for diagnostics only. */
+  readonly reclaimableRevisions?: number;
 }
 
 /**
@@ -60,7 +63,7 @@ export function compactIfAllDevicesCaughtUp(
   database: Database.Database,
   revisions: Pick<
     RevisionRepository,
-    'getCursor' | 'compactSupersededRevisions'
+    'getCursor' | 'countSupersededRevisions'
   >,
   vaultId: string,
   options?: CompactHistoryOptions,
@@ -108,8 +111,14 @@ export function compactIfAllDevicesCaughtUp(
     return { compactable: false, removedRevisions: 0 };
   }
 
+  // Reports what COULD be reclaimed; nothing is deleted. Removing a superseded
+  // revision row broke three things that still need it (the commit-time parent
+  // lookup, the ancestry of surviving revisions, and its `vault_events` row via
+  // CASCADE), see `countSupersededRevisions`. Reclaiming the payload bytes is
+  // blob-store work, and a blob may be shared, so it needs a reference sweep.
   return {
     compactable: true,
-    removedRevisions: revisions.compactSupersededRevisions(vaultId),
+    removedRevisions: 0,
+    reclaimableRevisions: revisions.countSupersededRevisions(vaultId),
   };
 }

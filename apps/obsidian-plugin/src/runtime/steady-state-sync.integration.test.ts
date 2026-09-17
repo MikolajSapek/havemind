@@ -649,4 +649,72 @@ describe('two-person steady-state sync (integration)', () => {
     expect([...a.vault.contents.keys()].some((p) => p.startsWith('Havemind Conflicts/'))).toBe(false);
     expect([...b.vault.contents.keys()].some((p) => p.startsWith('Havemind Conflicts/'))).toBe(false);
   });
+
+  /**
+   * Every other test here covers ONE hop: author a note, take one peer edit.
+   * Real use is a conversation, and the reported failure ("files stop flowing,
+   * conflicts everywhere") only appears after a few rounds, so drive several.
+   *
+   * The rule under test: a peer revision that descends from what this device
+   * last agreed on is a fast-forward and must apply in place, on round five as
+   * much as on round one. Nothing here is concurrent, so no round may conflict.
+   */
+  it('(g) alternating edits converge over many rounds without a single conflict', async () => {
+    const h = makeHarness();
+    const NOTE = 'Notes/roundtrip.md';
+    await h.userCreate(NOTE, 'V1\n', FILE_A);
+
+    for (let round = 2; round <= 6; round += 1) {
+      // Real UUIDs: the revision header schema rejects anything else, and the
+      // parent id below is carried straight into it.
+      const revisionId = `0000000${round}-0000-4000-8000-00000000000${round}`;
+      const content = `V${round}\n`;
+      // The peer builds strictly on this device's current head: a pure
+      // fast-forward, the shape of "the other device had my version and typed".
+      const parent = h.localHead(FILE_A);
+      h.setRemote(revisionId, {
+        operation: 'update',
+        path: NOTE,
+        previousPath: null,
+        content,
+      });
+      const outcome = await h.adapter.applyRemote(
+        h.remoteEvent(revisionId, FILE_A, parent === undefined ? [] : [parent]),
+      );
+      await h.drainEvents();
+
+      expect(`round ${round}: ${outcome}`).toBe(`round ${round}: applied`);
+      expect(h.vault.contents.get(NOTE)).toBe(content);
+
+      // Then the local user edits on top of what just arrived, and that push is
+      // what the peer will build its next revision on.
+      const localContent = `V${round}-local\n`;
+      const file = h.vault.getAbstractFileByPath(NOTE);
+      await h.vault.modify(file as unknown as { path: string }, localContent);
+      await h.drainEvents();
+      expect(h.vault.contents.get(NOTE)).toBe(localContent);
+
+      // The server echoes that push back on the next pull. The runner suppresses
+      // the rewrite but calls `acknowledgeOwnEcho`, which is the ONLY moment both
+      // peers are known to hold this text, so it is where the base advances.
+      // Without this step the base stays at the peer's last content and round
+      // three onwards conflicts, which is the reported failure.
+      const echoId = `0000001${round}-0000-4000-8000-00000000001${round}`;
+      h.setRemote(echoId, {
+        operation: 'update',
+        path: NOTE,
+        previousPath: null,
+        content: localContent,
+      });
+      await h.adapter.acknowledgeOwnEcho(h.remoteEvent(echoId, FILE_A));
+      await h.drainEvents();
+      expect(h.state.baseHashFor(FILE_A)).toBe(await realSha256(localContent));
+    }
+
+    expect(
+      [...h.vault.contents.keys()].filter((p) =>
+        p.startsWith('Havemind Conflicts/'),
+      ),
+    ).toEqual([]);
+  });
 });

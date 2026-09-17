@@ -333,14 +333,23 @@ export class VaultApplyAdapter implements VaultApplyPort {
     const onDisk = await this.files.readByPath(decoded.path);
     if (onDisk === null) return;
     const text = decoded.content ?? '';
-    const diskHash = await this.hashContent(onDisk);
-    const matches =
-      diskHash === event.revision.contentHash || contentMatches(onDisk, text);
-    if (!matches) return;
+    // Convergence is decided on CONTENT, never against `event.revision.contentHash`:
+    // that field is the hash of the revision ENVELOPE bytes (the payload JSON
+    // wrapping the text), while everything on this side hashes the canonical note
+    // text. The two can never be equal, so comparing them here only ever produced
+    // a false negative.
+    if (!contentMatches(onDisk, text)) return;
     const fileId = event.revision.fileId;
-    await this.files.recordBaseHash(fileId, event.revision.contentHash);
-    // Prefer the live on-disk text as the merge ancestor: it is what both sides
-    // share after a successful solo push, and it matches the hash we just set.
+    // Record the base in the unit `baseHashes` is kept in, the PLAINTEXT hash of
+    // the on-disk text, the same value every other writer stores. Storing the
+    // envelope hash here poisoned the base for every file this device pushed: the
+    // on-disk guard then read as permanently diverged, `tryMergeApply` could never
+    // satisfy `hashContent(ancestor) === base`, and every open buffer for the file
+    // looked divergent, so each incoming peer revision became a conflict copy.
+    const baseHash = await this.hashContent(onDisk);
+    await this.files.recordBaseHash(fileId, baseHash);
+    // The live on-disk text is the matching ancestor: it is what both sides share
+    // after a successful solo push, and it hashes to exactly the value just set.
     await this.files.recordBaseContent(fileId, onDisk);
     await this.files.recordPathOwner(fileId, decoded.path);
   }
@@ -656,7 +665,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
       // Stale-fileId retirement above also forces the server head.
       if (
         origin === 'bootstrap' &&
-        (bootstrapTakeServerHead || isBootstrapReplaceable(onDisk, base))
+        (bootstrapTakeServerHead || isBootstrapReplaceable(onDisk))
       ) {
         // Fall through to the write below.
       } else {
@@ -724,7 +733,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
       if (
         origin === 'bootstrap' &&
         (bootstrapTakeServerHead ||
-          isBootstrapReplaceable(preWriteOnDisk, preWriteBase))
+          isBootstrapReplaceable(preWriteOnDisk))
       ) {
         // Join already decided to take the server head; do not re-conflict here.
       } else {
@@ -1207,10 +1216,10 @@ function isVacantMarkdown(text: string): boolean {
 /**
  * During the one-time join catch-up, only vacant placeholders (empty phone
  * notes, whitespace-only stubs) may take the server head in place. A divergent
- * untracked copy from a USB/Dropbox/iCloud vault still has real local prose —
- * overwriting it silently wiped second-PC edits; those go to Conflicts instead.
- * Matching content short-circuits earlier via `contentMatches` (noop).
+ * untracked copy from a USB/Dropbox/iCloud vault still holds real local prose,
+ * and overwriting it silently wiped second-PC edits, so those go to Conflicts
+ * instead. Matching content short-circuits earlier via `contentMatches` (noop).
  */
-function isBootstrapReplaceable(onDisk: string, _base: string | null): boolean {
+function isBootstrapReplaceable(onDisk: string): boolean {
   return isVacantMarkdown(onDisk);
 }

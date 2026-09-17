@@ -61,15 +61,15 @@ function addDevice(
 }
 
 function revisionsStub(head: number) {
-  let removed = 0;
+  let counted = 0;
   return {
     getCursor: () => head,
-    compactSupersededRevisions: () => {
-      removed += 1;
+    countSupersededRevisions: () => {
+      counted += 1;
       return 7;
     },
     get calls() {
-      return removed;
+      return counted;
     },
   };
 }
@@ -111,7 +111,9 @@ describe('compaction with a stale device', () => {
     });
 
     expect(result.compactable).toBe(true);
-    expect(result.removedRevisions).toBe(7);
+    // Reported, never deleted.
+    expect(result.removedRevisions).toBe(0);
+    expect(result.reclaimableRevisions).toBe(7);
   });
 
   it('still blocks on a device that never pulled at all', () => {

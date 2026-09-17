@@ -5,6 +5,27 @@ All notable changes to this project are documented here. The format is based on
 follows independent [Semantic Versioning](https://semver.org) for the plugin
 and the server.
 
+## [1.4.24], 2026-09-17
+
+### Fixed
+
+- **Repeated edits between two devices no longer pile up conflict copies.**
+  Acknowledging this device's own echo recorded the revision ENVELOPE hash into
+  the synced base, which is a plaintext-hash slot, so the two values could never
+  match. Every file this device had pushed then read as permanently diverged:
+  the three-way merge became unreachable, open editors looked dirty, and each
+  incoming peer revision became a conflict artifact. It now records the
+  plaintext hash of the on-disk text, and convergence is decided on content.
+- **A device whose head was superseded can push again.** Compaction deleted
+  superseded revisions, so the commit-time parent lookup rejected that device's
+  next edit with MISSING_PARENT forever. Superseded revisions are now retained
+  and only counted; `compactSupersededRevisions` refuses to run.
+- **The server keeps its event log contiguous.** Deleting a revision cascaded
+  away its `vault_events` row while the vault cursor kept counting, so the
+  server advertised sequences it could not serve and clients stopped at the
+  first hole and never advanced. `apps/server/scripts/renumber-event-log.mjs`
+  repairs a log damaged before this fix.
+
 ## [1.4.23], 2026-09-17
 
 ### Fixed

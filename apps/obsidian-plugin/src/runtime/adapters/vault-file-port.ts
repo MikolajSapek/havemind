@@ -196,10 +196,14 @@ export function createVaultFilePort(options: VaultFilePortOptions): VaultFilePor
       for (const leaf of workspace.getLeavesOfType('markdown')) {
         // Duck-type: production leaves are MarkdownView; headless mocks expose
         // the same `file` + `getViewData` surface without the class export.
-        if (!isMarkdownEditorView(leaf.view)) {
+        // `view` is read off the leaf structurally: Obsidian's published
+        // `WorkspaceLeaf` type does not declare it, and the guard below is what
+        // establishes the shape anyway.
+        const leafView = (leaf as { view?: unknown }).view;
+        if (!isMarkdownEditorView(leafView)) {
           continue;
         }
-        const editor = leaf.view;
+        const editor = leafView;
         const file = editor.file;
         if (file === null || file.path !== path) {
           continue;

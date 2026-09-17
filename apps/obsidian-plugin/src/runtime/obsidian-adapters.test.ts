@@ -416,7 +416,10 @@ describe('createVaultFilePort openBufferStates', () => {
       vault: vault as never,
       state: state as never,
       workspace: {
-        getLeavesOfType: (type: string) => (type === 'markdown' ? [leaf] : []),
+        // The port reads `view` structurally, so a stub only needs that field;
+        // it is not a full WorkspaceLeaf.
+        getLeavesOfType: ((type: string) =>
+          type === 'markdown' ? [leaf] : []) as never,
       },
       hashContent: async (content: string) => `hash:${content}`,
     });

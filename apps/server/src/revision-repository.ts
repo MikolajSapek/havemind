@@ -574,14 +574,33 @@ export class RevisionRepository {
   }
 
   /**
-   * Deletes revisions that are not a current file head, once every approved
-   * device has already caught up past them. Parent links to those revisions are
-   * dropped first so SQLite's RESTRICT on `revision_parents` does not block.
+   * Reports how many superseded revisions this vault holds. Kept as the metric
+   * the compaction path returns: the rows themselves are never deleted.
+   *
+   * Deleting them was a data-integrity bug, not a space win. Three consumers
+   * still need a superseded revision's ROW after it stops being a head:
+   *
+   *  - the commit-time parent check (`#assertFileGraphCommittable`) resolves a
+   *    pushed revision's parent by id. A device whose head was superseded by a
+   *    peer parents its next edit on that revision, so deleting it rejected that
+   *    device's every future push for the file with MISSING_PARENT, permanently;
+   *  - `revision_parents` records the ancestry of revisions that SURVIVE, and
+   *    the schema declares `ON DELETE RESTRICT` to say so. The old code deleted
+   *    those links first, specifically to get around that guard;
+   *  - `vault_events.revision_id` is `ON DELETE CASCADE`, so removing a revision
+   *    silently removed its event row while `next_server_sequence` stayed put.
+   *    The vault then advertised a cursor for sequences it could no longer
+   *    serve, and a client paging the log stopped at the first hole and never
+   *    advanced again.
+   *
+   * Reclaiming the payload bytes is the part that was actually worth doing, and
+   * it belongs to blob storage (a blob is content-addressed and may be shared by
+   * several revisions, so it can only be freed by a reference sweep there).
    */
-  public compactSupersededRevisions(vaultId: string): number {
-    const superseded = this.#database
+  public countSupersededRevisions(vaultId: string): number {
+    const row = this.#database
       .prepare(
-        `SELECT revisions.id AS id
+        `SELECT COUNT(*) AS count
          FROM revisions
          INNER JOIN files ON files.id = revisions.file_id
          WHERE files.vault_id = ?
@@ -589,35 +608,23 @@ export class RevisionRepository {
              SELECT 1 FROM file_heads WHERE file_heads.revision_id = revisions.id
            )`,
       )
-      .all(vaultId) as Array<{ id: string }>;
-    if (superseded.length === 0) {
-      return 0;
-    }
+      .get(vaultId) as { count: number };
+    return row.count;
+  }
 
-    const remove = this.#database.transaction((ids: readonly string[]) => {
-      const batchSize = 200;
-      let removed = 0;
-      for (let offset = 0; offset < ids.length; offset += batchSize) {
-        const chunk = ids.slice(offset, offset + batchSize);
-        const placeholders = chunk.map(() => '?').join(',');
-        this.#database
-          .prepare(
-            `DELETE FROM revision_parents WHERE parent_revision_id IN (${placeholders})`,
-          )
-          .run(...chunk);
-        this.#database
-          .prepare(
-            `DELETE FROM revision_parents WHERE revision_id IN (${placeholders})`,
-          )
-          .run(...chunk);
-        const result = this.#database
-          .prepare(`DELETE FROM revisions WHERE id IN (${placeholders})`)
-          .run(...chunk);
-        removed += result.changes;
-      }
-      return removed;
-    });
-    return remove(superseded.map((row) => row.id));
+  /**
+   * @deprecated Destructive and unused; see {@link countSupersededRevisions} for
+   * why superseded revisions are retained. Retained only so an older caller
+   * fails loudly rather than silently corrupting a vault.
+   */
+  public compactSupersededRevisions(vaultId: string): number {
+    void vaultId;
+    throw new RevisionRepositoryError(
+      'REPOSITORY_INTEGRITY',
+      'compactSupersededRevisions deletes revisions that are still referenced ' +
+        'as commit parents and cascades away their vault_events rows; use ' +
+        'countSupersededRevisions instead.',
+    );
   }
 
   async #prepareCommit(input: CommitRevisionInput): Promise<PreparedCommit> {

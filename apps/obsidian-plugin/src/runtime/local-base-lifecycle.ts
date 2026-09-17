@@ -51,6 +51,13 @@ export interface LocalMaterializationInput {
   readonly content: string | null;
   /** The prior path on a rename, so its stale ownership can be forgotten. */
   readonly previousPath: string | null;
+  /**
+   * The canonical text this edit replaced, when the producer knew it. Carried
+   * for diagnostics and future use only: it deliberately does NOT advance the
+   * base (see `applyLocalMaterialization` for why a local write can never prove
+   * both peers agree).
+   */
+  readonly replacedContent?: string | null;
 }
 
 export interface LocalForgetInput {
@@ -71,7 +78,20 @@ export async function applyLocalMaterialization(
     await store.forgetPath(input.previousPath);
   }
   await store.recordPathOwner(input.fileId, input.path);
-  // Seed on first authorship only, never advance an existing base on a push.
+  // Seed on first authorship only, NEVER advance an existing base on a push.
+  //
+  // Tempting as it is to advance here (it would fix the stale base a suppressed
+  // echo leaves behind), a local write is precisely the moment this device
+  // cannot know whether the peer is editing the same file concurrently. Moving
+  // the base to the text this device just typed makes a concurrent peer revision
+  // arrive with `on-disk == base` and read as a clean fast-forward: the peer's
+  // edit then overwrites this one silently, and the three-way merge loses this
+  // device's change because the ancestor is no longer the shared one.
+  // The `(f)` case in `steady-state-sync.integration.test.ts` pins that.
+  //
+  // The base advances only where both peers are KNOWN to hold the same content:
+  // a clean remote apply, a convergence, or the server's own echo of this
+  // device's push (`VaultApplyAdapter.acknowledgeOwnEcho`).
   if (store.baseHashFor(input.fileId) === null) {
     await store.recordBaseHash(input.fileId, input.contentHash);
     // Seed the merge ancestor too (markdown only; a binary file passes null).

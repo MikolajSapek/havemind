@@ -310,7 +310,11 @@ describe('RevisionRepository', () => {
     );
   });
 
-  it('compacts superseded revisions once they are no longer file heads', async () => {
+  it('counts superseded revisions without deleting them', async () => {
+    // Deleting them broke three consumers that still need the row: the
+    // commit-time parent lookup (a peer whose head was superseded parents its
+    // next edit on it), the ancestry of surviving revisions, and the revision's
+    // `vault_events` row via CASCADE. So the count is reported and nothing goes.
     const fixture = await makeFixture();
     await fixture.repository.commitRevision(
       await storedInput(fixture, REVISION_1, [], 'r1', 'opaque-r1'),
@@ -319,12 +323,20 @@ describe('RevisionRepository', () => {
       await storedInput(fixture, REVISION_2, [REVISION_1], 'r2', 'opaque-r2'),
     );
 
-    expect(fixture.repository.compactSupersededRevisions(VAULT_A)).toBe(1);
-    expect(rowCount(fixture.database, 'revisions')).toBe(1);
+    expect(fixture.repository.countSupersededRevisions(VAULT_A)).toBe(1);
+    expect(rowCount(fixture.database, 'revisions')).toBe(2);
+    // The log stays contiguous, so a device paging it never hits a hole.
     expect(
       fixture.repository.listEvents(VAULT_A, 0, 10).map((event) => event.revisionId),
-    ).toEqual([REVISION_2]);
+    ).toEqual([REVISION_1, REVISION_2]);
     expect(fixture.repository.getHeads(VAULT_A, FILE_A)).toEqual([REVISION_2]);
+  });
+
+  it('refuses the destructive compaction entry point', async () => {
+    const fixture = await makeFixture();
+    expect(() => fixture.repository.compactSupersededRevisions(VAULT_A)).toThrow(
+      /countSupersededRevisions/,
+    );
   });
 
   it('returns REVISION_ID_REUSE for different blob bytes or a changed header', async () => {
