@@ -315,6 +315,37 @@ export class VaultApplyAdapter implements VaultApplyPort {
   }
 
   /**
+   * Own-revision echo from the server. Never rewrites the file. When on-disk
+   * content already matches the echoed revision, advances the synced base so
+   * solo pushes do not leave `baseHash` stuck forever after suppress.
+   */
+  async acknowledgeOwnEcho(event: RemoteEvent): Promise<void> {
+    if (event.revision.contentHash.length === 0) return;
+    let decoded: DecodedRevisionPayload;
+    try {
+      decoded = await this.resolveRevision(event);
+    } catch {
+      return;
+    }
+    if (decoded.operation === 'delete') {
+      return;
+    }
+    const onDisk = await this.files.readByPath(decoded.path);
+    if (onDisk === null) return;
+    const text = decoded.content ?? '';
+    const diskHash = await this.hashContent(onDisk);
+    const matches =
+      diskHash === event.revision.contentHash || contentMatches(onDisk, text);
+    if (!matches) return;
+    const fileId = event.revision.fileId;
+    await this.files.recordBaseHash(fileId, event.revision.contentHash);
+    // Prefer the live on-disk text as the merge ancestor: it is what both sides
+    // share after a successful solo push, and it matches the hash we just set.
+    await this.files.recordBaseContent(fileId, onDisk);
+    await this.files.recordPathOwner(fileId, decoded.path);
+  }
+
+  /**
    * The per-file lock key: the file's canonical collision key, so remote apply
    * and the local producer (which keys on the same collision key) share ONE
    * critical section per file. Falls back to the raw path for a non-syncable

@@ -207,6 +207,13 @@ export interface VaultApplyPort {
   ): Promise<RemoteApplyOutcome>;
   /** Record a visible conflict artifact without overwriting the active file. */
   recordConflict(event: RemoteEvent): Promise<void>;
+  /**
+   * Own-revision echo: the server is confirming a revision this device already
+   * authored. Never rewrite the file; when on-disk content already matches the
+   * revision's content hash, advance the synced base so later peer edits are not
+   * misread as divergent local changes. Optional on ports that have no base.
+   */
+  acknowledgeOwnEcho?(event: RemoteEvent): Promise<void>;
 }
 
 /** Cancels one scheduled callback when the runtime is torn down. */
@@ -998,6 +1005,11 @@ export class SyncRunner {
     bootstrap: boolean,
   ): Promise<AppliedEventResult> {
     if (await this.options.state.isLocallyAuthored(remoteEvent.revision.revisionId)) {
+      // Own echo: never rewrite, but DO advance the synced base when disk already
+      // matches. Otherwise solo pushes leave base stuck forever (the echo is
+      // suppressed and the cursor moves past it), and the next peer edit looks
+      // like a divergent local change → false conflicts on the other device.
+      await this.options.vault.acknowledgeOwnEcho?.(remoteEvent);
       return 'suppressed';
     }
 

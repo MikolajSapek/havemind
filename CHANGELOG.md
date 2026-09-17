@@ -5,6 +5,19 @@ All notable changes to this project are documented here. The format is based on
 follows independent [Semantic Versioning](https://semver.org) for the plugin
 and the server.
 
+## [1.4.22], 2026-09-16
+
+### Fixed
+
+- **Solo edits on the owner no longer leave the synced base stuck forever.**
+  Own-revision echoes now advance the base when disk already matches, and connect
+  heals bases left behind after the cursor moved past a suppressed echo. That was
+  the root of one-way sync (phone→Mac fine, Mac→phone conflicts / silence): peer
+  edits looked like divergent local changes.
+- **Empty or missing outbox payloads are fail-closed.** An externalized payload
+  that round-trips as blank is quarantined instead of retrying forever as
+  "Changes not sent yet".
+
 ## [1.4.21], 2026-09-16
 
 ### Fixed

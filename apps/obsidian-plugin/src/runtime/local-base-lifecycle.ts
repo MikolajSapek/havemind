@@ -90,3 +90,47 @@ export async function forgetLocalMaterialization(
   await store.forgetBaseHash(input.fileId);
   await store.forgetBaseContent(input.fileId);
 }
+
+/**
+ * One file whose on-disk/mapping content was already accepted by the server
+ * (its head is in `locallyAuthored`) but whose apply-side base never advanced,
+ * because the own-revision echo was suppressed before it could converge the base.
+ */
+export interface StaleLocalBaseHeal {
+  readonly fileId: string;
+  readonly contentHash: string;
+  readonly content: string | null;
+}
+
+export interface LocalBaseHealStore extends LocalBaseLifecycleStore {
+  isLocallyAuthored(revisionId: string): Promise<boolean>;
+}
+
+/**
+ * Advances the apply-side base for solo local pushes whose server echo was
+ * suppressed (and will never be pulled again once the cursor has moved past).
+ *
+ * Without this, `baseHash` stays at the pre-push value forever after every
+ * successful local edit: the producer mapping already matches disk, so nothing
+ * re-enqueues, yet every later peer edit sees "disk ≠ base" and looks like a
+ * divergent local change → false conflicts on the other device.
+ */
+export async function healStaleBasesAfterLocalPush(
+  store: LocalBaseHealStore,
+  heals: readonly StaleLocalBaseHeal[],
+  headFor: (fileId: string) => string | null,
+): Promise<number> {
+  let healed = 0;
+  for (const heal of heals) {
+    const head = headFor(heal.fileId);
+    if (head === null || !(await store.isLocallyAuthored(head))) continue;
+    const base = store.baseHashFor(heal.fileId);
+    if (base === heal.contentHash) continue;
+    await store.recordBaseHash(heal.fileId, heal.contentHash);
+    if (heal.content !== null) {
+      await store.recordBaseContent(heal.fileId, heal.content);
+    }
+    healed += 1;
+  }
+  return healed;
+}

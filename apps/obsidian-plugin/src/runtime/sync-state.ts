@@ -1023,8 +1023,18 @@ export class DurableSyncState implements SyncStatePort {
     payloadBase64: string,
   ): Promise<boolean> {
     if (this.payloadStore === undefined) return false;
+    if (payloadBase64.length === 0) return false;
     try {
       await this.payloadStore.putPayload(revisionId, payloadBase64);
+      // Round-trip: a put that cannot be read back must not strip the inline
+      // bytes from data.json, or the next reload quarantines a still-needed send.
+      const roundTrip = await this.payloadStore.getPayload(revisionId);
+      if (roundTrip !== payloadBase64) {
+        console.warn(
+          `Havemind: outbox payload for ${revisionId} failed round-trip verify; keeping it inline in data.json.`,
+        );
+        return false;
+      }
       return true;
     } catch {
       console.warn(
@@ -1083,7 +1093,10 @@ export class DurableSyncState implements SyncStatePort {
     for (const env of state.outbox) {
       if (env.payloadExternalized === true) {
         const payload = await this.safeGetPayload(env.revisionId);
-        if (typeof payload === 'string') {
+        // Empty string is NOT a valid payload: IndexedDB oddities and a torn
+        // put must never rehydrate into a drainable blank envelope (that wedges
+        // push forever as "unsent" while the server rejects empty bytes).
+        if (typeof payload === 'string' && payload.length > 0) {
           this.externalized.add(env.revisionId);
           nextOutbox.push({ ...env, payloadBase64: payload });
           cacheChanged = true;
@@ -1102,7 +1115,10 @@ export class DurableSyncState implements SyncStatePort {
         }
       } else {
         nextOutbox.push(env);
-        if (await this.safePutPayload(env.revisionId, env.payloadBase64)) {
+        if (
+          env.payloadBase64.length > 0 &&
+          (await this.safePutPayload(env.revisionId, env.payloadBase64))
+        ) {
           this.externalized.add(env.revisionId);
           persistNeeded = true; // migrated: disk form now strips this payload
         }
@@ -1113,7 +1129,7 @@ export class DurableSyncState implements SyncStatePort {
     for (const [key, env] of Object.entries(state.quarantinedEnvelopes)) {
       if (env.payloadExternalized === true) {
         const payload = await this.safeGetPayload(env.revisionId);
-        if (typeof payload === 'string') {
+        if (typeof payload === 'string' && payload.length > 0) {
           this.externalized.add(env.revisionId);
           nextStash[key] = { ...env, payloadBase64: payload };
           cacheChanged = true;
@@ -1123,7 +1139,10 @@ export class DurableSyncState implements SyncStatePort {
         }
       } else {
         nextStash[key] = env;
-        if (await this.safePutPayload(env.revisionId, env.payloadBase64)) {
+        if (
+          env.payloadBase64.length > 0 &&
+          (await this.safePutPayload(env.revisionId, env.payloadBase64))
+        ) {
           this.externalized.add(env.revisionId);
           persistNeeded = true; // migrated
         }

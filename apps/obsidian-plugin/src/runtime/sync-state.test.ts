@@ -875,6 +875,46 @@ describe('DurableSyncState outbox payload externalization (arch P1)', () => {
     ]);
   });
 
+  it('fails closed when the store returns an empty-string payload', async () => {
+    // A put/get that yields '' must not rehydrate into a drainable blank send.
+    await store.putPayload('rev-empty', '');
+    const torn: PersistedSyncState = {
+      version: 1,
+      cursor: 0,
+      outbox: [
+        {
+          operationId: 'op-empty',
+          revisionId: 'rev-empty',
+          fileId: 'file-1',
+          contentHash: 'hash-1',
+          idempotencyKey: 'idem-empty',
+          header: { revisionId: 'rev-empty' },
+          payloadBase64: '',
+          payloadExternalized: true,
+        },
+      ],
+      locallyAuthored: [],
+      deferred: [],
+      quarantine: [],
+      pathOwners: {},
+      baseHashes: {},
+      baseContents: {},
+      conflictArtifacts: {},
+      quarantinedEnvelopes: {},
+    };
+    persist = new MemoryPersist(torn);
+    const state = new DurableSyncState({ persist, payloadStore: store });
+
+    expect(await state.listOutbox()).toEqual([]);
+    expect(await state.listQuarantine()).toEqual([
+      {
+        revisionId: 'rev-empty',
+        fileId: 'file-1',
+        reason: PAYLOAD_MISSING_REASON,
+      },
+    ]);
+  });
+
   it('falls back to inline data.json when the store is unavailable', async () => {
     store.putFails = true;
     const state = new DurableSyncState({ persist, payloadStore: store });

@@ -47,6 +47,7 @@ import type { KeyedMutex } from '../keyed-mutex';
 import {
   applyLocalMaterialization,
   forgetLocalMaterialization,
+  healStaleBasesAfterLocalPush,
 } from '../local-base-lifecycle';
 import { ModifyDebouncer } from '../modify-debounce';
 import { getPluginDataMutex } from '../plugin-data-mutex';
@@ -425,6 +426,39 @@ export function startPushProducer(
     onFolderDelete: (folderPath) =>
       observedMany(observer.observeFolderDelete(folderPath)),
   });
+
+  // Heal bases left stale by suppressed own-echoes whose cursor already moved
+  // past them: mapping matches a head this device pushed, but baseHash never
+  // advanced. Without this, every later peer edit looks like a local divergence.
+  afterChange(
+    (async () => {
+      const mappings = await repository.listMappings();
+      const heads = new Map<string, string>();
+      for (const mapping of mappings) {
+        const head = await repository.headFor(mapping.fileId);
+        if (head !== null) heads.set(mapping.fileId, head);
+      }
+      await healStaleBasesAfterLocalPush(
+        {
+          baseHashFor: (fileId) => state.baseHashFor(fileId),
+          recordPathOwner: (fileId, path) => state.recordPathOwner(fileId, path),
+          recordBaseHash: (fileId, hash) => state.recordBaseHash(fileId, hash),
+          recordBaseContent: (fileId, content) =>
+            state.recordBaseContent(fileId, content),
+          forgetPath: (path) => state.forgetPath(path),
+          forgetBaseHash: (fileId) => state.forgetBaseHash(fileId),
+          forgetBaseContent: (fileId) => state.forgetBaseContent(fileId),
+          isLocallyAuthored: (revisionId) => state.isLocallyAuthored(revisionId),
+        },
+        mappings.map((mapping) => ({
+          fileId: mapping.fileId,
+          contentHash: mapping.contentHash,
+          content: mapping.contentKind === 'binary' ? null : mapping.content,
+        })),
+        (fileId) => heads.get(fileId) ?? null,
+      );
+    })(),
+  );
 
   // Existing notes predate the change listeners, so enumerate them once on
   // connect and push any that are new or drifted, then sync. A per-file failure
