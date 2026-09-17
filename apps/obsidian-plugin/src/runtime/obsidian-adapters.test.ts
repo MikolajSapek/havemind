@@ -176,6 +176,7 @@ class FakeVault {
 /** `createVaultFilePort`'s `state` port is unused by `writeConflictArtifact`. */
 const noopState = {
   fileIdAtPath: () => null,
+  pathForFileId: () => null,
   baseHashFor: () => undefined,
   recordBaseHash: () => undefined,
   forgetBaseHash: () => undefined,
@@ -378,6 +379,52 @@ describe('createRequestUrlFn', () => {
         permanent,
       });
     }
+  });
+});
+
+describe('createVaultFilePort openBufferStates', () => {
+  it('returns empty when workspace is not wired', async () => {
+    const { createVaultFilePort } = await import('./obsidian-adapters');
+    const { TFile, TFolder } = await import('obsidian');
+    const vault = new FakeVault(TFile, TFolder);
+    const port = createVaultFilePort({
+      vault: vault as never,
+      state: noopState as never,
+    });
+
+    expect(await port.openBufferStates('file-1')).toEqual([]);
+  });
+
+  it('reports a dirty open markdown buffer for the owned path', async () => {
+    const { createVaultFilePort } = await import('./obsidian-adapters');
+    const { TFile, TFolder } = await import('obsidian');
+    const vault = new FakeVault(TFile, TFolder);
+    const state = {
+      ...noopState,
+      pathForFileId: (fileId: string) =>
+        fileId === 'file-1' ? 'Notes/a.md' : null,
+      baseHashFor: (fileId: string) =>
+        fileId === 'file-1' ? 'base-hash' : undefined,
+    };
+    const leaf = {
+      view: {
+        file: { path: 'Notes/a.md' },
+        getViewData: () => 'UNSAVED\n',
+      },
+    };
+    const port = createVaultFilePort({
+      vault: vault as never,
+      state: state as never,
+      workspace: {
+        getLeavesOfType: (type: string) => (type === 'markdown' ? [leaf] : []),
+      },
+      hashContent: async (content: string) => `hash:${content}`,
+    });
+
+    expect(await port.openBufferStates('file-1')).toEqual([
+      { baseHash: 'base-hash', currentHash: 'hash:UNSAVED\n' },
+    ]);
+    expect(await port.openBufferStates('other')).toEqual([]);
   });
 });
 

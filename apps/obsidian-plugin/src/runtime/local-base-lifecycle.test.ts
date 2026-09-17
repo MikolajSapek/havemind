@@ -79,4 +79,48 @@ describe('healStaleBasesAfterLocalPush', () => {
     expect(healed).toBe(0);
     expect(store.bases.get('file-1')).toBe('old-base');
   });
+
+  it('does not advance base when disk no longer matches the mapping hash', async () => {
+    const store = new FakeHealStore();
+    store.bases.set('file-1', 'old-base');
+    store.authored.add('rev-pushed');
+
+    const healed = await healStaleBasesAfterLocalPush(
+      store,
+      [
+        {
+          fileId: 'file-1',
+          contentHash: 'new-content',
+          content: 'hello',
+        },
+      ],
+      () => 'rev-pushed',
+      async () => 'disk-diverged',
+    );
+
+    expect(healed).toBe(0);
+    expect(store.bases.get('file-1')).toBe('old-base');
+  });
+
+  it('advances base when disk hash matches the mapping', async () => {
+    const store = new FakeHealStore();
+    store.bases.set('file-1', 'old-base');
+    store.authored.add('rev-pushed');
+
+    const healed = await healStaleBasesAfterLocalPush(
+      store,
+      [
+        {
+          fileId: 'file-1',
+          contentHash: 'new-content',
+          content: 'hello',
+        },
+      ],
+      () => 'rev-pushed',
+      async () => 'new-content',
+    );
+
+    expect(healed).toBe(1);
+    expect(store.bases.get('file-1')).toBe('new-content');
+  });
 });

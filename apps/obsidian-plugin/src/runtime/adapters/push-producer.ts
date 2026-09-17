@@ -10,7 +10,7 @@
 
 import { Notice, type Plugin, type TFile } from 'obsidian';
 
-import { isSyncableConfigPath } from '@havemind/protocol';
+import { hashBlob, hashPlaintext, isSyncableConfigPath } from '@havemind/protocol';
 import { RevisionPayloadTooLargeError } from '@havemind/sync-core';
 
 import type { ActivityKind } from '../../activity/activity';
@@ -456,6 +456,15 @@ export function startPushProducer(
           content: mapping.contentKind === 'binary' ? null : mapping.content,
         })),
         (fileId) => heads.get(fileId) ?? null,
+        async (fileId) => {
+          const mapping = mappings.find((entry) => entry.fileId === fileId);
+          if (mapping === undefined) return null;
+          if (!(await snapshot.exists(mapping.path))) return null;
+          if (mapping.contentKind === 'binary') {
+            return hashBlob(await snapshot.readBinary(mapping.path));
+          }
+          return hashPlaintext(await snapshot.readText(mapping.path));
+        },
       );
     })(),
   );

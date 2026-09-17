@@ -62,7 +62,7 @@ export class ParentFolderOccupiedError extends Error {
 
 export interface VaultFilePort {
   /** Open editor buffer states for the file, or an empty list if none open. */
-  openBufferStates(fileId: string): readonly OpenBuffer[];
+  openBufferStates(fileId: string): Promise<readonly OpenBuffer[]>;
   /** The fileId of the live file currently at `path`, or null if none. */
   fileIdAtPath(path: string): string | null;
   /** The current on-disk content at `path`, or null if no file exists there. */
@@ -529,6 +529,11 @@ export class VaultApplyAdapter implements VaultApplyPort {
     // rule-3 overwrite guard consume it.
     const onDisk = await this.files.readByPath(decoded.path);
 
+    // Set when bootstrap retires a vacant placeholder or an unchanged stale
+    // local fileId: the overwrite guard must then take the server head even if
+    // on-disk prose is non-empty (it matched the old base, not the new head).
+    let bootstrapTakeServerHead = false;
+
     const owner = this.files.fileIdAtPath(decoded.path);
     if (owner !== null && owner !== fileId) {
       const bootstrapVacant =
@@ -546,6 +551,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
         await this.producerSync?.onRemoteDelete({ fileId: owner, path: decoded.path });
         await this.files.forgetBaseHash(owner);
         await this.files.forgetBaseContent(owner);
+        bootstrapTakeServerHead = true;
       } else if (onDisk !== null && contentMatches(onDisk, text)) {
         const contentHash = await this.hashContent(text);
         // The path is switching from the superseded local fileId (`owner`) to
@@ -645,10 +651,13 @@ export class VaultApplyAdapter implements VaultApplyPort {
         return 'noop';
       }
       const base = this.files.baseHashFor(fileId);
-      // Join/bootstrap of a phone that already holds files: empty placeholders
-      // and untracked local copies take the current server head instead of
-      // minting a conflict per note.
-      if (origin === 'bootstrap' && isBootstrapReplaceable(onDisk, base)) {
+      // Join/bootstrap: vacant placeholders take the server head. Divergent
+      // untracked copies (copied vault with local edits) conflict instead.
+      // Stale-fileId retirement above also forces the server head.
+      if (
+        origin === 'bootstrap' &&
+        (bootstrapTakeServerHead || isBootstrapReplaceable(onDisk, base))
+      ) {
         // Fall through to the write below.
       } else {
       const onDiskHash = await this.hashContent(onDisk);
@@ -714,7 +723,8 @@ export class VaultApplyAdapter implements VaultApplyPort {
       const preWriteBase = this.files.baseHashFor(fileId);
       if (
         origin === 'bootstrap' &&
-        isBootstrapReplaceable(preWriteOnDisk, preWriteBase)
+        (bootstrapTakeServerHead ||
+          isBootstrapReplaceable(preWriteOnDisk, preWriteBase))
       ) {
         // Join already decided to take the server head; do not re-conflict here.
       } else {
@@ -1195,11 +1205,12 @@ function isVacantMarkdown(text: string): boolean {
 }
 
 /**
- * During the one-time join catch-up, a local file with no Havemind base is an
- * untracked copy (iCloud, a copied vault, or an empty note the phone created
- * when the user opened it). Taking the server head is the join contract;
- * a later live edit with a recorded base still conflicts as before.
+ * During the one-time join catch-up, only vacant placeholders (empty phone
+ * notes, whitespace-only stubs) may take the server head in place. A divergent
+ * untracked copy from a USB/Dropbox/iCloud vault still has real local prose —
+ * overwriting it silently wiped second-PC edits; those go to Conflicts instead.
+ * Matching content short-circuits earlier via `contentMatches` (noop).
  */
-function isBootstrapReplaceable(onDisk: string, base: string | null): boolean {
-  return base === null || isVacantMarkdown(onDisk);
+function isBootstrapReplaceable(onDisk: string, _base: string | null): boolean {
+  return isVacantMarkdown(onDisk);
 }

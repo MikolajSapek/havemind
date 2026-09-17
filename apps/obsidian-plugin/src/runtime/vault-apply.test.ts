@@ -73,8 +73,8 @@ class FakeFiles implements VaultFilePort {
   /** Paths whose write throws ParentFolderOccupiedError (simulated occupancy). */
   parentFolderOccupied = new Set<string>();
 
-  openBufferStates(fileId: string): readonly OpenBuffer[] {
-    return this.buffers.get(fileId) ?? [];
+  openBufferStates(fileId: string): Promise<readonly OpenBuffer[]> {
+    return Promise.resolve(this.buffers.get(fileId) ?? []);
   }
 
   fileIdAtPath(path: string): string | null {
@@ -420,12 +420,26 @@ describe('VaultApplyAdapter', () => {
       expect(files.conflicts).toEqual([]);
     });
 
-    it('bootstrap: takes the server head over an untracked local copy', async () => {
-      // A phone that already holds the vault (iCloud / copied files) has no
-      // Havemind mapping. Join materialises the current server version rather
-      // than dumping every file into Havemind Conflicts.
+    it('bootstrap: conflicts on a divergent untracked local copy', async () => {
+      // A second PC (or phone) that joined from a USB/Dropbox/iCloud copy can
+      // hold real local prose with no Havemind base. Taking the server head
+      // silently used to wipe those edits; preserve both in Conflicts instead.
+      // Vacant placeholders still take the server head (see next test).
       const { adapter, files } = build(() => content('Notes/a.md', 'SERVER\n'));
       files.onDisk.set('Notes/a.md', 'STALE-COPY\n');
+
+      const outcome = await adapter.applyRemote(event('rev-9', 'file-1'), {
+        bootstrap: true,
+      });
+
+      expect(outcome).toBe('conflict');
+      expect(files.writes).toEqual([]);
+      expect(files.conflicts).toHaveLength(1);
+    });
+
+    it('bootstrap: takes the server head over a vacant untracked placeholder', async () => {
+      const { adapter, files } = build(() => content('Notes/a.md', 'SERVER\n'));
+      files.onDisk.set('Notes/a.md', '\n');
 
       const outcome = await adapter.applyRemote(event('rev-9', 'file-1'), {
         bootstrap: true,

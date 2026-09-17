@@ -119,6 +119,12 @@ export async function healStaleBasesAfterLocalPush(
   store: LocalBaseHealStore,
   heals: readonly StaleLocalBaseHeal[],
   headFor: (fileId: string) => string | null,
+  /**
+   * When provided, heal only if the live disk hash still equals the mapping
+   * hash. Without this, a mapping ahead of a later local edit (or a torn write)
+   * would claim the base has converged while disk still diverges.
+   */
+  diskContentHashFor?: (fileId: string) => Promise<string | null>,
 ): Promise<number> {
   let healed = 0;
   for (const heal of heals) {
@@ -126,6 +132,10 @@ export async function healStaleBasesAfterLocalPush(
     if (head === null || !(await store.isLocallyAuthored(head))) continue;
     const base = store.baseHashFor(heal.fileId);
     if (base === heal.contentHash) continue;
+    if (diskContentHashFor !== undefined) {
+      const diskHash = await diskContentHashFor(heal.fileId);
+      if (diskHash !== heal.contentHash) continue;
+    }
     await store.recordBaseHash(heal.fileId, heal.contentHash);
     if (heal.content !== null) {
       await store.recordBaseContent(heal.fileId, heal.content);

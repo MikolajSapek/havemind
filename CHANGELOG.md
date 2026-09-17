@@ -5,6 +5,19 @@ All notable changes to this project are documented here. The format is based on
 follows independent [Semantic Versioning](https://semver.org) for the plugin
 and the server.
 
+## [1.4.23], 2026-09-17
+
+### Fixed
+
+- **Joining from a copied vault no longer silently overwrites local edits.**
+  Bootstrap still replaces empty placeholders, but divergent untracked notes
+  become Havemind Conflicts instead of taking the server head in place.
+- **Connect heal no longer advances the synced base when disk has drifted.**
+  The mapping hash must still match on-disk content before the base moves.
+- **Open markdown editors are protected from silent peer overwrites.** Dirty
+  buffers on desktop (and any device with a workspace) defer or conflict
+  instead of applying on top of unsaved local text.
+
 ## [1.4.22], 2026-09-16
 
 ### Fixed

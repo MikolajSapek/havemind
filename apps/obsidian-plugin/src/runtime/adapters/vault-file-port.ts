@@ -8,7 +8,7 @@
  * cycle in permanent backoff.
  */
 
-import { TFolder, type TFile, type Vault } from 'obsidian';
+import { TFolder, type TFile, type Vault, type Workspace } from 'obsidian';
 
 import { canonicalizeMarkdown, isSyncableConfigPath } from '@havemind/protocol';
 
@@ -41,6 +41,13 @@ export interface VaultFilePortOptions {
    * tests that assert disk state only.
    */
   readonly configApply?: ConfigApplyReloader;
+  /**
+   * When both are set, open markdown editor buffers are reported so the sync
+   * runner can defer/conflict instead of silently overwriting unsaved edits.
+   * Tests that omit them keep the historical empty-buffer default.
+   */
+  readonly workspace?: Pick<Workspace, 'getLeavesOfType'>;
+  readonly hashContent?: (content: string) => Promise<string>;
 }
 
 /**
@@ -173,13 +180,37 @@ async function ensureParentFolders(
 }
 
 export function createVaultFilePort(options: VaultFilePortOptions): VaultFilePort {
-  const { vault, state, configApply } = options;
+  const { vault, state, configApply, workspace, hashContent } = options;
   return {
-    openBufferStates(): readonly OpenBuffer[] {
-      // Buffer divergence is resolved from the editor layer; the desktop shell
-      // wires live buffers in a later slice. Until then no buffer is reported,
-      // which is the safe default (clean → apply).
-      return [];
+    async openBufferStates(fileId) {
+      // Without a workspace (unit tests, headless) there are no live editors.
+      if (workspace === undefined || hashContent === undefined) {
+        return [];
+      }
+      const path = state.pathForFileId(fileId);
+      if (path === null) {
+        return [];
+      }
+      const baseHash = state.baseHashFor(fileId);
+      const buffers: OpenBuffer[] = [];
+      for (const leaf of workspace.getLeavesOfType('markdown')) {
+        // Duck-type: production leaves are MarkdownView; headless mocks expose
+        // the same `file` + `getViewData` surface without the class export.
+        if (!isMarkdownEditorView(leaf.view)) {
+          continue;
+        }
+        const editor = leaf.view;
+        const file = editor.file;
+        if (file === null || file.path !== path) {
+          continue;
+        }
+        // `hashPlaintext` (the production hasher) already canonicalises; pass
+        // the raw editor bytes so dirty vs base compares on equal terms with
+        // disk / push.
+        const currentHash = await hashContent(editor.getViewData());
+        buffers.push({ baseHash, currentHash });
+      }
+      return buffers;
     },
     fileIdAtPath(path) {
       // The single shared ownership truth: a path Havemind owns (authored here or
@@ -335,4 +366,18 @@ export function createVaultFilePort(options: VaultFilePortOptions): VaultFilePor
     recordPathOwner: (fileId, path) => state.recordPathOwner(fileId, path),
     forgetPath: (path) => state.forgetPath(path),
   };
+}
+
+/** Duck-type for markdown editor views when `instanceof MarkdownView` is unavailable. */
+function isMarkdownEditorView(
+  view: unknown,
+): view is { file: { path: string } | null; getViewData(): string } {
+  if (typeof view !== 'object' || view === null) {
+    return false;
+  }
+  const candidate = view as {
+    file?: unknown;
+    getViewData?: unknown;
+  };
+  return typeof candidate.getViewData === 'function' && 'file' in candidate;
 }
