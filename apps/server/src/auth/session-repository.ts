@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 
 import type Database from 'better-sqlite3';
 
+import { slideFamilyExpiry } from './sliding-family-expiry.js';
+
 import {
   generateAccessToken,
   hashAccessToken,
@@ -702,6 +704,15 @@ export class SessionRepository {
     if (!Number.isSafeInteger(nextGeneration)) {
       throw new SessionRepositoryError('REPOSITORY_INTEGRITY');
     }
+    // A successful rotation is proof the device is live (only it holds a valid,
+    // unconsumed refresh token), so the family's window slides forward from now.
+    // Without this the window was fixed at pairing and a device syncing every
+    // few minutes was still cut off after 30 days, mid-session, with every later
+    // refresh answering 401. Slid BEFORE the successor is written so the new
+    // token inherits the extended expiry rather than the old one; an idle device
+    // rotates nothing and therefore still ages out unchanged.
+    slideFamilyExpiry(this.#database, row.familyId, now);
+    const familyExpiresAt = this.#familyExpiry(row.familyId) ?? row.familyExpiresAt;
     this.#database
       .prepare(
         `INSERT INTO refresh_tokens (
@@ -715,7 +726,7 @@ export class SessionRepository {
         nextGeneration,
         prepared.successorTokenHash,
         now.toISOString(),
-        row.familyExpiresAt,
+        familyExpiresAt,
       );
     const advanced = this.#database
       .prepare(
@@ -732,7 +743,7 @@ export class SessionRepository {
         row.userId,
         row.deviceId,
         now,
-        row.familyExpiresAt,
+        familyExpiresAt,
       ),
       familyId: row.familyId,
       generation: nextGeneration,
@@ -754,6 +765,14 @@ export class SessionRepository {
         )
         .get(familyId, generation, tokenHash) !== undefined
     );
+  }
+
+  /** The family's current expiry, after any slide in this transaction. */
+  #familyExpiry(familyId: string): string | undefined {
+    const row = this.#database
+      .prepare(`SELECT expires_at AS at FROM refresh_token_families WHERE id = ?`)
+      .get(familyId) as { at: string } | undefined;
+    return row?.at;
   }
 
   #markReuse(familyId: string, now: string): void {
