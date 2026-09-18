@@ -5,6 +5,24 @@ All notable changes to this project are documented here. The format is based on
 follows independent [Semantic Versioning](https://semver.org) for the plugin
 and the server.
 
+## [1.4.26], 2026-09-18
+
+### Changed
+
+- **One file registry replaces the two stores that kept the same truth.** The
+  push producer held `mappings` + `heads`; the apply side held `pathOwners`,
+  `baseHashes` and `baseContents`, in a different blob behind a different class,
+  with nothing structural keeping them in agreement. `vault-apply.ts` alone made
+  42 writes to one side against 20 paired calls into the other, so correctness
+  rested on a human noticing the pairing at every branch, and two "order
+  matters" comments there mark production bugs of exactly that class. The merge
+  ancestor and its hash are now two fields of one record, set in one assignment,
+  so the disagreement that made the three-way merge unsatisfiable (and turned
+  every divergence into a conflict copy) is no longer representable.
+
+The on-disk format is unchanged, so downgrading to an earlier build keeps
+working and no migration runs on any vault.
+
 ## [1.4.25], 2026-09-17
 
 ### Fixed
