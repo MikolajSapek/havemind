@@ -462,3 +462,63 @@ describe('rebaseCanonicalizedHashes', () => {
     expect(result.baseHashesRebased).toBe(0);
   });
 });
+
+/**
+ * The rebase must keep `baseHashes` and `baseContents` in agreement.
+ *
+ * They are two halves of ONE fact: the merge ancestor and its hash.
+ * `tryMergeApply` refuses to merge unless `hashContent(baseContents[fileId])`
+ * equals `baseHashes[fileId]` (vault-apply.ts:832), failing safe to a conflict
+ * copy. If the rebase moved the hash and left the ancestor behind, the
+ * three-way merge would be disabled permanently for every rebased file and
+ * every later divergence would become a conflict copy.
+ *
+ * It does not, because both sides are compared in canonical form: rebasing to
+ * `hash(canonicalize(disk))` lands on the same value the stored ancestor
+ * already hashes to, whatever trailing-newline or BOM noise it carried. This
+ * test pins that, because the invariant is not obvious from either file alone
+ * and `baseContents` is never written by the rebase.
+ */
+describe('rebaseCanonicalizedHashes, base content', () => {
+  it('keeps the stored ancestor hashing to the rebased base hash', async () => {
+    const fileId = 'file-1';
+    const path = 'Notes/a.md';
+    // Disk holds the canonical form; the stored state predates canonicalisation,
+    // so both its hash and its ancestor text carry a trailing blank line.
+    const onDisk = 'line one\n';
+    const legacyText = 'line one\n\n';
+    const port = dataPort({
+      [PERSIST_KEY]: {
+        version: 1,
+        cursor: 5,
+        outbox: [],
+        locallyAuthored: [],
+        deferred: [],
+        pathOwners: { [path]: fileId },
+        baseHashes: { [fileId]: await sha256Hex(legacyText) },
+        baseContents: { [fileId]: legacyText },
+      },
+    });
+
+    await rebaseCanonicalizedHashes({
+      data: port,
+      vault: new FakeVault(new Map([[path, onDisk]])),
+      hash: (content: string) => hashPlaintext(content),
+      canonicalize: canonicalizeMarkdown,
+      keys: keys(),
+    });
+
+    const persisted = port.current()[PERSIST_KEY] as {
+      baseHashes: Record<string, string>;
+      baseContents: Record<string, string>;
+    };
+    const ancestor = persisted.baseContents[fileId];
+    expect(ancestor).toBeDefined();
+    // Did the rebase actually move the hash? If not, the test proves nothing.
+    expect(persisted.baseHashes[fileId]).toBe(await hashPlaintext(onDisk));
+    // The merge precondition: ancestor must hash to the recorded base.
+    expect(await hashPlaintext(ancestor as string)).toBe(
+      persisted.baseHashes[fileId],
+    );
+  });
+});

@@ -83,13 +83,6 @@ export interface LocalMaterialization {
   readonly content: string | null;
   /** The prior path on a rename, so its stale ownership can be forgotten. */
   readonly previousPath: string | null;
-  /**
-   * The canonical text this commit replaced, when the producer knew it (its
-   * prior mapping content). Diagnostic only: the base deliberately does NOT
-   * advance on a local write, because a local write cannot prove the peer holds
-   * the same content (see `applyLocalMaterialization`).
-   */
-  readonly replacedContent?: string | null;
 }
 
 /** A file this device deleted, so its shared ownership+base can be forgotten. */
@@ -161,8 +154,6 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
   async commitLocalChange(commit: LocalChangeCommit): Promise<string | null> {
     const state = await this.options.store.load();
     const { operation } = commit;
-    // Captured BEFORE the commit is saved: the text this edit replaces.
-    const previousContent = this.previousContentFor(state, operation);
     const head = state.heads[operation.fileId];
     const kind = operation.kind;
     const envelopeOperation = resolveOperation(kind, head);
@@ -228,7 +219,7 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
           isDelete: kind === 'delete',
         }),
       );
-      await this.seedSharedState(operation, previousContent);
+      await this.seedSharedState(operation);
       // The real, server-facing revision id, never `operation.operationId`
       // (a client-only idempotency key). Callers (the Activity feed) must
       // record this id so a local push and its later remote echo collapse by
@@ -244,7 +235,7 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
         isDelete: true,
       }),
     );
-    await this.seedSharedState(operation, previousContent);
+    await this.seedSharedState(operation);
     return null;
   }
 
@@ -256,13 +247,6 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
    */
   private async seedSharedState(
     operation: LocalChangeCommit['operation'],
-    /**
-     * The producer's mapping content for this file as it stood BEFORE this
-     * commit, i.e. the text the edit replaced. It is what lets the base advance
-     * when this device was in sync at the moment it typed (see
-     * `applyLocalMaterialization`); null/absent simply means it cannot.
-     */
-    replacedContent?: string | null,
   ): Promise<void> {
     if (operation.kind === 'delete') {
       await this.options.onLocalForgotten?.({
@@ -280,25 +264,9 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
       // (base64 in `content`) never merges, so it passes null.
       content: operation.contentKind === 'binary' ? null : operation.content,
       previousPath: operation.previousPath,
-      replacedContent:
-        operation.contentKind === 'binary' ? null : replacedContent ?? null,
     });
   }
 
-  /**
-   * The producer's last known text for the file this operation touches, read
-   * from the pre-commit state. A binary mapping keeps no body, so it yields null.
-   */
-  private previousContentFor(
-    state: ProducerState,
-    operation: LocalChangeCommit['operation'],
-  ): string | null {
-    const mapping = state.mappings.find(
-      (entry) => entry.fileId === operation.fileId,
-    );
-    if (mapping === undefined || mapping.contentKind === 'binary') return null;
-    return mapping.content;
-  }
 
   /**
    * Adopts, without enqueuing, the producer mapping+head for a file the apply

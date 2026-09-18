@@ -268,8 +268,6 @@ describe('OutboxLocalChangeRepository', () => {
           contentHash: 'hash-1',
           content: 'Hello\n',
           previousPath: null,
-          // First authorship: nothing was replaced, so the base seeds outright.
-          replacedContent: null,
         },
       ]);
       expect(forgotten).toEqual([]);
@@ -312,9 +310,6 @@ describe('OutboxLocalChangeRepository', () => {
         contentHash: 'hash-1',
         content: 'Hello\n',
         previousPath: 'Notes/a.md',
-        // The producer already mapped this file, so the text the commit replaces
-        // is its prior mapping content (a rename carries the body unchanged).
-        replacedContent: 'Hello\n',
       });
     });
 

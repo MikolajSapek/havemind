@@ -51,13 +51,6 @@ export interface LocalMaterializationInput {
   readonly content: string | null;
   /** The prior path on a rename, so its stale ownership can be forgotten. */
   readonly previousPath: string | null;
-  /**
-   * The canonical text this edit replaced, when the producer knew it. Carried
-   * for diagnostics and future use only: it deliberately does NOT advance the
-   * base (see `applyLocalMaterialization` for why a local write can never prove
-   * both peers agree).
-   */
-  readonly replacedContent?: string | null;
 }
 
 export interface LocalForgetInput {
