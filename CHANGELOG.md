@@ -5,6 +5,20 @@ All notable changes to this project are documented here. The format is based on
 follows independent [Semantic Versioning](https://semver.org) for the plugin
 and the server.
 
+## [1.4.27], 2026-09-18
+
+### Fixed
+
+- **A token failure says why instead of vanishing.** The connection handle
+  wrapped access-token minting in a bare `catch { return null }`. When minting
+  failed, the sync loop stopped issuing requests entirely while the panel kept
+  showing the last successful cycle, so a desktop sat at "Connected, synced"
+  with a growing outbox and the server logged no traffic at all for hours.
+  Nothing anywhere recorded the reason, because it was discarded at the only
+  point that ever saw it. Callers still receive null (an ordinary offline
+  condition they handle), but every failure is now reported with its reason and
+  the last one is retained for the panel to read.
+
 ## [1.4.26], 2026-09-18
 
 ### Changed

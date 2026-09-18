@@ -30,6 +30,7 @@ import {
 } from './plugin-data-ports';
 import { gateLocalSyncState } from './local-state-gate';
 import { startPushProducer, createPushProducerRepository, type PushProducerHandle } from './push-producer';
+import { createDiagnosticAccessToken } from './access-token-diagnostics';
 import { createRequestUrlFn } from './request-url';
 import type { RuntimeHooks } from './runtime-hooks';
 import { buildSyncController } from './sync-controller';
@@ -265,13 +266,13 @@ export async function startSyncLoop(
     ...(selfMembership === undefined ? {} : { selfMembership }),
     apiBaseUrl: connection.apiBaseUrl,
     vaultId: connection.vaultId,
-    getAccessToken: async () => {
-      try {
-        return await accessProvider.getAccessToken();
-      } catch {
-        return null;
-      }
-    },
+    // A failure still yields null (callers treat that as "offline for now"),
+    // but the reason is reported and remembered instead of discarded. Swallowing
+    // it produced a device that issued no requests while the panel still showed
+    // the last successful cycle, with nothing anywhere saying why.
+    getAccessToken: createDiagnosticAccessToken(() =>
+      accessProvider.getAccessToken(),
+    ),
     // The live durable state, so the plugin can read the send-queue (SND-01) and
     // drive the auto-repair sweep (MRG-05) off the same store the runner uses.
     state,

@@ -17,7 +17,7 @@ you own passes the changes around and remembers who wrote what.
 Built for people. If you also run Claude, MCP or another local agent in that
 vault, its edits land in the same history.
 
-**Version 1.4.26, desktop and mobile.** A two-week pilot on two devices lost no
+**Version 1.4.27, desktop and mobile.** A two-week pilot on two devices lost no
 data, including through three real incidents. Repeated edits between two devices
 now converge in place instead of piling up conflict copies, the server keeps its
 event log contiguous so a device never stops receiving changes, a device whose
