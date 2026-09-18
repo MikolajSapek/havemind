@@ -278,3 +278,69 @@ describe('FileRegistry', () => {
     });
   });
 });
+
+/**
+ * `patch` exists for the migration period only.
+ *
+ * `vault-apply.ts` still writes the agreed state through six separate methods
+ * (record/forget × path, hash, content), so during the move onto this registry
+ * a caller sometimes has only ONE of those fields in hand. `patch` lets that
+ * caller set one field without blanking the others, while still keeping every
+ * field on one record. Once all 42 call sites speak in events, this goes away.
+ */
+describe('FileRegistry.patch', () => {
+  it('creates a record from a single field', () => {
+    const files = registry();
+    files.patch(FILE_A, { path: PATH_A, collisionKey: 'notes/a.md' });
+    expect(files.byPath(PATH_A)?.fileId).toBe(FILE_A);
+  });
+
+  it('changes one field and leaves the rest alone', () => {
+    const files = registry();
+    files.agreedWithPeer({
+      fileId: FILE_A,
+      path: PATH_A,
+      collisionKey: 'notes/a.md',
+      content: 'V1\n',
+      contentHash: 'h1',
+      headRevisionId: 'rev-1',
+    });
+
+    files.patch(FILE_A, { agreedHash: 'h2' });
+
+    const record = files.byFileId(FILE_A);
+    expect(record?.agreedHash).toBe('h2');
+    expect(record?.agreedContent).toBe('V1\n');
+    expect(record?.headRevisionId).toBe('rev-1');
+    expect(record?.path).toBe(PATH_A);
+  });
+
+  it('can clear a field explicitly', () => {
+    const files = registry();
+    files.agreedWithPeer({
+      fileId: FILE_A,
+      path: PATH_A,
+      collisionKey: 'notes/a.md',
+      content: 'V1\n',
+      contentHash: 'h1',
+      headRevisionId: 'rev-1',
+    });
+
+    files.patch(FILE_A, { agreedContent: null, agreedHash: null });
+
+    const record = files.byFileId(FILE_A);
+    expect(record?.agreedContent).toBeNull();
+    expect(record?.agreedHash).toBeNull();
+    // The file itself still exists: clearing the agreed state is not a delete.
+    expect(files.byPath(PATH_A)?.fileId).toBe(FILE_A);
+  });
+
+  it('moves the indexes when the path changes', () => {
+    const files = registry();
+    files.patch(FILE_A, { path: PATH_A, collisionKey: 'notes/a.md' });
+    files.patch(FILE_A, { path: PATH_B, collisionKey: 'notes/b.md' });
+
+    expect(files.byPath(PATH_A)).toBeUndefined();
+    expect(files.byPath(PATH_B)?.fileId).toBe(FILE_A);
+  });
+});

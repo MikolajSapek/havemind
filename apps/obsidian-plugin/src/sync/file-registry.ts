@@ -140,6 +140,53 @@ export class FileRegistry {
     });
   }
 
+  /**
+   * Sets individual fields of a record, leaving the others untouched.
+   *
+   * MIGRATION ONLY. `vault-apply.ts` still writes the agreed state through six
+   * separate methods (record/forget over path, hash and content), so a caller
+   * sometimes holds just one of those fields. `patch` lets it write that field
+   * without blanking its partners, while keeping every field on ONE record, so
+   * the drift the six-method shape allowed is impossible even mid-migration.
+   * Once the call sites speak in events, this method goes.
+   */
+  patch(
+    fileId: string,
+    changes: {
+      readonly path?: string;
+      readonly collisionKey?: string;
+      readonly agreedContent?: string | null;
+      readonly agreedHash?: string | null;
+      readonly headRevisionId?: string | null;
+    },
+  ): void {
+    const existing = this.#byFileId.get(fileId);
+    const path = changes.path ?? existing?.path ?? '';
+    this.#replace({
+      fileId,
+      path,
+      collisionKey:
+        changes.collisionKey ?? (changes.path !== undefined
+          ? changes.path.normalize('NFC').toLowerCase()
+          : (existing?.collisionKey ?? path.normalize('NFC').toLowerCase())),
+      localContent: existing?.localContent ?? null,
+      localHash: existing?.localHash ?? '',
+      agreedContent:
+        changes.agreedContent !== undefined
+          ? changes.agreedContent
+          : (existing?.agreedContent ?? null),
+      agreedHash:
+        changes.agreedHash !== undefined
+          ? changes.agreedHash
+          : (existing?.agreedHash ?? null),
+      headRevisionId:
+        changes.headRevisionId !== undefined
+          ? changes.headRevisionId
+          : (existing?.headRevisionId ?? null),
+      contentKind: existing?.contentKind ?? 'markdown',
+    });
+  }
+
   /** The file is gone. Every index drops with the record, in one step. */
   removed(fileId: string): void {
     const existing = this.#byFileId.get(fileId);
