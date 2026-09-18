@@ -20,6 +20,11 @@ import type {
   RemoteEvent,
   SyncStatePort,
 } from '../sync/sync-runner';
+import type { FileRegistry } from '../sync/file-registry';
+import {
+  registryFromPersistedState,
+  registryToPersistedState,
+} from '../sync/registry-persistence';
 
 /** The subset of an envelope the transport needs to reconstruct a push body. */
 export interface TransportEnvelope {
@@ -290,6 +295,11 @@ function base64ByteLength(base64: string): number {
   if (base64.endsWith('==')) padding = 2;
   else if (base64.endsWith('=')) padding = 1;
   return Math.floor((length * 3) / 4) - padding;
+}
+
+/** Canonical, case-folded path, matching how the registry indexes a slot. */
+function collisionKeyFor(path: string): string {
+  return path.normalize('NFC').toLowerCase();
 }
 
 export class DurableSyncState implements SyncStatePort {
@@ -567,22 +577,18 @@ export class DurableSyncState implements SyncStatePort {
   }
 
   async recordPathOwner(fileId: string, path: string): Promise<void> {
-    return this.runExclusive(async () => {
-      const state = await this.ensureLoaded();
-      await this.mutate({
-        ...state,
-        pathOwners: { ...state.pathOwners, [path]: fileId },
-      });
+    return this.mutateFiles((files) => {
+      files.patch(fileId, { path, collisionKey: collisionKeyFor(path) });
     });
   }
 
   async forgetPath(path: string): Promise<void> {
-    return this.runExclusive(async () => {
-      const state = await this.ensureLoaded();
-      if (!(path in state.pathOwners)) return;
-      const pathOwners = { ...state.pathOwners };
-      delete pathOwners[path];
-      await this.mutate({ ...state, pathOwners });
+    return this.mutateFiles((files) => {
+      const record = files.byPath(path);
+      if (record === undefined) return;
+      // Ownership only: the base is keyed by fileId and must survive a rename,
+      // or the file loses its merge ancestor and the next peer edit conflicts.
+      files.patch(record.fileId, { path: '', collisionKey: `\u0000${record.fileId}` });
     });
   }
 
@@ -597,22 +603,15 @@ export class DurableSyncState implements SyncStatePort {
   }
 
   async recordBaseHash(fileId: string, hash: string): Promise<void> {
-    return this.runExclusive(async () => {
-      const state = await this.ensureLoaded();
-      await this.mutate({
-        ...state,
-        baseHashes: { ...state.baseHashes, [fileId]: hash },
-      });
+    return this.mutateFiles((files) => {
+      files.patch(fileId, { agreedHash: hash });
     });
   }
 
   async forgetBaseHash(fileId: string): Promise<void> {
-    return this.runExclusive(async () => {
-      const state = await this.ensureLoaded();
-      if (!(fileId in state.baseHashes)) return;
-      const baseHashes = { ...state.baseHashes };
-      delete baseHashes[fileId];
-      await this.mutate({ ...state, baseHashes });
+    return this.mutateFiles((files) => {
+      if (files.byFileId(fileId) === undefined) return;
+      files.patch(fileId, { agreedHash: null });
     });
   }
 
@@ -625,22 +624,33 @@ export class DurableSyncState implements SyncStatePort {
   }
 
   async recordBaseContent(fileId: string, content: string): Promise<void> {
-    return this.runExclusive(async () => {
-      const state = await this.ensureLoaded();
-      await this.mutate({
-        ...state,
-        baseContents: { ...state.baseContents, [fileId]: content },
-      });
+    return this.mutateFiles((files) => {
+      files.patch(fileId, { agreedContent: content });
     });
   }
 
   async forgetBaseContent(fileId: string): Promise<void> {
+    return this.mutateFiles((files) => {
+      if (files.byFileId(fileId) === undefined) return;
+      files.patch(fileId, { agreedContent: null });
+    });
+  }
+
+  /**
+   * Runs one change against the file registry and persists the result.
+   *
+   * Every file-state write goes through here, so the three persisted maps are
+   * always written together from ONE in-memory record. That is what makes the
+   * old drift impossible: `baseHashes[fileId]` and `baseContents[fileId]` can no
+   * longer be updated independently, because there is no longer an independent
+   * place to update them.
+   */
+  private async mutateFiles(change: (files: FileRegistry) => void): Promise<void> {
     return this.runExclusive(async () => {
       const state = await this.ensureLoaded();
-      if (!(fileId in state.baseContents)) return;
-      const baseContents = { ...state.baseContents };
-      delete baseContents[fileId];
-      await this.mutate({ ...state, baseContents });
+      const files = registryFromPersistedState(state);
+      change(files);
+      await this.mutate({ ...state, ...registryToPersistedState(files) });
     });
   }
 
