@@ -17,7 +17,7 @@
  * adapter can go, and the six methods with it.
  */
 
-import type { FileRegistry } from './file-registry';
+import type { FileContentKind, FileRegistry } from './file-registry';
 
 /** Exactly the state-owning half of `VaultFilePort`, no vault I/O. */
 export interface RegistryStatePort {
@@ -30,6 +30,26 @@ export interface RegistryStatePort {
   baseContentFor(fileId: string): string | null;
   recordBaseContent(fileId: string, content: string): Promise<void>;
   forgetBaseContent(fileId: string): Promise<void>;
+  /**
+   * A path moves from whatever file held it to `fileId`, and both peers are
+   * known to hold `content` there.
+   *
+   * This replaces the eight-call sequence the adopt branches used to need
+   * (retire the old owner's mapping, head, base hash and base content; then
+   * record the new owner's path, hash and content; then re-adopt into the
+   * producer), which carried three comments explaining why the order mattered
+   * and produced two production bugs when it was got wrong. As one event the
+   * ordering hazard cannot exist: the previous owner is retired and the new one
+   * installed in a single replace.
+   */
+  adoptPathUnderNewFile(event: {
+    readonly fileId: string;
+    readonly path: string;
+    readonly content: string | null;
+    readonly contentHash: string;
+    readonly headRevisionId: string | null;
+    readonly contentKind?: FileContentKind;
+  }): void;
 }
 
 /**
@@ -75,6 +95,19 @@ export function createRegistryStatePort(
     async forgetBaseContent(fileId) {
       if (registry.byFileId(fileId) === undefined) return;
       registry.patch(fileId, { agreedContent: null });
+    },
+    adoptPathUnderNewFile(event) {
+      registry.agreedWithPeer({
+        fileId: event.fileId,
+        path: event.path,
+        collisionKey: collisionKeyFor(event.path),
+        content: event.content,
+        contentHash: event.contentHash,
+        headRevisionId: event.headRevisionId,
+        ...(event.contentKind === undefined
+          ? {}
+          : { contentKind: event.contentKind }),
+      });
     },
   };
 }

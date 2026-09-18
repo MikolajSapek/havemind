@@ -117,3 +117,64 @@ describe('registry-backed state port', () => {
     await expect(port.forgetBaseContent('unknown')).resolves.toBeUndefined();
   });
 });
+
+/**
+ * The adopt case, as one call.
+ *
+ * When a path switches from a locally-minted fileId to the peer's, the old code
+ * needed eight ordered calls and three comments explaining why the order
+ * matters, because retiring the old owner had to happen strictly before
+ * adopting the new one or the adopt would be undone. Expressed as one event,
+ * the ordering hazard does not exist.
+ */
+describe('adoptPathUnderNewFile', () => {
+  it('retires the previous owner and installs the new one', async () => {
+    const { registry, port } = makePort();
+    await port.recordPathOwner('old-file', PATH_A);
+    await port.recordBaseHash('old-file', 'old-hash');
+    await port.recordBaseContent('old-file', 'OLD\n');
+
+    port.adoptPathUnderNewFile({
+      fileId: FILE_A,
+      path: PATH_A,
+      content: 'SHARED\n',
+      contentHash: 'shared-hash',
+      headRevisionId: 'rev-1',
+    });
+
+    expect(port.fileIdAtPath(PATH_A)).toBe(FILE_A);
+    expect(port.baseHashFor(FILE_A)).toBe('shared-hash');
+    expect(port.baseContentFor(FILE_A)).toBe('SHARED\n');
+    // No orphan left behind: the superseded fileId is gone entirely.
+    expect(registry.byFileId('old-file')).toBeUndefined();
+    expect([...registry.all()]).toHaveLength(1);
+  });
+
+  it('works when nothing owned the path before', async () => {
+    const { port } = makePort();
+    port.adoptPathUnderNewFile({
+      fileId: FILE_A,
+      path: PATH_A,
+      content: 'REMOTE\n',
+      contentHash: 'h',
+      headRevisionId: 'rev-1',
+    });
+    expect(port.fileIdAtPath(PATH_A)).toBe(FILE_A);
+    expect(port.baseContentFor(FILE_A)).toBe('REMOTE\n');
+  });
+
+  it('leaves the agreed pair consistent', async () => {
+    const { registry, port } = makePort();
+    port.adoptPathUnderNewFile({
+      fileId: FILE_A,
+      path: PATH_A,
+      content: 'SHARED\n',
+      contentHash: 'shared-hash',
+      headRevisionId: 'rev-1',
+    });
+    const record = registry.byFileId(FILE_A);
+    expect(record?.agreedContent).toBe('SHARED\n');
+    expect(record?.agreedHash).toBe('shared-hash');
+    expect(record?.headRevisionId).toBe('rev-1');
+  });
+});
