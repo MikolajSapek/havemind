@@ -5,6 +5,19 @@ All notable changes to this project are documented here. The format is based on
 follows independent [Semantic Versioning](https://semver.org) for the plugin
 and the server.
 
+## [1.4.28], 2026-09-19
+
+### Fixed
+
+- **A joining device no longer re-uploads the vault it just downloaded.**
+  Connect-time reconcile pushed every local file it had no mapping for, which on
+  a device joining a populated vault is all of them: the pilot phone sent back 31
+  notes on one join and 36 on the next, leaving each shared note under two
+  identities. Identity is now settled by content at join time, against what the
+  bootstrap has just materialised, so a file the vault already holds adopts that
+  identity and pushes nothing. Notes that genuinely exist only on the joining
+  device are still created, and steady-state reconcile is unchanged.
+
 ## [1.4.27], 2026-09-18
 
 ### Fixed
