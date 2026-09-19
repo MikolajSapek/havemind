@@ -108,6 +108,9 @@ function fakeState() {
     async runBatched<T>(body: () => Promise<T>) {
       return body();
     },
+    fileStateSnapshot() {
+      return { pathOwners: {}, baseHashes: {}, baseContents: {} };
+    },
   } as never;
 }
 

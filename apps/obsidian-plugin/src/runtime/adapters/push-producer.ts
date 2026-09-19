@@ -51,6 +51,8 @@ import {
 } from '../local-base-lifecycle';
 import { ModifyDebouncer } from '../modify-debounce';
 import { getPluginDataMutex } from '../plugin-data-mutex';
+import { registryFromPersistedState } from '../../sync/registry-persistence';
+import { serverIndexFromRegistry } from '../../sync/registry-server-index';
 import {
   failedToQueueRevisionId,
   type DurableSyncState,
@@ -479,7 +481,26 @@ export function startPushProducer(
   // (see {@link StartPushProducerOptions.skipInitialReconcile}).
   if (options?.skipInitialReconcile !== true) {
   afterChange(
-    reconcileVaultState({ observer, repository, vault: snapshot }).then(
+    reconcileVaultState({
+      observer,
+      repository,
+      vault: snapshot,
+      // What the bootstrap just materialised IS the vault's current content, so
+      // a local file matching any of it adopts that identity instead of being
+      // pushed as a second copy. Without this a joining device re-uploads every
+      // note it has just finished downloading: the pilot phone sent 31 notes
+      // back and left each one with two identities.
+      // Absent when the state cannot report a snapshot (an older or partial
+      // state port): reconcile then falls back to creating, which is exactly
+      // the previous behaviour rather than a crash on the connect path.
+      ...(typeof state.fileStateSnapshot === 'function'
+        ? {
+            serverIndex: serverIndexFromRegistry(
+              registryFromPersistedState(state.fileStateSnapshot()),
+            ),
+          }
+        : {}),
+    }).then(
       (result) => {
         if (result.skipped > 0) {
           new Notice(

@@ -24,6 +24,7 @@ import type { FileRegistry } from '../sync/file-registry';
 import {
   registryFromPersistedState,
   registryToPersistedState,
+  type PersistedFileState,
 } from '../sync/registry-persistence';
 
 /** The subset of an envelope the transport needs to reconstruct a push body. */
@@ -645,6 +646,25 @@ export class DurableSyncState implements SyncStatePort {
    * longer be updated independently, because there is no longer an independent
    * place to update them.
    */
+  /**
+   * The persisted file state as the three maps, read from the warmed cache.
+   *
+   * Used to build the join-time adoption index: what this device holds as agreed
+   * IS the vault's current content, so a local file matching any of it should
+   * adopt that identity rather than be pushed as a second copy.
+   */
+  fileStateSnapshot(): PersistedFileState {
+    const cache = this.cache;
+    if (cache === null) {
+      return { pathOwners: {}, baseHashes: {}, baseContents: {} };
+    }
+    return {
+      pathOwners: cache.pathOwners,
+      baseHashes: cache.baseHashes,
+      baseContents: cache.baseContents,
+    };
+  }
+
   private async mutateFiles(change: (files: FileRegistry) => void): Promise<void> {
     return this.runExclusive(async () => {
       const state = await this.ensureLoaded();
