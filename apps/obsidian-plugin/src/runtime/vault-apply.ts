@@ -322,6 +322,51 @@ export class VaultApplyAdapter implements VaultApplyPort {
     return classified.eligible ? classified.collisionKey : path;
   }
 
+  /**
+   * Advances the merge ancestor when the server echoes back a revision THIS
+   * device authored. The runner suppresses such an echo (it must not re-apply
+   * its own write), and the base is deliberately not advanced on a local push
+   * either, because at push time this device cannot know whether the peer is
+   * editing concurrently (see `local-base-lifecycle.ts`). That leaves the base
+   * pinned to the file's FIRST authored version forever, so every later peer
+   * edit reads as diverged and merges against a stale ancestor, or fails the
+   * ancestor precondition and becomes a conflict copy.
+   *
+   * A server echo is the one moment both sides are KNOWN to agree: the server
+   * accepted this revision, so the peer will receive exactly this content. That
+   * makes it the correct and safe place to advance the base.
+   *
+   * The recorded hash is the plaintext hash of the ON-DISK text, never
+   * `event.revision.contentHash` (an envelope hash over different bytes). Mixing
+   * those units is what made every pushed file read as permanently diverged in
+   * 1.4.22. The base advances only when the disk still matches what was pushed;
+   * a local edit that landed since is a real divergence and is left alone.
+   */
+  async acknowledgeOwnEcho(event: RemoteEvent): Promise<void> {
+    let decoded: DecodedRevisionPayload;
+    try {
+      decoded = await this.resolveRevision(event);
+    } catch {
+      // A payload this device can no longer decode is not worth failing the
+      // pull over: the echo carries no new content by definition.
+      return;
+    }
+    if (decoded.operation === 'delete') return;
+    // A binary file never merges and records no base content (MRG-01).
+    if (decoded.kind === 'binary') return;
+    const fileId = event.revision.fileId;
+    return this.lock.runExclusive(this.lockKey(decoded.path), async () => {
+      const onDisk = await this.files.readByPath(decoded.path);
+      if (onDisk === null) return;
+      // Only converge when the disk still holds what was pushed. Anything else
+      // is a local edit made since, a genuine divergence the base must not skip.
+      if (!contentMatches(onDisk, decoded.content ?? '')) return;
+      await this.files.recordPathOwner(fileId, decoded.path);
+      await this.files.recordBaseHash(fileId, await this.hashContent(onDisk));
+      await this.files.recordBaseContent(fileId, onDisk);
+    });
+  }
+
   async applyRemote(
     event: RemoteEvent,
     options?: RemoteApplyOptions,

@@ -73,6 +73,12 @@ class FakeVault implements VaultApplyPort {
   readonly appliedBootstrap: (boolean | undefined)[] = [];
   /** Outcome `applyRemote` returns per fileId; defaults to 'applied'. */
   readonly applyOutcomes = new Map<string, RemoteApplyOutcome>();
+  /** Echoes of this device's own revisions the runner handed back. */
+  readonly acknowledged: RemoteEvent[] = [];
+
+  async acknowledgeOwnEcho(event: RemoteEvent): Promise<void> {
+    this.acknowledged.push(event);
+  }
 
   async openBuffers(fileId: string): Promise<readonly OpenBuffer[]> {
     return this.buffers.get(fileId) ?? [];
@@ -723,6 +729,12 @@ describe('SyncRunner remote apply', () => {
     expect(vault.conflicts).toHaveLength(0);
     expect(result.suppressed).toBe(1);
     expect(state.cursor).toBe(1);
+    // Suppressing the echo must not mean ignoring it: the server accepting this
+    // revision is what proves both devices now hold the same text, so the echo
+    // is handed to the vault to advance the merge ancestor. Without this the
+    // base stays on the file's first authored version and every later peer edit
+    // reads as diverged (the stale-ancestor half of the 2026-09-19 storm).
+    expect(vault.acknowledged.map((e) => e.revision.revisionId)).toEqual(['rev-1']);
   });
 
   it('never overwrites a divergent open buffer: routes to conflict instead', async () => {
