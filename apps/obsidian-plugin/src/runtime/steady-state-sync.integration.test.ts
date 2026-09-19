@@ -13,6 +13,7 @@ import { describe, expect, it } from 'vitest';
 import { TFile, TFolder } from 'obsidian';
 
 import type { DecodedRevisionPayload } from '@havemind/sync-core';
+import { protectedRevisionHeaderSchema } from '@havemind/protocol';
 
 import {
   VaultChangeObserver,
@@ -26,7 +27,11 @@ import {
   forgetLocalMaterialization,
 } from './local-base-lifecycle';
 import { createRemoteApplyProducerSync } from './remote-apply-coordinator';
-import { DurableSyncState, type PersistedSyncState } from './sync-state';
+import {
+  DurableSyncState,
+  type OutboxEnvelope,
+  type PersistedSyncState,
+} from './sync-state';
 import { VaultApplyAdapter } from './vault-apply';
 import type { RemoteEvent } from '../sync/sync-runner';
 
@@ -152,6 +157,11 @@ function makeHarness() {
   } = { mappings: [], heads: {} };
 
   const outbox: string[] = [];
+  // Full pushed envelopes, so a test can assert the shape of the revision DAG
+  // (parentage) and not only the content both vaults ended up with. A fork is
+  // invisible to a content-only assertion: that is how the production fork of
+  // 2026-09-19 survived this very suite.
+  const pushed: OutboxEnvelope[] = [];
   const localActivity: LocalChangeOperation[] = [];
   let mintedFileIds = 0;
   let revisionCounter = 0;
@@ -176,6 +186,7 @@ function makeHarness() {
     },
     enqueue: async (envelope) => {
       outbox.push(envelope.revisionId);
+      pushed.push(envelope);
     },
     generateRevisionId: () => {
       const n = (revisionCounter += 1);
@@ -316,6 +327,7 @@ function makeHarness() {
     state,
     adapter,
     outbox,
+    pushed,
     localActivity,
     drainEvents,
     remoteEvent,
@@ -616,5 +628,20 @@ describe('two-person steady-state sync (integration)', () => {
     expect(b.vault.contents.get(NOTE)).toBe(MERGED);
     expect([...a.vault.contents.keys()].some((p) => p.startsWith('Havemind Conflicts/'))).toBe(false);
     expect([...b.vault.contents.keys()].some((p) => p.startsWith('Havemind Conflicts/'))).toBe(false);
+
+    // Converged content is NOT the same thing as a converged history. Each
+    // device's merge revision must descend from the peer revision it absorbed,
+    // otherwise both devices keep publishing siblings of a revision they have
+    // already incorporated and the file accumulates heads that nothing retires.
+    // On the server this reads as one file with several current heads, which is
+    // what file 6a9b8bc7 looked like after a single editing session.
+    const aMerge = protectedRevisionHeaderSchema.parse(
+      (a.pushed.at(-1) as OutboxEnvelope).header,
+    );
+    const bMerge = protectedRevisionHeaderSchema.parse(
+      (b.pushed.at(-1) as OutboxEnvelope).header,
+    );
+    expect(aMerge.parentRevisionIds).toContain(REV_B);
+    expect(bMerge.parentRevisionIds).toContain(REV_A);
   });
 });

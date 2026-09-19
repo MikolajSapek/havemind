@@ -423,6 +423,161 @@ describe('OutboxLocalChangeRepository', () => {
     });
   });
 
+  /**
+   * Regression for the fork observed in production on 2026-09-19, reconstructed
+   * from the server's revision DAG for the vault's Welcome note (server
+   * sequences 88 through 95, file 6a9b8bc7).
+   *
+   * What the server recorded:
+   *
+   *   seq 88  PC     blob 681723e4ce  parent: (seq 87)
+   *   seq 93  phone  blob 106827a729  parent: seq 88
+   *   seq 95  PC     blob 106827a729  parent: seq 88   <- same parent, same blob
+   *
+   * Two devices published the SAME content with the SAME parent under two
+   * revision ids, so the file gained a second head that nothing ever retired.
+   * By sequence 104 the branch was eight revisions deep and the note carried
+   * three conflict copies on disk.
+   *
+   * The mechanism is local: `commitLocalChange` parents a push solely on
+   * `state.heads[fileId]`, so any apply path that materialises a peer's revision
+   * WITHOUT advancing that head leaves the next local push descending from a
+   * superseded revision. The merge path in `vault-apply.ts` (`tryMergeApply`) is
+   * exactly such a path, and its comment calls the omission deliberate.
+   *
+   * These tests pin the producer-side contract the fix has to satisfy. They are
+   * written against the repository alone (no vault, no transport) because the
+   * defect lives in how a head is chosen, not in how a file is written.
+   */
+  describe('a peer revision this device absorbed must not fork the DAG', () => {
+    const SHARED_FILE = '6a9b8bc7-0000-4000-8000-000000000001';
+    // Stands in for seq 88, the last revision both devices agreed on.
+    const AGREED_HEAD = '2b509884-0000-4000-8000-000000000088';
+    // Stands in for seq 93, the peer's revision built on top of seq 88.
+    const PEER_HEAD = 'cb833a66-0000-4000-8000-000000000093';
+
+    function sharedMapping(content: string, contentHash: string) {
+      return {
+        collisionKey: 'notes/welcome.md',
+        content,
+        contentHash,
+        fileId: SHARED_FILE,
+        path: 'Notes/Welcome.md',
+      };
+    }
+
+    /** Brings the producer to the shared state at sequence 88. */
+    async function seedAgreedHead(repo: OutboxLocalChangeRepository) {
+      await repo.adoptRemoteMapping(sharedMapping('AGREED\n', 'hash-88'), AGREED_HEAD);
+    }
+
+    it('parents the next local push on the absorbed peer revision, not the superseded head', async () => {
+      const { repo, enqueued } = makeRepo();
+      await seedAgreedHead(repo);
+
+      // The peer's seq 93 arrives and this device absorbs it. However the apply
+      // side resolved it (clean write, convergence, or three-way merge), the
+      // peer's revision is now part of this device's history.
+      await repo.adoptRemoteMapping(sharedMapping('PEER\n', 'hash-93'), PEER_HEAD);
+
+      // The user types again and this device pushes. This is seq 95.
+      await repo.commitLocalChange({
+        operation: makeOperation({
+          fileId: SHARED_FILE,
+          kind: 'update',
+          content: 'PEER then mine\n',
+          contentHash: 'hash-95',
+          path: 'Notes/Welcome.md',
+          operationId: 'op-95',
+        }),
+        removeFileId: null,
+        upsertMapping: sharedMapping('PEER then mine\n', 'hash-95'),
+      });
+
+      const header = protectedRevisionHeaderSchema.parse(
+        (enqueued[0] as OutboxEnvelope).header,
+      );
+      // In production this was [AGREED_HEAD], which forked the file.
+      expect(header.parentRevisionIds).toEqual([PEER_HEAD]);
+      expect(header.parentRevisionIds).not.toContain(AGREED_HEAD);
+    });
+
+    it('leaves the adopted mapping byte-identical, so the reflected write dedupes', async () => {
+      // The echo of an apply-side write is suppressed one layer up, by
+      // `ObsidianVaultAdapter.commitModify` ("contentHash === mapping.contentHash
+      // → return null"), which is why a duplicate never reaches this repository
+      // in the first place. That guard can only fire if the mapping this
+      // adoption stores matches the bytes the apply side put on disk, so that is
+      // what is pinned here. In production the duplicate blob 106827a729 at
+      // sequence 95 means the two disagreed.
+      const { repo, store } = makeRepo();
+      await seedAgreedHead(repo);
+      await repo.adoptRemoteMapping(sharedMapping('PEER\n', 'hash-93'), PEER_HEAD);
+
+      const mapping = store.state.mappings.find((m) => m.fileId === SHARED_FILE);
+      expect(mapping?.content).toBe('PEER\n');
+      expect(mapping?.contentHash).toBe('hash-93');
+      expect(store.state.heads[SHARED_FILE]).toBe(PEER_HEAD);
+    });
+
+    it('keeps a merge result descending from the peer revision it resolved', async () => {
+      const { repo, enqueued, store } = makeRepo();
+      await seedAgreedHead(repo);
+      await repo.adoptRemoteMapping(sharedMapping('PEER\n', 'hash-93'), PEER_HEAD);
+
+      // A three-way merge combined the peer's edit with an unsent local one and
+      // wrote the result to disk. That write reflects back as a local change, and
+      // it is a genuinely new revision: it must be enqueued, but as a DESCENDANT
+      // of the peer revision it resolved, never as a sibling of it.
+      await repo.commitLocalChange({
+        operation: makeOperation({
+          fileId: SHARED_FILE,
+          kind: 'update',
+          content: 'PEER\nplus mine\n',
+          contentHash: 'hash-merged',
+          path: 'Notes/Welcome.md',
+          operationId: 'op-merged',
+        }),
+        removeFileId: null,
+        upsertMapping: sharedMapping('PEER\nplus mine\n', 'hash-merged'),
+      });
+
+      expect(enqueued).toHaveLength(1);
+      const header = protectedRevisionHeaderSchema.parse(
+        (enqueued[0] as OutboxEnvelope).header,
+      );
+      expect(header.parentRevisionIds).toContain(PEER_HEAD);
+      // And the producer's head moves on to the merge, so the file has one tip.
+      expect(store.state.heads[SHARED_FILE]).toBe(header.revisionId);
+    });
+
+    it('does not demote an update to a root create when a head is known', async () => {
+      // A root create carries no parent at all, which is the other way a file
+      // acquires a second head. 94 of the 110 production revisions had no parent
+      // row; this pins that an adopted head is always honoured.
+      const { repo, enqueued } = makeRepo();
+      await seedAgreedHead(repo);
+
+      await repo.commitLocalChange({
+        operation: makeOperation({
+          fileId: SHARED_FILE,
+          kind: 'update',
+          content: 'AGREED edited\n',
+          contentHash: 'hash-89',
+          path: 'Notes/Welcome.md',
+          operationId: 'op-89',
+        }),
+        removeFileId: null,
+        upsertMapping: sharedMapping('AGREED edited\n', 'hash-89'),
+      });
+
+      const envelope = enqueued[0] as OutboxEnvelope;
+      const header = protectedRevisionHeaderSchema.parse(envelope.header);
+      expect(header.parentRevisionIds).toEqual([AGREED_HEAD]);
+      expect(decodeRevisionPayload(decode(envelope)).operation).toBe('update');
+    });
+  });
+
   describe('binary attachments (F9)', () => {
     it('commits a binary change and enqueues an envelope carrying the raw bytes', async () => {
       const { repo, enqueued } = makeRepo();

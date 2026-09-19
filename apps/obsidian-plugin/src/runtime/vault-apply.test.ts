@@ -1153,6 +1153,126 @@ describe('VaultApplyAdapter', () => {
     });
   });
 
+  /**
+   * Regression for the production fork of 2026-09-19 (file 6a9b8bc7, server
+   * sequences 88 to 95). A merge resolves the peer's revision into the local
+   * file but never tells the producer that the peer's revision is now part of
+   * this device's history, so `state.heads[fileId]` still names the revision the
+   * merge superseded. The next local push therefore descends from a superseded
+   * revision and the file gains a second head that nothing retires.
+   *
+   * `tryMergeApply` documents the omission as deliberate ("deliberately NOT
+   * adopted into the producer mapping"), which is why this went unnoticed: the
+   * reasoning is sound for CONTENT (the merged text is genuinely local and must
+   * be pushed) but wrong for CAUSALITY (the peer's revision is genuinely an
+   * ancestor and must be recorded as one). Both can hold at once, and the fix
+   * has to keep the push while fixing the parentage.
+   */
+  describe('a merge must record the peer revision it resolved (production fork, seq 88-95)', () => {
+    function buildWithProducer(
+      decoded: (event: RemoteEvent) => DecodedRevisionPayload,
+      localHead: string | null,
+    ) {
+      const files = new FakeFiles();
+      const writes: Array<{ fileId: string; revisionId: string }> = [];
+      const adapter = new VaultApplyAdapter({
+        files,
+        conflictFolder: 'Havemind Conflicts',
+        resolveRevision: async (remote) => decoded(remote),
+        hashContent: fakeHash,
+        conflictNaming: {
+          now: () => new Date(2026, 6, 22, 21, 56),
+          resolveAuthorName: () => 'Windows',
+        },
+        producerSync: {
+          onRemoteWrite: async ({ fileId, revisionId }) => {
+            writes.push({ fileId, revisionId });
+          },
+          onRemoteDelete: async () => undefined,
+          localHeadFor: async () => localHead,
+        },
+      });
+      return { adapter, files, writes };
+    }
+
+    it('tells the producer which revision it absorbed when a merge succeeds', async () => {
+      // Sequence 88 is the agreed base; the peer's sequence 93 arrives while this
+      // device holds an unsent edit of its own. The hunks do not overlap, so the
+      // merge succeeds and the peer's revision becomes part of local history.
+      const ancestor = 'A\nB\nC\nD\nE\n';
+      const { adapter, files, writes } = buildWithProducer(
+        () => content('Notes/Welcome.md', 'A\nB\nC\nD\nE1\n'),
+        'rev-seq-88',
+      );
+      files.owners.set('Notes/Welcome.md', 'file-1');
+      files.baseHashes.set('file-1', await fakeHash(ancestor));
+      files.baseContents.set('file-1', ancestor);
+      files.onDisk.set('Notes/Welcome.md', 'A1\nB\nC\nD\nE\n');
+
+      const outcome = await adapter.applyRemote(
+        event('rev-seq-93', 'file-1', ['rev-seq-88']),
+      );
+
+      expect(outcome).toBe('applied');
+      expect(files.writes).toEqual([
+        { path: 'Notes/Welcome.md', content: 'A1\nB\nC\nD\nE1\n' },
+      ]);
+      // The merged text is genuinely new and must still reach the peer, so the
+      // reflected vault write is left to the ordinary local-edit path. What must
+      // NOT be left out is the causal fact that rev-seq-93 is now an ancestor.
+      // Without this the next push parents on rev-seq-88 and forks the file,
+      // which is exactly what server sequence 95 recorded.
+      expect(writes).toEqual([{ fileId: 'file-1', revisionId: 'rev-seq-93' }]);
+    });
+
+    it('records the absorbed revision even when the merge collapses to the local content', async () => {
+      // The peer's revision carried no change relative to the ancestor, so the
+      // merge is a no-op on disk. It is still a convergence: the peer's revision
+      // is an ancestor of whatever this device pushes next.
+      const ancestor = 'A\nB\nC\n';
+      const { adapter, files, writes } = buildWithProducer(
+        () => content('Notes/Welcome.md', ancestor),
+        'rev-seq-88',
+      );
+      files.owners.set('Notes/Welcome.md', 'file-1');
+      files.baseHashes.set('file-1', await fakeHash(ancestor));
+      files.baseContents.set('file-1', ancestor);
+      files.onDisk.set('Notes/Welcome.md', 'A\nB\nC\nlocal only\n');
+
+      const outcome = await adapter.applyRemote(
+        event('rev-seq-93', 'file-1', ['rev-seq-88']),
+      );
+
+      expect(outcome).toBe('noop');
+      expect(files.writes).toEqual([]);
+      expect(writes).toEqual([{ fileId: 'file-1', revisionId: 'rev-seq-93' }]);
+    });
+
+    it('does not record an absorbed revision when the merge fails to a conflict copy', async () => {
+      // Overlapping hunks are a genuine unresolved divergence. Nothing was
+      // absorbed, both sides survive, and the DAG legitimately keeps two heads,
+      // so the producer head must NOT move. This is the case Astra flagged as a
+      // legitimate fork, and it is the boundary the fix must not cross.
+      const ancestor = 'A\nB\nC\n';
+      const { adapter, files, writes } = buildWithProducer(
+        () => content('Notes/Welcome.md', 'A\nB-theirs\nC\n'),
+        'rev-seq-88',
+      );
+      files.owners.set('Notes/Welcome.md', 'file-1');
+      files.baseHashes.set('file-1', await fakeHash(ancestor));
+      files.baseContents.set('file-1', ancestor);
+      files.onDisk.set('Notes/Welcome.md', 'A\nB-mine\nC\n');
+
+      const outcome = await adapter.applyRemote(
+        event('rev-seq-93', 'file-1', ['rev-seq-88']),
+      );
+
+      expect(outcome).toBe('conflict');
+      expect(files.conflicts).toHaveLength(1);
+      expect(writes).toEqual([]);
+    });
+  });
+
   describe('readable conflict filenames and cascade safety (MRG-02)', () => {
     it('reuses the same artifact path when the same revision is re-delivered', async () => {
       const { adapter, files } = build(() => content('Notes/a.md', 'C\n'));

@@ -699,11 +699,23 @@ export class VaultApplyAdapter implements VaultApplyPort {
    *
    * ANCESTOR is the locally-persisted base content; LOCAL is the current on-disk
    * content; REMOTE is the incoming revision. A successful merge IS a
-   * convergence event, so the base advances to the merged state. The merged
-   * content is deliberately NOT adopted into the producer mapping: it is a NEW
-   * local revision this device authored, so letting the reflected vault write
-   * flow through the normal local-edit path pushes the merged result to the peer
-   * (who converges by content-equality, no ping-pong).
+   * convergence event, so the base advances to the merged state.
+   *
+   * A merge carries TWO facts and the producer needs both:
+   *
+   *  - CONTENT: the merged text is a new local revision this device authored and
+   *    must reach the peer. So the producer mapping records the MERGED content,
+   *    which keeps it in lockstep with what is on disk.
+   *  - CAUSALITY: the incoming revision was absorbed into that merge, so it is a
+   *    genuine ancestor of whatever this device pushes next. So the producer head
+   *    advances to the INCOMING revisionId.
+   *
+   * Recording only the first is what forked file 6a9b8bc7 in production on
+   * 2026-09-19: the head stayed on the superseded revision, the next push
+   * parented on it, and the file gained a second head nothing ever retired
+   * (server sequences 88 to 95, eight revisions of divergence from one editing
+   * session). A failed merge absorbs nothing and must NOT move the head, two
+   * heads are the correct outcome for a genuine unresolved conflict.
    */
   private async tryMergeApply(
     event: RemoteEvent,
@@ -741,12 +753,14 @@ export class VaultApplyAdapter implements VaultApplyPort {
       await this.files.recordPathOwner(fileId, decoded.path);
       await this.files.recordBaseHash(fileId, mergedHash);
       await this.files.recordBaseContent(fileId, merged);
+      await this.adoptMergedRevision(event, decoded, fileId, merged, mergedHash);
       return 'noop';
     }
     await this.files.writeByPath(decoded.path, merged);
     await this.files.recordPathOwner(fileId, decoded.path);
     await this.files.recordBaseHash(fileId, mergedHash);
     await this.files.recordBaseContent(fileId, merged);
+    await this.adoptMergedRevision(event, decoded, fileId, merged, mergedHash);
     this.onRemoteApplied?.({
       revisionId: event.revision.revisionId,
       fileId,
@@ -758,6 +772,30 @@ export class VaultApplyAdapter implements VaultApplyPort {
         : { authorMembershipId: event.revision.authorMembershipId }),
     });
     return 'applied';
+  }
+
+  /**
+   * Records a completed merge with the producer: the mapping takes the MERGED
+   * content (so it matches the vault and the reflected write still pushes the
+   * merge to the peer), while the head takes the INCOMING revisionId (so the
+   * next local push descends from the revision this merge absorbed instead of
+   * forking away from it). Only ever called on a successful merge.
+   */
+  private async adoptMergedRevision(
+    event: RemoteEvent,
+    decoded: DecodedRevisionPayload,
+    fileId: string,
+    merged: string,
+    mergedHash: string,
+  ): Promise<void> {
+    await this.producerSync?.onRemoteWrite({
+      fileId,
+      path: decoded.path,
+      content: merged,
+      contentHash: mergedHash,
+      contentKind: 'markdown',
+      revisionId: event.revision.revisionId,
+    });
   }
 
   /**
