@@ -20,12 +20,6 @@ import type {
   RemoteEvent,
   SyncStatePort,
 } from '../sync/sync-runner';
-import type { FileRegistry } from '../sync/file-registry';
-import {
-  registryFromPersistedState,
-  registryToPersistedState,
-  type PersistedFileState,
-} from '../sync/registry-persistence';
 
 /** The subset of an envelope the transport needs to reconstruct a push body. */
 export interface TransportEnvelope {
@@ -241,19 +235,6 @@ export function parseFailedToQueuePath(revisionId: string): string | null {
   return path.length === 0 ? null : path;
 }
 
-/**
- * The cursor from a blob that failed the strict parse, or 0 when it is not a
- * readable non-negative integer. Deliberately tolerant: this runs only on a
- * state that is already corrupt, where any recoverable position beats none.
- */
-function readableCursor(raw: unknown): number {
-  if (!isRecord(raw)) return 0;
-  const cursor = raw.cursor;
-  return Number.isSafeInteger(cursor) && (cursor as number) >= 0
-    ? (cursor as number)
-    : 0;
-}
-
 function emptyState(): PersistedSyncState {
   return {
     version: 1,
@@ -296,11 +277,6 @@ function base64ByteLength(base64: string): number {
   if (base64.endsWith('==')) padding = 2;
   else if (base64.endsWith('=')) padding = 1;
   return Math.floor((length * 3) / 4) - padding;
-}
-
-/** Canonical, case-folded path, matching how the registry indexes a slot. */
-function collisionKeyFor(path: string): string {
-  return path.normalize('NFC').toLowerCase();
 }
 
 export class DurableSyncState implements SyncStatePort {
@@ -364,22 +340,6 @@ export class DurableSyncState implements SyncStatePort {
    * synchronous assignment, so any read sees a complete, consistent snapshot.
    */
   private mutationTail: Promise<unknown> = Promise.resolve();
-  /**
-   * Depth of nested {@link runBatched} sections. Above zero, `mutate` updates the
-   * in-memory cache but does NOT hit the persist port; the outermost section
-   * flushes once on the way out.
-   *
-   * Why: every `record*` call used to re-serialise the WHOLE blob, and the
-   * persist port turns one save into two full load+save round trips (stage, then
-   * promote) over a blob that itself grows with the vault, because it carries the
-   * base CONTENT of every note. Materialising N heads was therefore O(N) writes
-   * of an O(N) blob: a few hundred notes took twenty minutes to join on a phone,
-   * which is long enough for iOS to background the app mid-bootstrap and leave
-   * the half-applied state this batching also makes recoverable.
-   */
-  private batchDepth = 0;
-  /** True when a `mutate` was swallowed by an open batch and still needs a flush. */
-  private batchDirty = false;
 
   constructor(options: DurableSyncStateOptions) {
     this.persist = options.persist;
@@ -578,18 +538,22 @@ export class DurableSyncState implements SyncStatePort {
   }
 
   async recordPathOwner(fileId: string, path: string): Promise<void> {
-    return this.mutateFiles((files) => {
-      files.patch(fileId, { path, collisionKey: collisionKeyFor(path) });
+    return this.runExclusive(async () => {
+      const state = await this.ensureLoaded();
+      await this.mutate({
+        ...state,
+        pathOwners: { ...state.pathOwners, [path]: fileId },
+      });
     });
   }
 
   async forgetPath(path: string): Promise<void> {
-    return this.mutateFiles((files) => {
-      const record = files.byPath(path);
-      if (record === undefined) return;
-      // Ownership only: the base is keyed by fileId and must survive a rename,
-      // or the file loses its merge ancestor and the next peer edit conflicts.
-      files.patch(record.fileId, { path: '', collisionKey: `\u0000${record.fileId}` });
+    return this.runExclusive(async () => {
+      const state = await this.ensureLoaded();
+      if (!(path in state.pathOwners)) return;
+      const pathOwners = { ...state.pathOwners };
+      delete pathOwners[path];
+      await this.mutate({ ...state, pathOwners });
     });
   }
 
@@ -604,15 +568,22 @@ export class DurableSyncState implements SyncStatePort {
   }
 
   async recordBaseHash(fileId: string, hash: string): Promise<void> {
-    return this.mutateFiles((files) => {
-      files.patch(fileId, { agreedHash: hash });
+    return this.runExclusive(async () => {
+      const state = await this.ensureLoaded();
+      await this.mutate({
+        ...state,
+        baseHashes: { ...state.baseHashes, [fileId]: hash },
+      });
     });
   }
 
   async forgetBaseHash(fileId: string): Promise<void> {
-    return this.mutateFiles((files) => {
-      if (files.byFileId(fileId) === undefined) return;
-      files.patch(fileId, { agreedHash: null });
+    return this.runExclusive(async () => {
+      const state = await this.ensureLoaded();
+      if (!(fileId in state.baseHashes)) return;
+      const baseHashes = { ...state.baseHashes };
+      delete baseHashes[fileId];
+      await this.mutate({ ...state, baseHashes });
     });
   }
 
@@ -625,52 +596,22 @@ export class DurableSyncState implements SyncStatePort {
   }
 
   async recordBaseContent(fileId: string, content: string): Promise<void> {
-    return this.mutateFiles((files) => {
-      files.patch(fileId, { agreedContent: content });
+    return this.runExclusive(async () => {
+      const state = await this.ensureLoaded();
+      await this.mutate({
+        ...state,
+        baseContents: { ...state.baseContents, [fileId]: content },
+      });
     });
   }
 
   async forgetBaseContent(fileId: string): Promise<void> {
-    return this.mutateFiles((files) => {
-      if (files.byFileId(fileId) === undefined) return;
-      files.patch(fileId, { agreedContent: null });
-    });
-  }
-
-  /**
-   * Runs one change against the file registry and persists the result.
-   *
-   * Every file-state write goes through here, so the three persisted maps are
-   * always written together from ONE in-memory record. That is what makes the
-   * old drift impossible: `baseHashes[fileId]` and `baseContents[fileId]` can no
-   * longer be updated independently, because there is no longer an independent
-   * place to update them.
-   */
-  /**
-   * The persisted file state as the three maps, read from the warmed cache.
-   *
-   * Used to build the join-time adoption index: what this device holds as agreed
-   * IS the vault's current content, so a local file matching any of it should
-   * adopt that identity rather than be pushed as a second copy.
-   */
-  fileStateSnapshot(): PersistedFileState {
-    const cache = this.cache;
-    if (cache === null) {
-      return { pathOwners: {}, baseHashes: {}, baseContents: {} };
-    }
-    return {
-      pathOwners: cache.pathOwners,
-      baseHashes: cache.baseHashes,
-      baseContents: cache.baseContents,
-    };
-  }
-
-  private async mutateFiles(change: (files: FileRegistry) => void): Promise<void> {
     return this.runExclusive(async () => {
       const state = await this.ensureLoaded();
-      const files = registryFromPersistedState(state);
-      change(files);
-      await this.mutate({ ...state, ...registryToPersistedState(files) });
+      if (!(fileId in state.baseContents)) return;
+      const baseContents = { ...state.baseContents };
+      delete baseContents[fileId];
+      await this.mutate({ ...state, baseContents });
     });
   }
 
@@ -938,13 +879,7 @@ export class DurableSyncState implements SyncStatePort {
       // UNRECOVERABLE queue: resume from a clean, writable empty state and set the
       // observable recovery signal so the UI can tell the user their local queue
       // needs recovery. The unsent revisions live on in the sidecar.
-      //
-      // `outcome.state` is that empty state carrying any cursor the corrupt
-      // blob still held (AUD-13). Resuming at 0 would replay the vault's whole
-      // history and resurrect long-deleted notes as conflict copies, which is
-      // a far worse outcome than re-applying a few revisions that already
-      // match the disk and converge without a write.
-      this.cache = outcome.state;
+      this.cache = emptyState();
       if (outcome.outboxAtRisk) this.recoveryRequired = true;
     }
     // Arch P1: `reconcilePayloads` (which populates `externalized`) runs after
@@ -952,44 +887,8 @@ export class DurableSyncState implements SyncStatePort {
     await this.persist.save(this.toDiskForm(this.cache));
   }
 
-  /**
-   * Runs `body` with persistence coalesced into ONE write at the end.
-   *
-   * Every mutation inside still updates the in-memory cache immediately, so
-   * readers (`fileIdAtPath`, `baseHashFor`, …) behave exactly as they do outside
-   * a batch and the on-disk result is identical, only the number of writes
-   * changes. Re-entrant: a nested call joins the outer batch and the flush
-   * happens once, when the outermost section exits.
-   *
-   * The flush also runs when `body` REJECTS, then the error is re-thrown. That
-   * is the important half for the bootstrap: an interrupted join must still
-   * durably record the heads it already materialised, or the next connect finds
-   * cursor zero over a populated vault and replays the whole history onto it.
-   */
-  async runBatched<T>(body: () => Promise<T>): Promise<T> {
-    this.batchDepth += 1;
-    try {
-      return await body();
-    } finally {
-      this.batchDepth -= 1;
-      if (this.batchDepth === 0 && this.batchDirty) {
-        this.batchDirty = false;
-        const current = this.cache;
-        if (current !== null) {
-          await this.persist.save(this.toDiskForm(current));
-        }
-      }
-    }
-  }
-
   private async mutate(next: PersistedSyncState): Promise<void> {
     this.cache = next;
-    // Inside a batch the cache is authoritative and the single flush in
-    // `runBatched` writes the final state; skip the per-mutation round trip.
-    if (this.batchDepth > 0) {
-      this.batchDirty = true;
-      return;
-    }
     // GAP-1: `recoveryRequired` is a purely OBSERVABLE signal (surfaced via
     // {@link isRecoveryRequired}), never a save lock. The earlier design blocked
     // every future save while set, but nothing here ever cleared it and
@@ -1053,18 +952,8 @@ export class DurableSyncState implements SyncStatePort {
     payloadBase64: string,
   ): Promise<boolean> {
     if (this.payloadStore === undefined) return false;
-    if (payloadBase64.length === 0) return false;
     try {
       await this.payloadStore.putPayload(revisionId, payloadBase64);
-      // Round-trip: a put that cannot be read back must not strip the inline
-      // bytes from data.json, or the next reload quarantines a still-needed send.
-      const roundTrip = await this.payloadStore.getPayload(revisionId);
-      if (roundTrip !== payloadBase64) {
-        console.warn(
-          `Havemind: outbox payload for ${revisionId} failed round-trip verify; keeping it inline in data.json.`,
-        );
-        return false;
-      }
       return true;
     } catch {
       console.warn(
@@ -1123,10 +1012,7 @@ export class DurableSyncState implements SyncStatePort {
     for (const env of state.outbox) {
       if (env.payloadExternalized === true) {
         const payload = await this.safeGetPayload(env.revisionId);
-        // Empty string is NOT a valid payload: IndexedDB oddities and a torn
-        // put must never rehydrate into a drainable blank envelope (that wedges
-        // push forever as "unsent" while the server rejects empty bytes).
-        if (typeof payload === 'string' && payload.length > 0) {
+        if (typeof payload === 'string') {
           this.externalized.add(env.revisionId);
           nextOutbox.push({ ...env, payloadBase64: payload });
           cacheChanged = true;
@@ -1145,10 +1031,7 @@ export class DurableSyncState implements SyncStatePort {
         }
       } else {
         nextOutbox.push(env);
-        if (
-          env.payloadBase64.length > 0 &&
-          (await this.safePutPayload(env.revisionId, env.payloadBase64))
-        ) {
+        if (await this.safePutPayload(env.revisionId, env.payloadBase64)) {
           this.externalized.add(env.revisionId);
           persistNeeded = true; // migrated: disk form now strips this payload
         }
@@ -1159,7 +1042,7 @@ export class DurableSyncState implements SyncStatePort {
     for (const [key, env] of Object.entries(state.quarantinedEnvelopes)) {
       if (env.payloadExternalized === true) {
         const payload = await this.safeGetPayload(env.revisionId);
-        if (typeof payload === 'string' && payload.length > 0) {
+        if (typeof payload === 'string') {
           this.externalized.add(env.revisionId);
           nextStash[key] = { ...env, payloadBase64: payload };
           cacheChanged = true;
@@ -1169,10 +1052,7 @@ export class DurableSyncState implements SyncStatePort {
         }
       } else {
         nextStash[key] = env;
-        if (
-          env.payloadBase64.length > 0 &&
-          (await this.safePutPayload(env.revisionId, env.payloadBase64))
-        ) {
+        if (await this.safePutPayload(env.revisionId, env.payloadBase64)) {
           this.externalized.add(env.revisionId);
           persistNeeded = true; // migrated
         }
@@ -1281,15 +1161,9 @@ function parsePersistedState(raw: unknown): ParseResult {
   }
   // Corrupt: classify for recovery. A readable outbox is salvageable; an
   // unreadable one resumes empty with the recovery signal (see hydrate()).
-  //
-  // Even then the CURSOR is rescued if it survived (AUD-13). Resuming at 0
-  // makes the next pull replay the vault's whole history, so notes deleted
-  // long ago return as fresh remote creates and land as conflict copies.
-  // Replaying a few already-applied revisions is far cheaper: an apply whose
-  // content already matches the disk converges with no write at all.
   return {
     status: 'corrupt',
-    state: { ...emptyState(), cursor: readableCursor(raw) },
+    state: emptyState(),
     salvage: salvageState(raw),
     outboxAtRisk: outboxAtRisk(raw),
   };

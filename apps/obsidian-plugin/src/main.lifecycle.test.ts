@@ -701,12 +701,6 @@ describe('plugin lifecycle', () => {
     );
     // …and the failure mode is stated where it is actionable.
     expect(all.some(({ text }) => /don't match/i.test(text))).toBe(true);
-    expect(
-      all.some(
-        ({ text, classes }) =>
-          text === 'Cancel' && classes.includes('havemind-handshake-cancel'),
-      ),
-    ).toBe(true);
   });
 
   it('shows the invitee a terminal "invitation invalid" screen with a paste form', async () => {

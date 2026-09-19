@@ -252,33 +252,6 @@ describe('RequestUrlTransport', () => {
     expect(call?.url).toBe(`${API}/vaults/${VAULT}/events?after=5`);
   });
 
-  it('asks for a snapshot of current heads on a cursor-zero join', async () => {
-    const { transport, calls } = build(() => ({
-      status: 200,
-      json: {
-        complete: true,
-        cursor: 12,
-        events: [
-          {
-            type: 'revision-accepted',
-            revisionId: 'rev-12',
-            fileId: 'file-2',
-            serverSequence: 12,
-            receipt: { blobHash: 'blob-2' },
-          },
-        ],
-        snapshot: true,
-      },
-    }));
-
-    const result = await transport.pull(0, { snapshot: true });
-
-    expect(result.snapshot).toBe(true);
-    expect(result.complete).toBe(true);
-    expect(result.events).toHaveLength(1);
-    expect(calls[0]?.url).toBe(`${API}/vaults/${VAULT}/events?after=0&snapshot=1`);
-  });
-
   it('surfaces the incoming revision parents so apply can prove a causal fast-forward', async () => {
     const { transport } = build(() => ({
       status: 200,

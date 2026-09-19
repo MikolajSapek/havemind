@@ -52,6 +52,5 @@ export function renderGuestWaitingScreen(
   content.createDiv({ text: view.liveNote }).addClass('havemind-hint');
 
   const cancel = content.createEl('button', { text: 'Cancel' });
-  cancel.addClass('havemind-handshake-cancel');
   cancel.onClickEvent(() => actions.onCancel?.());
 }

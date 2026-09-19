@@ -28,20 +28,7 @@ export type ConnectionStatus =
    * conflict.
    */
   | 'deferred'
-  /**
-   * The server is reachable and everything incoming is applied, but a queued
-   * local change could not be shipped this cycle and is still in the outbox.
-   * Distinct from `deferred` (which is about an APPLY held back by an open
-   * buffer) and from `offline` (nothing reached the server at all).
-   */
-  | 'unsent'
   | 'reconnect-required'
-  /**
-   * The connection is valid, but cursor/file identity state is missing or
-   * inconsistent. Sync is intentionally stopped before networking so an event
-   * log replay cannot create a burst of false conflicts.
-   */
-  | 'recovery-required'
   /**
    * The persisted connection state is broken, a half-written record, or a
    * structurally valid one whose refresh secret is gone (P1 #5). Distinct from
@@ -62,9 +49,7 @@ const LABELS: Readonly<Record<ConnectionStatus, string>> = {
   offline: 'Offline',
   conflict: 'Conflict',
   deferred: 'Waiting to apply',
-  unsent: 'Changes not sent yet',
   'reconnect-required': 'Reconnect required',
-  'recovery-required': 'Recovery required',
   'reset-required': 'Reset required',
 };
 
@@ -76,9 +61,6 @@ const LABELS: Readonly<Record<ConnectionStatus, string>> = {
 export const RESET_REQUIRED_DETAIL =
   'The stored connection data is incomplete or unreadable. Reset the connection and pair this device again.';
 
-export const RECOVERY_REQUIRED_DETAIL =
-  'The local sync state is incomplete or inconsistent. Sync was stopped before any files were changed.';
-
 const NO_E2EE_NOTE = 'Private Tailscale network only, no end-to-end encryption.';
 const PANE_NETWORK_NOTE = 'Private Tailscale network · Encrypted in transit';
 
@@ -89,14 +71,6 @@ const PANE_NETWORK_NOTE = 'Private Tailscale network · Encrypted in transit';
  */
 export const DEFERRED_DETAIL =
   'A change waits for an open note to settle before applying.';
-
-/**
- * What the user sees while a local change is still queued. It says the change is
- * safe and will retry, and never points at the Conflicts folder (nothing was
- * written there) nor at an open note (the hold-up is the send, not an apply).
- */
-export const UNSENT_DETAIL =
-  'A local change is still queued to send and will retry automatically.';
 
 /** Maps a completed sync cycle status onto a status-bar connection status. */
 export function connectionStatusFromCycle(
@@ -113,10 +87,6 @@ export function connectionStatusFromCycle(
     // its own waiting state rather than the conflict warning.
     case 'deferred':
       return 'deferred';
-    // Reached the server, but a queued revision did not land. Quieter than
-    // offline, never "synced".
-    case 'unsent':
-      return 'unsent';
     case 'unauthenticated':
       return 'reconnect-required';
   }
@@ -285,28 +255,12 @@ const PANEL_STYLES: Readonly<Record<ConnectionStatus, PanelStyle>> = {
     spin: false,
     showForm: false,
   },
-  // Nothing is broken and no user action is required: the next cycle retries the
-  // send, so this is muted like `deferred` rather than a warning.
-  unsent: {
-    icon: 'clock',
-    label: 'Changes not sent yet',
-    colorToken: '--text-muted',
-    spin: false,
-    showForm: false,
-  },
   'reconnect-required': {
     icon: 'alert-triangle',
     label: 'Reconnect required',
     colorToken: '--text-error',
     spin: false,
     showForm: true,
-  },
-  'recovery-required': {
-    icon: 'shield-alert',
-    label: 'Recovery required',
-    colorToken: '--text-error',
-    spin: false,
-    showForm: false,
   },
   // The paste form stays available alongside the Reset button: pairing this
   // device afresh overwrites the broken record and is an equally valid way out.
@@ -343,16 +297,10 @@ export function buildConnectionPanel(
   if (input.status === 'deferred') {
     parts.push(DEFERRED_DETAIL);
   }
-  if (input.status === 'unsent') {
-    parts.push(UNSENT_DETAIL);
-  }
   // A damaged local record is never the server's fault, so it gets its own
   // explanation rather than the session-refused line.
   if (input.status === 'reset-required') {
     parts.push(input.errorMessage ?? RESET_REQUIRED_DETAIL);
-  }
-  if (input.status === 'recovery-required') {
-    parts.push(input.errorMessage ?? RECOVERY_REQUIRED_DETAIL);
   }
   parts.push(PANE_NETWORK_NOTE);
 

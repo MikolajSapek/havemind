@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Publish a new Havemind plugin release to the distribution repo (catalogue).
+# Publish a new Havemind plugin release to the distribution repo (BRAT + catalogue).
 #
 # One command replaces manual file delivery: it rebuilds the plugin, refuses to
 # ship if any secret marker leaks into the bundle, copies the release artefacts to
 # the plugin repo, commits, and cuts a GitHub Release tagged to the manifest
-# version. Obsidian Community plugins then picks up the new release.
+# version. BRAT (and the community catalogue) then auto-update every user.
 #
 # Usage:  bash scripts/publish-plugin.sh
 # Assumes the plugin repo is checked out at ../obsidian-havemind (sibling of the
@@ -62,4 +62,4 @@ echo "==> Creating GitHub Release $VERSION"
 gh release create "$VERSION" main.js manifest.json styles.css \
   --title "Havemind $VERSION" --notes-file "$RELEASE_NOTES"
 
-echo "==> Done. Catalogue / Community plugins will pick up $VERSION."
+echo "==> Done. BRAT users update automatically."

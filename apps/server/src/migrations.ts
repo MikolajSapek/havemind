@@ -170,15 +170,6 @@ const deviceVaultScopeMigration: MigrationDefinition = Object.freeze({
   version: 7,
 });
 
-const deviceAckMigration: MigrationDefinition = Object.freeze({
-  name: 'device-ack',
-  sql: readFileSync(
-    new URL('./migrations/008-device-ack.sql', import.meta.url),
-    'utf8',
-  ),
-  version: 8,
-});
-
 export const DEFAULT_MIGRATIONS: readonly MigrationDefinition[] = Object.freeze([
   initialMigration,
   onboardingMigration,
@@ -187,7 +178,6 @@ export const DEFAULT_MIGRATIONS: readonly MigrationDefinition[] = Object.freeze(
   quotaMigration,
   rejoinSecretMigration,
   deviceVaultScopeMigration,
-  deviceAckMigration,
 ]);
 
 export const CURRENT_SCHEMA_VERSION =

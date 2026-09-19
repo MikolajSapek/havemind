@@ -104,12 +104,7 @@ export function renderConnectedBodyFor(
           },
         }),
       ),
-    onSelectTab: (id, viaKeyboard) => {
-      callbacks.setActiveTab(id, viaKeyboard);
-      if (id === 'people') {
-        options.onPeopleVisible?.();
-      }
-    },
+    onSelectTab: callbacks.setActiveTab,
   });
 
   return { focusTabOnRender: state.focusTabOnRender };

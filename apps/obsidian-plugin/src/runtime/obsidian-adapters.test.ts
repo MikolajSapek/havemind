@@ -176,7 +176,6 @@ class FakeVault {
 /** `createVaultFilePort`'s `state` port is unused by `writeConflictArtifact`. */
 const noopState = {
   fileIdAtPath: () => null,
-  pathForFileId: () => null,
   baseHashFor: () => undefined,
   recordBaseHash: () => undefined,
   forgetBaseHash: () => undefined,
@@ -379,55 +378,6 @@ describe('createRequestUrlFn', () => {
         permanent,
       });
     }
-  });
-});
-
-describe('createVaultFilePort openBufferStates', () => {
-  it('returns empty when workspace is not wired', async () => {
-    const { createVaultFilePort } = await import('./obsidian-adapters');
-    const { TFile, TFolder } = await import('obsidian');
-    const vault = new FakeVault(TFile, TFolder);
-    const port = createVaultFilePort({
-      vault: vault as never,
-      state: noopState as never,
-    });
-
-    expect(await port.openBufferStates('file-1')).toEqual([]);
-  });
-
-  it('reports a dirty open markdown buffer for the owned path', async () => {
-    const { createVaultFilePort } = await import('./obsidian-adapters');
-    const { TFile, TFolder } = await import('obsidian');
-    const vault = new FakeVault(TFile, TFolder);
-    const state = {
-      ...noopState,
-      pathForFileId: (fileId: string) =>
-        fileId === 'file-1' ? 'Notes/a.md' : null,
-      baseHashFor: (fileId: string) =>
-        fileId === 'file-1' ? 'base-hash' : undefined,
-    };
-    const leaf = {
-      view: {
-        file: { path: 'Notes/a.md' },
-        getViewData: () => 'UNSAVED\n',
-      },
-    };
-    const port = createVaultFilePort({
-      vault: vault as never,
-      state: state as never,
-      workspace: {
-        // The port reads `view` structurally, so a stub only needs that field;
-        // it is not a full WorkspaceLeaf.
-        getLeavesOfType: ((type: string) =>
-          type === 'markdown' ? [leaf] : []) as never,
-      },
-      hashContent: async (content: string) => `hash:${content}`,
-    });
-
-    expect(await port.openBufferStates('file-1')).toEqual([
-      { baseHash: 'base-hash', currentHash: 'hash:UNSAVED\n' },
-    ]);
-    expect(await port.openBufferStates('other')).toEqual([]);
   });
 });
 
@@ -898,59 +848,6 @@ describe('parseProducerStateResult (GAP-3 fail-closed producer state)', () => {
     expect(result.status).toBe('ok');
     expect(result.state.heads).toEqual({ f1: 'rev-1' });
     expect(result.state.mappings).toHaveLength(1);
-  });
-
-  it('migrates a legacy binary mapping by dropping its base64 body', async () => {
-    const { parseProducerStateResult } = await import('./obsidian-adapters');
-    const result = parseProducerStateResult({
-      mappings: [
-        {
-          collisionKey: 'image.png',
-          content: 'AQIDBA==',
-          contentHash: 'raw-byte-hash',
-          contentKind: 'binary',
-          fileId: 'binary-file',
-          path: 'Image.png',
-        },
-      ],
-      heads: { 'binary-file': 'rev-1' },
-    });
-
-    expect(result.status).toBe('ok');
-    expect(result.migrated).toBe(true);
-    expect(result.state.mappings[0]).toMatchObject({
-      content: null,
-      contentHash: 'raw-byte-hash',
-      contentKind: 'binary',
-    });
-  });
-
-  it('accepts a compact binary mapping but rejects null markdown content', async () => {
-    const { parseProducerStateResult } = await import('./obsidian-adapters');
-    const compactBinary = {
-      collisionKey: 'image.png',
-      content: null,
-      contentHash: 'raw-byte-hash',
-      contentKind: 'binary',
-      fileId: 'binary-file',
-      path: 'Image.png',
-    };
-    const invalidMarkdown = {
-      collisionKey: 'note.md',
-      content: null,
-      contentHash: 'text-hash',
-      fileId: 'markdown-file',
-      path: 'Note.md',
-    };
-    const result = parseProducerStateResult({
-      mappings: [compactBinary, invalidMarkdown],
-      heads: {},
-    });
-
-    expect(result.status).toBe('ok');
-    expect(result.migrated).toBe(false);
-    expect(result.state.mappings).toEqual([compactBinary]);
-    expect(result.quarantinedMappings).toEqual([invalidMarkdown]);
   });
 
   it('NEVER throws on arbitrary garbage (connect-safety)', async () => {

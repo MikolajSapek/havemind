@@ -18,11 +18,6 @@ import type HavemindPlugin from '../main';
 export interface PluginInternals {
   activityLog: { record(entry: unknown): void; snapshot(): unknown[] };
   activityOptions: Record<string, unknown>;
-  approvePendingDevice(
-    invitationId: string,
-    verificationPhrase: string,
-    report: (message: string) => void,
-  ): Promise<void>;
   connection: unknown;
   connectionError: unknown;
   connectionPanel(): unknown;
@@ -34,7 +29,6 @@ export interface PluginInternals {
   pendingApprovals: unknown;
   pollRejoinOnce(): Promise<void>;
   recordRosterMember(member: unknown): Promise<void>;
-  refreshRoster(): Promise<void>;
   rejoinController: unknown;
   rejoinPollTimer: unknown;
   rejoinWaiting: Set<string>;

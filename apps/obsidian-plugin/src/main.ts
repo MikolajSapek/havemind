@@ -212,8 +212,6 @@ export default class HavemindPlugin extends Plugin {
    * data.json (endpoint-free). Never derived from sync activity.
    */
   private rosterMembers: RosterMember[] = [];
-  /** Serializes roster reads so a slow older response cannot win a race. */
-  private rosterRefreshTail: Promise<void> = Promise.resolve();
   /**
    * F9 Rejoin (owner side). Membership ids the owner has asserted are dead
    * (pilot heuristic, no server liveness signal yet, see renderRejoinRoster):
@@ -354,9 +352,6 @@ export default class HavemindPlugin extends Plugin {
         arrivedWithInvitationProvider: () => this.arrivedWithInvitation,
         onOpenComposer: () => {
           void this.openCreateConnectionView();
-        },
-        onPeopleVisible: () => {
-          void this.refreshRoster();
         },
         onCloseComposer: () => this.closeCreateConnectionView(),
         onSyncNow: () => {
@@ -710,10 +705,6 @@ export default class HavemindPlugin extends Plugin {
       this.connectionNotice = connectedMessage;
       this.connectionNoticeKind = 'success';
       report(connectedMessage);
-      // Approval commits the membership on the server. Pull the canonical list
-      // immediately so every open People tab sees the same members without
-      // waiting for a reconnect.
-      void this.refreshRoster();
       // Re-render to drop the approved row while keeping the create section
       // (invitation + role/name) fully alive.
       this.views.refreshOnboardingNow();
@@ -772,7 +763,6 @@ export default class HavemindPlugin extends Plugin {
       (status, view) => this.handleStatus(status, view),
       this.activityHooks(),
       attempt.signal,
-      (phase) => this.leaveHandshake(phase),
     );
     // Guard the assignment against two races that resolve only after the await:
     //  - FIX 1: the plugin was unloaded while this build was in flight. `onunload`
@@ -796,13 +786,11 @@ export default class HavemindPlugin extends Plugin {
     // rejoin poll that captured an earlier value no-ops instead of tearing this
     // one down (FINDING 1b).
     this.connectGeneration += 1;
+    this.adoptSelfMembership(this.connection);
     // P3: the People list comes from the server, not from what this device
     // witnessed. Runs on every connect AND reconnect (retryConnection routes
-    // through startConnection), so a guest sees the whole vault. Await it
-    // before seeding self: a parallel self-seed used to race the replace and
-    // clobber the server list back to "You" only on the phone.
-    await this.refreshRoster();
-    this.adoptSelfMembershipIfNeeded(this.connection);
+    // through startConnection), so a guest sees the whole vault.
+    void this.refreshRoster();
     void this.restorePendingApprovals();
     // MRG-05: on start (after the canonicalization rebase inside the handle
     // build), sweep any pre-existing conflict copies that a persisted ancestor
@@ -973,24 +961,6 @@ export default class HavemindPlugin extends Plugin {
     });
   }
 
-  /**
-   * Seeds "You" only when the server roster did not already identify this
-   * device. Calling this after `refreshRoster` avoids the connect-time race
-   * where a parallel self-seed clobbered the full People list.
-   */
-  private adoptSelfMembershipIfNeeded(handle: ConnectionHandle | null): void {
-    const self = handle?.selfMembership;
-    if (self === undefined) return;
-    if (
-      this.rosterMembers.some(
-        (member) => member.self || member.membershipId === self.membershipId,
-      )
-    ) {
-      return;
-    }
-    this.adoptSelfMembership(handle);
-  }
-
   /** The durable roster store over the shared plugin-data blob. */
   private rosterStore(): RosterStore {
     // Route the roster's read-modify-save through the shared per-plugin mutex so
@@ -1018,36 +988,10 @@ export default class HavemindPlugin extends Plugin {
    * blanking the People pane. The next connect or reconnect retries.
    */
   private async refreshRoster(): Promise<void> {
-    const refresh = this.rosterRefreshTail.then(() =>
-      this.fetchAndPersistRoster(),
-    );
-    this.rosterRefreshTail = refresh;
-    return refresh;
-  }
-
-  private async fetchAndPersistRoster(): Promise<void> {
-    // The connection handle is authoritative for this device's identity. On a
-    // fresh join the persisted roster may still be empty, so deriving self only
-    // from that cache rendered every row as somebody else.
-    const selfMembershipId =
-      this.connection?.selfMembership?.membershipId ??
-      this.rosterMembers.find((member) => member.self)?.membershipId ??
-      null;
-    const connected =
-      this.connection?.apiBaseUrl !== undefined &&
-      this.connection.vaultId !== undefined
-        ? {
-            apiBaseUrl: this.connection.apiBaseUrl,
-            vaultId: this.connection.vaultId,
-          }
-        : undefined;
+    const self = this.rosterMembers.find((member) => member.self);
     try {
       const members = await fetchMemberRosterForVault(this, {
-        selfMembershipId,
-        ...(this.connection?.getAccessToken === undefined
-          ? {}
-          : { getAccessToken: this.connection.getAccessToken }),
-        ...(connected === undefined ? {} : { connected }),
+        selfMembershipId: self?.membershipId ?? null,
       });
       // `null` means this device is not connected to a vault, there is nothing
       // authoritative to render, so the existing list stands.
@@ -1104,7 +1048,6 @@ export default class HavemindPlugin extends Plugin {
         this.guestInvitationInvalid = true;
         this.views.refreshOnboardingNow();
       },
-      onPhase: (phase) => this.leaveHandshake(phase),
       signal: attempt.signal,
     });
     if (handle !== null) {
@@ -1132,19 +1075,13 @@ export default class HavemindPlugin extends Plugin {
       this.syncState = handle.state ?? null;
       // A live connection was (re-)established, advance the generation (FINDING 1b).
       this.connectGeneration += 1;
-      // P3: pull the server-authoritative roster first so a guest sees everyone,
-      // then seed self only when the fetch left this device out of the list.
-      await this.refreshRoster();
-      this.adoptSelfMembershipIfNeeded(handle);
+      // Record this device's own membership as a persistent roster member so the
+      // invitee's UI clearly shows it is connected.
+      this.adoptSelfMembership(handle);
+      // P3: pull the server-authoritative roster for this freshly paired vault.
+      void this.refreshRoster();
       // MRG-05: sweep any pre-existing conflict copies now that a base is loaded.
       this.scheduleConflictSweep();
-      this.views.refreshOnboardingNow();
-    } else if (!attempt.signal.aborted && !this.unloaded) {
-      // Connect failed after the handshake (bootstrap error, first-pull stall,
-      // timeout). Leave the six-digit waiting screen or the pane stays there
-      // forever, which is what a phone join looked like after 1.4.13.
-      this.awaitingApproval = null;
-      this.views.refreshOnboardingNow();
     }
     } finally {
       this.connectionAttemptAborters.delete(attempt);
@@ -1185,28 +1122,6 @@ export default class HavemindPlugin extends Plugin {
     this.awaitingApproval = null;
     this.guestInvitationInvalid = false;
     this.setStatus(formatStatusBar({ status: 'disconnected' }));
-    this.views.refreshOnboardingNow();
-  }
-
-  /**
-   * Drops the six-digit waiting screen as soon as approval or bootstrap starts.
-   * The first vault pull still runs after that, so files appear in the vault
-   * while the pane would otherwise stay on the handshake with no Havemind
-   * buttons.
-   */
-  private leaveHandshake(phase: string): void {
-    if (this.unloaded || this.awaitingApproval === null) return;
-    if (
-      phase === 'pending-approval' ||
-      phase === 'idle' ||
-      phase === 'cancelled'
-    ) {
-      return;
-    }
-    this.awaitingApproval = null;
-    if (phase !== 'rejected') {
-      this.connectionStatus = 'syncing';
-    }
     this.views.refreshOnboardingNow();
   }
 

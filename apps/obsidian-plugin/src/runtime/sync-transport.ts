@@ -14,7 +14,6 @@
  */
 
 import type {
-  PullOptions,
   PullResult,
   PushItemResult,
   PushRevision,
@@ -79,15 +78,6 @@ export class RequestUrlTransportError extends Error {
 
   /** True on HTTP 401, the session was refused; the loop must stop, not retry. */
   readonly authDenied: boolean;
-  /**
-   * HTTP 409 CURSOR_INVALID: this device holds a position the server cannot
-   * serve, because the server's sequence numbering moved underneath it (a
-   * restore from backup, or the repair that renumbers a log damaged by the old
-   * compaction). Neither an auth failure nor a transport failure, and retrying
-   * the same cursor can never succeed, so the runner resets to zero and
-   * re-bootstraps rather than reporting a permanent offline.
-   */
-  readonly cursorInvalid: boolean;
 
   /**
    * True on a whole-request 4xx the same bytes will never satisfy (400 bad
@@ -100,15 +90,10 @@ export class RequestUrlTransportError extends Error {
   constructor(
     readonly reason: 'unresolved-envelope' | 'http-status' | 'malformed-response',
     message: string,
-    options?: {
-      authDenied?: boolean;
-      permanent?: boolean;
-      cursorInvalid?: boolean;
-    },
+    options?: { authDenied?: boolean; permanent?: boolean },
   ) {
     super(message);
     this.authDenied = options?.authDenied ?? false;
-    this.cursorInvalid = options?.cursorInvalid ?? false;
     this.permanent = options?.permanent ?? false;
   }
 }
@@ -201,41 +186,17 @@ export class RequestUrlTransport implements SyncTransport {
     return parsePushResponse(response);
   }
 
-  async pull(after: number, options?: PullOptions): Promise<PullResult> {
+  async pull(after: number): Promise<PullResult> {
     const epoch = this.options.serverEpoch?.() ?? null;
-    const params = [`after=${after}`];
-    if (epoch !== null) {
-      params.push(`epoch=${encodeURIComponent(epoch)}`);
-    }
-    if (options?.snapshot === true) {
-      params.push('snapshot=1');
-    }
-    try {
-      const response = await this.request({
-        method: 'GET',
-        url: `${this.options.apiBaseUrl}/vaults/${this.options.vaultId}/events?${params.join('&')}`,
-      });
-      return parsePullResponse(response);
-    } catch (error) {
-      // An older server rejects the unknown `snapshot` query (strict schema).
-      // Fall back to the full log; the runner still collapses it locally.
-      if (
-        options?.snapshot === true &&
-        error instanceof RequestUrlTransportError &&
-        error.permanent
-      ) {
-        const fallback = [`after=${after}`];
-        if (epoch !== null) {
-          fallback.push(`epoch=${encodeURIComponent(epoch)}`);
-        }
-        const response = await this.request({
-          method: 'GET',
-          url: `${this.options.apiBaseUrl}/vaults/${this.options.vaultId}/events?${fallback.join('&')}`,
-        });
-        return parsePullResponse(response);
-      }
-      throw error;
-    }
+    const query =
+      epoch === null
+        ? `after=${after}`
+        : `after=${after}&epoch=${encodeURIComponent(epoch)}`;
+    const response = await this.request({
+      method: 'GET',
+      url: `${this.options.apiBaseUrl}/vaults/${this.options.vaultId}/events?${query}`,
+    });
+    return parsePullResponse(response);
   }
 
   private async request(
@@ -260,7 +221,6 @@ export class RequestUrlTransport implements SyncTransport {
         {
           authDenied: response.status === 401,
           permanent: isPermanentStatus(response.status),
-          cursorInvalid: response.status === 409,
         },
       );
     }
@@ -363,12 +323,7 @@ function parsePullResponse(response: RequestUrlResponseLike): PullResult {
       },
     };
   });
-  return {
-    cursor: body.cursor as number,
-    events,
-    ...(body.snapshot === true ? { snapshot: true } : {}),
-    ...(body.complete === true ? { complete: true } : {}),
-  };
+  return { cursor: body.cursor as number, events };
 }
 
 function malformed(detail: string): RequestUrlTransportError {

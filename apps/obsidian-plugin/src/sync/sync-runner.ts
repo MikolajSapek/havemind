@@ -97,18 +97,9 @@ export interface PushItemResult {
   readonly missingParent?: boolean;
 }
 
-export interface PullOptions {
-  /** Ask the server for current file heads only, not the superseded log. */
-  readonly snapshot?: boolean;
-}
-
 export interface PullResult {
   readonly cursor: number;
   readonly events: readonly RemoteEvent[];
-  /** True when `events` are the current vault heads, not a contiguous log page. */
-  readonly snapshot?: boolean;
-  /** True when this snapshot page is the last. Omitted on ordinary log pages. */
-  readonly complete?: boolean;
 }
 
 /**
@@ -118,7 +109,7 @@ export interface PullResult {
  */
 export interface SyncTransport {
   push(revisions: readonly PushRevision[]): Promise<readonly PushItemResult[]>;
-  pull(after: number, options?: PullOptions): Promise<PullResult>;
+  pull(after: number): Promise<PullResult>;
 }
 
 /**
@@ -143,20 +134,6 @@ export interface SyncStatePort {
   quarantineOutboxItem(revisionId: string, reason: string): Promise<void>;
   /** Echo suppression: was this revision authored by this device? */
   isLocallyAuthored(revisionId: string): Promise<boolean>;
-  /**
-   * Runs `body` with this state's durable writes coalesced into ONE flush at the
-   * end (including when `body` throws, so an interrupted run still records what
-   * it materialised). Optional: a port without it simply persists per mutation,
-   * which is the previous behaviour and still correct.
-   *
-   * The runner wraps the bootstrap apply pass in it. Each materialised head
-   * records a path owner, a base hash and a base content, and on the Obsidian
-   * port every one of those re-serialises the whole `data.json`, a blob that
-   * itself grows with the vault. Left per-mutation that is quadratic: a few
-   * hundred notes took twenty minutes to join on a phone, long enough for iOS
-   * to background the app mid-bootstrap.
-   */
-  runBatched?<T>(body: () => Promise<T>): Promise<T>;
 }
 
 export interface OpenBuffer {
@@ -207,13 +184,6 @@ export interface VaultApplyPort {
   ): Promise<RemoteApplyOutcome>;
   /** Record a visible conflict artifact without overwriting the active file. */
   recordConflict(event: RemoteEvent): Promise<void>;
-  /**
-   * Own-revision echo: the server is confirming a revision this device already
-   * authored. Never rewrite the file; when on-disk content already matches the
-   * revision's content hash, advance the synced base so later peer edits are not
-   * misread as divergent local changes. Optional on ports that have no base.
-   */
-  acknowledgeOwnEcho?(event: RemoteEvent): Promise<void>;
 }
 
 /** Cancels one scheduled callback when the runtime is torn down. */
@@ -251,12 +221,6 @@ export interface SyncRunnerOptions {
   /** Maximum revisions in one push request; defaults to the server's 64. */
   readonly maxPushBatchItems?: number;
   /**
-   * How many independent snapshot/collapsed-bootstrap heads may apply at once.
-   * Each apply fetches its own blob; serialising that on a phone made a text
-   * vault feel like a full rebuild. Live ordered pulls stay sequential. Default 8.
-   */
-  readonly bootstrapApplyConcurrency?: number;
-  /**
    * Observes the outcome of every completed cycle, including cycles the runner
    * drives itself through its internal backoff scheduler. Wiring the controller
    * here (not only through `trigger()`'s return value) is what lets a background
@@ -271,15 +235,6 @@ export type SyncCycleStatus =
   | 'synced'
   | 'conflict'
   | 'deferred'
-  /**
-   * The cycle reached the server, but at least one queued revision was neither
-   * accepted nor dead-lettered (a transient server rejection, or a parent that
-   * has not landed yet). It stays in the outbox and the next cycle retries it,
-   * so this is quieter than `offline`, but it must never read as `synced`: that
-   * is the state where the panel showed "Connected · synced" next to "2 changes
-   * waiting to send" while nothing moved.
-   */
-  | 'unsent'
   | 'offline'
   | 'unauthenticated';
 
@@ -299,9 +254,6 @@ export interface SyncCycleResult {
    */
   readonly cycleId?: number;
 }
-
-type PullApplyResult = Omit<SyncCycleResult, 'pushed' | 'quarantined'>;
-type AppliedEventResult = 'applied' | 'conflict' | 'deferred' | 'suppressed';
 
 type RemoteApplyDecision = 'apply' | 'conflict' | 'defer';
 
@@ -348,56 +300,6 @@ const DEFAULT_MAX_BACKOFF_MS = 60_000;
 const DEFAULT_MAX_PUSH_BATCH_BYTES = 512 * 1024;
 /** Mirrors the server's DEFAULT_MAX_BATCH_SIZE. */
 const DEFAULT_MAX_PUSH_BATCH_ITEMS = 64;
-/** Overlap enough blob GETs to keep a phone's network busy without flooding it. */
-const DEFAULT_BOOTSTRAP_APPLY_CONCURRENCY = 8;
-
-/**
- * Runs `worker` over `items` with at most `concurrency` in flight. Order of
- * completion is free; results keep input order. Used for snapshot heads, which
- * do not depend on each other.
- */
-async function mapPool<T, R>(
-  items: readonly T[],
-  concurrency: number,
-  worker: (item: T) => Promise<R>,
-): Promise<R[]> {
-  if (items.length === 0) return [];
-  const limit = Math.max(1, Math.min(concurrency, items.length));
-  const results = new Array<R>(items.length);
-  let nextIndex = 0;
-  async function runWorker(): Promise<void> {
-    while (nextIndex < items.length) {
-      const index = nextIndex;
-      nextIndex += 1;
-      const item = items[index];
-      if (item === undefined) return;
-      results[index] = await worker(item);
-    }
-  }
-  await Promise.all(Array.from({ length: limit }, () => runWorker()));
-  return results;
-}
-
-function tallyApplyOutcomes(
-  outcomes: readonly AppliedEventResult[],
-): {
-  applied: number;
-  conflicts: number;
-  deferred: number;
-  suppressed: number;
-} {
-  let applied = 0;
-  let conflicts = 0;
-  let deferred = 0;
-  let suppressed = 0;
-  for (const outcome of outcomes) {
-    if (outcome === 'deferred') deferred += 1;
-    else if (outcome === 'suppressed') suppressed += 1;
-    else if (outcome === 'conflict') conflicts += 1;
-    else applied += 1;
-  }
-  return { applied, conflicts, deferred, suppressed };
-}
 
 /**
  * Decides how to handle a remote event given the open editor buffers for its
@@ -437,7 +339,6 @@ export class SyncRunner {
       | 'random'
       | 'maxPushBatchBytes'
       | 'maxPushBatchItems'
-      | 'bootstrapApplyConcurrency'
     >
   > &
     SyncRunnerOptions;
@@ -468,8 +369,6 @@ export class SyncRunner {
       random: options.random ?? Math.random,
       maxPushBatchBytes: options.maxPushBatchBytes ?? DEFAULT_MAX_PUSH_BATCH_BYTES,
       maxPushBatchItems: options.maxPushBatchItems ?? DEFAULT_MAX_PUSH_BATCH_ITEMS,
-      bootstrapApplyConcurrency:
-        options.bootstrapApplyConcurrency ?? DEFAULT_BOOTSTRAP_APPLY_CONCURRENCY,
       ...options,
     };
   }
@@ -541,13 +440,7 @@ export class SyncRunner {
         deferred: apply.deferred,
         pushed: push.pushed,
         quarantined: push.quarantined,
-        // An outbox this cycle could not ship keeps the status off "synced". A
-        // conflict or a deferred apply still outranks it: both concern content
-        // already on disk, while an unsent revision only needs another cycle.
-        status:
-          apply.status === 'synced' && push.unsent > 0
-            ? 'unsent'
-            : apply.status,
+        status: apply.status,
         suppressed: apply.suppressed,
       };
     } catch (error) {
@@ -592,14 +485,10 @@ export class SyncRunner {
    * stop retrying, and the `quarantined` count reflects the full lineage so the
    * status surface can never read a clean "synced" while a lineage is dead.
    */
-  private async runPush(): Promise<{
-    pushed: number;
-    quarantined: number;
-    unsent: number;
-  }> {
+  private async runPush(): Promise<{ pushed: number; quarantined: number }> {
     const outbox = await this.options.state.listOutbox();
     if (outbox.length === 0) {
-      return { pushed: 0, quarantined: 0, unsent: 0 };
+      return { pushed: 0, quarantined: 0 };
     }
 
     // A work queue so a multi-item batch that fails permanently can be split into
@@ -701,12 +590,7 @@ export class SyncRunner {
       }
     }
 
-    // Whatever is still `pending` was neither accepted nor dead-lettered: the
-    // server rejected it transiently, or its parent has not landed yet. It stays
-    // queued for the next cycle, but the cycle must not read "synced" while it
-    // does, that is the state where the panel showed "Connected · synced" beside
-    // "2 changes waiting to send" and nothing ever moved.
-    return { pushed, quarantined: quarantinedIds.size, unsent: pending.size };
+    return { pushed, quarantined: quarantinedIds.size };
   }
 
   /**
@@ -768,55 +652,16 @@ export class SyncRunner {
   }
 
   private async runPull(): Promise<
-    PullApplyResult
+    Omit<SyncCycleResult, 'pushed' | 'quarantined'>
   > {
     let cursor = await this.options.state.loadCursor();
-    let pulled: PullResult;
-    try {
-      pulled = await this.options.transport.pull(
-        cursor,
-        cursor === 0 ? { snapshot: true } : undefined,
-      );
-    } catch (error) {
-      // CURSOR_INVALID (HTTP 409): the server cannot serve this position because
-      // its sequence numbering moved underneath us (a restore, or the repair that
-      // renumbers a log damaged by the old compaction). Retrying the same cursor
-      // can never succeed and the device would sit "offline" forever, so reset to
-      // zero and re-bootstrap, which is exactly a fresh join: current heads are
-      // materialised and content already on disk converges without a write.
-      // Only from a NON-zero cursor: if zero is refused too, the cursor is not
-      // the problem, so let it surface as offline and back off.
-      if (!isCursorInvalid(error) || cursor === 0) throw error;
-      await this.options.state.saveCursor(0);
-      cursor = 0;
-      this.bootstrapTarget = null;
-      pulled = await this.options.transport.pull(0, { snapshot: true });
-    }
-    const { cursor: serverHead, events } = pulled;
+    const { cursor: serverHead, events } = await this.options.transport.pull(cursor);
     // Latch the bootstrap boundary on the first successful pull: the server head
     // known at connect. Everything at or below it is the initial catch-up.
-    if (this.bootstrapTarget === null && serverHead > 0) {
+    if (this.bootstrapTarget === null) {
       this.bootstrapTarget = serverHead;
     }
     const bootstrapTarget = this.bootstrapTarget;
-
-    // Preferred path: the server already reduced the log to current file heads.
-    // Apply those and jump the cursor to the live server head. Older servers omit
-    // `snapshot` and we fall through to collapsing the log locally.
-    if (cursor === 0 && pulled.snapshot === true && serverHead > 0) {
-      return this.runSnapshotBootstrap(pulled, serverHead);
-    }
-
-    // A cursor-zero client has no trustworthy proof that historical revisions
-    // were already materialised. Applying the log one revision at a time is
-    // unsafe against a populated phone: an old empty create collides before its
-    // later update arrives and becomes a false conflict. Collect the complete
-    // initial log, reduce it to terminal DAG heads, and materialise only those
-    // current states. Cursor persistence remains all-or-nothing at serverHead.
-    if (cursor === 0 && bootstrapTarget !== null && bootstrapTarget > 0) {
-      return this.runCollapsedBootstrap(events, bootstrapTarget);
-    }
-
     const ordered = [...events].sort(
       (left, right) => left.serverSequence - right.serverSequence,
     );
@@ -844,20 +689,47 @@ export class SyncRunner {
         break;
       }
 
-      const outcome = await this.applyPulledEvent(
-        remoteEvent,
-        bootstrapTarget !== null && remoteEvent.serverSequence <= bootstrapTarget,
+      if (await this.options.state.isLocallyAuthored(remoteEvent.revision.revisionId)) {
+        suppressed += 1;
+        cursor = remoteEvent.serverSequence;
+        await this.options.state.saveCursor(cursor);
+        continue;
+      }
+
+      const buffers = await this.options.vault.openBuffers(
+        remoteEvent.revision.fileId,
       );
-      if (outcome === 'deferred') {
+      const decision = decideRemoteApply(
+        buffers,
+        remoteEvent.revision.contentHash,
+      );
+
+      if (decision === 'defer') {
         deferred += 1;
         break;
       }
-      if (outcome === 'suppressed') {
-        suppressed += 1;
-      } else if (outcome === 'conflict') {
+
+      if (decision === 'conflict') {
+        await this.options.vault.recordConflict(remoteEvent);
         conflicts += 1;
       } else {
-        applied += 1;
+        // The open-buffer guard cleared this event, but the vault runs a second
+        // on-disk overwrite guard before writing. A divergent on-disk file is
+        // diverted to a conflict artifact rather than silently overwritten
+        // (rule 3), and the runner counts it as a conflict so the status
+        // surfaces it.
+        const outcome = await this.options.vault.applyRemote(remoteEvent, {
+          // At or below the connect-time head → part of the initial catch-up, so
+          // its Activity entry is suppressed (baseline). Beyond it → a live edit.
+          bootstrap:
+            bootstrapTarget !== null &&
+            remoteEvent.serverSequence <= bootstrapTarget,
+        });
+        if (outcome === 'conflict') {
+          conflicts += 1;
+        } else {
+          applied += 1;
+        }
       }
 
       cursor = remoteEvent.serverSequence;
@@ -871,176 +743,6 @@ export class SyncRunner {
       status: resolveStatus({ conflicts, deferred }),
       suppressed,
     };
-  }
-
-  /**
-   * Materialises a server-supplied snapshot of current file heads. Pages until
-   * `complete` (or an empty page) so a vault larger than one pull still lands
-   * as one all-or-nothing cursor jump.
-   */
-  private async runSnapshotBootstrap(
-    firstPage: PullResult,
-    serverHead: number,
-  ): Promise<PullApplyResult> {
-    const collected: RemoteEvent[] = [...firstPage.events];
-    let scanCursor = lastSequence(collected);
-    let complete = firstPage.complete === true || firstPage.events.length === 0;
-    while (!complete && scanCursor < serverHead) {
-      const page = await this.options.transport.pull(scanCursor, {
-        snapshot: true,
-      });
-      if (page.snapshot !== true || page.events.length === 0) {
-        break;
-      }
-      const pageHigh = lastSequence(page.events);
-      // A page that does not move the cursor would retry forever and leave the
-      // joining phone on the six-digit waiting screen (connect waits for this
-      // first pull before it can leave that view).
-      if (pageHigh <= scanCursor) {
-        break;
-      }
-      collected.push(...page.events);
-      scanCursor = lastSequence(collected);
-      complete = page.complete === true;
-    }
-
-    // One batch around the applies AND the cursor save: on the Obsidian port
-    // they then land in a single `data.json` write, so the cursor can never be
-    // durably behind the path owners the same pass recorded.
-    const { applied, conflicts, deferred, suppressed } = await this.batched(
-      async () => {
-        const outcomes = await mapPool(
-          collected,
-          this.options.bootstrapApplyConcurrency,
-          (item) => this.applyPulledEvent(item, true),
-        );
-        const tally = tallyApplyOutcomes(outcomes);
-        if (tally.deferred === 0) {
-          await this.options.state.saveCursor(serverHead);
-        }
-        return tally;
-      },
-    );
-    return {
-      applied,
-      conflicts,
-      deferred,
-      status: resolveStatus({ conflicts, deferred }),
-      suppressed,
-    };
-  }
-
-  /**
-   * Reads the complete cursor-zero bootstrap without touching the vault, then
-   * applies only revisions that are not a parent of another revision. The
-   * server's event cursor is the current head, while each page may be bounded;
-   * follow-up pulls advance an in-memory scan cursor until that fixed boundary.
-   */
-  private async runCollapsedBootstrap(
-    firstPage: readonly RemoteEvent[],
-    serverHead: number,
-  ): Promise<PullApplyResult> {
-    const collected: RemoteEvent[] = [];
-    let scanCursor = 0;
-    let page: readonly RemoteEvent[] = firstPage;
-
-    while (scanCursor < serverHead) {
-      const ordered = [...page].sort(
-        (left, right) => left.serverSequence - right.serverSequence,
-      );
-      let progressed = false;
-      for (const item of ordered) {
-        if (item.serverSequence <= scanCursor || item.serverSequence > serverHead) {
-          continue;
-        }
-        if (item.serverSequence !== scanCursor + 1) {
-          // A missing sequence makes the snapshot incomplete. Touch nothing and
-          // retain cursor zero so the next cycle requests the run again.
-          return emptyPullResult();
-        }
-        collected.push(item);
-        scanCursor = item.serverSequence;
-        progressed = true;
-      }
-      if (scanCursor >= serverHead) break;
-      if (!progressed) return emptyPullResult();
-      page = (await this.options.transport.pull(scanCursor)).events;
-    }
-
-    const supersededRevisionIds = new Set<string>();
-    for (const item of collected) {
-      for (const parentId of item.revision.parentRevisionIds ?? []) {
-        supersededRevisionIds.add(parentId);
-      }
-    }
-    const heads = collected.filter(
-      (item) => !supersededRevisionIds.has(item.revision.revisionId),
-    );
-
-    // Same single-batch treatment as the snapshot path: the applies and the
-    // cursor save flush together (see `batched`).
-    const { applied, conflicts, deferred, suppressed } = await this.batched(
-      async () => {
-        const outcomes = await mapPool(
-          heads,
-          this.options.bootstrapApplyConcurrency,
-          (item) => this.applyPulledEvent(item, true),
-        );
-        const tally = tallyApplyOutcomes(outcomes);
-        // Never skip a head that could not yet be applied. Successful/no-op and
-        // conflict outcomes are durable, so the full boundary may advance only
-        // when every terminal head reached one of those outcomes.
-        if (tally.deferred === 0) {
-          await this.options.state.saveCursor(serverHead);
-        }
-        return tally;
-      },
-    );
-    return {
-      applied,
-      conflicts,
-      deferred,
-      status: resolveStatus({ conflicts, deferred }),
-      suppressed,
-    };
-  }
-
-  /**
-   * Runs `body` inside the state port's durable-write batch when it offers one,
-   * otherwise calls it directly (the port method is optional). Used for the
-   * bootstrap apply pass, where the per-mutation persistence is quadratic.
-   */
-  private batched<T>(body: () => Promise<T>): Promise<T> {
-    const state = this.options.state;
-    if (state.runBatched === undefined) return body();
-    return state.runBatched(body);
-  }
-
-  /** Applies one pulled event without advancing the cursor. */
-  private async applyPulledEvent(
-    remoteEvent: RemoteEvent,
-    bootstrap: boolean,
-  ): Promise<AppliedEventResult> {
-    if (await this.options.state.isLocallyAuthored(remoteEvent.revision.revisionId)) {
-      // Own echo: never rewrite, but DO advance the synced base when disk already
-      // matches. Otherwise solo pushes leave base stuck forever (the echo is
-      // suppressed and the cursor moves past it), and the next peer edit looks
-      // like a divergent local change → false conflicts on the other device.
-      await this.options.vault.acknowledgeOwnEcho?.(remoteEvent);
-      return 'suppressed';
-    }
-
-    const buffers = await this.options.vault.openBuffers(remoteEvent.revision.fileId);
-    const decision = decideRemoteApply(buffers, remoteEvent.revision.contentHash);
-    if (decision === 'defer') return 'deferred';
-    if (decision === 'conflict') {
-      await this.options.vault.recordConflict(remoteEvent);
-      return 'conflict';
-    }
-
-    // The on-disk guard may still divert a divergent file to a conflict copy.
-    const outcome = await this.options.vault.applyRemote(remoteEvent, { bootstrap });
-    return outcome === 'conflict' ? 'conflict' : 'applied';
   }
 
   private scheduleBackoff(): void {
@@ -1099,18 +801,6 @@ function isAuthDenied(error: unknown): boolean {
  * offending revision is quarantined instead. Structural check keeps the runner
  * decoupled from the concrete error classes.
  */
-/**
- * A 409 CURSOR_INVALID from the sync transport. Structural check, so the runner
- * stays decoupled from the concrete error class.
- */
-function isCursorInvalid(error: unknown): boolean {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    (error as { cursorInvalid?: unknown }).cursorInvalid === true
-  );
-}
-
 function isPermanentError(error: unknown): boolean {
   return (
     typeof error === 'object' &&
@@ -1131,24 +821,6 @@ function idleCycleResult(): SyncCycleResult {
     deferred: 0,
     pushed: 0,
     quarantined: 0,
-    status: 'synced',
-    suppressed: 0,
-  };
-}
-
-function lastSequence(events: readonly RemoteEvent[]): number {
-  let highest = 0;
-  for (const event of events) {
-    if (event.serverSequence > highest) highest = event.serverSequence;
-  }
-  return highest;
-}
-
-function emptyPullResult(): PullApplyResult {
-  return {
-    applied: 0,
-    conflicts: 0,
-    deferred: 0,
     status: 'synced',
     suppressed: 0,
   };

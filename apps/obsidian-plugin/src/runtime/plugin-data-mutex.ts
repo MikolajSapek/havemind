@@ -68,14 +68,6 @@ export class PluginDataMutex {
 export interface SerializedDataPort {
   load(): Promise<Record<string, unknown>>;
   save(data: Record<string, unknown>): Promise<void>;
-  /**
-   * One critical section over the whole blob. Use this for read-modify-write of
-   * a single key (roster, etc.): split load/save on the same key can still
-   * clobber when two writers interleave between their load and save.
-   */
-  update(
-    mutator: (current: Record<string, unknown>) => Record<string, unknown>,
-  ): Promise<void>;
 }
 
 /**
@@ -108,9 +100,6 @@ export function createSerializedDataPort(
         }
         return next;
       });
-    },
-    update(mutator) {
-      return mutex.update(mutator);
     },
   };
 }

@@ -69,13 +69,11 @@ export type LocalChangeKind = 'create' | 'update' | 'rename' | 'delete';
 export interface LocalFileMapping {
   collisionKey: string;
   /**
-   * Canonical markdown text. Binary attachments retain no body here: their raw
-   * byte hash is sufficient for change detection and keeping base64 in this
-   * mapping made Obsidian's single data.json multi-megabyte and vulnerable to a
-   * torn mobile write (AUD-12). Optional discriminator `contentKind` says
-   * which; absent means markdown, so every legacy text mapping keeps its meaning.
+   * Canonical markdown text, or, for a binary attachment (F9), the base64 of
+   * the raw file bytes. Optional discriminator `contentKind` says which; absent
+   * means markdown, so every legacy mapping keeps its meaning unchanged.
    */
-  content: string | null;
+  content: string;
   /**
    * SHA-256 hex. For markdown this is the hash of the canonical text; for a
    * binary attachment it is the hash of the RAW bytes (`hashBlob`), never a
@@ -157,17 +155,6 @@ export interface LocalChangeRepository {
    */
   commitLocalChange(commit: LocalChangeCommit): Promise<string | null>;
   listMappings(): Promise<readonly LocalFileMapping[]>;
-  /**
-   * Records a mapping for a file whose content the vault ALREADY holds, without
-   * enqueuing a revision. Used by the join-time reconcile: re-pushing content
-   * the server has forks the note's identity, so the local device takes the
-   * server's instead. Optional, so a caller that never joins need not implement
-   * it (the reconcile falls back to creating, i.e. the previous behaviour).
-   */
-  adoptRemoteMapping?(
-    mapping: LocalFileMapping,
-    headRevisionId: string,
-  ): Promise<void>;
 }
 
 export type VaultPathClassification =

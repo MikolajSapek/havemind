@@ -245,9 +245,7 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
    * of forever diverting to a conflict artifact. A create/update/rename seeds the
    * owner+base (and forgets the prior path on a rename); a delete forgets both.
    */
-  private async seedSharedState(
-    operation: LocalChangeCommit['operation'],
-  ): Promise<void> {
+  private async seedSharedState(operation: LocalChangeCommit['operation']): Promise<void> {
     if (operation.kind === 'delete') {
       await this.options.onLocalForgotten?.({
         fileId: operation.fileId,
@@ -266,7 +264,6 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
       previousPath: operation.previousPath,
     });
   }
-
 
   /**
    * Adopts, without enqueuing, the producer mapping+head for a file the apply
@@ -310,30 +307,8 @@ function upsertMapping(
       mapping.fileId !== upsert.fileId &&
       mapping.collisionKey !== upsert.collisionKey,
   );
-  next.push(withoutBinaryBody(upsert));
+  next.push(upsert);
   return next;
-}
-
-/**
- * Drops the base64 body from a binary mapping (AUD-12).
- *
- * A mapping answers one question, "did this path change since the last push?",
- * and the hash settles it. Binary files never three-way merge, so their bytes
- * here are dead weight, and base64 is a third larger than the file. In a real
- * vault four PDFs and a dozen images pushed `data.json` to 9.4 MB, 8.15 MB of
- * it binary base64.
- *
- * The size is not the harm, the write is. Obsidian rewrites `data.json` whole
- * on every save; interrupt one of those (quit, a phone sleeping) and the state
- * parses as corrupt, `parsePersistedState` falls back to `emptyState()` whose
- * cursor is 0, and the next pull replays the entire history, resurrecting
- * deleted notes as fresh remote creates. That is the failure this prevents.
- */
-function withoutBinaryBody(mapping: LocalFileMapping): LocalFileMapping {
-  if (mapping.contentKind !== 'binary' || mapping.content === null) {
-    return mapping;
-  }
-  return { ...mapping, content: null };
 }
 
 function resolveOperation(

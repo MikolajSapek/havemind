@@ -328,38 +328,6 @@ function makeHarness() {
 }
 
 describe('two-person steady-state sync (integration)', () => {
-  it('bootstrap tombstone retires a stale fileId without a reflected re-push', async () => {
-    const h = makeHarness();
-    const path = 'Notes/deleted-on-desktop.md';
-    const staleFileId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
-    const serverFileId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
-    await h.userCreate(path, 'OLD-SERVER-VERSION\n', staleFileId);
-    const outboxBeforeDelete = h.outbox.length;
-    expect(h.localHead(staleFileId)).toBeDefined();
-
-    h.setRemote('server-delete', {
-      operation: 'delete',
-      path,
-      previousPath: null,
-      content: null,
-    });
-    const outcome = await h.adapter.applyRemote(
-      h.remoteEvent('server-delete', serverFileId),
-      { bootstrap: true },
-    );
-    await h.drainEvents();
-
-    expect(outcome).toBe('applied');
-    expect(h.vault.contents.has(path)).toBe(false);
-    expect(h.state.fileIdAtPath(path)).toBeNull();
-    expect(h.state.baseHashFor(staleFileId)).toBeNull();
-    expect(h.state.baseContentFor(staleFileId)).toBeNull();
-    expect(h.producerMappings()).toEqual([]);
-    expect(h.localHead(staleFileId)).toBeUndefined();
-    expect(h.localHead(serverFileId)).toBeUndefined();
-    expect(h.outbox).toHaveLength(outboxBeforeDelete);
-  });
-
   it('(a) a peer edit to a locally-authored file updates IN PLACE with a matching base', async () => {
     const h = makeHarness();
     await h.userCreate('Notes/note.md', 'V1\n', FILE_A);
@@ -648,73 +616,5 @@ describe('two-person steady-state sync (integration)', () => {
     expect(b.vault.contents.get(NOTE)).toBe(MERGED);
     expect([...a.vault.contents.keys()].some((p) => p.startsWith('Havemind Conflicts/'))).toBe(false);
     expect([...b.vault.contents.keys()].some((p) => p.startsWith('Havemind Conflicts/'))).toBe(false);
-  });
-
-  /**
-   * Every other test here covers ONE hop: author a note, take one peer edit.
-   * Real use is a conversation, and the reported failure ("files stop flowing,
-   * conflicts everywhere") only appears after a few rounds, so drive several.
-   *
-   * The rule under test: a peer revision that descends from what this device
-   * last agreed on is a fast-forward and must apply in place, on round five as
-   * much as on round one. Nothing here is concurrent, so no round may conflict.
-   */
-  it('(g) alternating edits converge over many rounds without a single conflict', async () => {
-    const h = makeHarness();
-    const NOTE = 'Notes/roundtrip.md';
-    await h.userCreate(NOTE, 'V1\n', FILE_A);
-
-    for (let round = 2; round <= 6; round += 1) {
-      // Real UUIDs: the revision header schema rejects anything else, and the
-      // parent id below is carried straight into it.
-      const revisionId = `0000000${round}-0000-4000-8000-00000000000${round}`;
-      const content = `V${round}\n`;
-      // The peer builds strictly on this device's current head: a pure
-      // fast-forward, the shape of "the other device had my version and typed".
-      const parent = h.localHead(FILE_A);
-      h.setRemote(revisionId, {
-        operation: 'update',
-        path: NOTE,
-        previousPath: null,
-        content,
-      });
-      const outcome = await h.adapter.applyRemote(
-        h.remoteEvent(revisionId, FILE_A, parent === undefined ? [] : [parent]),
-      );
-      await h.drainEvents();
-
-      expect(`round ${round}: ${outcome}`).toBe(`round ${round}: applied`);
-      expect(h.vault.contents.get(NOTE)).toBe(content);
-
-      // Then the local user edits on top of what just arrived, and that push is
-      // what the peer will build its next revision on.
-      const localContent = `V${round}-local\n`;
-      const file = h.vault.getAbstractFileByPath(NOTE);
-      await h.vault.modify(file as unknown as { path: string }, localContent);
-      await h.drainEvents();
-      expect(h.vault.contents.get(NOTE)).toBe(localContent);
-
-      // The server echoes that push back on the next pull. The runner suppresses
-      // the rewrite but calls `acknowledgeOwnEcho`, which is the ONLY moment both
-      // peers are known to hold this text, so it is where the base advances.
-      // Without this step the base stays at the peer's last content and round
-      // three onwards conflicts, which is the reported failure.
-      const echoId = `0000001${round}-0000-4000-8000-00000000001${round}`;
-      h.setRemote(echoId, {
-        operation: 'update',
-        path: NOTE,
-        previousPath: null,
-        content: localContent,
-      });
-      await h.adapter.acknowledgeOwnEcho(h.remoteEvent(echoId, FILE_A));
-      await h.drainEvents();
-      expect(h.state.baseHashFor(FILE_A)).toBe(await realSha256(localContent));
-    }
-
-    expect(
-      [...h.vault.contents.keys()].filter((p) =>
-        p.startsWith('Havemind Conflicts/'),
-      ),
-    ).toEqual([]);
   });
 });

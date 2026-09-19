@@ -65,25 +65,6 @@ describe('driveToConnected', () => {
     expect(sleeps).toEqual([]);
   });
 
-  it('notifies each phase so the waiting screen can drop before the first pull', async () => {
-    const controller = scripted([
-      'pending-approval',
-      'bootstrapping',
-      'connected',
-    ]);
-    const phases: string[] = [];
-    await driveToConnected({
-      controller,
-      sleep: async () => undefined,
-      pollIntervalMs: 1,
-      maxSteps: 10,
-      onPhase: (phase) => {
-        phases.push(phase);
-      },
-    });
-    expect(phases).toEqual(['pending-approval', 'bootstrapping', 'connected']);
-  });
-
   it('stops after maxSteps if it never reaches connected', async () => {
     const controller = scripted(['pending-approval']);
     const state = await driveToConnected({

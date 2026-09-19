@@ -747,9 +747,7 @@ describe('SyncRunner remote apply', () => {
     expect(state.cursor).toBe(1);
   });
 
-  it('defers an unknown-base buffer without blocking other cursor-zero heads', async () => {
-    // Cursor-zero collapsed bootstrap applies independent heads concurrently.
-    // A deferred open buffer on one file must not strand the rest of the vault.
+  it('defers when a divergent buffer has an unknown base and stops advancing', async () => {
     const vault = new FakeVault();
     vault.buffers.set('file-a', [{ baseHash: null, currentHash: 'local-edit' }]);
     const { runner, state } = makeRunner({
@@ -768,11 +766,11 @@ describe('SyncRunner remote apply', () => {
 
     const result = await runner.trigger();
 
+    expect(vault.applied).toHaveLength(0);
     expect(vault.conflicts).toHaveLength(0);
     expect(result.status).toBe('deferred');
-    expect(result.deferred).toBe(1);
-    expect(vault.applied.map((item) => item.revision.fileId)).toEqual(['file-b']);
-    // Cursor stays at zero until every head can apply (including the deferred one).
+    // The cursor never advanced past the deferred event, so nothing after it
+    // is materialized this cycle.
     expect(state.cursor).toBe(0);
   });
 
@@ -901,90 +899,6 @@ describe('SyncRunner remote apply', () => {
 });
 
 describe('SyncRunner bootstrap origin', () => {
-  it('materialises only terminal DAG heads during cursor-zero bootstrap', async () => {
-    // Replaying rev-1 (an old empty create) against an already-populated phone
-    // is what produced the field conflict storm. rev-2 supersedes it, so a
-    // cursor-zero rebuild must apply only rev-2 plus the independent file head.
-    const first = event(1, 'file-1', 'empty', 'rev-1');
-    const second: RemoteEvent = {
-      serverSequence: 2,
-      revision: {
-        contentHash: 'current',
-        fileId: 'file-1',
-        revisionId: 'rev-2',
-        parentRevisionIds: ['rev-1'],
-      },
-    };
-    const independent = event(3, 'file-2', 'other', 'rev-3');
-    const { runner, vault, state } = makeRunner({
-      transport: {
-        push: vi.fn(async () => []),
-        pull: vi.fn(async () => ({
-          cursor: 3,
-          events: [first, second, independent],
-        })),
-      },
-    });
-
-    const result = await runner.trigger();
-
-    expect(vault.applied.map((item) => item.revision.revisionId)).toEqual([
-      'rev-2',
-      'rev-3',
-    ]);
-    expect(vault.appliedBootstrap).toEqual([true, true]);
-    expect(result.applied).toBe(2);
-    expect(state.cursor).toBe(3);
-  });
-
-  it('collects every bootstrap page before selecting terminal heads', async () => {
-    const pull = vi
-      .fn<SyncTransport['pull']>()
-      .mockResolvedValueOnce({
-        cursor: 4,
-        events: [
-          event(1, 'file-1', 'empty', 'rev-1'),
-          event(2, 'file-2', 'old', 'rev-2'),
-        ],
-      })
-      .mockResolvedValueOnce({
-        cursor: 4,
-        events: [
-          {
-            serverSequence: 3,
-            revision: {
-              contentHash: 'current',
-              fileId: 'file-1',
-              revisionId: 'rev-3',
-              parentRevisionIds: ['rev-1'],
-            },
-          },
-          {
-            serverSequence: 4,
-            revision: {
-              contentHash: 'current-2',
-              fileId: 'file-2',
-              revisionId: 'rev-4',
-              parentRevisionIds: ['rev-2'],
-            },
-          },
-        ],
-      });
-    const { runner, vault, state } = makeRunner({
-      transport: { push: vi.fn(async () => []), pull },
-    });
-
-    await runner.trigger();
-
-    expect(pull).toHaveBeenNthCalledWith(1, 0, { snapshot: true });
-    expect(pull).toHaveBeenNthCalledWith(2, 2);
-    expect(vault.applied.map((item) => item.revision.revisionId)).toEqual([
-      'rev-3',
-      'rev-4',
-    ]);
-    expect(state.cursor).toBe(4);
-  });
-
   it('flags every apply at or below the connect-time head as bootstrap, and later live edits as not', async () => {
     // Cycle 1: a fresh device catches up 1..3 with the server head at 3, the
     // whole initial bootstrap. Cycle 2: a live peer edit at 4 (head now 4).
@@ -1014,157 +928,6 @@ describe('SyncRunner bootstrap origin', () => {
     await runner.trigger();
     // The live edit beyond the connect-time head is NOT bootstrap.
     expect(vault.appliedBootstrap).toEqual([true, true, true, false]);
-  });
-
-  it('applies a server snapshot of heads without paging the superseded log', async () => {
-    const pull = vi.fn<SyncTransport['pull']>().mockResolvedValue({
-      complete: true,
-      cursor: 11,
-      events: [event(10, 'file-1', 'current', 'rev-10'), event(11, 'file-2', 'other', 'rev-11')],
-      snapshot: true,
-    });
-    const { runner, vault, state } = makeRunner({
-      transport: { push: vi.fn(async () => []), pull },
-    });
-
-    const result = await runner.trigger();
-
-    expect(pull).toHaveBeenCalledWith(0, { snapshot: true });
-    expect(pull).toHaveBeenCalledTimes(1);
-    expect(vault.applied.map((item) => item.revision.revisionId)).toEqual([
-      'rev-10',
-      'rev-11',
-    ]);
-    expect(vault.appliedBootstrap).toEqual([true, true]);
-    expect(result.applied).toBe(2);
-    expect(state.cursor).toBe(11);
-  });
-
-  it('does not latch an empty-vault snapshot as cursor zero forever', async () => {
-    const pull = vi
-      .fn<SyncTransport['pull']>()
-      .mockResolvedValueOnce({
-        complete: true,
-        cursor: 0,
-        events: [],
-        snapshot: true,
-      })
-      .mockResolvedValueOnce({
-        complete: true,
-        cursor: 1,
-        events: [event(1, 'file-1', 'head', 'rev-1')],
-        snapshot: true,
-      });
-    const { runner, vault, state } = makeRunner({
-      transport: { push: vi.fn(async () => []), pull },
-    });
-
-    await runner.trigger();
-    expect(state.cursor).toBe(0);
-
-    const result = await runner.trigger();
-    expect(vault.applied.map((item) => item.revision.revisionId)).toEqual(['rev-1']);
-    expect(result.applied).toBe(1);
-    expect(state.cursor).toBe(1);
-  });
-
-  it('stops paging a snapshot when the cursor does not advance', async () => {
-    const stuckPage = {
-      complete: false,
-      cursor: 50,
-      events: [event(10, 'file-1', 'head', 'rev-10'), event(20, 'file-2', 'other', 'rev-20')],
-      snapshot: true as const,
-    };
-    const pull = vi.fn<SyncTransport['pull']>().mockResolvedValue(stuckPage);
-    const { runner, vault, state } = makeRunner({
-      transport: { push: vi.fn(async () => []), pull },
-    });
-
-    const result = await runner.trigger();
-
-    expect(pull.mock.calls.length).toBeLessThan(5);
-    expect(vault.applied.map((item) => item.revision.revisionId)).toEqual([
-      'rev-10',
-      'rev-20',
-    ]);
-    expect(result.applied).toBe(2);
-    expect(state.cursor).toBe(50);
-  });
-
-  it('applies snapshot heads concurrently so a text vault is not one blob at a time', async () => {
-    // Field: phone join felt like rebuilding the vault because each head waited
-    // for the previous blob GET to finish. Snapshot heads are independent, so
-    // the runner must overlap several applies (and their blob fetches).
-    let inFlight = 0;
-    let peakInFlight = 0;
-    const vault = new FakeVault();
-    vault.applyRemote = async (remote, options) => {
-      inFlight += 1;
-      peakInFlight = Math.max(peakInFlight, inFlight);
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      inFlight -= 1;
-      vault.applied.push(remote);
-      vault.appliedBootstrap.push(options?.bootstrap);
-      return 'applied';
-    };
-    const pull = vi.fn<SyncTransport['pull']>().mockResolvedValue({
-      complete: true,
-      cursor: 4,
-      events: [
-        event(1, 'file-1', 'h1', 'rev-1'),
-        event(2, 'file-2', 'h2', 'rev-2'),
-        event(3, 'file-3', 'h3', 'rev-3'),
-        event(4, 'file-4', 'h4', 'rev-4'),
-      ],
-      snapshot: true,
-    });
-    const { runner, state } = makeRunner({
-      transport: { push: vi.fn(async () => []), pull },
-      vault,
-      bootstrapApplyConcurrency: 4,
-    });
-
-    const result = await runner.trigger();
-
-    expect(peakInFlight).toBeGreaterThan(1);
-    expect(result.applied).toBe(4);
-    expect(state.cursor).toBe(4);
-    expect(vault.applied.map((item) => item.revision.revisionId).sort()).toEqual([
-      'rev-1',
-      'rev-2',
-      'rev-3',
-      'rev-4',
-    ]);
-  });
-
-  it('still applies other snapshot heads when one file is deferred', async () => {
-    const vault = new FakeVault();
-    vault.buffers.set('file-2', [{ baseHash: null, currentHash: 'dirty' }]);
-    const pull = vi.fn<SyncTransport['pull']>().mockResolvedValue({
-      complete: true,
-      cursor: 3,
-      events: [
-        event(1, 'file-1', 'h1', 'rev-1'),
-        event(2, 'file-2', 'h2', 'rev-2'),
-        event(3, 'file-3', 'h3', 'rev-3'),
-      ],
-      snapshot: true,
-    });
-    const { runner, state } = makeRunner({
-      transport: { push: vi.fn(async () => []), pull },
-      vault,
-      bootstrapApplyConcurrency: 3,
-    });
-
-    const result = await runner.trigger();
-
-    expect(result.deferred).toBe(1);
-    expect(result.applied).toBe(2);
-    expect(state.cursor).toBe(0);
-    expect(vault.applied.map((item) => item.revision.revisionId).sort()).toEqual([
-      'rev-1',
-      'rev-3',
-    ]);
   });
 });
 
@@ -1237,10 +1000,9 @@ describe('SyncRunner cursor contiguity gate', () => {
     expect(vault.applied.map((e) => e.serverSequence)).toEqual([1, 2, 3]);
   });
 
-  it('touches nothing when a cursor-zero bootstrap page has a hole', async () => {
-    // [#1, #3] after 0 cannot describe the current terminal heads because #2 is
-    // missing. Applying #1 could recreate an old empty note, so bootstrap stays
-    // atomic and retries the complete snapshot without touching the vault.
+  it('stops at a mid-page hole and advances only to the last contiguous sequence', async () => {
+    // [#1, #3] after 0: #1 is contiguous, #3 is beyond the gap at #2. The cursor
+    // advances only to 1; #3 is held until #2 arrives.
     const { runner, vault, state } = makeRunner({
       transport: {
         push: vi.fn(async () => []),
@@ -1253,29 +1015,9 @@ describe('SyncRunner cursor contiguity gate', () => {
 
     const result = await runner.trigger();
 
-    expect(state.cursor).toBe(0);
-    expect(result.applied).toBe(0);
-    expect(vault.applied).toEqual([]);
-  });
-
-  it('still advances a healthy nonzero cursor to the contiguous prefix', async () => {
-    const state = new FakeState({ cursor: 1 });
-    const { runner, vault } = makeRunner({
-      state,
-      transport: {
-        push: vi.fn(async () => []),
-        pull: vi.fn(async () => ({
-          cursor: 4,
-          events: [event(2, 'file-b', 'hash-2'), event(4, 'file-d', 'hash-4')],
-        })),
-      },
-    });
-
-    const result = await runner.trigger();
-
-    expect(state.cursor).toBe(2);
+    expect(state.cursor).toBe(1);
     expect(result.applied).toBe(1);
-    expect(vault.applied.map((item) => item.serverSequence)).toEqual([2]);
+    expect(vault.applied.map((e) => e.serverSequence)).toEqual([1]);
   });
 
   it('never regresses the cursor when a page arrives entirely below it', async () => {

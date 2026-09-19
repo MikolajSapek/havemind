@@ -61,7 +61,6 @@ havemind-feed
 havemind-form-status
 havemind-getting-started
 havemind-getting-started-requirement
-havemind-handshake-cancel
 havemind-handshake-code
 havemind-handshake-lead
 havemind-handshake-warning

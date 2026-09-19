@@ -101,8 +101,6 @@ export interface OnboardingViewOptions {
   readonly onToggleAuthorOverlay?: () => void;
   /** Opens the owner's invite composer from the action bar. */
   readonly onOpenComposer?: () => void;
-  /** Refreshes the server roster when the People tab becomes visible. */
-  readonly onPeopleVisible?: () => void;
   /** Closes the owner's invite composer and returns to the People tab. */
   readonly onCloseComposer?: () => void;
   /** Forces a sync cycle from the action bar, matching the `sync-now` command. */

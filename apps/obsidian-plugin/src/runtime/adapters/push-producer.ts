@@ -10,7 +10,7 @@
 
 import { Notice, type Plugin, type TFile } from 'obsidian';
 
-import { hashBlob, hashPlaintext, isSyncableConfigPath } from '@havemind/protocol';
+import { isSyncableConfigPath } from '@havemind/protocol';
 import { RevisionPayloadTooLargeError } from '@havemind/sync-core';
 
 import type { ActivityKind } from '../../activity/activity';
@@ -47,12 +47,9 @@ import type { KeyedMutex } from '../keyed-mutex';
 import {
   applyLocalMaterialization,
   forgetLocalMaterialization,
-  healStaleBasesAfterLocalPush,
 } from '../local-base-lifecycle';
 import { ModifyDebouncer } from '../modify-debounce';
 import { getPluginDataMutex } from '../plugin-data-mutex';
-import { registryFromPersistedState } from '../../sync/registry-persistence';
-import { serverIndexFromRegistry } from '../../sync/registry-server-index';
 import {
   failedToQueueRevisionId,
   type DurableSyncState,
@@ -105,28 +102,25 @@ export interface PushProducerHandle {
   retryFailedCommit(path: string): RetryFailedCommitOutcome;
 }
 
-export interface PushProducerRepositoryOptions {
-  readonly plugin: Plugin;
-  readonly state: DurableSyncState;
-  readonly identity: PushIdentity;
-}
-
-/**
- * Builds the durable outbox/mapping repository and binds it for remote-apply
- * adoption. Must run BEFORE the first `syncNow` bootstrap so materialised heads
- * are adopted into the producer map; otherwise connect-time reconcile treats
- * every just-written note as a local create and storms conflicts on an empty
- * phone vault.
- */
-export function createPushProducerRepository(
-  options: PushProducerRepositoryOptions,
-): OutboxLocalChangeRepository {
-  const { plugin, state, identity } = options;
+export function startPushProducer(
+  plugin: Plugin,
+  state: DurableSyncState,
+  identity: PushIdentity,
+  triggerSync: () => void,
+  producerRef: { current: OutboxLocalChangeRepository | null },
+  hooks?: RuntimeHooks,
+  fileApplyLock?: KeyedMutex,
+): PushProducerHandle {
+  const vault = (plugin.app as unknown as AppWithVault).vault;
   const store: ProducerStorePort = {
     async load() {
       const data = await plugin.loadData();
       const raw = isRecord(data) ? data[PUSH_PRODUCER_KEY] : null;
       const result = parseProducerStateResult(raw);
+      // GAP-3: preserve unparseable producer bytes to a sidecar so a lost mapping
+      // can't silently fork a duplicate fileId. Connect-safety: the persist may
+      // fail (loadData/mutex), but that must NEVER abort producer setup, degrade
+      // defensively and fall through to the (empty-or-partial) parsed state.
       try {
         if (result.status === 'corrupt') {
           await preserveCorruptProducerState(plugin, raw, Date.now());
@@ -142,12 +136,6 @@ export function createPushProducerRepository(
           'Havemind: failed to preserve corrupt producer state to a sidecar.',
         );
       }
-      if (result.status === 'ok' && result.migrated) {
-        await getPluginDataMutex(plugin).update((base) => ({
-          ...base,
-          [PUSH_PRODUCER_KEY]: result.state,
-        }));
-      }
       return result.state;
     },
     async save(next) {
@@ -158,46 +146,28 @@ export function createPushProducerRepository(
     },
   };
 
-  return new OutboxLocalChangeRepository({
+  const repository = new OutboxLocalChangeRepository({
     identity,
     store,
     enqueue: (envelope) => state.enqueue(envelope),
     generateRevisionId: () => globalThis.crypto.randomUUID(),
+    // FIX 1: seed the SHARED apply store for every file this device authors or
+    // pushes, so a later peer edit to a locally-authored file resolves to its
+    // real fileId and updates in place instead of forever forking to a conflict
+    // artifact. A rename also forgets the stale owner of the previous path.
+    //
+    // DATA-SAFETY (rule 3): the base is SEEDED only on first authorship and is
+    // NEVER advanced by a local push, advancing it here reopened the silent-
+    // overwrite window (a concurrent peer revision matching the just-authored
+    // base slips past the on-disk guard). The single source of truth for that
+    // rule lives in `local-base-lifecycle.ts`, shared with the integration
+    // harness so a regression can't hide behind a differently-modelled test.
     onLocalMaterialized: (materialization) =>
       applyLocalMaterialization(state, materialization),
     onLocalForgotten: (forget) => forgetLocalMaterialization(state, forget),
   });
-}
-
-export interface StartPushProducerOptions {
-  /**
-   * Skip the one connect-time vault enumeration. Set when the startup gate
-   * reported `resume-bootstrap`: the vault holds heads an unfinished join wrote,
-   * and reconcile cannot tell them from new local notes, so it would push them
-   * back under fresh fileIds (resurrecting notes the owner deleted, and minting
-   * a conflict copy per path). The live vault listeners still run, so anything
-   * the user actually edits from now on syncs normally, and the next connect,
-   * once the bootstrap has saved its cursor, reconciles as usual.
-   */
-  readonly skipInitialReconcile?: boolean;
-}
-
-export function startPushProducer(
-  plugin: Plugin,
-  state: DurableSyncState,
-  identity: PushIdentity,
-  triggerSync: () => void,
-  producerRef: { current: OutboxLocalChangeRepository | null },
-  hooks?: RuntimeHooks,
-  fileApplyLock?: KeyedMutex,
-  options?: StartPushProducerOptions,
-): PushProducerHandle {
-  const vault = (plugin.app as unknown as AppWithVault).vault;
-  // Prefer a repository already bound for bootstrap adoption; only mint one when
-  // the caller did not pre-bind (tests / owner paths without an early bind).
-  const repository =
-    producerRef.current ??
-    createPushProducerRepository({ plugin, state, identity });
+  // Bind the late-bound coordinator so the apply adapter can adopt remote
+  // fileIds into this producer's mapping (FIX 2).
   producerRef.current = repository;
 
   const snapshot: VaultSnapshotPort = {
@@ -429,78 +399,12 @@ export function startPushProducer(
       observedMany(observer.observeFolderDelete(folderPath)),
   });
 
-  // Heal bases left stale by suppressed own-echoes whose cursor already moved
-  // past them: mapping matches a head this device pushed, but baseHash never
-  // advanced. Without this, every later peer edit looks like a local divergence.
-  afterChange(
-    (async () => {
-      const mappings = await repository.listMappings();
-      const heads = new Map<string, string>();
-      for (const mapping of mappings) {
-        const head = await repository.headFor(mapping.fileId);
-        if (head !== null) heads.set(mapping.fileId, head);
-      }
-      await healStaleBasesAfterLocalPush(
-        {
-          baseHashFor: (fileId) => state.baseHashFor(fileId),
-          recordPathOwner: (fileId, path) => state.recordPathOwner(fileId, path),
-          recordBaseHash: (fileId, hash) => state.recordBaseHash(fileId, hash),
-          recordBaseContent: (fileId, content) =>
-            state.recordBaseContent(fileId, content),
-          forgetPath: (path) => state.forgetPath(path),
-          forgetBaseHash: (fileId) => state.forgetBaseHash(fileId),
-          forgetBaseContent: (fileId) => state.forgetBaseContent(fileId),
-          isLocallyAuthored: (revisionId) => state.isLocallyAuthored(revisionId),
-        },
-        mappings.map((mapping) => ({
-          fileId: mapping.fileId,
-          contentHash: mapping.contentHash,
-          content: mapping.contentKind === 'binary' ? null : mapping.content,
-        })),
-        (fileId) => heads.get(fileId) ?? null,
-        async (fileId) => {
-          const mapping = mappings.find((entry) => entry.fileId === fileId);
-          if (mapping === undefined) return null;
-          if (!(await snapshot.exists(mapping.path))) return null;
-          if (mapping.contentKind === 'binary') {
-            return hashBlob(await snapshot.readBinary(mapping.path));
-          }
-          return hashPlaintext(await snapshot.readText(mapping.path));
-        },
-      );
-    })(),
-  );
-
   // Existing notes predate the change listeners, so enumerate them once on
   // connect and push any that are new or drifted, then sync. A per-file failure
   // (an oversized note) is skipped rather than aborting the whole scan; surface
   // the count so a silently un-synced file is visible to the user.
-  //
-  // Skipped while resuming an interrupted bootstrap: the files on disk are heads
-  // that join wrote, not local work, and reconcile cannot tell the difference
-  // (see {@link StartPushProducerOptions.skipInitialReconcile}).
-  if (options?.skipInitialReconcile !== true) {
   afterChange(
-    reconcileVaultState({
-      observer,
-      repository,
-      vault: snapshot,
-      // What the bootstrap just materialised IS the vault's current content, so
-      // a local file matching any of it adopts that identity instead of being
-      // pushed as a second copy. Without this a joining device re-uploads every
-      // note it has just finished downloading: the pilot phone sent 31 notes
-      // back and left each one with two identities.
-      // Absent when the state cannot report a snapshot (an older or partial
-      // state port): reconcile then falls back to creating, which is exactly
-      // the previous behaviour rather than a crash on the connect path.
-      ...(typeof state.fileStateSnapshot === 'function'
-        ? {
-            serverIndex: serverIndexFromRegistry(
-              registryFromPersistedState(state.fileStateSnapshot()),
-            ),
-          }
-        : {}),
-    }).then(
+    reconcileVaultState({ observer, repository, vault: snapshot }).then(
       (result) => {
         if (result.skipped > 0) {
           new Notice(
@@ -521,7 +425,6 @@ export function startPushProducer(
       },
     ),
   );
-  }
 
   // `.obsidian/` config sync (theme, colours, hotkeys, snippets, foreign plugin
   // code). Obsidian emits NO vault events for hidden files, so this cannot use

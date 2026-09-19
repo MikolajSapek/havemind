@@ -7,10 +7,10 @@
  * and, for a remote-only create, mints a brand-new random fileId (a duplicate
  * fileId for the same path across devices).
  *
- * The producer repository is bound before the first bootstrap pull (see
- * `startSyncLoop`) so materialised heads are adopted into the mapping; vault
- * listeners still attach afterwards. `getProducer` returns null only when this
- * device has no push identity yet, in which case the calls are inert.
+ * The producer is created after the vault-apply adapter (see
+ * `obsidian-adapters.ts`), so the binding is late, resolved through a getter
+ * that returns null until the producer exists. This module is deliberately
+ * platform-free (no Obsidian imports) so it is unit-tested directly.
  */
 
 import { classifyVaultPath, type LocalFileMapping } from '../obsidian/vault-adapter';
@@ -37,9 +37,8 @@ export interface AdoptableProducer {
 
 /**
  * Builds the `RemoteApplyProducerSync` the vault-apply adapter calls in lockstep
- * with each remote write/delete. `getProducer` returns null only when this
- * device has no push identity yet; otherwise the repository is bound before
- * bootstrap so adopt is live during the first pull.
+ * with each remote write/delete. `getProducer` returns null before the producer
+ * has started (no push identity yet), in which case the calls are inert.
  */
 export function createRemoteApplyProducerSync(
   getProducer: () => AdoptableProducer | null,

@@ -71,7 +71,6 @@ describe('buildConnectionPanel', () => {
       'deferred',
       'reconnect-required',
       'reset-required',
-      'recovery-required',
     ] as const) {
       const panel = buildConnectionPanel({ status });
       expect(panel.icon.length).toBeGreaterThan(0);
@@ -109,15 +108,6 @@ describe('buildConnectionPanel', () => {
     expect(panel.detail).not.toContain('Havemind Conflicts');
     expect(panel.label).not.toContain('Conflict');
   });
-
-  it('explains local-state recovery without offering a destructive reset', () => {
-    const panel = buildConnectionPanel({ status: 'recovery-required' });
-    expect(panel.icon).toBe('shield-alert');
-    expect(panel.colorToken).toBe('--text-error');
-    expect(panel.showForm).toBe(false);
-    expect(panel.detail).toContain('local sync state');
-    expect(panel.detail).toContain('stopped');
-  });
 });
 
 describe('formatStatusBar', () => {
@@ -132,9 +122,6 @@ describe('formatStatusBar', () => {
     expect(formatStatusBar({ status: 'conflict' }).text).toBe('Havemind: Conflict');
     expect(formatStatusBar({ status: 'deferred' }).text).toBe(
       'Havemind: Waiting to apply',
-    );
-    expect(formatStatusBar({ status: 'recovery-required' }).text).toBe(
-      'Havemind: Recovery required',
     );
   });
 

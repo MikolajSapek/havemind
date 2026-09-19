@@ -63,9 +63,6 @@ COPY --from=build --chown=1000:1000 /app/apps/server/healthcheck.js ./apps/serve
 #   docker compose exec havemind node apps/server/bin/havemind.js setup ...
 #   docker compose exec havemind node apps/server/bin/havemind.js doctor
 COPY --from=build --chown=1000:1000 /app/apps/server/bin ./apps/server/bin
-# Operator repair scripts, run the same way:
-#   docker compose exec havemind-server node apps/server/scripts/<name>.mjs ...
-COPY --from=build --chown=1000:1000 /app/apps/server/scripts ./apps/server/scripts
 
 USER 1000:1000
 EXPOSE 8787

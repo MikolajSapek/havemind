@@ -4,7 +4,7 @@ import type Database from 'better-sqlite3';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
-import type { StoredRevisionEvent } from '../revision-repository.js';
+import type { RevisionRepository } from '../revision-repository.js';
 import {
   InvitationError,
   type InvitationRole,
@@ -29,18 +29,7 @@ export interface OnboardingRoutesDeps {
   readonly invitations: InvitationService;
   readonly sessions: SessionRepository;
   readonly database: Database.Database;
-  readonly revisions?: {
-    listEvents(
-      vaultId: string,
-      after: number,
-      limit: number,
-    ): StoredRevisionEvent[];
-    listHeadEvents?(
-      vaultId: string,
-      after: number,
-      limit: number,
-    ): StoredRevisionEvent[];
-  };
+  readonly revisions?: Pick<RevisionRepository, 'listEvents'>;
 }
 
 /** Stable, secret-free machine error code for the onboarding surface. */
@@ -417,34 +406,25 @@ export function registerPreAuthOnboardingRoutes(
     if (after === null) {
       return sendError(reply, 400, 'INVALID_REQUEST');
     }
-    try {
-      const events =
-        deps.revisions?.listHeadEvents?.(
-          vaultId,
-          after,
-          DEFAULT_BOOTSTRAP_PAGE_ITEMS,
-        ) ??
-        deps.revisions?.listEvents(vaultId, after, DEFAULT_BOOTSTRAP_PAGE_ITEMS) ??
-        [];
-      const items = events.map((event) => ({
-        contentHash: event.receipt.blobHash,
-        fileId: event.fileId,
-        revisionId: event.revisionId,
-        serverSequence: event.serverSequence,
-      }));
-      const complete = items.length < DEFAULT_BOOTSTRAP_PAGE_ITEMS;
-      const lastSequence = events.at(-1)?.serverSequence ?? after;
+    const events =
+      deps.revisions?.listEvents(vaultId, after, DEFAULT_BOOTSTRAP_PAGE_ITEMS) ??
+      [];
+    const items = events.map((event) => ({
+      contentHash: event.receipt.blobHash,
+      fileId: event.fileId,
+      revisionId: event.revisionId,
+      serverSequence: event.serverSequence,
+    }));
+    const complete = items.length < DEFAULT_BOOTSTRAP_PAGE_ITEMS;
+    const lastSequence = events.at(-1)?.serverSequence ?? after;
 
-      reply.header('cache-control', 'no-store');
-      return {
-        complete,
-        items,
-        nextCursor: complete ? null : String(lastSequence),
-        version: 1,
-      };
-    } catch {
-      return sendError(reply, 500, 'INVALID_REQUEST');
-    }
+    reply.header('cache-control', 'no-store');
+    return {
+      complete,
+      items,
+      nextCursor: complete ? null : String(lastSequence),
+      version: 1,
+    };
   });
 }
 

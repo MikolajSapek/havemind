@@ -38,8 +38,6 @@ export interface ProducerParseResult {
    * sidecar instead of silently dropping it.
    */
   readonly quarantinedMappings: readonly unknown[];
-  /** True when legacy binary base64 bodies were compacted in memory. */
-  readonly migrated: boolean;
 }
 
 const EMPTY_PRODUCER_STATE: ProducerState = { mappings: [], heads: {} };
@@ -51,8 +49,7 @@ function isValidProducerMapping(
   return (
     isRecord(entry) &&
     typeof entry.collisionKey === 'string' &&
-    (typeof entry.content === 'string' ||
-      (entry.content === null && entry.contentKind === 'binary')) &&
+    typeof entry.content === 'string' &&
     typeof entry.contentHash === 'string' &&
     typeof entry.fileId === 'string' &&
     typeof entry.path === 'string'
@@ -61,13 +58,9 @@ function isValidProducerMapping(
 
 /** Builds a `LocalFileMapping` from an already-validated entry. */
 function buildProducerMapping(entry: Record<string, unknown>): LocalFileMapping {
-  const isBinary = entry.contentKind === 'binary';
   return {
     collisionKey: entry.collisionKey as string,
-    // AUD-12 migration: a legacy binary mapping may still carry a multi-MB
-    // base64 body. Its raw-byte hash is the complete comparison key, so compact
-    // the body during parse and let the store persist this projection once.
-    content: isBinary ? null : (entry.content as string),
+    content: entry.content as string,
     contentHash: entry.contentHash as string,
     // Preserve the binary/markdown discriminator across every load→save
     // cycle. Dropping it here silently converts a persisted binary mapping
@@ -98,7 +91,6 @@ export function parseProducerStateResult(raw: unknown): ProducerParseResult {
       status: 'absent',
       state: EMPTY_PRODUCER_STATE,
       quarantinedMappings: [],
-      migrated: false,
     };
   }
   // CORRUPT: present but the container is structurally broken. Fail closed so the
@@ -111,7 +103,6 @@ export function parseProducerStateResult(raw: unknown): ProducerParseResult {
       status: 'corrupt',
       state: EMPTY_PRODUCER_STATE,
       quarantinedMappings: [],
-      migrated: false,
     };
   }
 
@@ -119,12 +110,8 @@ export function parseProducerStateResult(raw: unknown): ProducerParseResult {
   // a lost path↔fileId↔content entry can't later mint a duplicate fileId silently.
   const mappings: LocalFileMapping[] = [];
   const quarantinedMappings: unknown[] = [];
-  let migrated = false;
   for (const entry of raw.mappings) {
     if (isValidProducerMapping(entry)) {
-      if (entry.contentKind === 'binary' && typeof entry.content === 'string') {
-        migrated = true;
-      }
       mappings.push(buildProducerMapping(entry));
     } else {
       quarantinedMappings.push(entry);
@@ -139,12 +126,7 @@ export function parseProducerStateResult(raw: unknown): ProducerParseResult {
   for (const [fileId, revisionId] of Object.entries(raw.heads)) {
     if (typeof revisionId === 'string') heads[fileId] = revisionId;
   }
-  return {
-    status: 'ok',
-    state: { mappings, heads },
-    quarantinedMappings,
-    migrated,
-  };
+  return { status: 'ok', state: { mappings, heads }, quarantinedMappings };
 }
 
 /**

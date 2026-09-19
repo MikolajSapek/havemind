@@ -25,27 +25,6 @@ const MAX_IDEMPOTENCY_TTL_MS = 365 * 24 * 60 * 60 * 1_000;
 const MAX_IDEMPOTENCY_KEY_LENGTH = 200;
 const MAX_EVENT_PAGE_SIZE = 1_000;
 
-/**
- * Current file heads, paged by `server_sequence`. Join `vault_events` on the
- * `(vault_id, server_sequence)` primary key. Joining on `revision_id` instead
- * scans the whole log: there is no index on that column, so a phone join hung
- * on GET /bootstrap after the owner typed the six-digit code.
- */
-export const LIST_HEAD_EVENTS_SQL = `SELECT
-           vault_events.server_sequence AS serverSequence,
-           vault_events.event_type AS eventType,
-           vault_events.revision_id AS revisionId,
-           vault_events.event_payload AS eventPayload
-         FROM file_heads
-         INNER JOIN revisions ON revisions.id = file_heads.revision_id
-         INNER JOIN files ON files.id = file_heads.file_id
-         INNER JOIN vault_events
-           ON vault_events.vault_id = files.vault_id
-          AND vault_events.server_sequence = revisions.server_sequence
-         WHERE files.vault_id = ? AND revisions.server_sequence > ?
-         ORDER BY revisions.server_sequence
-         LIMIT ?`;
-
 export type RevisionRepositoryErrorCode =
   | 'CORRUPT_BLOB'
   | 'FILE_ALREADY_EXISTS'
@@ -542,89 +521,6 @@ export class RevisionRepository {
       .all(vaultId, afterSequence, limit) as EventRow[];
 
     return rows.map((row) => this.#parseEventRow(row));
-  }
-
-  /**
-   * Current file heads only, paged by `server_sequence`. A joining device uses
-   * this instead of replaying superseded edits.
-   */
-  public listHeadEvents(
-    vaultId: string,
-    afterSequence: number,
-    limit: number,
-  ): StoredRevisionEvent[] {
-    if (!Number.isSafeInteger(afterSequence) || afterSequence < 0) {
-      throw new RevisionRepositoryError(
-        ERROR_CODES.INVALID_REQUEST,
-        'Event cursor must be a non-negative safe integer.',
-      );
-    }
-    if (!Number.isSafeInteger(limit) || limit <= 0 || limit > MAX_EVENT_PAGE_SIZE) {
-      throw new RevisionRepositoryError(
-        ERROR_CODES.INVALID_REQUEST,
-        `Event page size must be between 1 and ${MAX_EVENT_PAGE_SIZE}.`,
-      );
-    }
-
-    const rows = this.#database
-      .prepare(LIST_HEAD_EVENTS_SQL)
-      .all(vaultId, afterSequence, limit) as EventRow[];
-
-    return rows.map((row) => this.#parseEventRow(row));
-  }
-
-  /**
-   * Reports how many superseded revisions this vault holds. Kept as the metric
-   * the compaction path returns: the rows themselves are never deleted.
-   *
-   * Deleting them was a data-integrity bug, not a space win. Three consumers
-   * still need a superseded revision's ROW after it stops being a head:
-   *
-   *  - the commit-time parent check (`#assertFileGraphCommittable`) resolves a
-   *    pushed revision's parent by id. A device whose head was superseded by a
-   *    peer parents its next edit on that revision, so deleting it rejected that
-   *    device's every future push for the file with MISSING_PARENT, permanently;
-   *  - `revision_parents` records the ancestry of revisions that SURVIVE, and
-   *    the schema declares `ON DELETE RESTRICT` to say so. The old code deleted
-   *    those links first, specifically to get around that guard;
-   *  - `vault_events.revision_id` is `ON DELETE CASCADE`, so removing a revision
-   *    silently removed its event row while `next_server_sequence` stayed put.
-   *    The vault then advertised a cursor for sequences it could no longer
-   *    serve, and a client paging the log stopped at the first hole and never
-   *    advanced again.
-   *
-   * Reclaiming the payload bytes is the part that was actually worth doing, and
-   * it belongs to blob storage (a blob is content-addressed and may be shared by
-   * several revisions, so it can only be freed by a reference sweep there).
-   */
-  public countSupersededRevisions(vaultId: string): number {
-    const row = this.#database
-      .prepare(
-        `SELECT COUNT(*) AS count
-         FROM revisions
-         INNER JOIN files ON files.id = revisions.file_id
-         WHERE files.vault_id = ?
-           AND NOT EXISTS (
-             SELECT 1 FROM file_heads WHERE file_heads.revision_id = revisions.id
-           )`,
-      )
-      .get(vaultId) as { count: number };
-    return row.count;
-  }
-
-  /**
-   * @deprecated Destructive and unused; see {@link countSupersededRevisions} for
-   * why superseded revisions are retained. Retained only so an older caller
-   * fails loudly rather than silently corrupting a vault.
-   */
-  public compactSupersededRevisions(vaultId: string): number {
-    void vaultId;
-    throw new RevisionRepositoryError(
-      'REPOSITORY_INTEGRITY',
-      'compactSupersededRevisions deletes revisions that are still referenced ' +
-        'as commit parents and cascades away their vault_events rows; use ' +
-        'countSupersededRevisions instead.',
-    );
   }
 
   async #prepareCommit(input: CommitRevisionInput): Promise<PreparedCommit> {

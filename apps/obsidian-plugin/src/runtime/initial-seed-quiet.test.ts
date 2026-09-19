@@ -261,42 +261,4 @@ describe('owner initial seed is quiet in the Activity feed', () => {
     expect(h.localActivity).toHaveLength(1);
     expect(h.localActivity[0]?.kind).toBe('update');
   });
-
-  it('does not republish a stale phone file after bootstrap applies its tombstone', async () => {
-    const h = makeHarness();
-    const path = 'Notes/deleted-on-desktop.md';
-    const fileId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
-    const revisionId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
-    h.vault.contents.set(path, 'OLD-SERVER-VERSION\n');
-    h.resolved.set(revisionId, {
-      operation: 'delete',
-      kind: 'markdown',
-      path,
-      content: null,
-      previousPath: null,
-    } as DecodedRevisionPayload);
-
-    const outcome = await h.adapter.applyRemote(
-      {
-        serverSequence: 9,
-        revision: {
-          revisionId,
-          fileId,
-          contentHash: 'delete-payload-hash',
-        },
-      },
-      { bootstrap: true },
-    );
-    const reconciled = await reconcileVaultState({
-      observer: h.observer,
-      repository: h.repository,
-      vault: h.snapshot,
-    });
-
-    expect(outcome).toBe('applied');
-    expect(h.vault.contents.has(path)).toBe(false);
-    expect(reconciled.created).toBe(0);
-    expect(h.outbox).toEqual([]);
-    expect(h.producerMappings()).toEqual([]);
-  });
 });

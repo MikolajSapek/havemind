@@ -28,9 +28,7 @@ import {
   createClientInstanceRepo,
   runCanonicalizationRebase,
 } from './plugin-data-ports';
-import { gateLocalSyncState } from './local-state-gate';
-import { startPushProducer, createPushProducerRepository, type PushProducerHandle } from './push-producer';
-import { createDiagnosticAccessToken } from './access-token-diagnostics';
+import { startPushProducer, type PushProducerHandle } from './push-producer';
 import { createRequestUrlFn } from './request-url';
 import type { RuntimeHooks } from './runtime-hooks';
 import { buildSyncController } from './sync-controller';
@@ -38,18 +36,11 @@ import {
   generateRefreshTokenValue,
   generateRotationIdValue,
 } from './tokens';
-import { HAVEMIND_STATUS_RECOVERY_REQUIRED } from './status-constants';
 
 export interface ConnectionHandle {
   stop(): void;
   /** Human-readable server name for the Connect panel (empty when disconnected). */
   readonly serverName: string;
-  /** API base the live sync loop talks to; absent on the no-op handle. */
-  readonly apiBaseUrl?: string;
-  /** Vault id the live sync loop is bound to; absent on the no-op handle. */
-  readonly vaultId?: string;
-  /** Mints/reuses the live access token; null means authentication failed. */
-  readonly getAccessToken?: () => Promise<string | null>;
   /**
    * The local user's own membership for the presence roster, when known. The
    * plugin records this as the persistent "self" roster entry. Absent when no
@@ -101,28 +92,6 @@ export async function startSyncLoop(
   onStatus: StatusListener,
   extras: SyncLoopExtras = {},
 ): Promise<ConnectionHandle> {
-  // AUD-12 fail-closed gate. It runs before transport/controller construction,
-  // controller.start(), and vault listener registration. A paired device that
-  // lost its cursor or producer identity therefore performs zero network and
-  // zero vault mutations instead of replaying history from sequence zero.
-  const localStateGate = gateLocalSyncState(await plugin.loadData());
-  if (localStateGate.kind === 'recovery-required') {
-    console.error(
-      `Havemind: local sync state recovery required (${localStateGate.reason}); sync was not started.`,
-    );
-    onStatus('recovery-required', HAVEMIND_STATUS_RECOVERY_REQUIRED);
-    return {
-      ...NOOP_HANDLE,
-      apiBaseUrl: connection.apiBaseUrl,
-      vaultId: connection.vaultId,
-      serverName: serverNameFromUrl(connection.apiBaseUrl),
-    };
-  }
-  // A bootstrap that was interrupted part-way (a long join backgrounded by iOS)
-  // is safe to finish, it is only the connect-time reconcile that must sit this
-  // session out. See `local-state-gate.ts`.
-  const resumingBootstrap = localStateGate.kind === 'resume-bootstrap';
-
   const clientInstanceId = await ensureClientInstanceId(
     createClientInstanceRepo(plugin),
   );
@@ -187,22 +156,6 @@ export async function startSyncLoop(
     fileApplyLock,
   );
 
-  // Bind the producer repository BEFORE the first pull so bootstrap adopts each
-  // materialised head into the mapping. Without this, syncNow writes the vault
-  // while producerRef is still null, connect-time reconcile treats every note as
-  // a fresh local create, and an empty phone fills Havemind Conflicts.
-  if (hasPushIdentity) {
-    producerRef.current = createPushProducerRepository({
-      plugin,
-      state,
-      identity: {
-        vaultId: connection.vaultId,
-        memberId: connection.memberId as string,
-        deviceId: connection.deviceId as string,
-      },
-    });
-  }
-
   // AUD-03 PART 2, one-time migration. BEFORE the first sync cycle, rebase any
   // persisted base hashes / producer-mapping content hashes that were computed
   // under the OLD canonicalization to the NEW canonical form, so the first pull
@@ -211,13 +164,7 @@ export async function startSyncLoop(
   // marker in plugin data makes this run exactly once.
   await runCanonicalizationRebase(plugin);
 
-  // Finish one pull before the producer enumerates the local vault. On a fresh
-  // or recovered phone this lets SyncRunner's cursor-zero bootstrap reduce the
-  // server history to terminal heads first; otherwise the local reconciliation
-  // races the historical pull and may mint duplicate fileIds for paths the pull
-  // is about to adopt. An offline cycle returns normally, so local observation
-  // still starts and preserves edits while the controller retries.
-  await controller.syncNow();
+  controller.start();
 
   // The push producer detects local edits, enumerates pre-existing files and
   // enqueues revisions the runner POSTs. Without a server-issued memberId +
@@ -241,18 +188,8 @@ export async function startSyncLoop(
       producerRef,
       extras.hooks,
       fileApplyLock,
-      // An interrupted bootstrap left heads on disk that never reached the
-      // producer mapping. The `syncNow` above has just re-run and converged them;
-      // letting reconcile enumerate the vault in the same session would push them
-      // back as fresh local creates (see the gate's `resume-bootstrap`).
-      resumingBootstrap ? { skipInitialReconcile: true } : undefined,
     );
   }
-
-  // Arm focus/online/interval/push only after the initial pull and producer
-  // construction. start() fires its normal immediate cycle; by then both sides
-  // share the settled bootstrap mapping and cannot race first materialisation.
-  controller.start();
 
   // The local member's own persistent roster entry, when the server issued a
   // membership id. Presence is connection state, so this is recorded once and
@@ -264,15 +201,6 @@ export async function startSyncLoop(
 
   return {
     ...(selfMembership === undefined ? {} : { selfMembership }),
-    apiBaseUrl: connection.apiBaseUrl,
-    vaultId: connection.vaultId,
-    // A failure still yields null (callers treat that as "offline for now"),
-    // but the reason is reported and remembered instead of discarded. Swallowing
-    // it produced a device that issued no requests while the panel still showed
-    // the last successful cycle, with nothing anywhere saying why.
-    getAccessToken: createDiagnosticAccessToken(() =>
-      accessProvider.getAccessToken(),
-    ),
     // The live durable state, so the plugin can read the send-queue (SND-01) and
     // drive the auto-repair sweep (MRG-05) off the same store the runner uses.
     state,

@@ -1,4 +1,4 @@
-import { canonicalizeMarkdown, hashBlob } from '@havemind/protocol';
+import { canonicalizeMarkdown } from '@havemind/protocol';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { RevisionPayloadTooLargeError } from '@havemind/sync-core';
@@ -338,7 +338,7 @@ describe('startup reconciliation', () => {
     const bytes = new Uint8Array([1, 2, 3, 4, 5]);
     vault.binaryContents.set('Images/pic.png', bytes);
     const repository = new ReconciliationRepository([
-      await binaryMapping('file-pic', 'Images/pic.png', bytes),
+      binaryMapping('file-pic', 'Images/pic.png', bytes),
     ]);
     const observer = createObserver(vault, repository);
 
@@ -358,7 +358,7 @@ describe('startup reconciliation', () => {
     const newBytes = new Uint8Array([9, 9, 9]);
     vault.binaryContents.set('Images/pic.png', newBytes);
     const repository = new ReconciliationRepository([
-      await binaryMapping('file-pic', 'Images/pic.png', new Uint8Array([1, 2, 3])),
+      binaryMapping('file-pic', 'Images/pic.png', new Uint8Array([1, 2, 3])),
     ]);
     const observer = createObserver(vault, repository);
 
@@ -369,26 +369,6 @@ describe('startup reconciliation', () => {
     expect(repository.commits[0]?.operation.kind).toBe('update');
     expect(repository.commits[0]?.operation.contentKind).toBe('binary');
     expect(repository.commits[0]?.operation.content).toBe(bytesToBase64(newBytes));
-  });
-
-  it('infers a binary rename from its raw-byte hash without a persisted body', async () => {
-    const vault = new ReconciliationVault();
-    const bytes = new Uint8Array([4, 3, 2, 1]);
-    vault.binaryContents.set('Images/new-name.png', bytes);
-    const repository = new ReconciliationRepository([
-      await binaryMapping('file-pic', 'Images/old-name.png', bytes),
-    ]);
-    const observer = createObserver(vault, repository);
-
-    const result = await reconcileVaultState({ observer, repository, vault });
-
-    expect(result).toMatchObject({ created: 0, deleted: 0, renamed: 1 });
-    expect(repository.commits[0]?.operation).toMatchObject({
-      fileId: 'file-pic',
-      kind: 'rename',
-      path: 'Images/new-name.png',
-      previousPath: 'Images/old-name.png',
-    });
   });
 
   it('counts a non-allowlisted attachment as excluded while an allowlisted binary is synced', async () => {
@@ -532,7 +512,6 @@ describe('warnSkippedPaths', () => {
 
 function baseResult(overrides: Partial<ReconcileResult> = {}): ReconcileResult {
   return {
-    adopted: 0,
     attachmentsExcluded: 0,
     binaryExcluded: 0,
     completed: true,
@@ -587,18 +566,15 @@ function mapping(
  * bytes (never canonicalised), matching what `bytesToBase64` produces for the
  * same bytes on the vault-read side.
  */
-async function binaryMapping(
+function binaryMapping(
   fileId: string,
   path: string,
   bytes: Uint8Array,
-): Promise<LocalFileMapping> {
+): LocalFileMapping {
   return {
     collisionKey: path.toLowerCase(),
-    // Binary mappings deliberately retain only the raw-byte hash. Keeping the
-    // base64 body here made data.json multi-megabyte and vulnerable to torn
-    // mobile writes (AUD-12).
-    content: null,
-    contentHash: await hashBlob(bytes),
+    content: bytesToBase64(bytes),
+    contentHash: `hash:${path}`,
     contentKind: 'binary',
     fileId,
     path,

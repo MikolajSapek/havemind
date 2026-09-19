@@ -122,10 +122,6 @@ export function buildSyncController(
       // in memory and the plugin never signalled a reload. `css-change` is the
       // documented workspace event that makes it re-read snippets and themes.
       configApply,
-      // Report open markdown editors so a peer edit cannot silently overwrite
-      // unsaved local buffer content (PC↔PC and desktop generally).
-      workspace: plugin.app.workspace,
-      hashContent: (content) => hashPlaintext(content),
     }),
     conflictFolder: CONFLICT_FOLDER,
     resolveRevision: connection.resolveRevision,

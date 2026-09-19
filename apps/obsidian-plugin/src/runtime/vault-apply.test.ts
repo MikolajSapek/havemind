@@ -73,8 +73,8 @@ class FakeFiles implements VaultFilePort {
   /** Paths whose write throws ParentFolderOccupiedError (simulated occupancy). */
   parentFolderOccupied = new Set<string>();
 
-  openBufferStates(fileId: string): Promise<readonly OpenBuffer[]> {
-    return Promise.resolve(this.buffers.get(fileId) ?? []);
+  openBufferStates(fileId: string): readonly OpenBuffer[] {
+    return this.buffers.get(fileId) ?? [];
   }
 
   fileIdAtPath(path: string): string | null {
@@ -226,29 +226,9 @@ describe('VaultApplyAdapter', () => {
     expect(files.conflicts).toEqual([]);
   });
 
-  it('suppresses a forked remote create on an already-owned path without conflict copies', async () => {
-    // A phone that minted a fresh fileId for a path the owner already holds must
-    // never dump Havemind Conflicts (or rewrite the live note) on the owner vault.
+  it('routes a path collision to Havemind Conflicts and never overwrites', async () => {
     const { adapter, files } = build(() => content('Notes/a.md', 'C\n'));
     files.owners.set('Notes/a.md', 'other-file');
-    files.onDisk.set('Notes/a.md', 'OWNER\n');
-    const outcome = await adapter.applyRemote(event('rev-9', 'file-1'));
-    expect(outcome).toBe('noop');
-    expect(files.writes).toEqual([]);
-    expect(files.conflicts).toEqual([]);
-    expect(files.onDisk.get('Notes/a.md')).toBe('OWNER\n');
-    expect(files.owners.get('Notes/a.md')).toBe('other-file');
-  });
-
-  it('still routes a foreign UPDATE collision to Havemind Conflicts', async () => {
-    const { adapter, files } = build(() => ({
-      operation: 'update',
-      path: 'Notes/a.md',
-      previousPath: null,
-      content: 'C\n',
-    }));
-    files.owners.set('Notes/a.md', 'other-file');
-    files.onDisk.set('Notes/a.md', 'OWNER\n');
     await adapter.applyRemote(event('rev-9', 'file-1'));
     expect(files.writes).toEqual([]);
     expect(files.conflicts).toEqual([
@@ -268,7 +248,7 @@ describe('VaultApplyAdapter', () => {
     expect(files.deletes).toEqual(['Notes/a.md']);
   });
 
-  it('skips a tombstone whose path is owned by a different file when nothing is on disk', async () => {
+  it('skips a tombstone whose path is owned by a different file', async () => {
     const { adapter, files } = build(() => ({
       operation: 'delete',
       path: 'Notes/a.md',
@@ -401,101 +381,6 @@ describe('VaultApplyAdapter', () => {
       expect(outcome).toBe('conflict');
       expect(files.writes).toEqual([]);
       expect(files.conflicts).toHaveLength(1);
-    });
-
-    it('bootstrap: fills an empty phone placeholder instead of minting a conflict', async () => {
-      // Opening a note on iOS creates an empty file before Havemind maps it.
-      // A join that treats that vacancy as a divergence produced the field
-      // storm ("22 conflicts", Target unknown) when checking the vault from
-      // the phone.
-      const { adapter, files } = build(() => content('Notes/a.md', 'REMOTE\n'));
-      files.onDisk.set('Notes/a.md', '');
-
-      const outcome = await adapter.applyRemote(event('rev-1', 'file-1'), {
-        bootstrap: true,
-      });
-
-      expect(outcome).toBe('applied');
-      expect(files.writes).toEqual([{ path: 'Notes/a.md', content: 'REMOTE\n' }]);
-      expect(files.conflicts).toEqual([]);
-    });
-
-    it('bootstrap: conflicts on a divergent untracked local copy', async () => {
-      // A second PC (or phone) that joined from a USB/Dropbox/iCloud copy can
-      // hold real local prose with no Havemind base. Taking the server head
-      // silently used to wipe those edits; preserve both in Conflicts instead.
-      // Vacant placeholders still take the server head (see next test).
-      const { adapter, files } = build(() => content('Notes/a.md', 'SERVER\n'));
-      files.onDisk.set('Notes/a.md', 'STALE-COPY\n');
-
-      const outcome = await adapter.applyRemote(event('rev-9', 'file-1'), {
-        bootstrap: true,
-      });
-
-      expect(outcome).toBe('conflict');
-      expect(files.writes).toEqual([]);
-      expect(files.conflicts).toHaveLength(1);
-    });
-
-    it('bootstrap: takes the server head over a vacant untracked placeholder', async () => {
-      const { adapter, files } = build(() => content('Notes/a.md', 'SERVER\n'));
-      files.onDisk.set('Notes/a.md', '\n');
-
-      const outcome = await adapter.applyRemote(event('rev-9', 'file-1'), {
-        bootstrap: true,
-      });
-
-      expect(outcome).toBe('applied');
-      expect(files.writes).toEqual([{ path: 'Notes/a.md', content: 'SERVER\n' }]);
-      expect(files.conflicts).toEqual([]);
-    });
-
-    it('bootstrap: still conflicts when another fileId owns real local content', async () => {
-      const { adapter, files } = build(() => content('Notes/a.md', 'REMOTE\n'));
-      files.owners.set('Notes/a.md', 'other-file');
-      files.onDisk.set('Notes/a.md', 'LOCAL-NOTE\n');
-
-      const outcome = await adapter.applyRemote(event('rev-9', 'file-1'), {
-        bootstrap: true,
-      });
-
-      expect(outcome).toBe('conflict');
-      expect(files.writes).toEqual([]);
-      expect(files.conflicts).toHaveLength(1);
-    });
-
-    it('bootstrap: replaces content unchanged from a stale local fileId', async () => {
-      const { adapter, files } = build(() => content('Notes/a.md', 'REMOTE\n'));
-      files.owners.set('Notes/a.md', 'stale-phone-file');
-      files.onDisk.set('Notes/a.md', 'OLD-SERVER-VERSION\n');
-      files.baseHashes.set(
-        'stale-phone-file',
-        await fakeHash('OLD-SERVER-VERSION\n'),
-      );
-
-      const outcome = await adapter.applyRemote(event('rev-9', 'file-1'), {
-        bootstrap: true,
-      });
-
-      expect(outcome).toBe('applied');
-      expect(files.writes).toEqual([{ path: 'Notes/a.md', content: 'REMOTE\n' }]);
-      expect(files.conflicts).toEqual([]);
-      expect(files.owners.get('Notes/a.md')).toBe('file-1');
-      expect(files.baseHashes.has('stale-phone-file')).toBe(false);
-    });
-
-    it('bootstrap: adopts a vacant placeholder owned by a locally-minted fileId', async () => {
-      const { adapter, files } = build(() => content('Notes/a.md', 'REMOTE\n'));
-      files.owners.set('Notes/a.md', 'local-minted');
-      files.onDisk.set('Notes/a.md', '\n');
-
-      const outcome = await adapter.applyRemote(event('rev-1', 'file-1'), {
-        bootstrap: true,
-      });
-
-      expect(outcome).toBe('applied');
-      expect(files.writes).toEqual([{ path: 'Notes/a.md', content: 'REMOTE\n' }]);
-      expect(files.conflicts).toEqual([]);
     });
 
     it('skips a destructive write when on-disk already equals the incoming content', async () => {
@@ -729,14 +614,7 @@ describe('VaultApplyAdapter', () => {
     it('writes a conflict artifact when a foreign-owned path holds diverged content', async () => {
       // Same canonical path, but the local content genuinely differs from the
       // incoming revision, this is the F2 conflict path, never a silent overwrite.
-      // Use UPDATE: a live CREATE under a foreign fileId is suppressed so a phone
-      // fork cannot fill the owner vault with conflict copies.
-      const { adapter, files } = build(() => ({
-        operation: 'update',
-        path: 'Notes/Shared.md',
-        previousPath: null,
-        content: 'A-EDIT\n',
-      }));
+      const { adapter, files } = build(() => content('Notes/Shared.md', 'A-EDIT\n'));
       files.owners.set('Notes/Shared.md', 'device-b-random');
       files.onDisk.set('Notes/Shared.md', 'B-EDIT\n');
 
@@ -920,139 +798,6 @@ describe('VaultApplyAdapter', () => {
       expect(files.conflicts).toEqual([]);
     });
 
-    it('bootstrap: applies a tombstone to an untracked stale phone file', async () => {
-      const { adapter, files } = build(() => tombstone('Notes/a.md'));
-      files.onDisk.set('Notes/a.md', 'OLD-SERVER-VERSION\n');
-
-      const outcome = await adapter.applyRemote(event('rev-d', 'file-1'), {
-        bootstrap: true,
-      });
-
-      expect(outcome).toBe('applied');
-      expect(files.deletes).toEqual(['Notes/a.md']);
-      expect(files.onDisk.has('Notes/a.md')).toBe(false);
-      expect(files.conflicts).toEqual([]);
-    });
-
-    it('live: applies a tombstone to an untracked stale phone file', async () => {
-      // Reconnect with cursor > 0 never re-bootstraps. Skipping this delete left
-      // the file on disk, reconcile minted a create, and the owner vault grew
-      // resurrected notes / conflict copies.
-      const { adapter, files } = build(() => tombstone('Notes/a.md'));
-      files.onDisk.set('Notes/a.md', 'OLD-SERVER-VERSION\n');
-
-      const outcome = await adapter.applyRemote(event('rev-d', 'file-1'));
-
-      expect(outcome).toBe('applied');
-      expect(files.deletes).toEqual(['Notes/a.md']);
-      expect(files.onDisk.has('Notes/a.md')).toBe(false);
-      expect(files.conflicts).toEqual([]);
-    });
-
-    it('live: retires an unchanged forked fileId on tombstone', async () => {
-      const { adapter, files } = build(() => tombstone('Notes/a.md'));
-      files.owners.set('Notes/a.md', 'stale-phone-file');
-      files.onDisk.set('Notes/a.md', 'OLD-SERVER-VERSION\n');
-      files.baseHashes.set(
-        'stale-phone-file',
-        await fakeHash('OLD-SERVER-VERSION\n'),
-      );
-
-      const outcome = await adapter.applyRemote(event('rev-d', 'file-1'));
-
-      expect(outcome).toBe('applied');
-      expect(files.deletes).toEqual(['Notes/a.md']);
-      expect(files.owners.has('Notes/a.md')).toBe(false);
-      expect(files.baseHashes.has('stale-phone-file')).toBe(false);
-      expect(files.conflicts).toEqual([]);
-    });
-
-    it('live: preserves a real offline edit under a forked fileId', async () => {
-      const { adapter, files } = build(() => tombstone('Notes/a.md'));
-      files.owners.set('Notes/a.md', 'stale-phone-file');
-      files.onDisk.set('Notes/a.md', 'PHONE-EDIT\n');
-      files.baseHashes.set(
-        'stale-phone-file',
-        await fakeHash('OLD-SERVER-VERSION\n'),
-      );
-
-      const outcome = await adapter.applyRemote(event('rev-d', 'file-1'));
-
-      expect(outcome).toBe('conflict');
-      expect(files.deletes).toEqual([]);
-      expect(files.onDisk.get('Notes/a.md')).toBe('PHONE-EDIT\n');
-      expect(files.owners.get('Notes/a.md')).toBe('stale-phone-file');
-    });
-
-    it('bootstrap: preserves the file when its local base was lost', async () => {
-      const { adapter, files } = build(() => tombstone('Notes/a.md'));
-      files.owners.set('Notes/a.md', 'file-1');
-      files.onDisk.set('Notes/a.md', 'OLD-SERVER-VERSION\n');
-
-      const outcome = await adapter.applyRemote(event('rev-d', 'file-1'), {
-        bootstrap: true,
-      });
-
-      expect(outcome).toBe('conflict');
-      expect(files.deletes).toEqual([]);
-      expect(files.onDisk.get('Notes/a.md')).toBe('OLD-SERVER-VERSION\n');
-      expect(files.conflicts).toHaveLength(1);
-    });
-
-    it('bootstrap: retires a stale fileId when its content is unchanged', async () => {
-      const { adapter, files } = build(() => tombstone('Notes/a.md'));
-      files.owners.set('Notes/a.md', 'stale-phone-file');
-      files.onDisk.set('Notes/a.md', 'OLD-SERVER-VERSION\n');
-      files.baseHashes.set(
-        'stale-phone-file',
-        await fakeHash('OLD-SERVER-VERSION\n'),
-      );
-
-      const outcome = await adapter.applyRemote(event('rev-d', 'file-1'), {
-        bootstrap: true,
-      });
-
-      expect(outcome).toBe('applied');
-      expect(files.deletes).toEqual(['Notes/a.md']);
-      expect(files.owners.has('Notes/a.md')).toBe(false);
-      expect(files.baseHashes.has('stale-phone-file')).toBe(false);
-      expect(files.conflicts).toEqual([]);
-    });
-
-    it('bootstrap: preserves a real offline edit despite a tombstone', async () => {
-      const { adapter, files } = build(() => tombstone('Notes/a.md'));
-      files.owners.set('Notes/a.md', 'file-1');
-      files.onDisk.set('Notes/a.md', 'PHONE-EDIT\n');
-      files.baseHashes.set('file-1', await fakeHash('OLD-SERVER-VERSION\n'));
-
-      const outcome = await adapter.applyRemote(event('rev-d', 'file-1'), {
-        bootstrap: true,
-      });
-
-      expect(outcome).toBe('conflict');
-      expect(files.deletes).toEqual([]);
-      expect(files.onDisk.get('Notes/a.md')).toBe('PHONE-EDIT\n');
-    });
-
-    it('bootstrap: deletes an unchanged tracked binary file', async () => {
-      const bytes = new Uint8Array([0, 1, 2, 255]);
-      const { adapter, files } = build(() =>
-        binaryContent('Files/deleted.pdf', new Uint8Array(0), 'delete'),
-      );
-      files.owners.set('Files/deleted.pdf', 'file-bin');
-      files.binaryOnDisk.set('Files/deleted.pdf', bytes);
-      files.baseHashes.set('file-bin', await hashBlob(bytes));
-
-      const outcome = await adapter.applyRemote(event('rev-d', 'file-bin'), {
-        bootstrap: true,
-      });
-
-      expect(outcome).toBe('applied');
-      expect(files.deletes).toEqual(['Files/deleted.pdf']);
-      expect(files.binaryOnDisk.has('Files/deleted.pdf')).toBe(false);
-      expect(files.binaryConflicts).toEqual([]);
-    });
-
     it('still deletes an allowlisted settings file that diverged (last writer wins)', async () => {
       const { adapter, files } = build(() => tombstone('.obsidian/appearance.json'));
       files.owners.set('.obsidian/appearance.json', 'file-1');
@@ -1063,23 +808,6 @@ describe('VaultApplyAdapter', () => {
 
       expect(outcome).toBe('applied');
       expect(files.deletes).toEqual(['.obsidian/appearance.json']);
-      expect(files.conflicts).toEqual([]);
-    });
-
-    it('bootstrap: a settings tombstone retires a stale local fileId', async () => {
-      const { adapter, files } = build(() => tombstone('.obsidian/appearance.json'));
-      files.owners.set('.obsidian/appearance.json', 'stale-settings-file');
-      files.onDisk.set('.obsidian/appearance.json', '{"local":true}\n');
-      files.baseHashes.set('stale-settings-file', await fakeHash('{}\n'));
-
-      const outcome = await adapter.applyRemote(event('rev-d', 'server-settings-file'), {
-        bootstrap: true,
-      });
-
-      expect(outcome).toBe('applied');
-      expect(files.deletes).toEqual(['.obsidian/appearance.json']);
-      expect(files.owners.has('.obsidian/appearance.json')).toBe(false);
-      expect(files.baseHashes.has('stale-settings-file')).toBe(false);
       expect(files.conflicts).toEqual([]);
     });
   });
@@ -1427,14 +1155,8 @@ describe('VaultApplyAdapter', () => {
 
   describe('readable conflict filenames and cascade safety (MRG-02)', () => {
     it('reuses the same artifact path when the same revision is re-delivered', async () => {
-      const { adapter, files } = build(() => ({
-        operation: 'update',
-        path: 'Notes/a.md',
-        previousPath: null,
-        content: 'C\n',
-      }));
+      const { adapter, files } = build(() => content('Notes/a.md', 'C\n'));
       files.owners.set('Notes/a.md', 'other-file');
-      files.onDisk.set('Notes/a.md', 'OWNER\n');
 
       await adapter.applyRemote(event('rev-9', 'file-1'));
       await adapter.applyRemote(event('rev-9', 'file-1'));
@@ -1453,17 +1175,11 @@ describe('VaultApplyAdapter', () => {
       const adapter = new VaultApplyAdapter({
         files,
         conflictFolder: 'Havemind Conflicts',
-        resolveRevision: async () => ({
-          operation: 'update',
-          path: 'Notes/a.md',
-          previousPath: null,
-          content: 'C\n',
-        }),
+        resolveRevision: async () => content('Notes/a.md', 'C\n'),
         hashContent: fakeHash,
         conflictNaming: { now: () => new Date(2026, 6, 22, 21, 56) },
       });
       files.owners.set('Notes/a.md', 'other-file');
-      files.onDisk.set('Notes/a.md', 'OWNER\n');
 
       await adapter.applyRemote(event('rev-9', 'file-1'));
 
@@ -1473,14 +1189,10 @@ describe('VaultApplyAdapter', () => {
     });
 
     it('appends a counter when two different revisions collide on the same name', async () => {
-      const { adapter, files } = build((remote) => ({
-        operation: 'update',
-        path: 'Notes/a.md',
-        previousPath: null,
-        content: `content-${remote.revision.revisionId}\n`,
-      }));
+      const { adapter, files } = build((remote) =>
+        content('Notes/a.md', `content-${remote.revision.revisionId}\n`),
+      );
       files.owners.set('Notes/a.md', 'other-file');
-      files.onDisk.set('Notes/a.md', 'OWNER\n');
 
       await adapter.applyRemote(event('rev-1', 'file-1'));
       await adapter.applyRemote(event('rev-2', 'file-2'));
@@ -1549,7 +1261,7 @@ describe('VaultApplyAdapter', () => {
     it('conflicts a foreign-owned binary path that holds diverged bytes', async () => {
       const incoming = new Uint8Array([9, 9, 9]);
       const { adapter, files } = build(() =>
-        binaryContent('Assets/pic.png', incoming, 'update'),
+        binaryContent('Assets/pic.png', incoming),
       );
       files.owners.set('Assets/pic.png', 'device-b-random');
       files.binaryOnDisk.set('Assets/pic.png', new Uint8Array([1, 2, 3]));

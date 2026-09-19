@@ -45,7 +45,7 @@ class MemoryFiles implements VaultFilePort {
   private readonly conflictPaths = new Map<string, string>();
   private readonly writtenConflicts = new Set<string>();
 
-  async openBufferStates(): Promise<readonly OpenBuffer[]> {
+  openBufferStates(): readonly OpenBuffer[] {
     return [];
   }
   fileIdAtPath(path: string): string | null {
