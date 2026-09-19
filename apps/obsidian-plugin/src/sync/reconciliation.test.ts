@@ -532,6 +532,7 @@ describe('warnSkippedPaths', () => {
 
 function baseResult(overrides: Partial<ReconcileResult> = {}): ReconcileResult {
   return {
+    adopted: 0,
     attachmentsExcluded: 0,
     binaryExcluded: 0,
     completed: true,

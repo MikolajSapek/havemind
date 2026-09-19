@@ -1,5 +1,6 @@
 import { canonicalizeMarkdown, hashBlob } from '@havemind/protocol';
 
+import { adoptOrCreate, type ServerFileIndex } from './join-adoption';
 import { isSyncableConfigPath } from './appearance-scope';
 import { normalizeConfigContent } from './config-normalize';
 import {
@@ -25,6 +26,18 @@ export interface ReconcileVaultStateOptions {
   observer: VaultChangeObserver;
   repository: LocalChangeRepository;
   vault: VaultSnapshotPort;
+  /**
+   * The vault's current files as the server sees them, supplied only when this
+   * device has just JOINED. A joining device usually holds a copy of the same
+   * notes already, and without this every one of them is pushed as a brand new
+   * file: the pilot's phone re-uploaded 31 notes the desktop had just sent, so
+   * each shared note ended up with two identities. With the index, a file whose
+   * content the vault already holds is adopted instead of created.
+   *
+   * Absent for the ordinary steady-state reconcile, where behaviour is
+   * unchanged, and for any device that cannot enumerate the server.
+   */
+  serverIndex?: ServerFileIndex;
 }
 
 /**
@@ -78,6 +91,11 @@ export interface ReconcileResult {
   skippedPaths: readonly SkippedFileDetail[];
   unchanged: number;
   updated: number;
+  /**
+   * Files that took an identity the server already had, instead of being pushed
+   * as new. Non-zero only on a join (see `serverIndex`).
+   */
+  adopted: number;
 }
 
 const MAX_BINARY_FILE_MB = MAX_BINARY_FILE_BYTES / (1024 * 1024);
@@ -244,6 +262,7 @@ export async function reconcileVaultState(
 
   const unmatchedMappings = [...mappingsByCollision.values()];
   const {
+    adopted,
     created,
     deleted,
     renamed,
@@ -253,9 +272,12 @@ export async function reconcileVaultState(
     unmatchedVault,
     unmatchedMappings,
     recordSkip,
+    options.serverIndex,
+    repository,
   );
 
   return {
+    adopted,
     attachmentsExcluded,
     binaryExcluded,
     completed: true,
@@ -311,7 +333,15 @@ async function applyRenamesCreatesDeletes(
   unmatchedVault: readonly EligibleVaultFile[],
   unmatchedMappings: readonly LocalFileMapping[],
   onSkip: (detail: SkippedFileDetail) => void,
-): Promise<{ created: number; deleted: number; renamed: number; skipped: number }> {
+  serverIndex: ServerFileIndex | undefined,
+  repository: LocalChangeRepository,
+): Promise<{
+  adopted: number;
+  created: number;
+  deleted: number;
+  renamed: number;
+  skipped: number;
+}> {
   // Text identity needs the canonical body so an old or synthetic hash cannot
   // create a false rename. Binary identity uses its raw-byte hash because AUD-12
   // deliberately no longer persists the base64 body.
@@ -325,6 +355,31 @@ async function applyRenamesCreatesDeletes(
       ? `binary:${mapping.contentHash}`
       : `markdown:${mapping.content ?? ''}`,
   );
+
+  /**
+   * Records the server's identity for a local file, without enqueuing anything:
+   * the content is already in the vault, so there is nothing to push. The head
+   * is left unset because this device has authored no revision for it yet; the
+   * first local edit will parent on whatever the next pull adopts.
+   */
+  const adoptMapping =
+    serverIndex === undefined || repository.adoptRemoteMapping === undefined
+      ? undefined
+      : async (fileId: string, file: EligibleVaultFile): Promise<void> => {
+          const classified = classifyVaultPath(file.readPath);
+          if (!classified.eligible) return;
+          await repository.adoptRemoteMapping?.(
+            {
+              collisionKey: classified.collisionKey,
+              content: file.kind === 'binary' ? null : file.content,
+              contentHash: file.contentHash ?? file.content,
+              ...(file.kind === 'binary' ? { contentKind: 'binary' as const } : {}),
+              fileId,
+              path: classified.canonicalPath,
+            },
+            fileId,
+          );
+        };
 
   const consumedVault = new Set<EligibleVaultFile>();
   const consumedMappings = new Set<LocalFileMapping>();
@@ -354,8 +409,27 @@ async function applyRenamesCreatesDeletes(
   }
 
   let created = 0;
+  let adopted = 0;
+  // One server file may be adopted once: two local copies of a note must not
+  // both claim its identity, or the second silently overwrites the first.
+  const claimed = new Set<string>();
   for (const file of unmatchedVault) {
     if (consumedVault.has(file)) continue;
+    // On a join, a file whose content the vault already holds takes that
+    // identity rather than becoming a second copy of the same note.
+    const decision =
+      serverIndex === undefined
+        ? { kind: 'create' as const }
+        : adoptOrCreate(
+            serverIndex,
+            { path: file.readPath, contentHash: file.contentHash ?? file.content },
+            claimed,
+          );
+    if (decision.kind !== 'create' && adoptMapping !== undefined) {
+      await adoptMapping(decision.fileId, file);
+      adopted += 1;
+      continue;
+    }
     if (
       await observeResilient(file.readPath, onSkip, () =>
         observer.observeCreate(file.readPath),
@@ -381,7 +455,7 @@ async function applyRenamesCreatesDeletes(
     }
   }
 
-  return { created, deleted, renamed, skipped };
+  return { adopted, created, deleted, renamed, skipped };
 }
 
 function groupBy<T>(

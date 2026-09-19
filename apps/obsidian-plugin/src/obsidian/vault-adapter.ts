@@ -157,6 +157,17 @@ export interface LocalChangeRepository {
    */
   commitLocalChange(commit: LocalChangeCommit): Promise<string | null>;
   listMappings(): Promise<readonly LocalFileMapping[]>;
+  /**
+   * Records a mapping for a file whose content the vault ALREADY holds, without
+   * enqueuing a revision. Used by the join-time reconcile: re-pushing content
+   * the server has forks the note's identity, so the local device takes the
+   * server's instead. Optional, so a caller that never joins need not implement
+   * it (the reconcile falls back to creating, i.e. the previous behaviour).
+   */
+  adoptRemoteMapping?(
+    mapping: LocalFileMapping,
+    headRevisionId: string,
+  ): Promise<void>;
 }
 
 export type VaultPathClassification =
