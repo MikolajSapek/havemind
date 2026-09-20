@@ -17,11 +17,8 @@ you own passes the changes around and remembers who wrote what.
 Built for people. If you also run Claude, MCP or another local agent in that
 vault, its edits land in the same history.
 
-**Version 1.5.0, desktop and mobile.** A rebuild of how concurrent edits are
-reconciled: merges now publish the branches they resolve, causality is proved
-per revision rather than inferred, and an interrupted local edit can no longer
-leave a file without its identity. A two-week pilot on two devices lost no data,
-including through three real incidents.
+**Version 1.5.0, desktop and mobile.** A two-week pilot on two devices lost no
+data, including through three real incidents.
 
 There is no end-to-end encryption. Your server stores the vault in plaintext,
 so whoever runs that machine can read it. Read the
