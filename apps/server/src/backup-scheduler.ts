@@ -6,6 +6,7 @@ import type Database from 'better-sqlite3';
 
 import {
   createBackup,
+  listBackups,
   pruneBackups,
   RestoreError,
   type BackupManifest,
@@ -168,6 +169,13 @@ export interface BackupSchedulerOptions extends ScheduledBackupOptions {
 
 export interface BackupScheduler {
   readonly stop: () => void;
+  /**
+   * Resolves once the startup catch-up decision has settled (and, when it
+   * decided to run, once that backup has finished). Nothing needs to await it
+   * in production, where startup must not block on a backup; tests do, so they
+   * never race the first artifact.
+   */
+  readonly started: Promise<void>;
 }
 
 const SYSTEM_TIMER: BackupTimer = {
@@ -230,7 +238,51 @@ export function startBackupScheduler(
   };
 
   const handle = timer.set(tick, options.intervalMs);
+
+  /**
+   * Startup catch-up. Skipping the run at boot is still the right default (a
+   * crash-restart loop must not be able to fill the disk with artifacts), but
+   * tying it to PROCESS LIFETIME made the timer unreachable: with a 24 hour
+   * interval, a host that restarts even slightly more often than daily resets
+   * the countdown every time and never takes a single backup. That is how the
+   * pilot went 26 days without one, silently, while looking healthy.
+   *
+   * So the same guard is expressed in terms of ELAPSED TIME instead. A backup
+   * taken within the interval means there is nothing to catch up on, and a
+   * restart loop still mints nothing. Anything older, or no artifact at all,
+   * means a backup is already overdue and runs now.
+   *
+   * A failure here is logged, never thrown: startup must not depend on it.
+   */
+  const started = (async (): Promise<void> => {
+    let overdue: boolean;
+    try {
+      const [newest] = await listBackups(options.backupsRoot);
+      if (newest === undefined) {
+        overdue = true;
+      } else {
+        const age =
+          (options.now?.() ?? new Date()).getTime() -
+          new Date(newest.createdAt).getTime();
+        // An unparseable or future-dated stamp reads as NOT overdue, so a bad
+        // manifest can never turn startup into a backup-per-restart loop.
+        overdue = Number.isFinite(age) && age >= options.intervalMs;
+      }
+    } catch (error) {
+      logger.error(
+        `Could not read existing backups, skipping startup catch-up: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return;
+    }
+    if (overdue) {
+      await tick();
+    }
+  })();
+
   return {
+    started,
     stop: () => {
       stopped = true;
       timer.clear(handle);

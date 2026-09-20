@@ -98,6 +98,33 @@ interface CapturedTimer {
 }
 
 /** A hand-rolled timer seam: the test drives every tick explicitly. */
+/**
+ * Writes a manifest-only artifact stamped at `createdAt`, enough for
+ * `listBackups` to report it. Used to stand in for a backup taken before the
+ * process (re)started, which is what the startup catch-up decision reads.
+ */
+async function writeArtifactAt(
+  backupsRoot: string,
+  backupId: string,
+  createdAt: string,
+): Promise<void> {
+  const backupDir = join(backupsRoot, backupId);
+  await mkdir(backupDir, { mode: 0o700, recursive: true });
+  await writeFile(
+    join(backupDir, 'manifest.json'),
+    JSON.stringify({
+      blobs: [],
+      createdAt,
+      database: { filename: 'havemind.db', sizeBytes: 0 },
+      instanceId: '00000000-0000-4000-8000-000000000000',
+      schemaVersion: 1,
+      sourceRestoreEpoch: 0,
+      sourceServerEpoch: '00000000-0000-4000-8000-000000000000',
+    }),
+    'utf8',
+  );
+}
+
 function captureTimer(): CapturedTimer {
   const state: CapturedTimer['state'] = {
     cleared: 0,
@@ -304,7 +331,11 @@ describe('startBackupScheduler', () => {
     });
 
     expect(captured.state.intervalMs).toBe(86_400_000);
-    expect(await readdir(backupsRoot).catch(() => [])).toEqual([]);
+
+    // An empty backups directory is overdue by definition, so startup takes the
+    // first artifact (see the catch-up cases below). Await it before driving
+    // ticks, otherwise the two race for the same id counter.
+    await scheduler.started;
 
     await captured.state.handler?.();
     await captured.state.handler?.();
@@ -313,7 +344,102 @@ describe('startBackupScheduler', () => {
     expect(listed.map((entry) => entry.backupId).sort()).toEqual([
       'backup-0001',
       'backup-0002',
+      'backup-0003',
     ]);
+    scheduler.stop();
+  });
+
+  /**
+   * Regression for a silent backup outage found on 2026-09-20: the pilot host
+   * had produced no scheduled artifact since 2026-08-24, 26 days.
+   *
+   * The timer is armed with a plain `setInterval`, so the first run lands one
+   * whole interval after start. With a 24 hour interval, a container that
+   * restarts even slightly more often than daily resets the countdown every
+   * time and never reaches a single tick. Nothing logs, nothing fails, and the
+   * backup directory simply stops growing.
+   *
+   * Skipping the run AT BOOT is deliberate and stays: a crash-restart loop must
+   * not be able to fill the disk with artifacts. The fix is to make that a
+   * decision about ELAPSED TIME rather than about process lifetime, by reading
+   * the newest existing artifact: overdue means run now, recent means wait.
+   */
+  it('runs immediately at startup when the newest artifact is older than the interval', async () => {
+    const seed = await seedInstance();
+    const backupsRoot = join(makeDir(), 'backups');
+    const captured = captureTimer();
+
+    // An artifact from well over an interval ago: the host restarted and the
+    // countdown was lost, which is the production failure.
+    await writeArtifactAt(backupsRoot, 'backup-old', '2026-08-24T00:00:00.000Z');
+
+    const scheduler = startBackupScheduler({
+      backupsRoot,
+      backupId: () => 'backup-catchup',
+      database: seed.database,
+      dataDir: seed.dataDir,
+      intervalMs: 86_400_000,
+      keep: 7,
+      now: () => new Date('2026-09-20T00:00:00.000Z'),
+      timer: captured.timer,
+    });
+
+    await scheduler.started;
+
+    const listed = await listBackups(backupsRoot);
+    expect(listed.map((entry) => entry.backupId)).toContain('backup-catchup');
+    scheduler.stop();
+  });
+
+  it('does not run at startup when a recent artifact already exists', async () => {
+    // The disk-filling guard: a restart loop must never mint an artifact per
+    // restart, so a backup taken within the interval means there is nothing to
+    // catch up on.
+    const seed = await seedInstance();
+    const backupsRoot = join(makeDir(), 'backups');
+    const captured = captureTimer();
+
+    await writeArtifactAt(backupsRoot, 'backup-recent', '2026-09-19T23:00:00.000Z');
+
+    const scheduler = startBackupScheduler({
+      backupsRoot,
+      backupId: () => 'backup-should-not-exist',
+      database: seed.database,
+      dataDir: seed.dataDir,
+      intervalMs: 86_400_000,
+      keep: 7,
+      now: () => new Date('2026-09-20T00:00:00.000Z'),
+      timer: captured.timer,
+    });
+
+    await scheduler.started;
+
+    const listed = await listBackups(backupsRoot);
+    expect(listed.map((entry) => entry.backupId)).toEqual(['backup-recent']);
+    scheduler.stop();
+  });
+
+  it('runs immediately at startup when no artifact exists at all', async () => {
+    // A fresh install currently protects nothing until the first interval
+    // elapses, and the activation checklist has to be run by hand to cover it.
+    const seed = await seedInstance();
+    const backupsRoot = join(makeDir(), 'backups');
+    const captured = captureTimer();
+
+    const scheduler = startBackupScheduler({
+      backupsRoot,
+      backupId: () => 'backup-first',
+      database: seed.database,
+      dataDir: seed.dataDir,
+      intervalMs: 86_400_000,
+      keep: 7,
+      timer: captured.timer,
+    });
+
+    await scheduler.started;
+
+    const listed = await listBackups(backupsRoot);
+    expect(listed.map((entry) => entry.backupId)).toEqual(['backup-first']);
     scheduler.stop();
   });
 
