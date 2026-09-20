@@ -23,6 +23,7 @@ import {
 import type {
   LocalChangeCommit,
   LocalChangeKind,
+  LocalChangeOperation,
   LocalChangeRepository,
   LocalFileMapping,
 } from '../obsidian/vault-adapter';
@@ -227,6 +228,11 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
   }
 
   async listMappings(): Promise<readonly LocalFileMapping[]> {
+    // Replay any interrupted commit FIRST. This is the read the vault scan uses
+    // to decide whether a file already has an identity, so serving it from raw
+    // store state is what lets a scan mint a duplicate identity for a file
+    // whose commit was interrupted after its queue entry was written.
+    await this.mutations.runExclusive('state', () => this.recoverLocked());
     return (await this.options.store.load()).mappings;
   }
 
@@ -294,6 +300,60 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
     });
   }
 
+  /**
+   * Publishes a local change so the queue entry and the producer mapping can
+   * never be observed apart. The journal records the producer state this commit
+   * INTENDS, alongside the envelope, in a single durable write; `recoverLocked`
+   * then replays that state on the next call, before any scan can look for a
+   * mapping and fail to find one.
+   *
+   * `kind: 'resolution'` (not `'apply'`) because there is nothing to roll back:
+   * this is a new local edit, so recovery must finish it forwards rather than
+   * restore a previous state.
+   *
+   * With no recovery port wired the old two-write path is kept, so a caller
+   * that does not supply one (unit tests, the preview harness) behaves exactly
+   * as before.
+   */
+  private async commitWithRecovery(
+    envelope: OutboxEnvelope,
+    next: ProducerState,
+    operation: LocalChangeOperation,
+  ): Promise<void> {
+    const recovery = this.options.recovery;
+    if (recovery === undefined) {
+      await this.options.enqueue(envelope);
+      await this.options.store.save(next);
+      await this.seedSharedState(operation);
+      return;
+    }
+    const record: ProducerRecovery = {
+      id: this.options.generateRevisionId(),
+      kind: 'resolution',
+      fileIds: [operation.fileId],
+      state: {
+        mappings: next.mappings.filter((m) => m.fileId === operation.fileId),
+        heads: Object.fromEntries(
+          Object.entries(next.heads).filter(([id]) => id === operation.fileId),
+        ),
+      },
+      discardRevisionIds: [],
+    };
+    // A false return means the journal refused the transaction (another one is
+    // in flight for this file). Fall back to the previous behaviour rather than
+    // dropping the user's edit: the change still reaches the queue.
+    const started = await recovery.startProducerRecovery(record, envelope);
+    if (!started) {
+      await this.options.enqueue(envelope);
+      await this.options.store.save(next);
+      await this.seedSharedState(operation);
+      return;
+    }
+    await this.options.store.save(next);
+    await this.seedSharedState(operation);
+    await recovery.completeProducerRecovery(record.id);
+  }
+
   async commitLocalChange(commit: LocalChangeCommit): Promise<string | null> {
     return this.mutations.runExclusive('state', async () => {
       await this.recoverLocked();
@@ -347,7 +407,7 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
           idempotencyKey: operation.operationId,
         });
 
-        await this.options.enqueue({
+        const envelope: OutboxEnvelope = {
           header: built.header,
           idempotencyKey: built.idempotencyKey,
           payloadBase64: built.payloadBase64,
@@ -355,16 +415,25 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
           revisionId: built.revisionId,
           fileId: built.fileId,
           contentHash: built.contentHash,
+        };
+        const next = applyCommit(state, commit, {
+          fileId: operation.fileId,
+          revisionId,
+          isDelete: kind === 'delete',
         });
 
-        await this.options.store.save(
-          applyCommit(state, commit, {
-            fileId: operation.fileId,
-            revisionId,
-            isDelete: kind === 'delete',
-          }),
-        );
-        await this.seedSharedState(operation);
+        // The queue entry and the identity mapping must land together. Written
+        // separately, a failure between them leaves a queued revision whose
+        // file has no mapping, and the next scan mints a SECOND identity for
+        // the same file: the duplicate-identity failure observed in production
+        // on 2026-09-19 (three blob hashes shared by seven file ids).
+        //
+        // `startProducerRecovery` persists the replacement envelope and the
+        // journal record in one `mutate`, and `recoverLocked` replays the
+        // recorded producer state before any later scan can run. So an
+        // interruption either leaves nothing, or leaves an entry that replays
+        // to exactly this state. There is no window in between.
+        await this.commitWithRecovery(envelope, next, operation);
         // The real, server-facing revision id, never `operation.operationId`
         // (a client-only idempotency key). Callers (the Activity feed) must
         // record this id so a local push and its later remote echo collapse by
