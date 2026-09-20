@@ -77,7 +77,6 @@ export {
 
 export {
   evaluateOwnerConnection,
-  gateOwnerConnection,
   parseOwnerConnection,
   resetHavemindConnectionState,
 } from './adapters/owner-connection';

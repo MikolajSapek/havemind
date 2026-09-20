@@ -137,7 +137,7 @@ export type OwnerConnectionGate =
  * secret missing, the exact second-computer failure) can never authenticate, so
  * treating it as connectable only produces the offline loop this fixes.
  */
-export function gateOwnerConnection(
+function gateOwnerConnection(
   result: OwnerConnectionReadResult,
   refreshTokenPresent: boolean,
 ): OwnerConnectionGate {
