@@ -27,6 +27,8 @@ import type {
   LocalFileMapping,
 } from '../obsidian/vault-adapter';
 import type { OutboxEnvelope } from '../runtime/sync-state';
+import { KeyedMutex } from '../runtime/keyed-mutex';
+import type { ProducerRecovery, ProducerRecoveryPort } from '../runtime/producer-recovery';
 
 /**
  * Effective per-payload ceiling for a BINARY attachment (F9). A 25 MB file
@@ -92,11 +94,13 @@ export interface LocalForget {
 }
 
 export interface OutboxLocalChangeRepositoryOptions {
+  readonly recovery?: ProducerRecoveryPort;
   readonly identity: PushIdentity;
   readonly store: ProducerStorePort;
   readonly enqueue: (envelope: OutboxEnvelope) => Promise<void>;
   readonly generateRevisionId: () => string;
   /** A history replay must not author merges on behalf of other devices. */
+  readonly cancelUnsentMerge?: (revisionId: string) => Promise<void>;
   readonly hasAuthoredRevision?: (revisionId: string) => Promise<boolean>;
   /**
    * Effective per-payload byte ceiling. A change whose payload would exceed it
@@ -132,9 +136,94 @@ const OPERATION_BY_KIND: Readonly<
 
 export class OutboxLocalChangeRepository implements LocalChangeRepository {
   private readonly options: OutboxLocalChangeRepositoryOptions;
+  // All files share one persisted mapping document. Per-file observer locks
+  // cannot prevent two different files from saving snapshots over each other.
+  private readonly mutations = new KeyedMutex();
+  private readonly activeApplies = new Set<string>();
 
   constructor(options: OutboxLocalChangeRepositoryOptions) {
     this.options = options;
+  }
+
+  async recover(): Promise<void> {
+    await this.mutations.runExclusive('state', () => this.recoverLocked());
+  }
+
+  private async recoverLocked(): Promise<void> {
+    for (const record of await this.options.recovery?.pendingProducerRecoveries() ?? []) {
+      if (this.activeApplies.has(record.id)) continue;
+      await this.options.recovery?.recoverProducerQueue(record.id);
+      const current = await this.options.store.load();
+      const ids = new Set(record.fileIds);
+      const heads = Object.fromEntries(Object.entries(current.heads).filter(([id]) => !ids.has(id)));
+      await this.options.store.save({
+        mappings: [...current.mappings.filter((m) => !ids.has(m.fileId)), ...record.state.mappings],
+        heads: { ...heads, ...record.state.heads },
+      });
+      await this.options.recovery?.completeProducerRecovery(record.id);
+    }
+  }
+
+  /** Persist undo intent before adoption or enqueue. Interrupted applies are
+   * rolled back before any subsequent push; original payloads remain archived. */
+  async checkpointApply(fileId: string, paths: readonly string[]): Promise<(() => Promise<void>) & { complete?: () => Promise<void> }> {
+    return this.mutations.runExclusive('state', async () => {
+      await this.recoverLocked();
+      const before = await this.options.store.load();
+      const affected = new Set([fileId, ...before.mappings.filter((m) => paths.includes(m.path)).map((m) => m.fileId)]);
+      const record: ProducerRecovery = {
+        id: this.options.generateRevisionId(), kind: 'apply', fileIds: [...affected], discardRevisionIds: [],
+        state: { mappings: before.mappings.filter((m) => affected.has(m.fileId)),
+          heads: Object.fromEntries(Object.entries(before.heads).filter(([id]) => affected.has(id))) },
+      };
+      if (this.options.recovery !== undefined) {
+        await this.options.recovery.startProducerRecovery(record);
+        this.activeApplies.add(record.id);
+        const rollback = async (): Promise<void> => {
+          this.activeApplies.delete(record.id);
+          await this.recover();
+        };
+        return Object.assign(rollback, { complete: async () => {
+          await this.options.recovery?.completeProducerRecovery(record.id);
+          this.activeApplies.delete(record.id);
+        } });
+      }
+      // Compatibility for isolated adapters without the durable runtime port.
+      return () => this.mutations.runExclusive('state', async () => {
+        const current = await this.options.store.load();
+        const currentHead = current.heads[fileId];
+        if (currentHead !== undefined && currentHead !== before.heads[fileId]) await this.options.cancelUnsentMerge?.(currentHead);
+        await this.options.store.save({
+          mappings: [...current.mappings.filter((m) => !affected.has(m.fileId)), ...record.state.mappings],
+          heads: { ...Object.fromEntries(Object.entries(current.heads).filter(([id]) => !affected.has(id))), ...record.state.heads },
+        });
+      });
+    });
+  }
+
+  async commitHeadResolution(input: {
+    mapping: LocalFileMapping; expectedHead: string; pendingIds: readonly string[];
+    parents: readonly string[]; existingRevisionId?: string;
+  }): Promise<void> {
+    await this.mutations.runExclusive('state', async () => {
+      await this.recoverLocked();
+      const recovery = this.options.recovery;
+      if (recovery === undefined) return;
+      const current = await this.options.store.load();
+      if (current.heads[input.mapping.fileId] !== input.expectedHead) return;
+      const revisionId = input.existingRevisionId ?? this.options.generateRevisionId();
+      const built = input.existingRevisionId === undefined ? await buildRevisionEnvelope({
+        identity: { ...this.options.identity, fileId: input.mapping.fileId }, revisionId,
+        parentRevisionIds: input.parents, operation: 'update', path: input.mapping.path,
+        content: input.mapping.content, idempotencyKey: revisionId,
+      }) : undefined;
+      const replacement = built === undefined ? undefined : { ...built, operationId: revisionId };
+      const record: ProducerRecovery = { id: this.options.generateRevisionId(), kind: 'resolution',
+        fileIds: [input.mapping.fileId], discardRevisionIds: input.pendingIds,
+        state: { mappings: [input.mapping], heads: { [input.mapping.fileId]: revisionId } },
+      };
+      if (await recovery.startProducerRecovery(record, replacement)) await this.recoverLocked();
+    });
   }
 
   async listMappings(): Promise<readonly LocalFileMapping[]> {
@@ -167,128 +256,133 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
     readonly remoteRevisionId: string;
     readonly remoteParentRevisionIds: readonly string[];
   }): Promise<boolean> {
-    const state = await this.options.store.load();
-    const { mapping, remoteRevisionId, remoteParentRevisionIds } = input;
-    const localHead = state.heads[mapping.fileId];
-    if (localHead === undefined ||
-      !(await this.options.hasAuthoredRevision?.(localHead))) return false;
-    // An unsent disk edit over a remote child only needs that child as parent.
-    // Concurrent authored revisions require BOTH branches, not just the peer.
-    const parents = remoteParentRevisionIds.includes(localHead) || localHead === remoteRevisionId
-      ? [remoteRevisionId] : [localHead, remoteRevisionId];
-    const revisionId = this.options.generateRevisionId();
-    const built = await buildRevisionEnvelope({
-      identity: { ...this.options.identity, fileId: mapping.fileId },
-      revisionId,
-      parentRevisionIds: parents,
-      operation: 'update',
-      path: mapping.path,
-      content: mapping.content,
-      idempotencyKey: revisionId,
-      ...(this.options.maxPayloadBytes === undefined ? {} : { maxPayloadBytes: this.options.maxPayloadBytes }),
-    });
-    await this.options.enqueue({
-      header: built.header,
-      idempotencyKey: built.idempotencyKey,
-      payloadBase64: built.payloadBase64,
-      operationId: revisionId,
-      revisionId,
-      fileId: mapping.fileId,
-      contentHash: built.contentHash,
-    });
-    await this.options.store.save({
-      mappings: upsertMapping(state.mappings, mapping),
-      heads: { ...state.heads, [mapping.fileId]: revisionId },
-    });
-    return true;
-  }
-
-  async commitLocalChange(commit: LocalChangeCommit): Promise<string | null> {
-    const state = await this.options.store.load();
-    const { operation } = commit;
-    const head = state.heads[operation.fileId];
-    const kind = operation.kind;
-    const envelopeOperation = resolveOperation(kind, head);
-
-    // A delete with no server-side head has nothing to tombstone remotely.
-    if (!(kind === 'delete' && head === undefined)) {
-      const parentRevisionIds =
-        envelopeOperation === 'create' || head === undefined ? [] : [head];
+    return this.mutations.runExclusive('state', async () => {
+      const state = await this.options.store.load();
+      const { mapping, remoteRevisionId, remoteParentRevisionIds } = input;
+      const localHead = state.heads[mapping.fileId];
+      if (localHead === undefined ||
+        !(await this.options.hasAuthoredRevision?.(localHead))) return false;
+      // An unsent disk edit over a remote child only needs that child as parent.
+      // Concurrent authored revisions require BOTH branches, not just the peer.
+      const parents = remoteParentRevisionIds.includes(localHead) || localHead === remoteRevisionId
+        ? [remoteRevisionId] : [localHead, remoteRevisionId];
       const revisionId = this.options.generateRevisionId();
-      // buildRevisionEnvelope throws RevisionPayloadTooLargeError for an
-      // oversized change. It propagates out of commitLocalChange BEFORE the
-      // enqueue and the store.save below, so a too-large note is surfaced to the
-      // caller and never enters the outbox (no silent wedge, no state mutation).
-      // A binary change (F9) is a whole-file replace over RAW bytes: the observer
-      // stored those bytes as base64 in `content`, so decode them and hand the
-      // codec `kind: 'binary'` + `binaryContent` (never markdown `content`, which
-      // would be canonicalised). The base64 of a 25 MB file needs a raised
-      // ceiling, so binary uses {@link MAX_BINARY_PAYLOAD_BYTES} rather than the
-      // markdown default.
-      const isBinary = operation.contentKind === 'binary';
       const built = await buildRevisionEnvelope({
-        identity: {
-          vaultId: this.options.identity.vaultId,
-          fileId: operation.fileId,
-          memberId: this.options.identity.memberId,
-          deviceId: this.options.identity.deviceId,
-        },
+        identity: { ...this.options.identity, fileId: mapping.fileId },
         revisionId,
-        parentRevisionIds,
-        operation: envelopeOperation,
-        path: operation.path,
-        previousPath: operation.previousPath,
-        ...(isBinary
-          ? {
-              kind: 'binary' as const,
-              content: null,
-              binaryContent: decodeBase64ToBytes(operation.content ?? ''),
-              maxPayloadBytes: MAX_BINARY_PAYLOAD_BYTES,
-            }
-          : {
-              content: operation.content,
-              ...(this.options.maxPayloadBytes === undefined
-                ? {}
-                : { maxPayloadBytes: this.options.maxPayloadBytes }),
-            }),
-        idempotencyKey: operation.operationId,
+        parentRevisionIds: parents,
+        operation: 'update',
+        path: mapping.path,
+        content: mapping.content,
+        idempotencyKey: revisionId,
+        ...(this.options.maxPayloadBytes === undefined ? {} : { maxPayloadBytes: this.options.maxPayloadBytes }),
       });
-
-      await this.options.enqueue({
+      await (this.options.recovery?.enqueueAutomaticMerge.bind(this.options.recovery) ?? this.options.enqueue)({
         header: built.header,
         idempotencyKey: built.idempotencyKey,
         payloadBase64: built.payloadBase64,
-        operationId: operation.operationId,
-        revisionId: built.revisionId,
-        fileId: built.fileId,
+        operationId: revisionId,
+        revisionId,
+        fileId: mapping.fileId,
         contentHash: built.contentHash,
       });
+      await this.options.store.save({
+        mappings: upsertMapping(state.mappings, mapping),
+        heads: { ...state.heads, [mapping.fileId]: revisionId },
+      });
+      return true;
+    });
+  }
 
+  async commitLocalChange(commit: LocalChangeCommit): Promise<string | null> {
+    return this.mutations.runExclusive('state', async () => {
+      await this.recoverLocked();
+      const state = await this.options.store.load();
+      const { operation } = commit;
+      const head = state.heads[operation.fileId];
+      const kind = operation.kind;
+      const envelopeOperation = resolveOperation(kind, head);
+
+      // A delete with no server-side head has nothing to tombstone remotely.
+      if (!(kind === 'delete' && head === undefined)) {
+        const parentRevisionIds =
+          envelopeOperation === 'create' || head === undefined ? [] : [head];
+        const revisionId = this.options.generateRevisionId();
+        // buildRevisionEnvelope throws RevisionPayloadTooLargeError for an
+        // oversized change. It propagates out of commitLocalChange BEFORE the
+        // enqueue and the store.save below, so a too-large note is surfaced to the
+        // caller and never enters the outbox (no silent wedge, no state mutation).
+        // A binary change (F9) is a whole-file replace over RAW bytes: the observer
+        // stored those bytes as base64 in `content`, so decode them and hand the
+        // codec `kind: 'binary'` + `binaryContent` (never markdown `content`, which
+        // would be canonicalised). The base64 of a 25 MB file needs a raised
+        // ceiling, so binary uses {@link MAX_BINARY_PAYLOAD_BYTES} rather than the
+        // markdown default.
+        const isBinary = operation.contentKind === 'binary';
+        const built = await buildRevisionEnvelope({
+          identity: {
+            vaultId: this.options.identity.vaultId,
+            fileId: operation.fileId,
+            memberId: this.options.identity.memberId,
+            deviceId: this.options.identity.deviceId,
+          },
+          revisionId,
+          parentRevisionIds,
+          operation: envelopeOperation,
+          path: operation.path,
+          previousPath: operation.previousPath,
+          ...(isBinary
+            ? {
+                kind: 'binary' as const,
+                content: null,
+                binaryContent: decodeBase64ToBytes(operation.content ?? ''),
+                maxPayloadBytes: MAX_BINARY_PAYLOAD_BYTES,
+              }
+            : {
+                content: operation.content,
+                ...(this.options.maxPayloadBytes === undefined
+                  ? {}
+                  : { maxPayloadBytes: this.options.maxPayloadBytes }),
+              }),
+          idempotencyKey: operation.operationId,
+        });
+
+        await this.options.enqueue({
+          header: built.header,
+          idempotencyKey: built.idempotencyKey,
+          payloadBase64: built.payloadBase64,
+          operationId: operation.operationId,
+          revisionId: built.revisionId,
+          fileId: built.fileId,
+          contentHash: built.contentHash,
+        });
+
+        await this.options.store.save(
+          applyCommit(state, commit, {
+            fileId: operation.fileId,
+            revisionId,
+            isDelete: kind === 'delete',
+          }),
+        );
+        await this.seedSharedState(operation);
+        // The real, server-facing revision id, never `operation.operationId`
+        // (a client-only idempotency key). Callers (the Activity feed) must
+        // record this id so a local push and its later remote echo collapse by
+        // revisionId instead of appearing as two separate entries.
+        return built.revisionId;
+      }
+
+      // Delete of a never-pushed file: drop the local mapping without a revision.
       await this.options.store.save(
         applyCommit(state, commit, {
           fileId: operation.fileId,
-          revisionId,
-          isDelete: kind === 'delete',
+          revisionId: null,
+          isDelete: true,
         }),
       );
       await this.seedSharedState(operation);
-      // The real, server-facing revision id, never `operation.operationId`
-      // (a client-only idempotency key). Callers (the Activity feed) must
-      // record this id so a local push and its later remote echo collapse by
-      // revisionId instead of appearing as two separate entries.
-      return built.revisionId;
-    }
-
-    // Delete of a never-pushed file: drop the local mapping without a revision.
-    await this.options.store.save(
-      applyCommit(state, commit, {
-        fileId: operation.fileId,
-        revisionId: null,
-        isDelete: true,
-      }),
-    );
-    await this.seedSharedState(operation);
-    return null;
+      return null;
+    });
   }
 
   /**
@@ -329,24 +423,28 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
     mapping: LocalFileMapping,
     headRevisionId: string,
   ): Promise<void> {
-    const state = await this.options.store.load();
-    const mappings = upsertMapping(state.mappings, mapping);
-    await this.options.store.save({
-      mappings,
-      heads: { ...state.heads, [mapping.fileId]: headRevisionId },
+    return this.mutations.runExclusive('state', async () => {
+      const state = await this.options.store.load();
+      const mappings = upsertMapping(state.mappings, mapping);
+      await this.options.store.save({
+        mappings,
+        heads: { ...state.heads, [mapping.fileId]: headRevisionId },
+      });
     });
   }
 
   /** Forgets the producer mapping+head for a file the apply side just deleted. */
   async forgetRemoteMapping(collisionKey: string, fileId: string): Promise<void> {
-    const state = await this.options.store.load();
-    const mappings = state.mappings.filter(
-      (mapping) =>
-        mapping.collisionKey !== collisionKey && mapping.fileId !== fileId,
-    );
-    const heads = { ...state.heads };
-    delete heads[fileId];
-    await this.options.store.save({ mappings, heads });
+    return this.mutations.runExclusive('state', async () => {
+      const state = await this.options.store.load();
+      const mappings = state.mappings.filter(
+        (mapping) =>
+          mapping.collisionKey !== collisionKey && mapping.fileId !== fileId,
+      );
+      const heads = { ...state.heads };
+      delete heads[fileId];
+      await this.options.store.save({ mappings, heads });
+    });
   }
 }
 

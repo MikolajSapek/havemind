@@ -43,7 +43,7 @@ import {
   retryFailedCommit,
   type RetryFailedCommitOutcome,
 } from '../commit-recovery';
-import type { KeyedMutex } from '../keyed-mutex';
+import { withKeys, type KeyedMutex } from '../keyed-mutex';
 import {
   applyLocalMaterialization,
   forgetLocalMaterialization,
@@ -93,6 +93,7 @@ function toActivityKind(kind: LocalChangeKind): ActivityKind {
  * queue row against the current on-disk content (MAJOR 2).
  */
 export interface PushProducerHandle {
+  initialize(): Promise<void>;
   dispose(): void;
   /**
    * Re-trigger the commit chain for `path`. Tri-state (FINDING 1): `file-missing`
@@ -110,6 +111,7 @@ export function startPushProducer(
   producerRef: { current: OutboxLocalChangeRepository | null },
   hooks?: RuntimeHooks,
   fileApplyLock?: KeyedMutex,
+  initializeIdentities?: (repository: OutboxLocalChangeRepository, snapshot: VaultSnapshotPort) => Promise<ReadonlySet<string>>,
 ): PushProducerHandle {
   const vault = (plugin.app as unknown as AppWithVault).vault;
   const store: ProducerStorePort = {
@@ -148,8 +150,10 @@ export function startPushProducer(
 
   const repository = new OutboxLocalChangeRepository({
     identity,
+    recovery: state,
     store,
     enqueue: (envelope) => state.enqueue(envelope),
+    cancelUnsentMerge: (revisionId) => state.cancelUnsentMerge(revisionId),
     hasAuthoredRevision: (revisionId) => state.hasAuthoredRevision(revisionId),
     generateRevisionId: () => globalThis.crypto.randomUUID(),
     // FIX 1: seed the SHARED apply store for every file this device authors or
@@ -225,6 +229,34 @@ export function startPushProducer(
     },
   };
 
+  let disposed = false;
+  let initialized = false;
+  let initializing: Promise<void> | null = null;
+  let blocked: ReadonlySet<string> = new Set();
+  const initialize = async (): Promise<void> => {
+    if (initialized || disposed) return;
+    if (initializing !== null) return initializing;
+    initializing = (async () => {
+      await repository.recover();
+      blocked = await initializeIdentities?.(repository, snapshot) ?? new Set();
+      if (disposed) return;
+      if (blocked.size > 0) new Notice(`Havemind: ${blocked.size} existing file(s) need conflict resolution before upload.`);
+      const result = await reconcileVaultState({ observer, repository, vault: {
+        ...snapshot, listSyncablePaths: async () => (await snapshot.listSyncablePaths()).filter((path) => {
+          const classified = classifyVaultPath(path);
+          return !classified.eligible || !blocked.has(classified.collisionKey);
+        }),
+      } });
+      if (result.skipped > 0) {
+        new Notice(`Havemind: ${result.skipped} file(s) could not be synced and were skipped.`);
+        warnSkippedPaths(result);
+      }
+      for (const notice of formatReconcileNotices(result)) new Notice(notice);
+      initialized = true;
+    })();
+    try { await initializing; } finally { initializing = null; }
+  };
+
   const observer = new VaultChangeObserver({
     clock: () => Date.now(),
     generateFileId: () => globalThis.crypto.randomUUID(),
@@ -240,7 +272,12 @@ export function startPushProducer(
   // by an apply that read the file before the edit landed. Multi-key folder and
   // rename events keep the observer's own global ordering (they span several
   // files); the on-disk re-read in `applyRemote` still guards those.
-  const lockedObserve = <T>(path: string, run: () => Promise<T>): Promise<T> => {
+  const lockedObserve = async (path: string, run: () => Promise<LocalChangeOperation | null>): Promise<LocalChangeOperation | null> => {
+    await initialize();
+    if (disposed) return null;
+    const classifiedPath = classifyVaultPath(path);
+    if (classifiedPath.eligible && blocked.has(classifiedPath.collisionKey) &&
+      !(await repository.listMappings()).some((m) => m.collisionKey === classifiedPath.collisionKey)) return null;
     if (fileApplyLock === undefined) return run();
     const classified = classifyVaultPath(path);
     const key = classified.eligible ? classified.collisionKey : path;
@@ -392,40 +429,24 @@ export function startPushProducer(
       // OLD path's pending modify so a stale settle never fires against a path
       // that has moved (which would resurrect it as a phantom empty create).
       modifyDebouncer.cancel(oldPath);
-      observed(observer.observeRename(oldPath, newPath));
+      const keys = [oldPath, newPath].map((path) => {
+        const classified = classifyVaultPath(path);
+        return classified.eligible ? classified.collisionKey : path;
+      });
+      observed(initialize().then(async () => {
+        if (disposed || keys.some((key) => blocked.has(key))) return null;
+        return fileApplyLock === undefined ? observer.observeRename(oldPath, newPath)
+          : withKeys(fileApplyLock, keys, () => observer.observeRename(oldPath, newPath));
+      }));
     },
     onFolderRename: (oldPath, newPath) =>
-      observedMany(observer.observeFolderRename(oldPath, newPath)),
+      observedMany(initialize().then(() => disposed ? [] : observer.observeFolderRename(oldPath, newPath))),
     onFolderDelete: (folderPath) =>
-      observedMany(observer.observeFolderDelete(folderPath)),
+      observedMany(initialize().then(() => disposed ? [] : observer.observeFolderDelete(folderPath))),
   });
 
-  // Existing notes predate the change listeners, so enumerate them once on
-  // connect and push any that are new or drifted, then sync. A per-file failure
-  // (an oversized note) is skipped rather than aborting the whole scan; surface
-  // the count so a silently un-synced file is visible to the user.
-  afterChange(
-    reconcileVaultState({ observer, repository, vault: snapshot }).then(
-      (result) => {
-        if (result.skipped > 0) {
-          new Notice(
-            `Havemind: ${result.skipped} file(s) could not be synced and were skipped.`,
-          );
-          // The Notice carries the count only, a per-file toast storm would be
-          // worse than no toast, so the console gets the names and reasons a
-          // count alone can never supply (bounded by the reconcile detail cap).
-          warnSkippedPaths(result);
-        }
-        // A remaining exclusion (an unsupported file type, or an allowlisted
-        // binary over the size cap, F9) must never be silent: surface each
-        // reason as its own notice, separate from the per-file skip count
-        // above, so the distinct reasons are never conflated.
-        for (const notice of formatReconcileNotices(result)) {
-          new Notice(notice);
-        }
-      },
-    ),
-  );
+  // A failed initial server read is retried by the runner's normal backoff.
+  afterChange(initialize());
 
   // `.obsidian/` config sync (theme, colours, hotkeys, snippets, foreign plugin
   // code). Obsidian emits NO vault events for hidden files, so this cannot use
@@ -466,7 +487,9 @@ export function startPushProducer(
   plugin.registerInterval(configPollId);
 
   return {
+    initialize,
     dispose: () => {
+      disposed = true;
       // Cancel any in-flight settle timers before detaching listeners so a
       // pending modify can never fire after teardown/re-pair.
       window.clearInterval(configPollId);

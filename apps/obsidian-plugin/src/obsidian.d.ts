@@ -112,8 +112,10 @@ declare module 'obsidian' {
     create(path: string, data: string): Promise<TFile>;
     createBinary(path: string, data: ArrayBuffer): Promise<TFile>;
     modify(file: TFile, data: string): Promise<void>;
+    process(file: TFile, transform: (data: string) => string): Promise<string>;
     modifyBinary(file: TFile, data: ArrayBuffer): Promise<void>;
     delete(file: TAbstractFile): Promise<void>;
+    trash(file: TAbstractFile, system: boolean): Promise<void>;
     createFolder(path: string): Promise<void>;
     on(name: string, callback: (...args: unknown[]) => unknown): EventRef;
     offref(ref: EventRef): void;
@@ -126,11 +128,20 @@ declare module 'obsidian' {
     type: string;
   }
 
+  export interface MarkdownView {
+    file: TFile | null;
+    editor: { getValue(): string };
+    getViewType(): string;
+    getMode(): 'source' | 'preview';
+  }
+
   export interface WorkspaceLeaf {
+    view: { getViewType(): string };
     setViewState(state: ViewState): Promise<void>;
   }
 
   export interface Workspace {
+    iterateAllLeaves(callback: (leaf: WorkspaceLeaf) => void): void;
     detachLeavesOfType(type: string): void;
     getLeavesOfType(type: string): WorkspaceLeaf[];
     getRightLeaf(split: boolean): WorkspaceLeaf | null;

@@ -1,3 +1,5 @@
+import { ancestors, commonAncestor, type RevisionHistory } from './revision-history';
+import { ApplyDeferredError } from './apply-deferred';
 /**
  * Bridges the runner's `VaultApplyPort` to the real Obsidian Vault, materializing
  * remote revisions, including files that only ever existed on the other device.
@@ -27,7 +29,7 @@ import {
   type SyncContentKind,
 } from '../obsidian/vault-adapter';
 
-import { KeyedMutex, type KeyedLock } from './keyed-mutex';
+import { withKeys, KeyedMutex, type KeyedLock } from './keyed-mutex';
 
 import type {
   OpenBuffer,
@@ -59,7 +61,7 @@ export class ParentFolderOccupiedError extends Error {
 
 export interface VaultFilePort {
   /** Open editor buffer states for the file, or an empty list if none open. */
-  openBufferStates(fileId: string): readonly OpenBuffer[];
+  openBufferStates(fileId: string): readonly OpenBuffer[] | Promise<readonly OpenBuffer[]>;
   /** The fileId of the live file currently at `path`, or null if none. */
   fileIdAtPath(path: string): string | null;
   /** The current on-disk content at `path`, or null if no file exists there. */
@@ -67,7 +69,7 @@ export interface VaultFilePort {
   /** The current on-disk RAW bytes at `path`, or null if no file exists (F9). */
   readBinaryByPath(path: string): Promise<Uint8Array | null>;
   /** Create or overwrite the live file at a vault-relative path. */
-  writeByPath(path: string, content: string): Promise<void>;
+  writeByPath(path: string, content: string, expectedContent?: string | null): Promise<void>;
   /** Create or overwrite the live binary file at a vault-relative path (F9). */
   writeBinaryByPath(path: string, bytes: Uint8Array): Promise<void>;
   /** Delete the live file at a vault-relative path. */
@@ -191,6 +193,7 @@ export interface RemoteAppliedEvent {
  * write dedupes that reflected event to a no-op.
  */
 export interface RemoteApplyProducerSync {
+  checkpointApply?(fileId: string, paths: readonly string[]): Promise<(() => Promise<void>) & { complete?: () => Promise<void> }>;
   /** Adopt `fileId`/`content` for `path`, parenting future local edits on
    * `revisionId`. `contentHash` is the SHA-256 hex of the note text for
    * markdown, or the raw-byte hash for a binary attachment. `contentKind`
@@ -237,6 +240,7 @@ export interface RemoteApplyProducerSync {
 }
 
 export interface VaultApplyAdapterOptions {
+  readonly history?: RevisionHistory;
   readonly files: VaultFilePort;
   readonly conflictFolder: string;
   readonly resolveRevision: (event: RemoteEvent) => Promise<DecodedRevisionPayload>;
@@ -297,8 +301,10 @@ export class VaultApplyAdapter implements VaultApplyPort {
   private readonly fallbackAuthorName: string;
   private readonly onConflictWritten?: () => void;
   private readonly lock: KeyedLock;
+  private readonly history: RevisionHistory | undefined;
 
   constructor(options: VaultApplyAdapterOptions) {
+    this.history = options.history;
     this.files = options.files;
     this.conflictFolder = options.conflictFolder;
     this.resolveRevision = options.resolveRevision;
@@ -341,6 +347,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
     options?: RemoteApplyOptions,
   ): Promise<RemoteApplyOutcome> {
     const decoded = await this.resolveRevision(event);
+    await this.history?.ensureEvent(event);
     const fileId = event.revision.fileId;
     // The runner flags an apply from the initial catch-up so the Activity feed can
     // stay quiet for the bootstrap replay; every other apply is a live peer edit.
@@ -349,9 +356,40 @@ export class VaultApplyAdapter implements VaultApplyPort {
     // Hold the per-file lock across the WHOLE read→decide→write so the local
     // producer cannot observe+enqueue a concurrent edit to this file mid-apply
     // (rule 3). Distinct files keep syncing in parallel (no global lock).
-    return this.lock.runExclusive(this.lockKey(decoded.path), () =>
-      this.applyDecoded(event, decoded, fileId, origin),
-    );
+    return withKeys(this.lock, [this.lockKey(decoded.path), ...(decoded.previousPath === null ? [] : [this.lockKey(decoded.previousPath)])], async () => {
+      // Fetching the blob and waiting for the file lock may take seconds.
+      // Check live editors again after both, not only at the runner entry.
+      if ((await this.openBuffers(fileId)).some((buffer) => buffer.unsaved)) return 'deferred';
+      const localHead = await this.producerSync?.localHeadFor?.(fileId);
+      if (this.history !== undefined && options?.bootstrap === true && localHead == null) {
+        const heads = await this.history.heads(fileId);
+        if (!heads.some((head) => head.revision.revisionId === event.revision.revisionId)) return 'noop';
+      }
+      if (this.history !== undefined && localHead != null) {
+        const graph = await this.history.graph(fileId);
+        if (ancestors(graph, localHead).has(event.revision.revisionId)) return 'noop';
+      }
+      const rollback = await this.producerSync?.checkpointApply?.(fileId,
+        [decoded.path, ...(decoded.previousPath === null ? [] : [decoded.previousPath])]);
+      try {
+        const result = await this.applyDecoded(event, decoded, fileId, origin);
+        if ((result === 'applied' || result === 'noop') && decoded.operation === 'rename' &&
+          decoded.previousPath !== null && decoded.previousPath !== decoded.path &&
+          this.files.fileIdAtPath(decoded.previousPath) === fileId) {
+          // The destination must exist successfully before removing the source.
+          // A failed create or occupied parent folder must never lose the note.
+          await this.files.deleteByPath(decoded.previousPath);
+          await this.files.forgetPath(decoded.previousPath);
+        }
+        if (result === 'conflict') await rollback?.();
+        else await rollback?.complete?.();
+        return result;
+      } catch (error) {
+        await rollback?.();
+        if (error instanceof ApplyDeferredError) return 'deferred';
+        throw error;
+      }
+    });
   }
 
   private async applyDecoded(
@@ -372,10 +410,13 @@ export class VaultApplyAdapter implements VaultApplyPort {
         // so it diverts too). An allowlisted `.obsidian/` settings file keeps
         // resolving by recency and is deleted regardless.
         if (!resolvesLastWriterWins(decoded.path)) {
-          const onDisk = await this.files.readByPath(decoded.path);
+          const onDisk = decoded.kind === 'binary'
+            ? await this.files.readBinaryByPath(decoded.path)
+            : await this.files.readByPath(decoded.path);
           if (onDisk !== null) {
             const base = this.files.baseHashFor(fileId);
-            const onDiskHash = await this.hashContent(onDisk);
+            const onDiskHash = typeof onDisk === 'string'
+              ? await this.hashContent(onDisk) : await hashBlob(onDisk);
             if ((base === null || onDiskHash !== base) &&
               await this.cleanCausalHash(fileId, event, onDiskHash) === null) {
               await this.writeConflict(event, decoded);
@@ -456,10 +497,9 @@ export class VaultApplyAdapter implements VaultApplyPort {
       // moving into an occupied destination at all. Identical content at the
       // target is not a collision, it is the F3 adopt path, which converges in
       // place below and must still vacate the source.
-      const destinationOwner = this.files.fileIdAtPath(decoded.path);
-      if (destinationOwner !== null && destinationOwner !== fileId && !lastWriterWins) {
+      if (!lastWriterWins) {
         const destinationOnDisk = await this.files.readByPath(decoded.path);
-        if (destinationOnDisk === null || !contentMatches(destinationOnDisk, text)) {
+        if (destinationOnDisk !== null && !contentMatches(destinationOnDisk, text)) {
           await this.writeConflict(event, decoded);
           return 'conflict';
         }
@@ -479,8 +519,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
         fileId,
         path: decoded.previousPath,
       });
-      await this.files.deleteByPath(decoded.previousPath);
-      await this.files.forgetPath(decoded.previousPath);
+      // Source removal is deferred until the destination succeeds in applyRemote.
     }
 
     // Read the on-disk content once; both the F3 adoption check below and the
@@ -499,6 +538,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
       // already hold the content, so this converges in place with no write and no
       // conflict artifact.
       if (onDisk !== null && contentMatches(onDisk, text)) {
+        if (this.history !== undefined && owner < fileId && (await this.history.heads(owner)).length > 0) return 'noop';
         const contentHash = await this.hashContent(text);
         // The path is switching from the superseded local fileId (`owner`) to
         // the incoming remote fileId. Forget the superseded fileId's state
@@ -671,7 +711,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
       }
     }
     try {
-      await this.files.writeByPath(decoded.path, text);
+      await this.files.writeByPath(decoded.path, text, lastWriterWins ? undefined : preWriteOnDisk);
     } catch (error) {
       // A settings file never lands in the conflict folder, so it is not diverted
       // here either. Config writes go through the DataAdapter, which tolerates an
@@ -729,18 +769,22 @@ export class VaultApplyAdapter implements VaultApplyPort {
     base: string | null,
     origin: RemoteAppliedOrigin,
   ): Promise<RemoteApplyOutcome | null> {
-    if (base === null) {
-      return null;
+    let ancestor: string | null;
+    if (this.history !== undefined) {
+      const head = await this.producerSync?.localHeadFor?.(fileId);
+      if (head == null) return null;
+      const graph = await this.history.graph(fileId);
+      const shared = commonAncestor(graph, head, event.revision.revisionId);
+      if (shared === null) return null;
+      const payload = await this.history.payload(shared);
+      if (payload.kind === 'binary' || payload.operation === 'delete' || payload.path !== decoded.path) return null;
+      ancestor = payload.content;
+    } else {
+      if (base === null) return null;
+      ancestor = this.files.baseContentFor(fileId);
+      if (ancestor === null || (await this.hashContent(ancestor)) !== base) return null;
     }
-    const ancestor = this.files.baseContentFor(fileId);
-    if (ancestor === null) {
-      return null;
-    }
-    // The stored ancestor must still correspond to the recorded base hash;
-    // anything else is inconsistent state, so fail SAFE to a conflict copy.
-    if ((await this.hashContent(ancestor)) !== base) {
-      return null;
-    }
+    if (ancestor === null) return null;
     const result = mergeText(ancestor, onDisk, incoming);
     if (result.status !== 'merged') {
       return null;
@@ -768,7 +812,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
       await this.files.recordPathOwner(fileId, decoded.path);
       return 'noop';
     }
-    await this.files.writeByPath(decoded.path, merged);
+    await this.files.writeByPath(decoded.path, merged, onDisk);
     await this.files.recordPathOwner(fileId, decoded.path);
     this.onRemoteApplied?.({
       revisionId: event.revision.revisionId,
@@ -790,9 +834,10 @@ export class VaultApplyAdapter implements VaultApplyPort {
     diskHash: string,
   ): Promise<string | null> {
     const local = await this.producerSync?.localVersionFor?.(fileId);
-    return local !== undefined && local !== null &&
-      event.revision.parentRevisionIds?.includes(local.revisionId) === true &&
-      diskHash === local.contentHash ? diskHash : null;
+    if (local == null || diskHash !== local.contentHash) return null;
+    if (event.revision.parentRevisionIds?.includes(local.revisionId) === true) return diskHash;
+    if (this.history !== undefined && ancestors(await this.history.graph(fileId), event.revision.revisionId).has(local.revisionId)) return diskHash;
+    return null;
   }
 
   /**
@@ -830,7 +875,8 @@ export class VaultApplyAdapter implements VaultApplyPort {
     if (localHead === null) {
       return false;
     }
-    return parents.includes(localHead);
+    return parents.includes(localHead) || (this.history !== undefined &&
+      ancestors(await this.history.graph(fileId), event.revision.revisionId).has(localHead));
   }
 
   /**
@@ -877,12 +923,16 @@ export class VaultApplyAdapter implements VaultApplyPort {
       // reflected vault 'delete' event for the vacated path is not observed as a
       // local delete that forgets the still-live renamed fileId's base, the same
       // re-entrancy guard as the markdown rename branch above.
+      const destination = await this.files.readBinaryByPath(decoded.path);
+      if (!lastWriterWins && destination !== null && !bytesEqual(destination, bytes)) {
+        await this.writeConflict(event, decoded);
+        return 'conflict';
+      }
       await this.producerSync?.onRemoteDelete({
         fileId,
         path: decoded.previousPath,
       });
-      await this.files.deleteByPath(decoded.previousPath);
-      await this.files.forgetPath(decoded.previousPath);
+      // Source removal is deferred until the destination succeeds in applyRemote.
     }
 
     const onDisk = await this.files.readBinaryByPath(decoded.path);
@@ -890,6 +940,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
     const owner = this.files.fileIdAtPath(decoded.path);
     if (owner !== null && owner !== fileId) {
       if (onDisk !== null && bytesEqual(onDisk, bytes)) {
+        if (this.history !== undefined && owner < fileId && (await this.history.heads(owner)).length > 0) return 'noop';
         await this.producerSync?.onRemoteDelete({ fileId: owner, path: decoded.path });
         await this.files.forgetBaseHash(owner);
         await this.files.recordPathOwner(fileId, decoded.path);

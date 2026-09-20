@@ -1,3 +1,7 @@
+import { bootstrapIdentities } from '../../apps/obsidian-plugin/src/runtime/bootstrap-identities';
+import { reconcileHeads } from '../../apps/obsidian-plugin/src/runtime/head-reconciliation';
+import { KeyedMutex } from '../../apps/obsidian-plugin/src/runtime/keyed-mutex';
+import { RevisionHistory } from '../../apps/obsidian-plugin/src/runtime/revision-history.js';
 /**
  * F8-02, deterministic two-device onboarding + sync end-to-end (Magda flow).
  *
@@ -302,6 +306,10 @@ function memoryPersist(): {
  * producer and vault-apply adapter, over a single in-memory vault.
  */
 class DeviceRuntime {
+  readonly editors = new Map<string, string[]>();
+  beforeProcess?: () => void;
+  beforeResolve?: () => void;
+
   readonly files = new Map<string, string>();
   /** Raw bytes for binary attachments (F9), a separate store from `files`
    * (markdown text), shared by both the push-side snapshot port and the
@@ -326,6 +334,7 @@ class DeviceRuntime {
   private readonly runner: SyncRunner;
   private readonly observer: VaultChangeObserver;
   readonly producer: OutboxLocalChangeRepository;
+  private readonly history: RevisionHistory;
 
   constructor(options: {
     readonly app: FastifyApp;
@@ -358,10 +367,19 @@ class DeviceRuntime {
       requestUrl,
     });
 
+    const history = new RevisionHistory({ transport, state: this.state, resolveRevision: resolvers.resolveRevision });
+    this.history = history;
+    const lock = new KeyedMutex();
+    const files = this.buildFilePort();
     const vault = new VaultApplyAdapter({
-      files: this.buildFilePort(),
+      lock,
+      history,
+      files,
       conflictFolder: CONFLICT_FOLDER,
-      resolveRevision: resolvers.resolveRevision,
+      resolveRevision: async (event) => {
+        this.beforeResolve?.();
+        return resolvers.resolveRevision(event);
+      },
       // AUD-03: base hash over the SAME canonical form the producer uses.
       hashContent: async (content) => sha256Hex(canonicalizeMarkdown(content)),
       // Bridges every remote-apply write into the push producer's own mapping
@@ -374,6 +392,9 @@ class DeviceRuntime {
     });
 
     this.runner = new SyncRunner({
+      beforeCycle: () => this.producer.recover(),
+      beforePull: () => history.refresh(),
+      afterPull: () => reconcileHeads({ history, state: this.state, producer: this.producer, files, lock }),
       transport,
       state: this.state,
       vault,
@@ -391,6 +412,7 @@ class DeviceRuntime {
       },
     };
     this.producer = new OutboxLocalChangeRepository({
+      recovery: this.state,
       identity: {
         vaultId: options.vaultId,
         memberId: options.memberId,
@@ -398,6 +420,7 @@ class DeviceRuntime {
       },
       store,
       enqueue: (envelope) => this.state.enqueue(envelope),
+      cancelUnsentMerge: (revisionId) => this.state.cancelUnsentMerge(revisionId),
       hasAuthoredRevision: (revisionId) => this.state.hasAuthoredRevision(revisionId),
       generateRevisionId: () => randomUUID(),
       // Seed the SHARED apply-store ownership+base for every file this device
@@ -438,10 +461,12 @@ class DeviceRuntime {
   /** Runs the one-time connect reconcile for pre-existing files (like the real
    * push producer does on startup). Applied remote files are excluded. */
   async reconcileOnConnect(): Promise<void> {
+    const snapshot = this.snapshotPort();
+    const blocked = await bootstrapIdentities({ history: this.history, state: this.state, producer: this.producer, vault: snapshot });
     await reconcileVaultState({
       observer: this.observer,
       repository: this.producer,
-      vault: this.snapshotPort(),
+      vault: { ...snapshot, listSyncablePaths: async () => (await snapshot.listSyncablePaths()).filter((path) => !blocked.has(path.toLowerCase())) },
     });
   }
 
@@ -592,6 +617,13 @@ class DeviceRuntime {
         this.reflected.push({ path, kind: 'create' });
         return fileAt(path);
       },
+      process: async (file: { path: string }, transform: (text: string) => string): Promise<string> => {
+        this.beforeProcess?.();
+        const next = transform(files.get(file.path) ?? '');
+        files.set(file.path, next);
+        this.reflected.push({ path: file.path, kind: 'modify' });
+        return next;
+      },
       modify: async (file: { path: string }, content: string): Promise<void> => {
         files.set(file.path, content);
         this.reflected.push({ path: file.path, kind: 'modify' });
@@ -602,6 +634,10 @@ class DeviceRuntime {
       ): Promise<void> => {
         binaryFiles.set(file.path, new Uint8Array(data));
         this.reflected.push({ path: file.path, kind: 'modify' });
+      },
+      async trash(file: { path: string }): Promise<void> {
+        files.delete(file.path);
+        binaryFiles.delete(file.path);
       },
       async delete(file: { path: string }): Promise<void> {
         files.delete(file.path);
@@ -615,6 +651,11 @@ class DeviceRuntime {
     return createVaultFilePort({
       vault: vault as unknown as never,
       state: this.state,
+      workspace: { iterateAllLeaves: (callback) => {
+        for (const [path, texts] of this.editors) for (const text of texts) {
+          callback({ view: { getViewType: () => 'markdown', getMode: () => 'source', file: { path }, editor: { getValue: () => text } } } as never);
+        }
+      } },
     });
   }
 }
@@ -1060,6 +1101,146 @@ describe('two-device onboarding + sync (Magda) against a real opaque server', ()
 });
 
 describe('Revision causality through production client components', () => {
+  it('adopts matching notes and attachments before scanning an existing vault', async () => {
+    const server = await TwoDeviceServer.create();
+    try {
+      const { owner } = await connectTwoDevices(server);
+      await owner.edit('Existing.md', 'same text');
+      await owner.editBinary('image.png', new Uint8Array([0, 255, 13, 10]));
+      await owner.sync();
+      const rejoined = new DeviceRuntime({ app: server.app, apiBaseUrl: SERVER_ORIGIN,
+        vaultId: server.owner.vaultId, memberId: server.owner.membershipId,
+        deviceId: server.owner.deviceId, getAuthToken: async () => server.owner.accessToken });
+      rejoined.files.set('Existing.md', 'same text');
+      rejoined.binaryFiles.set('image.png', new Uint8Array([0, 255, 13, 10]));
+      await rejoined.reconcileOnConnect();
+      expect(await rejoined.outboxSize()).toBe(0);
+      expect((await rejoined.producer.listMappings()).map((m) => m.fileId).sort())
+        .toEqual((await owner.producer.listMappings()).map((m) => m.fileId).sort());
+      await rejoined.reconcileOnConnect(); // repeated startup is idempotent
+      await rejoined.sync();
+      await rejoined.edit('Existing.md', 'changed after joining');
+      await rejoined.sync(); await owner.sync();
+      expect(owner.read('Existing.md')).toBe('changed after joining\n');
+      expect(server.database.prepare('SELECT * FROM files').all()).toHaveLength(2);
+      expect(await rejoined.outboxSize()).toBe(0);
+    } finally { await server.close(); }
+  });
+
+  it('preserves divergent pre-existing notes and does not publish duplicate identities', async () => {
+    const server = await TwoDeviceServer.create();
+    try {
+      const { owner } = await connectTwoDevices(server);
+      await owner.edit('Existing.md', 'server version'); await owner.sync();
+      const rejoined = new DeviceRuntime({ app: server.app, apiBaseUrl: SERVER_ORIGIN,
+        vaultId: server.owner.vaultId, memberId: server.owner.membershipId,
+        deviceId: server.owner.deviceId, getAuthToken: async () => server.owner.accessToken });
+      rejoined.files.set('Existing.md', 'unrelated local version');
+      await rejoined.reconcileOnConnect();
+      expect(await rejoined.outboxSize()).toBe(0);
+      expect(await rejoined.producer.listMappings()).toEqual([]);
+      await rejoined.sync();
+      expect(rejoined.read('Existing.md')).toBe('unrelated local version');
+      expect([...rejoined.files.values()].some((text) => text === 'server version\n')).toBe(true);
+      expect(server.database.prepare('SELECT * FROM files').all()).toHaveLength(1);
+    } finally { await server.close(); }
+  });
+
+  it('defers a remote change while any editor has unsaved text, then resumes after save', async () => {
+    const server = await TwoDeviceServer.create();
+    try {
+      const { owner, invitee } = await connectTwoDevices(server);
+      await owner.edit('Shared.md', 'top\nbottom');
+      await owner.sync(); await invitee.sync();
+      const cursor = await invitee.state.loadCursor();
+      invitee.editors.set('Shared.md', ['top\nbottom', 'top\nMY DRAFT']);
+      await owner.edit('Shared.md', 'THEIR EDIT\nbottom'); await owner.sync();
+      const pending = await invitee.sync();
+      expect(pending.deferred).toBe(1);
+      expect(await invitee.state.loadCursor()).toBe(cursor);
+      expect(invitee.read('Shared.md')).toBe(canonicalizeMarkdown('top\nbottom'));
+      expect([...invitee.files.keys()].filter((p) => p.startsWith(CONFLICT_FOLDER))).toEqual([]);
+      invitee.editors.delete('Shared.md');
+      await invitee.edit('Shared.md', 'top\nMY DRAFT');
+      await invitee.sync(); await owner.sync(); await invitee.sync(); await owner.sync();
+      expect(invitee.read('Shared.md')).toBe(canonicalizeMarkdown('THEIR EDIT\nMY DRAFT'));
+      expect(owner.read('Shared.md')).toBe(canonicalizeMarkdown('THEIR EDIT\nMY DRAFT'));
+    } finally { await server.close(); }
+  });
+
+  it.each(['fetch', 'write'])('preserves an editor change during the %s await and retries without losing the producer head', async (stage) => {
+    const server = await TwoDeviceServer.create();
+    try {
+      const { owner, invitee } = await connectTwoDevices(server);
+      await owner.edit('Shared.md', 'base'); await owner.sync(); await invitee.sync();
+      const id = invitee.state.fileIdAtPath('Shared.md') as string;
+      const head = await invitee.producer.headFor(id);
+      const cursor = await invitee.state.loadCursor();
+      await owner.edit('Shared.md', 'remote'); await owner.sync();
+      const type = () => invitee.editors.set('Shared.md', ['unsaved text']);
+      if (stage === 'fetch') invitee.beforeResolve = type;
+      else invitee.beforeProcess = type;
+      const result = await invitee.sync();
+      expect(result.deferred).toBe(1);
+      expect(invitee.read('Shared.md')).toBe(canonicalizeMarkdown('base'));
+      expect(await invitee.producer.headFor(id)).toBe(head);
+      expect(await invitee.state.loadCursor()).toBe(cursor);
+      delete invitee.beforeResolve; delete invitee.beforeProcess;
+      invitee.editors.clear();
+      expect((await invitee.sync()).conflicts).toBe(0);
+      expect(invitee.read('Shared.md')).toBe(canonicalizeMarkdown('remote'));
+    } finally { await server.close(); }
+  });
+
+  it('converges three offline branches to one head and drains every queue', async () => {
+    const server = await TwoDeviceServer.create();
+    try {
+      const { owner, invitee } = await connectTwoDevices(server);
+      await owner.edit('Shared.md', 'a\nb\nc'); await owner.sync(); await invitee.sync();
+      const { invitee: third } = await connectTwoDevices(server);
+      await owner.edit('Shared.md', 'A\nb\nc');
+      await invitee.edit('Shared.md', 'a\nB\nc');
+      await third.edit('Shared.md', 'a\nb\nC');
+      const devices = [owner, invitee, third];
+      for (let round = 0; round < 6; round++) for (const device of devices) await device.sync();
+      for (const device of devices) {
+        expect(canonicalizeMarkdown(device.read('Shared.md') ?? '')).toBe('A\nB\nC\n');
+        expect(await device.outboxSize()).toBe(0);
+      }
+      expect(server.database.prepare('SELECT * FROM file_heads').all()).toHaveLength(1);
+    } finally { await server.close(); }
+  });
+
+  it('retires an obsolete automatic merge without stranding edits made on top of it', async () => {
+    const server = await TwoDeviceServer.create();
+    try {
+      const { owner, invitee } = await connectTwoDevices(server);
+      await owner.edit('Shared.md', 'a\nb\nc'); await owner.sync(); await invitee.sync();
+      await owner.edit('Shared.md', 'A\nb\nc');
+      await invitee.edit('Shared.md', 'a\nB\nc');
+      await owner.sync(); await invitee.sync(); // invitee has an unsent merge
+      await invitee.edit('Shared.md', 'A\nB\nC'); // descendant of that merge
+      await owner.sync(); await owner.sync(); // owner's equivalent merge wins
+      for (let round = 0; round < 5; round++) { await invitee.sync(); await owner.sync(); }
+      expect(await invitee.outboxSize()).toBe(0);
+      expect(await owner.outboxSize()).toBe(0);
+      expect(owner.read('Shared.md')).toBe('A\nB\nC\n');
+      expect(server.database.prepare('SELECT * FROM file_heads').all()).toHaveLength(1);
+    } finally { await server.close(); }
+  });
+
+  it('resolves identical concurrent edits into one head', async () => {
+    const server = await TwoDeviceServer.create();
+    try {
+      const { owner, invitee } = await connectTwoDevices(server);
+      await owner.edit('Shared.md', 'base'); await owner.sync(); await invitee.sync();
+      await owner.edit('Shared.md', 'same'); await invitee.edit('Shared.md', 'same');
+      for (let i = 0; i < 4; i++) { await owner.sync(); await invitee.sync(); }
+      expect(server.database.prepare('SELECT * FROM file_heads').all()).toHaveLength(1);
+      expect(await owner.outboxSize()).toBe(0); expect(await invitee.outboxSize()).toBe(0);
+    } finally { await server.close(); }
+  });
+
   it('control: first local creation records an ancestor', async () => {
     const server = await TwoDeviceServer.create();
     try {

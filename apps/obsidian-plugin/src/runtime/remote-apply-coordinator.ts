@@ -34,6 +34,7 @@ export interface AdoptableProducer {
    * fast-forward from a concurrent divergence.
    */
   headFor(fileId: string): Promise<string | null>;
+  checkpointApply?: OutboxLocalChangeRepository['checkpointApply'];
   versionFor?: OutboxLocalChangeRepository['versionFor'];
   commitMergedChange?: OutboxLocalChangeRepository['commitMergedChange'];
 }
@@ -47,6 +48,9 @@ export function createRemoteApplyProducerSync(
   getProducer: () => AdoptableProducer | null,
 ): RemoteApplyProducerSync {
   return {
+    async checkpointApply(fileId, paths) {
+      return await getProducer()?.checkpointApply?.(fileId, paths) ?? (async () => undefined);
+    },
     async onRemoteWrite({ fileId, path, content, contentHash, revisionId, contentKind }) {
       const producer = getProducer();
       if (producer === null) return;

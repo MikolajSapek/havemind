@@ -86,6 +86,19 @@ function makeRepo(maxPayloadBytes?: number) {
 }
 
 describe('OutboxLocalChangeRepository', () => {
+  it('retains both file identities when separate files commit concurrently', async () => {
+    const { repo, store, enqueued } = makeRepo();
+    const ids = [FILE_ID, '55555555-5555-4555-8555-555555555555'];
+    await Promise.all(ids.map((fileId, index) => repo.commitLocalChange({
+      operation: makeOperation({ fileId, path: `${index}.md`, operationId: `op-${index}` }),
+      removeFileId: null,
+      upsertMapping: { fileId, path: `${index}.md`, collisionKey: `${index}.md`, content: 'Hello\n', contentHash: 'hash-1' },
+    })));
+    expect(enqueued).toHaveLength(2);
+    expect(store.state.mappings.map((m) => m.fileId).sort()).toEqual(ids.sort());
+    expect(Object.keys(store.state.heads).sort()).toEqual(ids.sort());
+  });
+
   it('enqueues a root create envelope that decodes to the note', async () => {
     const { repo, enqueued } = makeRepo();
 

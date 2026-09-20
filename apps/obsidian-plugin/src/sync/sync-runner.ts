@@ -140,6 +140,8 @@ export interface SyncStatePort {
 }
 
 export interface OpenBuffer {
+  /** Live editor differs from disk: retry once Obsidian saves it. */
+  readonly unsaved?: boolean;
   /** Hash of the synced base loaded into the editor, or null if unknown. */
   readonly baseHash: string | null;
   /** Hash of the current in-memory editor content. */
@@ -156,7 +158,7 @@ export interface OpenBuffer {
  * skipped the write because the file had already converged to the incoming
  * content (`noop`).
  */
-export type RemoteApplyOutcome = 'applied' | 'conflict' | 'noop';
+export type RemoteApplyOutcome = 'applied' | 'conflict' | 'noop' | 'deferred';
 
 /**
  * Per-apply hints the runner threads into `applyRemote`. `bootstrap` marks an
@@ -204,6 +206,9 @@ export type SchedulerFn = (
 ) => void | SchedulerCancellation;
 
 export interface SyncRunnerOptions {
+  readonly beforeCycle?: () => Promise<void>;
+  readonly beforePull?: () => Promise<void>;
+  readonly afterPull?: () => Promise<void>;
   readonly transport: SyncTransport;
   readonly state: SyncStatePort;
   readonly vault: VaultApplyPort;
@@ -315,6 +320,7 @@ function decideRemoteApply(
   buffers: readonly OpenBuffer[],
   incomingContentHash: string,
 ): RemoteApplyDecision {
+  if (buffers.some((buffer) => buffer.unsaved)) return 'defer';
   const divergent = buffers.filter(
     (buffer) => buffer.currentHash !== buffer.baseHash,
   );
@@ -434,8 +440,11 @@ export class SyncRunner {
     const cycleId = (this.cycleCounter += 1);
     let result: SyncCycleResult;
     try {
+      await this.options.beforeCycle?.();
       const push = await this.runPush();
+      await this.options.beforePull?.();
       const apply = await this.runPull();
+      await this.options.afterPull?.();
       this.failureCount = 0;
       result = {
         applied: apply.applied,
@@ -731,6 +740,10 @@ export class SyncRunner {
             bootstrapTarget !== null &&
             remoteEvent.serverSequence <= bootstrapTarget,
         });
+        if (outcome === 'deferred') {
+          deferred += 1;
+          break;
+        }
         if (outcome === 'conflict') {
           conflicts += 1;
         } else {

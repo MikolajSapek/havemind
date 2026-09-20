@@ -32,6 +32,16 @@ export interface KeyedLock {
   runExclusive<T>(key: string, task: () => Promise<T>): Promise<T>;
 }
 
+/** Acquire all rename paths in stable order so opposite moves cannot deadlock. */
+export function withKeys<T>(lock: KeyedLock, keys: readonly string[], task: () => Promise<T>): Promise<T> {
+  const ordered = [...new Set(keys)].sort();
+  const next = (index: number): Promise<T> => {
+    const key = ordered[index];
+    return key === undefined ? task() : lock.runExclusive(key, () => next(index + 1));
+  };
+  return next(0);
+}
+
 export class KeyedMutex implements KeyedLock {
   private readonly chains = new Map<string, Promise<unknown>>();
 

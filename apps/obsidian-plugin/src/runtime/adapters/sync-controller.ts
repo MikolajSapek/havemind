@@ -17,7 +17,6 @@ import { SyncRunner, type RemoteEvent } from '../../sync/sync-runner';
 import { remoteAppliedToActivityEntryOrNull } from '../activity-log';
 import { CONFLICT_FOLDER } from '../conflict-resolution';
 import { HavemindSyncController, type StatusListener } from '../controller';
-import type { KeyedMutex } from '../keyed-mutex';
 import { DurableSyncState } from '../sync-state';
 import { RequestUrlTransport } from '../sync-transport';
 import {
@@ -25,6 +24,12 @@ import {
   type RemoteAppliedEvent,
   type RemoteApplyProducerSync,
 } from '../vault-apply';
+import type { OutboxLocalChangeRepository } from '../../sync/outbox-repository';
+import { bootstrapIdentities } from '../bootstrap-identities';
+import type { VaultSnapshotPort } from '../../obsidian/vault-adapter';
+import { reconcileHeads } from '../head-reconciliation';
+import { KeyedMutex } from '../keyed-mutex';
+import { RevisionHistory } from '../revision-history';
 import { WakeSubscription } from '../wake-subscription';
 
 import { createConfigApplyReloader } from './config-apply';
@@ -64,6 +69,7 @@ export interface SyncConnection {
 export interface BuiltSyncController {
   readonly controller: HavemindSyncController;
   readonly state: DurableSyncState;
+  readonly initializeProducer: (producer: OutboxLocalChangeRepository, vault: VaultSnapshotPort) => Promise<ReadonlySet<string>>;
 }
 
 /**
@@ -77,6 +83,8 @@ export function buildSyncController(
   hooks?: RuntimeHooks,
   producerSync?: RemoteApplyProducerSync,
   fileApplyLock?: KeyedMutex,
+  getProducer?: () => OutboxLocalChangeRepository | null,
+  prepareProducer?: () => Promise<void>,
 ): BuiltSyncController {
   const state = new DurableSyncState({
     persist: createPersistPort(plugin),
@@ -113,16 +121,20 @@ export function buildSyncController(
       new Notice(message);
     },
   });
-  const vault = new VaultApplyAdapter({
-    files: createVaultFilePort({
+  const history = new RevisionHistory({ transport, state, resolveRevision: connection.resolveRevision });
+  const lock = fileApplyLock ?? new KeyedMutex();
+  const files = createVaultFilePort({
       vault: (plugin.app as unknown as AppWithVault).vault,
       state,
+      workspace: plugin.app.workspace,
       // A remotely-applied appearance file used to stay INVISIBLE until the
       // receiving device restarted Obsidian, because Obsidian caches its config
       // in memory and the plugin never signalled a reload. `css-change` is the
       // documented workspace event that makes it re-read snippets and themes.
       configApply,
-    }),
+    });
+  const vault = new VaultApplyAdapter({
+    history, files, lock,
     conflictFolder: CONFLICT_FOLDER,
     resolveRevision: connection.resolveRevision,
     // AUD-03: the apply-side base hash must be computed over the SAME canonical
@@ -169,6 +181,12 @@ export function buildSyncController(
   const controllerRef: { current?: HavemindSyncController } = {};
 
   const runner = new SyncRunner({
+    beforeCycle: async () => { await prepareProducer?.(); await getProducer?.()?.recover(); },
+    beforePull: () => history.refresh(),
+    afterPull: async () => {
+      const producer = getProducer?.();
+      if (producer) await reconcileHeads({ history, state, producer, files, lock });
+    },
     transport,
     state,
     vault,
@@ -224,5 +242,5 @@ export function buildSyncController(
   });
   controllerRef.current = controller;
 
-  return { controller, state };
+  return { controller, state, initializeProducer: (producer, vault) => bootstrapIdentities({ history, state, producer, vault }) };
 }

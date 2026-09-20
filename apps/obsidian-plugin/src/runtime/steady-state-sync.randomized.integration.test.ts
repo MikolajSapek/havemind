@@ -160,6 +160,12 @@ class InMemoryVault {
     this.onEvent('create', path);
   }
 
+  async process(file: { path: string }, transform: (text: string) => string): Promise<string> {
+    const next = transform(this.contents.get(file.path) ?? '');
+    await this.modify(file, next);
+    return next;
+  }
+
   async modify(file: { path: string }, content: string): Promise<void> {
     this.contents.set(file.path, content);
     this.onEvent('modify', file.path);
@@ -174,6 +180,10 @@ class InMemoryVault {
   async modifyBinary(file: { path: string }, data: ArrayBuffer): Promise<void> {
     this.binaries.set(file.path, new Uint8Array(data));
     this.onEvent('modify', file.path);
+  }
+
+  async trash(file: { path: string }): Promise<void> {
+    await this.delete(file);
   }
 
   async delete(file: { path: string }): Promise<void> {

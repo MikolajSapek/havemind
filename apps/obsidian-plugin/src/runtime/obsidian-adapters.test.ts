@@ -160,6 +160,10 @@ class FakeVault {
     this.entries.set(file.path, { kind: 'file', binaryContent: data });
   }
 
+  async trash(file: AbstractFileLike): Promise<void> {
+    await this.delete(file);
+  }
+
   async delete(file: AbstractFileLike): Promise<void> {
     this.entries.delete(file.path);
   }

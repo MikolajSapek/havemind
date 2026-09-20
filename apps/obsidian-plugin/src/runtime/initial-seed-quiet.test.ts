@@ -56,9 +56,19 @@ class InMemoryVault {
   async create(path: string, content: string): Promise<void> {
     this.contents.set(path, content);
   }
+  async process(file: { path: string }, transform: (text: string) => string): Promise<string> {
+    const next = transform(this.contents.get(file.path) ?? '');
+    await this.modify(file, next);
+    return next;
+  }
+
   async modify(file: { path: string }, content: string): Promise<void> {
     this.contents.set(file.path, content);
   }
+  async trash(file: { path: string }): Promise<void> {
+    await this.delete(file);
+  }
+
   async delete(file: { path: string }): Promise<void> {
     this.contents.delete(file.path);
   }

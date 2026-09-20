@@ -132,7 +132,8 @@ export async function startSyncLoop(
   // change producer, so a file can never be produced and applied concurrently
   // (rule 3 TOCTOU close). Distinct files still sync in parallel.
   const fileApplyLock = new KeyedMutex();
-  const { controller, state } = buildSyncController(
+  let producer: PushProducerHandle | null = null;
+  const { controller, state, initializeProducer } = buildSyncController(
     plugin,
     {
       apiBaseUrl: resolvers.apiBaseUrl,
@@ -154,6 +155,8 @@ export async function startSyncLoop(
     extras.hooks,
     producerSync,
     fileApplyLock,
+    () => producerRef.current,
+    async () => { await producer?.initialize(); },
   );
 
   // AUD-03 PART 2, one-time migration. BEFORE the first sync cycle, rebase any
@@ -164,7 +167,6 @@ export async function startSyncLoop(
   // marker in plugin data makes this run exactly once.
   await runCanonicalizationRebase(plugin);
 
-  controller.start();
 
   // The push producer detects local edits, enumerates pre-existing files and
   // enqueues revisions the runner POSTs. Without a server-issued memberId +
@@ -172,7 +174,6 @@ export async function startSyncLoop(
   // starts once both are known, both the invitee flow and the owner /owner/pair
   // flow supply memberId + deviceId (connectAsOwner reads `pairing.memberId`
   // off the pairing response), so `hasPushIdentity` is true for either path.
-  let producer: PushProducerHandle | null = null;
   if (hasPushIdentity) {
     producer = startPushProducer(
       plugin,
@@ -188,8 +189,11 @@ export async function startSyncLoop(
       producerRef,
       extras.hooks,
       fileApplyLock,
+      initializeProducer,
     );
   }
+
+  controller.start();
 
   // The local member's own persistent roster entry, when the server issued a
   // membership id. Presence is connection state, so this is recorded once and

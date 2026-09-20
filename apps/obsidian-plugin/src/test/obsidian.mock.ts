@@ -252,6 +252,7 @@ export interface ViewState {
 }
 
 export class WorkspaceLeaf {
+  view = { getViewType: () => 'empty' };
   readonly states: ViewState[] = [];
 
   async setViewState(state: ViewState): Promise<void> {
@@ -260,6 +261,9 @@ export class WorkspaceLeaf {
 }
 
 export class Workspace {
+  iterateAllLeaves(callback: (leaf: WorkspaceLeaf) => void): void {
+    for (const leaves of this.leaves.values()) for (const leaf of leaves) callback(leaf);
+  }
   readonly detachedTypes: string[] = [];
   readonly revealedLeaves: WorkspaceLeaf[] = [];
   readonly leaves = new Map<string, WorkspaceLeaf[]>();

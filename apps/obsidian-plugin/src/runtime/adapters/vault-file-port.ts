@@ -8,9 +8,9 @@
  * cycle in permanent backoff.
  */
 
-import { TFolder, type TFile, type Vault } from 'obsidian';
+import { TFolder, type TFile, type Vault, type Workspace } from 'obsidian';
 
-import { canonicalizeMarkdown, isSyncableConfigPath } from '@havemind/protocol';
+import { canonicalizeMarkdown, hashPlaintext, isSyncableConfigPath } from '@havemind/protocol';
 
 import {
   removeConfig,
@@ -28,11 +28,15 @@ import {
   type VaultFilePort,
 } from '../vault-apply';
 
+import { ApplyDeferredError } from '../apply-deferred';
+import { editorTexts } from './editor-buffers';
+
 import type { ConfigApplyReloader } from './config-apply';
 
 export interface VaultFilePortOptions {
   readonly vault: Vault;
   readonly state: DurableSyncState;
+  readonly workspace?: Pick<Workspace, 'iterateAllLeaves'>;
   /**
    * Notified after every successful `.obsidian/` apply (write or delete) so the
    * receiving device SEES the change without restarting Obsidian. Optional: a
@@ -164,13 +168,19 @@ async function ensureParentFolders(
 }
 
 export function createVaultFilePort(options: VaultFilePortOptions): VaultFilePort {
-  const { vault, state, configApply } = options;
+  const { vault, state, configApply, workspace } = options;
   return {
-    openBufferStates(): readonly OpenBuffer[] {
-      // Buffer divergence is resolved from the editor layer; the desktop shell
-      // wires live buffers in a later slice. Until then no buffer is reported,
-      // which is the safe default (clean → apply).
-      return [];
+    async openBufferStates(fileId): Promise<readonly OpenBuffer[]> {
+      const path = state.pathForFileId(fileId);
+      if (path === null) return [];
+      const file = vault.getAbstractFileByPath(path);
+      const disk = file === null ? null : canonicalizeMarkdown(await vault.read(file as TFile));
+      const texts = editorTexts(workspace, path);
+      return Promise.all(texts.map(async (content) => ({
+        baseHash: disk === null ? null : await hashPlaintext(disk),
+        currentHash: await hashPlaintext(content),
+        unsaved: content !== disk,
+      })));
     },
     fileIdAtPath(path) {
       // The single shared ownership truth: a path Havemind owns (authored here or
@@ -229,7 +239,7 @@ export function createVaultFilePort(options: VaultFilePortOptions): VaultFilePor
       state.conflictArtifactPathFor(revisionId),
     recordConflictArtifactPath: (revisionId, path) =>
       state.recordConflictArtifactPath(revisionId, path),
-    async writeByPath(path, content) {
+    async writeByPath(path, content, expectedContent) {
       // A `.obsidian/` config write goes through the DataAdapter (create-or-
       // overwrite), materialising parent dirs, the Vault file API cannot touch
       // hidden paths.
@@ -256,14 +266,28 @@ export function createVaultFilePort(options: VaultFilePortOptions): VaultFilePor
       }
       const existing = vault.getAbstractFileByPath(path);
       if (existing === null) {
+        if (expectedContent !== undefined && expectedContent !== null) throw new ApplyDeferredError();
         // A create must first materialize the parent-folder hierarchy, a
         // remote note in a folder this device has never seen (`Notatki/x.md`)
         // would otherwise make `vault.create` throw and wedge the pull cycle.
         await ensureParentFolders(vault, path);
+        if (editorTexts(workspace, path).length > 0) throw new ApplyDeferredError();
         await vault.create(path, content);
         return;
       }
-      await vault.modify(existing as TFile, content);
+      // Compare in Obsidian's atomic read/modify callback. The previous async
+      // reads and producer persistence are not a lock on editor saves.
+      if (expectedContent !== undefined) {
+        await vault.process(existing as TFile, (current) => {
+          const canonical = canonicalizeMarkdown(current);
+          if (canonical !== expectedContent || editorTexts(workspace, path).some((text) => text !== canonical)) {
+            throw new ApplyDeferredError();
+          }
+          return content;
+        });
+      } else {
+        await vault.modify(existing as TFile, content);
+      }
     },
     async writeBinaryByPath(path, bytes) {
       if (isSyncableConfigPath(path)) {
@@ -294,7 +318,14 @@ export function createVaultFilePort(options: VaultFilePortOptions): VaultFilePor
       }
       const existing = vault.getAbstractFileByPath(path);
       if (existing !== null) {
-        await vault.delete(existing);
+        const buffers = editorTexts(workspace, path);
+        if (buffers.length > 0) {
+          const disk = canonicalizeMarkdown(await vault.read(existing as TFile));
+          if (editorTexts(workspace, path).some((text) => text !== disk)) throw new ApplyDeferredError();
+        }
+        // Keep remotely removed bytes in Obsidian's local trash. Unlike a
+        // permanent delete this also preserves a save racing the final check.
+        await vault.trash(existing, false);
       }
     },
     async writeConflictArtifact(path, content) {

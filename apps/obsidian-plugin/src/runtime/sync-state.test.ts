@@ -97,12 +97,23 @@ describe('DurableSyncState', () => {
     expect((await reloaded.listOutbox()).some((item) => item.revisionId === 'local-merge'))
       .toBe(scenario !== 'equivalent');
     expect(await reloaded.isLocallyAuthored('local-merge')).toBe(false);
+    if (scenario === 'equivalent') expect((persist.saved as PersistedSyncState).reconciliationBackups?.['accepted-merge']?.[0]?.revisionId).toBe('local-merge');
   });
 
   it('starts empty and defaults the cursor to zero', async () => {
     expect(await state.loadCursor()).toBe(0);
     expect(await state.listOutbox()).toEqual([]);
     expect(await state.isLocallyAuthored('rev-1')).toBe(false);
+  });
+
+  it('does not advance the in-memory cursor after a failed durable save', async () => {
+    await state.saveCursor(1);
+    const save = persist.save.bind(persist);
+    persist.save = async () => { throw new Error('disk full'); };
+    await expect(state.saveCursor(2)).rejects.toThrow('disk full');
+    expect(await state.loadCursor()).toBe(1);
+    persist.save = save;
+    expect(await new DurableSyncState({ persist }).loadCursor()).toBe(1);
   });
 
   it('does not drop an enqueue that races a concurrent cold-cache load (BLOCKER)', async () => {
@@ -812,6 +823,19 @@ describe('DurableSyncState outbox payload externalization (arch P1)', () => {
     expect((await reopened.getEnvelope('rev-1'))?.payloadBase64).toBe(
       'REAL-BYTES',
     );
+  });
+
+  it('keeps receipt payload bytes recoverable if removing the queue entry cannot be saved', async () => {
+    const state = new DurableSyncState({ persist, payloadStore: store });
+    await state.enqueue(envelope({ payloadBase64: 'PRESERVE-ME' }));
+    const save = persist.save.bind(persist);
+    persist.save = async () => { throw new Error('disk full'); };
+    await expect(state.recordPushReceipt({ revisionId: 'rev-1', serverSequence: 1 })).rejects.toThrow('disk full');
+    expect(store.map.get('rev-1')).toBe('PRESERVE-ME');
+    expect(await state.listOutbox()).toHaveLength(1);
+    persist.save = save;
+    const reopened = new DurableSyncState({ persist, payloadStore: store });
+    expect((await reopened.getEnvelope('rev-1'))?.payloadBase64).toBe('PRESERVE-ME');
   });
 
   it('migrates a legacy inline-payload data.json into the store, still draining', async () => {

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { hashBlob } from '@havemind/protocol';
 
@@ -203,6 +203,43 @@ function build(
 }
 
 describe('VaultApplyAdapter', () => {
+  it.each(['markdown', 'binary'])('preserves the rename source when an untracked destination is occupied (%s)', async (kind) => {
+    const { adapter, files } = build(() => kind === 'binary'
+      ? binaryContent('b.png', new Uint8Array([1]), 'rename', 'a.png')
+      : { ...content('b.md', 'source'), operation: 'rename', previousPath: 'a.md' });
+    const source = kind === 'binary' ? 'a.png' : 'a.md';
+    files.owners.set(source, 'file-1');
+    if (kind === 'binary') {
+      files.binaryOnDisk.set(source, new Uint8Array([1]));
+      files.binaryOnDisk.set('b.png', new Uint8Array([9]));
+      files.baseHashes.set('file-1', await hashBlob(new Uint8Array([1])));
+    } else {
+      files.onDisk.set(source, 'source'); files.onDisk.set('b.md', 'untracked local content');
+      files.baseHashes.set('file-1', await fakeHash('source'));
+    }
+    expect(await adapter.applyRemote(event())).toBe('conflict');
+    expect(files.deletes).toEqual([]);
+  });
+
+  it('protects locally changed binary bytes from a remote tombstone', async () => {
+    const { adapter, files } = build(() => binaryContent('a.png', new Uint8Array(), 'delete'));
+    files.owners.set('a.png', 'file-1');
+    files.binaryOnDisk.set('a.png', new Uint8Array([9]));
+    files.baseHashes.set('file-1', await hashBlob(new Uint8Array([1])));
+    expect(await adapter.applyRemote(event())).toBe('conflict');
+    expect(files.deletes).toEqual([]);
+  });
+
+  it('keeps the rename source if materializing the destination fails', async () => {
+    const { adapter, files } = build(() => ({ ...content('folder/b.md', 'source'), operation: 'rename', previousPath: 'a.md' }));
+    files.owners.set('a.md', 'file-1'); files.onDisk.set('a.md', 'source');
+    files.baseHashes.set('file-1', await fakeHash('source'));
+    files.parentFolderOccupied.add('folder/b.md');
+    expect(await adapter.applyRemote(event())).toBe('conflict');
+    expect(files.deletes).toEqual([]);
+    expect(files.onDisk.get('a.md')).toBe('source');
+  });
+
   it('exposes open buffer states from the vault port', async () => {
     const { adapter, files } = build(() => content('Notes/a.md', 'A\n'));
     files.buffers.set('file-1', [{ baseHash: 'a', currentHash: 'a' }]);
@@ -1721,7 +1758,7 @@ describe('VaultApplyAdapter, per-file apply serialisation', () => {
 
     await flush();
     // The first holds the lock at its (gated) write; the second cannot start.
-    expect(files.started).toEqual(['Notes/a.md']);
+    await vi.waitFor(() => expect(files.started).toEqual(['Notes/a.md']));
 
     files.release('Notes/a.md');
     await Promise.all([first, second]);
@@ -1738,7 +1775,7 @@ describe('VaultApplyAdapter, per-file apply serialisation', () => {
 
     await flush();
     // File B is not blocked by file A's still-open write.
-    expect(files.started).toEqual(['Notes/a.md', 'Notes/b.md']);
+    await vi.waitFor(() => expect(files.started).toEqual(['Notes/a.md', 'Notes/b.md']));
 
     files.release('Notes/a.md');
     await Promise.all([a, b]);

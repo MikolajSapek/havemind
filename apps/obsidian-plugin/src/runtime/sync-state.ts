@@ -14,6 +14,8 @@
  * never wedge startup (rule: never trust external data).
  */
 
+import { validRecovery, type ProducerRecovery } from './producer-recovery';
+
 import type {
   PushReceipt,
   PushRevision,
@@ -101,6 +103,9 @@ export interface QuarantinedRevision {
 }
 
 export interface PersistedSyncState {
+  readonly producerRecovery?: readonly ProducerRecovery[];
+  /** Full original envelopes retained through recovery; never automatically pruned. */
+  readonly reconciliationBackups?: Readonly<Record<string, readonly OutboxEnvelope[]>>;
   readonly version: 1;
   readonly cursor: number;
   readonly outbox: readonly OutboxEnvelope[];
@@ -362,6 +367,84 @@ export class DurableSyncState implements SyncStatePort {
     return this.recoveryRequired;
   }
 
+  async pendingProducerRecoveries(): Promise<readonly ProducerRecovery[]> {
+    return (await this.ensureLoaded()).producerRecovery ?? [];
+  }
+
+  async startProducerRecovery(record: ProducerRecovery, replacement?: OutboxEnvelope): Promise<boolean> {
+    return this.runExclusive(async () => {
+      const state = await this.ensureLoaded();
+      if ((state.producerRecovery ?? []).some((r) => r.fileIds.some((id) => record.fileIds.includes(id)))) {
+        throw new Error('Producer recovery must finish before another transaction.');
+      }
+      const ids = new Set(record.discardRevisionIds);
+      const originals = state.outbox.filter((e) => ids.has(e.revisionId));
+      if (originals.length !== ids.size || this.hasUncoveredChildren(state, ids)) return false;
+      if (replacement !== undefined && (ids.has(replacement.revisionId) ||
+        parentIdsFromHeader(replacement.header).some((id) => ids.has(id)))) return false;
+      await this.mutate({ ...state,
+        outbox: [...state.outbox.filter((e) => !ids.has(e.revisionId)), ...(replacement === undefined ? [] : [{ ...replacement, enqueuedAt: this.now() }])],
+        producerRecovery: [...(state.producerRecovery ?? []), record.kind === 'apply' ? {
+          ...record,
+          applyState: {
+            pathOwners: Object.fromEntries(Object.entries(state.pathOwners).filter(([, id]) => record.fileIds.includes(id))),
+            baseHashes: Object.fromEntries(Object.entries(state.baseHashes).filter(([id]) => record.fileIds.includes(id))),
+            baseContents: Object.fromEntries(Object.entries(state.baseContents).filter(([id]) => record.fileIds.includes(id))),
+          },
+        } : record],
+        ...(originals.length === 0 ? {} : { reconciliationBackups: { ...state.reconciliationBackups, [record.id]: originals.map((e) => ({ ...e, payloadExternalized: false })) } }),
+      });
+      return true;
+    });
+  }
+
+  private hasUncoveredChildren(state: PersistedSyncState, ids: ReadonlySet<string>): boolean {
+    return [...state.outbox, ...Object.values(state.quarantinedEnvelopes)].some((e) =>
+      !ids.has(e.revisionId) && parentIdsFromHeader(e.header).some((id) => ids.has(id)));
+  }
+
+  async recoverProducerQueue(id: string): Promise<void> {
+    await this.runExclusive(async () => {
+      const state = await this.ensureLoaded();
+      const record = state.producerRecovery?.find((r) => r.id === id);
+      if (record === undefined || record.kind !== 'apply') return;
+      const ids = new Set(record.discardRevisionIds);
+      if (this.hasUncoveredChildren(state, ids)) throw new Error('Recovery would orphan pending work.');
+      const originals = state.outbox.filter((e) => ids.has(e.revisionId));
+      const undo = record.applyState;
+      await this.mutate({ ...state,
+        ...(undo === undefined ? {} : {
+          pathOwners: { ...Object.fromEntries(Object.entries(state.pathOwners).filter(([, fileId]) => !record.fileIds.includes(fileId))), ...undo.pathOwners },
+          baseHashes: { ...Object.fromEntries(Object.entries(state.baseHashes).filter(([fileId]) => !record.fileIds.includes(fileId))), ...undo.baseHashes },
+          baseContents: { ...Object.fromEntries(Object.entries(state.baseContents).filter(([fileId]) => !record.fileIds.includes(fileId))), ...undo.baseContents },
+        }),
+        outbox: state.outbox.filter((e) => !ids.has(e.revisionId)),
+        ...(originals.length === 0 ? {} : { reconciliationBackups: { ...state.reconciliationBackups,
+          [id]: [...(state.reconciliationBackups?.[id] ?? []), ...originals.map((e) => ({ ...e, payloadExternalized: false }))] } }),
+      });
+    });
+  }
+
+  async completeProducerRecovery(id: string): Promise<void> {
+    await this.runExclusive(async () => {
+      const state = await this.ensureLoaded();
+      await this.mutate({ ...state, producerRecovery: (state.producerRecovery ?? []).filter((r) => r.id !== id) });
+    });
+  }
+
+  async enqueueAutomaticMerge(envelope: OutboxEnvelope): Promise<void> {
+    await this.runExclusive(async () => {
+      const state = await this.ensureLoaded();
+      const record = state.producerRecovery?.find((r) => r.kind === 'apply' && r.fileIds.includes(envelope.fileId));
+      if (record === undefined) throw new Error('Automatic merge requires a durable apply transaction.');
+      await this.mutate({ ...state,
+        outbox: [...state.outbox, { ...envelope, enqueuedAt: this.now() }],
+        producerRecovery: state.producerRecovery?.map((r) => r.id === record.id
+          ? { ...r, discardRevisionIds: [...r.discardRevisionIds, envelope.revisionId] } : r) ?? [],
+      });
+    });
+  }
+
   async loadCursor(): Promise<number> {
     return (await this.ensureLoaded()).cursor;
   }
@@ -414,8 +497,28 @@ export class DurableSyncState implements SyncStatePort {
       });
       if (retired.length === 0) return;
       const ids = new Set(retired.map((entry) => entry.revisionId));
-      await this.mutate({ ...state, outbox: state.outbox.filter((entry) => !ids.has(entry.revisionId)) });
-      for (const entry of retired) await this.dropPayload(entry.revisionId);
+      // Keep the original envelope for inspection even though the server has
+      // accepted an equivalent merge. Retirement need not delete payload bytes.
+      await this.mutate({ ...state, outbox: state.outbox.filter((entry) => !ids.has(entry.revisionId)),
+        reconciliationBackups: { ...state.reconciliationBackups,
+          [event.revision.revisionId]: [...(state.reconciliationBackups?.[event.revision.revisionId] ?? []),
+            ...retired.map((entry) => ({ ...entry, payloadExternalized: false }))] },
+      });
+    });
+  }
+
+  /** Only a freshly queued merge with no descendants can be cancelled on failed apply. */
+  async cancelUnsentMerge(revisionId: string): Promise<void> {
+    await this.runExclusive(async () => {
+      const state = await this.ensureLoaded();
+      const entry = state.outbox.find((item) => item.revisionId === revisionId);
+      if (entry === undefined) return;
+      if (parentIdsFromHeader(entry.header).length < 2 ||
+        [...state.outbox, ...Object.values(state.quarantinedEnvelopes)].some((item) => parentIdsFromHeader(item.header).includes(revisionId))) {
+        throw new Error('Cannot cancel a pending revision with dependent work.');
+      }
+      await this.mutate({ ...state, outbox: state.outbox.filter((item) => item.revisionId !== revisionId) });
+      await this.dropPayload(revisionId);
     });
   }
 
@@ -427,7 +530,6 @@ export class DurableSyncState implements SyncStatePort {
       );
       // Arch P1: the revision is durably on the server, its externalized payload
       // is no longer needed anywhere, so free the store bytes (no leak).
-      await this.dropPayload(receipt.revisionId);
       await this.mutate({
         ...state,
         outbox,
@@ -436,6 +538,7 @@ export class DurableSyncState implements SyncStatePort {
           receipt.revisionId,
         ),
       });
+      await this.dropPayload(receipt.revisionId);
     });
   }
 
@@ -775,8 +878,8 @@ export class DurableSyncState implements SyncStatePort {
       );
       // Arch P1: the send is permanently discarded, free its externalized
       // payload bytes so a dead-lettered attachment cannot leak in the store.
-      await this.dropPayload(revisionId);
       await this.mutate({ ...state, quarantine, quarantinedEnvelopes });
+      await this.dropPayload(revisionId);
     });
   }
 
@@ -867,12 +970,20 @@ export class DurableSyncState implements SyncStatePort {
    */
   private async hydrate(raw: unknown): Promise<void> {
     if (this.cache !== null) return;
+    if (isRecord(raw) && !validRecoveryFields(raw)) {
+      await this.persist.preserveCorrupt(raw, this.now());
+      throw new Error('Invalid producer recovery journal; sync is paused with original state preserved.');
+    }
     const outcome = parsePersistedState(raw);
     if (outcome.status !== 'corrupt') {
       if (this.cache === null) this.cache = outcome.state;
       return;
     }
 
+    if (isRecord(raw) && (raw.producerRecovery !== undefined || raw.reconciliationBackups !== undefined)) {
+      await this.persist.preserveCorrupt(raw, this.now());
+      throw new Error('Corrupt sync state includes recovery data; original state preserved.');
+    }
     const backup = await this.persist.loadBackup();
     if (this.cache !== null) return;
     const backupOutcome = parsePersistedState(backup);
@@ -922,7 +1033,6 @@ export class DurableSyncState implements SyncStatePort {
   }
 
   private async mutate(next: PersistedSyncState): Promise<void> {
-    this.cache = next;
     // GAP-1: `recoveryRequired` is a purely OBSERVABLE signal (surfaced via
     // {@link isRecoveryRequired}), never a save lock. The earlier design blocked
     // every future save while set, but nothing here ever cleared it and
@@ -935,6 +1045,7 @@ export class DurableSyncState implements SyncStatePort {
     // the payload store are stripped to a reference so `data.json` stays small.
     // The in-memory `cache` keeps the full payloads (peekEnvelope drains them).
     await this.persist.save(this.toDiskForm(next));
+    this.cache = next;
   }
 
   /**
@@ -1210,7 +1321,18 @@ function parsePersistedState(raw: unknown): ParseResult {
  * event). Individual bad outbox ENTRIES are quarantined, not rejected. Non-core
  * sub-fields degrade to their default (MINOR 8) rather than failing the parse.
  */
+function validRecoveryFields(raw: Record<string, unknown>): boolean {
+  if (raw.producerRecovery !== undefined && (!Array.isArray(raw.producerRecovery) || !raw.producerRecovery.every(validRecovery))) return false;
+  if (raw.reconciliationBackups !== undefined) {
+    if (!isRecord(raw.reconciliationBackups)) return false;
+    if (!Object.values(raw.reconciliationBackups).every((entries) => Array.isArray(entries) &&
+      entries.every((entry) => parseEnvelope(entry) !== null && isRecord(entry) && entry.payloadExternalized !== true))) return false;
+  }
+  return true;
+}
+
 function strictParse(raw: unknown): PersistedSyncState | null {
+  if (isRecord(raw) && !validRecoveryFields(raw)) return null;
   if (!isRecord(raw) || raw.version !== 1) return null;
 
   const cursor = raw.cursor;
@@ -1258,6 +1380,8 @@ function strictParse(raw: unknown): PersistedSyncState | null {
   return {
     version: 1,
     cursor: cursor as number,
+    ...(raw.producerRecovery === undefined ? {} : { producerRecovery: raw.producerRecovery as ProducerRecovery[] }),
+    ...(raw.reconciliationBackups === undefined ? {} : { reconciliationBackups: raw.reconciliationBackups as Record<string, OutboxEnvelope[]> }),
     outbox: parsedOutbox,
     locallyAuthored: locallyAuthored as string[],
     deferred: parsedDeferred,
@@ -1296,6 +1420,8 @@ function salvageState(raw: unknown): PersistedSyncState | null {
   return {
     version: 1,
     cursor,
+    ...(raw.producerRecovery === undefined ? {} : { producerRecovery: raw.producerRecovery as ProducerRecovery[] }),
+    ...(raw.reconciliationBackups === undefined ? {} : { reconciliationBackups: raw.reconciliationBackups as Record<string, OutboxEnvelope[]> }),
     outbox: parsedOutbox,
     locallyAuthored,
     deferred: salvageDeferred(raw.deferred),
