@@ -407,7 +407,34 @@ export class DurableSyncState implements SyncStatePort {
     await this.runExclusive(async () => {
       const state = await this.ensureLoaded();
       const record = state.producerRecovery?.find((r) => r.id === id);
-      if (record === undefined || record.kind !== 'apply') return;
+      if (record === undefined) return;
+      if (record.kind === 'resolution') {
+        // Finish shared materialization alongside producer replay. A local
+        // commit can stop before any lifecycle callback, or between saving its
+        // base hash and content. Replaying only the producer mapping loses the
+        // ownership/base needed by the next remote edit.
+        const pathOwners = { ...state.pathOwners };
+        const baseHashes = { ...state.baseHashes };
+        const baseContents = { ...state.baseContents };
+        for (const fileId of record.fileIds) {
+          const mapping = record.state.mappings.find((m) => m.fileId === fileId);
+          for (const [path, owner] of Object.entries(pathOwners)) {
+            if (owner === fileId && path !== mapping?.path) delete pathOwners[path];
+          }
+          if (mapping === undefined) {
+            delete baseHashes[fileId];
+            delete baseContents[fileId];
+          } else {
+            pathOwners[mapping.path] = fileId;
+            // Local updates must never advance an existing common ancestor.
+            baseHashes[fileId] ??= mapping.contentHash;
+            if (mapping.contentKind !== 'binary' && baseContents[fileId] === undefined &&
+              baseHashes[fileId] === mapping.contentHash) baseContents[fileId] = mapping.content;
+          }
+        }
+        await this.mutate({ ...state, pathOwners, baseHashes, baseContents });
+        return;
+      }
       const ids = new Set(record.discardRevisionIds);
       if (this.hasUncoveredChildren(state, ids)) throw new Error('Recovery would orphan pending work.');
       const originals = state.outbox.filter((e) => ids.has(e.revisionId));

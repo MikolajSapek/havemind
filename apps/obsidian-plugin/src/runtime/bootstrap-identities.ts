@@ -42,13 +42,16 @@ export async function bootstrapIdentities(options: {
       if (content !== remote.content) continue;
       contentHash = await hashPlaintext(content);
     }
+    // The producer mapping is the scan's completion marker. Write it last:
+    // if a base save fails, a retry must finish the shared metadata instead of
+    // skipping this path merely because its producer mapping already exists.
+    await state.recordPathOwner(head.revision.fileId, path.canonicalPath);
+    await state.recordBaseHash(head.revision.fileId, contentHash);
+    if (remote.kind !== 'binary') await state.recordBaseContent(head.revision.fileId, content);
     await producer.adoptRemoteMapping({ fileId: head.revision.fileId, path: path.canonicalPath,
       collisionKey: path.collisionKey, content, contentHash,
       ...(remote.kind === 'binary' ? { contentKind: 'binary' } : {}),
     }, head.revision.revisionId);
-    await state.recordPathOwner(head.revision.fileId, path.canonicalPath);
-    await state.recordBaseHash(head.revision.fileId, contentHash);
-    if (remote.kind !== 'binary') await state.recordBaseContent(head.revision.fileId, content);
     mapped.add(path.collisionKey);
     blocked.delete(path.collisionKey);
   }

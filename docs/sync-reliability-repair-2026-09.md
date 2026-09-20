@@ -1,6 +1,6 @@
 # Sync reliability repair candidate
 
-Status: draft, not ready to merge or deploy. One active regression test still fails.
+Status: automated verification passes. The previous local-commit blocker is fixed; this follow-up completes restart recovery and startup adoption. Real desktop/mobile rollout validation remains to be done.
 
 This follow-up builds on the merged causal-merge fix. Reverting to the remembered 1.4.10 baseline alone does not address the reproduced failures in that baseline. This repair keeps the existing server protocol and three-way text merging; it does not introduce a CRDT or rewrite accepted server history.
 
@@ -16,29 +16,36 @@ This follow-up builds on the merged causal-merge fix. Reverting to the remembere
 - Individual renames lock both paths, keep the source until destination creation succeeds, and preserve occupied destinations. Binary deletion checks raw bytes. Remote removals go through Obsidian's local trash.
 - Cursor/receipt state is updated in memory only after persistence succeeds; acknowledged external payloads are removed only after durable receipt recording.
 
-## Remaining blocking regression
+## Completing local-commit recovery
 
-`runtime/producer-recovery.test.ts`: `recovers a queued local create before another scan can mint a duplicate identity`.
+Commit `11c1fa7` on main fixes the original queue/identity split by journaling a normal local commit and replaying the mapping before enumeration. Its CI passed with all 2,078 then-existing tests.
 
-A normal local create still has separate queue and producer-mapping saves. If the first succeeds and the second fails, a restarted scan sees no mapping and can mint another identity. The newly introduced apply/reconciliation journal does not yet cover this normal local-commit path.
+The follow-up review reproduced additional interruption boundaries using the real durable state, producer and local-materialization callbacks:
 
-The concrete remaining change is to use the existing journal when publishing local creates/updates/renames/deletes, saving the envelope and intended mapping together, and replay pending intent before enumeration. No additional server schema, token-policy change, file deletion, or accepted-history rewrite is needed. This extension was blocked by the coding environment's automatic approval review; the failing test remains active and is not skipped or weakened.
+- A create recovered its producer mapping but left shared path ownership and the merge base absent.
+- An interrupted rename or delete left old shared ownership behind even after the producer mapping recovered.
+- A failure after saving a base hash but before saving its text left that base permanently incomplete.
+- A startup adoption saved its producer mapping before its shared metadata; a retry then considered the path complete and skipped the unfinished base write.
+
+Recovery now restores shared ownership and merge metadata before clearing the existing journal. Renames retain the prior common ancestor; local edits never advance it. Deletions clear ownership/base records for the affected file, while other files remain unchanged. Startup saves the producer mapping last so it is a reliable completion marker. A refused journal transaction raises the existing observer-recovery error instead of falling back to separate queue/mapping writes.
+
+These changes do not add a journal format, server endpoint, database migration, or authentication-policy change. The regression tests remain in the normal suite.
 
 ## Validation
 
-- Latest aggregate verification: workspace/release metadata checks, lint, and type-checking pass; 2,077 tests pass and 1 fails across 172 files.
-- The 21 real HTTP/SQLite onboarding/sync tests pass, including the original three failing convergence cases and populated-vault identity tests.
-- A preceding complete verification passed all 2,076 then-existing tests and build. The final edge-case review added the local-create failure above and a passing new-event history test.
-- Build passes separately. The coverage command also fails on the same active regression; no passing final coverage result is claimed.
-- No live Obsidian desktop/mobile pair, production server, or real vault was exercised.
+- `npm run verify`: passes workspace/release checks, lint, type-checking, all **2,083 tests across 173 files**, and the build.
+- `npm run test:coverage`: passes all tests and the repository's 80% thresholds for statements, branches, functions and lines.
+- All 21 real HTTP/SQLite onboarding/sync cases pass, including the original three convergence failures and populated-vault identity tests.
+- Design-token, generated-class and whitespace checks pass.
+- No live Obsidian desktop/mobile pair, production server or real vault was exercised.
 
 ## Deployment and server handover
 
-Do not deploy this draft. Finish the blocking local-commit test, run `npm run verify` and `npm run test:coverage`, and review the final diff first.
+Review and merge the follow-up, then validate matching client builds on disposable vault copies before a broader rollout. Passing automated tests is not evidence that a particular live server and phone installation have been upgraded successfully.
 
 This change needs no server database migration and uses existing event/blob/push APIs. It assumes retained revision ancestry; previously deleted history cannot be recreated by rolling back plugin code. Do not delete heads, renumber events, or edit migration metadata to force convergence.
 
-After the candidate passes, stop sync on all participating devices, retain complete client and server backups, and test matching plugin builds on disposable copies of the vault with the existing server version. Validate offline edits on two computers and a phone, sleep/wake, unsaved background tabs, simultaneous edits, renames, attachments, and a restart while uploads are pending. Confirm one current head for automatically mergeable notes and empty queues, while genuine overlapping edits remain visible conflicts.
+For the device trial, stop sync on all participating devices, retain complete client and server backups, and test matching plugin builds on disposable copies of the vault with the existing server version. Validate offline edits on two computers and a phone, sleep/wake, unsaved background tabs, simultaneous edits, renames, attachments, and a restart while uploads are pending. Confirm one current head for automatically mergeable notes and empty queues, while genuine overlapping edits remain visible conflicts.
 
 Keep the original server database and blobs. Rollback of this client candidate must preserve its plugin state because an older plugin does not understand the new recovery journal. Do not downgrade a client while journal entries are pending.
 

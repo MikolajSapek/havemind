@@ -339,15 +339,12 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
       },
       discardRevisionIds: [],
     };
-    // A false return means the journal refused the transaction (another one is
-    // in flight for this file). Fall back to the previous behaviour rather than
-    // dropping the user's edit: the change still reaches the queue.
+    // A refused transaction must retry through the observer's existing error
+    // recovery. Falling back to separate writes would reopen the crash window
+    // this journal exists to close. The user's file is still on disk.
     const started = await recovery.startProducerRecovery(record, envelope);
     if (!started) {
-      await this.options.enqueue(envelope);
-      await this.options.store.save(next);
-      await this.seedSharedState(operation);
-      return;
+      throw new Error('Local commit recovery transaction was refused.');
     }
     await this.options.store.save(next);
     await this.seedSharedState(operation);

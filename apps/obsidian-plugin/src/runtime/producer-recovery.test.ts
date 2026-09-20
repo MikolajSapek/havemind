@@ -3,11 +3,13 @@ import { hashPlaintext } from '@havemind/protocol';
 import { DurableSyncState, type OutboxEnvelope, type PersistedSyncState, type SyncStatePersistPort } from './sync-state';
 import { OutboxLocalChangeRepository, type ProducerState } from '../sync/outbox-repository';
 import type { ProducerRecovery } from './producer-recovery';
+import { applyLocalMaterialization, forgetLocalMaterialization } from './local-base-lifecycle';
 
 function setup() {
   let raw: unknown = null;
   let producerState: ProducerState = { mappings: [], heads: {} };
   let failSync = false;
+  let failSaveWhen: (value: PersistedSyncState) => boolean = () => false;
   let failProducer = false;
   let counter = 0;
   const corrupt: unknown[] = [];
@@ -15,7 +17,7 @@ function setup() {
   const persist: SyncStatePersistPort = {
     load: async () => raw, loadBackup: async () => null,
     preserveCorrupt: async (value) => { corrupt.push(value); },
-    save: async (value) => { if (failSync) throw new Error('disk full'); raw = structuredClone(value); },
+    save: async (value) => { if (failSync || failSaveWhen(value)) throw new Error('disk full'); raw = structuredClone(value); },
   };
   const state = () => new DurableSyncState({ persist, payloadStore: {
     putPayload: async (id, bytes) => { payloads.set(id, bytes); },
@@ -26,12 +28,15 @@ function setup() {
     recovery: sync, store: { load: async () => producerState, save: async (value) => {
       if (failProducer) throw new Error('producer save failed'); producerState = structuredClone(value);
     } },
+    onLocalMaterialized: (m) => applyLocalMaterialization(sync, m),
+    onLocalForgotten: (m) => forgetLocalMaterialization(sync, m),
     enqueue: (e) => sync.enqueue(e), hasAuthoredRevision: (id) => sync.hasAuthoredRevision(id),
     generateRevisionId: () => `00000000-0000-4000-8000-${String(++counter + 100).padStart(12, '0')}`,
   });
   return { state, producer, persist, payloads, corrupt,
     raw: () => raw as PersistedSyncState, setRaw: (value: unknown) => { raw = value; },
     producerState: () => producerState, setProducer: (value: ProducerState) => { producerState = value; },
+    failSaveWhen: (predicate: (value: PersistedSyncState) => boolean) => { failSaveWhen = predicate; },
     failSync: (value: boolean) => { failSync = value; }, failProducer: (value: boolean) => { failProducer = value; },
   };
 }
@@ -85,10 +90,10 @@ describe('durable producer recovery', () => {
   it('replays after mapping save but before clearing the journal', async () => {
     const h = setup(); const state = h.state();
     await state.startProducerRecovery(journal('repair', []));
-    h.failSync(true);
+    h.failSaveWhen((value) => value.producerRecovery?.length === 0);
     await expect(h.producer(state).recover()).rejects.toThrow('disk full');
     expect(h.producerState().heads['00000000-0000-4000-8000-000000000004']).toBe('accepted');
-    h.failSync(false); const reopened = h.state(); await h.producer(reopened).recover();
+    h.failSaveWhen(() => false); const reopened = h.state(); await h.producer(reopened).recover();
     expect(await reopened.pendingProducerRecoveries()).toEqual([]);
   });
 
@@ -154,6 +159,50 @@ describe('durable producer recovery', () => {
     expect(await restarted.listMappings()).toEqual([mapping]);
     expect(await h.state().listOutbox()).toHaveLength(1);
     expect(h.producerState().heads[mapping.fileId]).toBe((await h.state().listOutbox())[0]?.revisionId);
+    expect(h.raw().pathOwners[mapping.path]).toBe(mapping.fileId);
+    expect(h.raw().baseContents[mapping.fileId]).toBe(mapping.content);
+  });
+
+  it.each(['rename', 'delete'] as const)('replays shared ownership after an interrupted local %s', async (kind) => {
+    const h = setup(); const state = h.state(); const producer = h.producer(state);
+    const oldHead = '00000000-0000-4000-8000-000000000005';
+    h.setProducer({ mappings: [mapping], heads: { [mapping.fileId]: oldHead } });
+    await applyLocalMaterialization(state, { ...mapping, previousPath: null });
+    const next = { ...mapping, path: 'renamed.md', collisionKey: 'renamed.md', content: 'edited\n', contentHash: 'edited-hash' };
+    h.failProducer(true);
+    await expect(producer.commitLocalChange({
+      upsertMapping: kind === 'delete' ? null : next, removeFileId: kind === 'delete' ? mapping.fileId : null,
+      operation: { kind, fileId: mapping.fileId, path: kind === 'delete' ? mapping.path : next.path,
+        content: kind === 'delete' ? null : next.content, contentHash: kind === 'delete' ? null : next.contentHash,
+        operationId: 'interrupted', observedAt: 1, previousContent: mapping.content,
+        previousContentHash: mapping.contentHash, previousPath: kind === 'rename' ? mapping.path : null, revisionId: null },
+    })).rejects.toThrow('producer save failed');
+    h.failProducer(false);
+    await h.producer(h.state()).recover();
+    expect(h.raw().pathOwners[mapping.path]).toBeUndefined();
+    if (kind === 'rename') {
+      expect(h.raw().pathOwners[next.path]).toBe(mapping.fileId);
+      expect(h.raw().baseHashes[mapping.fileId]).toBe(mapping.contentHash);
+      expect(h.raw().baseContents[mapping.fileId]).toBe(mapping.content);
+    } else {
+      expect(h.raw().baseHashes[mapping.fileId]).toBeUndefined();
+      expect(h.raw().baseContents[mapping.fileId]).toBeUndefined();
+    }
+    expect(await h.state().listOutbox()).toHaveLength(1);
+  });
+
+  it('finishes a base-content save interrupted after the base hash was seeded', async () => {
+    const h = setup(); const state = h.state(); const producer = h.producer(state);
+    h.failSaveWhen((value) => value.baseContents[mapping.fileId] !== undefined);
+    await expect(producer.commitLocalChange({ upsertMapping: mapping, removeFileId: null, operation: {
+      kind: 'create', fileId: mapping.fileId, path: mapping.path, content: mapping.content,
+      contentHash: mapping.contentHash, operationId: 'local-create', observedAt: 1,
+      previousContent: null, previousContentHash: null, previousPath: null, revisionId: null,
+    } })).rejects.toThrow('disk full');
+    h.failSaveWhen(() => false);
+    await h.producer(h.state()).recover();
+    expect(h.raw().baseContents[mapping.fileId]).toBe(mapping.content);
+    expect(await h.state().pendingProducerRecoveries()).toEqual([]);
   });
 
   it('fails closed on malformed recovery data without overwriting original state', async () => {

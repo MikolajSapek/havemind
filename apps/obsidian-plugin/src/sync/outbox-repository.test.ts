@@ -86,6 +86,27 @@ function makeRepo(maxPayloadBytes?: number) {
 }
 
 describe('OutboxLocalChangeRepository', () => {
+  it('does not bypass a refused durable transaction with separate queue and mapping writes', async () => {
+    const store = new MemoryStore();
+    const enqueued: OutboxEnvelope[] = [];
+    const repo = new OutboxLocalChangeRepository({
+      identity: IDENTITY, store, enqueue: async (envelope) => { enqueued.push(envelope); },
+      generateRevisionId: () => '00000000-0000-4000-8000-000000000001',
+      recovery: {
+        startProducerRecovery: async () => false,
+        pendingProducerRecoveries: async () => [],
+        recoverProducerQueue: async () => undefined,
+        completeProducerRecovery: async () => undefined,
+        enqueueAutomaticMerge: async () => undefined,
+      },
+    });
+    await expect(repo.commitLocalChange({ operation: makeOperation(), removeFileId: null,
+      upsertMapping: { fileId: FILE_ID, path: 'Notes/a.md', collisionKey: 'notes/a.md', content: 'Hello\n', contentHash: 'hash-1' },
+    })).rejects.toThrow('refused');
+    expect(enqueued).toEqual([]);
+    expect(store.state).toEqual({ mappings: [], heads: {} });
+  });
+
   it('retains both file identities when separate files commit concurrently', async () => {
     const { repo, store, enqueued } = makeRepo();
     const ids = [FILE_ID, '55555555-5555-4555-8555-555555555555'];
