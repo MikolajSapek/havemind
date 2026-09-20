@@ -184,6 +184,7 @@ function makeHarness() {
         };
       },
     },
+    hasAuthoredRevision: async (revisionId) => outbox.includes(revisionId),
     enqueue: async (envelope) => {
       outbox.push(envelope.revisionId);
       pushed.push(envelope);
@@ -329,19 +330,6 @@ function makeHarness() {
     outbox,
     pushed,
     localActivity,
-    /**
-     * Routes an event the way `SyncRunner` routes an echo of this device's own
-     * revision: it is recognised as locally authored and never reaches
-     * `applyRemote`. Mirrors the suppression branch in `sync-runner.ts` so this
-     * harness cannot go false-green by taking the apply path for an event
-     * production suppresses.
-     */
-    suppressOwnEcho: async (event: RemoteEvent) => {
-      if (!(await state.isLocallyAuthored(event.revision.revisionId))) {
-        throw new Error('not a local echo, the runner would have applied it');
-      }
-      await adapter.acknowledgeOwnEcho?.(event);
-    },
     drainEvents,
     remoteEvent,
     setRemote,
@@ -658,89 +646,4 @@ describe('two-person steady-state sync (integration)', () => {
     expect(bMerge.parentRevisionIds).toContain(REV_A);
   });
 
-  /**
-   * The stale merge ancestor (step 4 of the recovery sequence).
-   *
-   * `applyLocalMaterialization` seeds the base on FIRST authorship and never
-   * advances it on a later push, which is correct and deliberate: a local write
-   * is exactly the moment this device cannot know whether the peer is editing
-   * the same file, and moving the base there would make a concurrent peer
-   * revision read as a clean fast-forward and silently overwrite this device's
-   * work. The `(f)` case above pins that.
-   *
-   * But the base has to advance SOMEWHERE, and the one moment both sides are
-   * known to hold the same text is when the server echoes this device's own
-   * revision back: the server accepted it, so the peer will see exactly that
-   * content. 1.4.10 suppresses that echo and returns early, so the base stays on
-   * the text of the file's FIRST version for the rest of its life. Every later
-   * peer edit then finds `on-disk != base`, reads as diverged, and the merge
-   * runs against an ancestor that is many revisions stale, or fails its ancestor
-   * precondition outright and becomes a conflict copy.
-   *
-   * This is the mechanism behind the three conflict copies on file 6a9b8bc7.
-   */
-  it('(g) the merge ancestor advances when the server echoes this device own revision', async () => {
-    const NOTE = 'Notes/note.md';
-    const PEER_REV = '60000000-0000-4000-8000-000000000000';
-    const h = makeHarness();
-
-    // First authorship seeds the base at V1.
-    await h.userCreate(NOTE, 'V1\n', FILE_A);
-    expect(h.state.baseHashFor(FILE_A)).toBe(await realSha256('V1\n'));
-
-    // The user edits twice more locally. The base must NOT move on a push: the
-    // peer might be editing concurrently and has not seen these yet.
-    await h.vault.modify({ path: NOTE }, 'V2\n');
-    await h.drainEvents();
-    await h.vault.modify({ path: NOTE }, 'V3\n');
-    await h.drainEvents();
-    expect(h.state.baseHashFor(FILE_A)).toBe(await realSha256('V1\n'));
-
-    // The server accepts and echoes the latest revision back. From here on both
-    // devices are known to hold V3, so V3 is the shared ancestor.
-    //
-    // IMPORTANT: the runner does NOT call `applyRemote` for an echo of this
-    // device's own revision, it recognises `isLocallyAuthored` and suppresses
-    // the event (`sync-runner.ts`, "if (await this.options.state
-    // .isLocallyAuthored(...)) { suppressed += 1; ... continue; }"). Calling
-    // `applyRemote` here would take a path production never takes for this
-    // event and the test would pass without proving anything. So the echo is
-    // routed exactly as the runner routes it.
-    // The server accepted the push, which is what marks the revision as locally
-    // authored (`DurableSyncState.recordPushReceipt`) and therefore what makes
-    // the runner suppress its echo.
-    const echoed = h.outbox.at(-1) as string;
-    await h.state.recordPushReceipt({ revisionId: echoed, serverSequence: 3 });
-    expect(await h.state.isLocallyAuthored(echoed)).toBe(true);
-    h.setRemote(echoed, {
-      operation: 'update',
-      path: NOTE,
-      previousPath: null,
-      content: 'V3\n',
-    });
-    await h.suppressOwnEcho(h.remoteEvent(echoed, FILE_A));
-    await h.drainEvents();
-
-    expect(h.state.baseHashFor(FILE_A)).toBe(await realSha256('V3\n'));
-    expect(h.state.baseContentFor(FILE_A)).toBe('V3\n');
-
-    // With a current ancestor, a concurrent peer edit merges instead of becoming
-    // a conflict copy. Against the stale V1 ancestor this produced a conflict.
-    await h.vault.modify({ path: NOTE }, 'V3\nmine\n');
-    await h.drainEvents();
-    h.setRemote(PEER_REV, {
-      operation: 'update',
-      path: NOTE,
-      previousPath: null,
-      content: 'theirs\nV3\n',
-    });
-    const outcome = await h.adapter.applyRemote(h.remoteEvent(PEER_REV, FILE_A));
-    await h.drainEvents();
-
-    expect(outcome).toBe('applied');
-    expect(h.vault.contents.get(NOTE)).toBe('theirs\nV3\nmine\n');
-    expect(
-      [...h.vault.contents.keys()].some((p) => p.startsWith('Havemind Conflicts/')),
-    ).toBe(false);
-  });
 });

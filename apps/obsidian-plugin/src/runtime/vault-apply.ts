@@ -220,6 +220,20 @@ export interface RemoteApplyProducerSync {
    * causal path can omit it.
    */
   localHeadFor?(fileId: string): Promise<string | null>;
+  /** Content and identity captured together from the producer's current revision. */
+  localVersionFor?(fileId: string): Promise<{
+    readonly revisionId: string;
+    readonly contentHash: string;
+  } | null>;
+  /** Durably enqueue the merge before its reflected file event can be deduped. */
+  onMergedWrite?(input: {
+    readonly fileId: string;
+    readonly path: string;
+    readonly content: string;
+    readonly contentHash: string;
+    readonly remoteRevisionId: string;
+    readonly remoteParentRevisionIds: readonly string[];
+  }): Promise<boolean>;
 }
 
 export interface VaultApplyAdapterOptions {
@@ -322,51 +336,6 @@ export class VaultApplyAdapter implements VaultApplyPort {
     return classified.eligible ? classified.collisionKey : path;
   }
 
-  /**
-   * Advances the merge ancestor when the server echoes back a revision THIS
-   * device authored. The runner suppresses such an echo (it must not re-apply
-   * its own write), and the base is deliberately not advanced on a local push
-   * either, because at push time this device cannot know whether the peer is
-   * editing concurrently (see `local-base-lifecycle.ts`). That leaves the base
-   * pinned to the file's FIRST authored version forever, so every later peer
-   * edit reads as diverged and merges against a stale ancestor, or fails the
-   * ancestor precondition and becomes a conflict copy.
-   *
-   * A server echo is the one moment both sides are KNOWN to agree: the server
-   * accepted this revision, so the peer will receive exactly this content. That
-   * makes it the correct and safe place to advance the base.
-   *
-   * The recorded hash is the plaintext hash of the ON-DISK text, never
-   * `event.revision.contentHash` (an envelope hash over different bytes). Mixing
-   * those units is what made every pushed file read as permanently diverged in
-   * 1.4.22. The base advances only when the disk still matches what was pushed;
-   * a local edit that landed since is a real divergence and is left alone.
-   */
-  async acknowledgeOwnEcho(event: RemoteEvent): Promise<void> {
-    let decoded: DecodedRevisionPayload;
-    try {
-      decoded = await this.resolveRevision(event);
-    } catch {
-      // A payload this device can no longer decode is not worth failing the
-      // pull over: the echo carries no new content by definition.
-      return;
-    }
-    if (decoded.operation === 'delete') return;
-    // A binary file never merges and records no base content (MRG-01).
-    if (decoded.kind === 'binary') return;
-    const fileId = event.revision.fileId;
-    return this.lock.runExclusive(this.lockKey(decoded.path), async () => {
-      const onDisk = await this.files.readByPath(decoded.path);
-      if (onDisk === null) return;
-      // Only converge when the disk still holds what was pushed. Anything else
-      // is a local edit made since, a genuine divergence the base must not skip.
-      if (!contentMatches(onDisk, decoded.content ?? '')) return;
-      await this.files.recordPathOwner(fileId, decoded.path);
-      await this.files.recordBaseHash(fileId, await this.hashContent(onDisk));
-      await this.files.recordBaseContent(fileId, onDisk);
-    });
-  }
-
   async applyRemote(
     event: RemoteEvent,
     options?: RemoteApplyOptions,
@@ -407,7 +376,8 @@ export class VaultApplyAdapter implements VaultApplyPort {
           if (onDisk !== null) {
             const base = this.files.baseHashFor(fileId);
             const onDiskHash = await this.hashContent(onDisk);
-            if (base === null || onDiskHash !== base) {
+            if ((base === null || onDiskHash !== base) &&
+              await this.cleanCausalHash(fileId, event, onDiskHash) === null) {
               await this.writeConflict(event, decoded);
               return 'conflict';
             }
@@ -471,7 +441,8 @@ export class VaultApplyAdapter implements VaultApplyPort {
       if (previousOnDisk !== null && !lastWriterWins) {
         const base = this.files.baseHashFor(fileId);
         const previousHash = await this.hashContent(previousOnDisk);
-        if (base === null || previousHash !== base) {
+        if ((base === null || previousHash !== base) &&
+          await this.cleanCausalHash(fileId, event, previousHash) === null) {
           await this.writeConflict(event, decoded);
           return 'conflict';
         }
@@ -598,6 +569,9 @@ export class VaultApplyAdapter implements VaultApplyPort {
     // three-way merge (MRG-01, `tryMergeApply`): non-overlapping edits are
     // combined in place and only a genuinely overlapping change becomes a
     // conflict copy.
+    const cleanCausalHash = onDisk === null ? null : await this.cleanCausalHash(
+      fileId, event, await this.hashContent(onDisk),
+    );
     if (onDisk !== null) {
       if (contentMatches(onDisk, text)) {
         // Both sides already hold the incoming content: advance the base and
@@ -624,7 +598,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
       // the same path: try to merge, else preserve both in a conflict copy,
       // never a silent overwrite (rule 3).
       const diverged = base === null || onDiskHash !== base;
-      if (diverged || !(await this.isCausalFastForward(fileId, event))) {
+      if (cleanCausalHash === null && (diverged || !(await this.isCausalFastForward(fileId, event)))) {
         const merged = await this.tryMergeApply(
           event,
           decoded,
@@ -678,7 +652,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
     ) {
       const preWriteBase = this.files.baseHashFor(fileId);
       const preWriteHash = await this.hashContent(preWriteOnDisk);
-      if (preWriteBase === null || preWriteHash !== preWriteBase) {
+      if ((preWriteBase === null || preWriteHash !== preWriteBase) && preWriteHash !== cleanCausalHash) {
         await this.producerSync?.onRemoteDelete({ fileId, path: decoded.path });
         const merged = await this.tryMergeApply(
           event,
@@ -742,25 +716,9 @@ export class VaultApplyAdapter implements VaultApplyPort {
    * longer matches the base hash, or the changes overlap), the caller then
    * writes a conflict copy.
    *
-   * ANCESTOR is the locally-persisted base content; LOCAL is the current on-disk
-   * content; REMOTE is the incoming revision. A successful merge IS a
-   * convergence event, so the base advances to the merged state.
-   *
-   * A merge carries TWO facts and the producer needs both:
-   *
-   *  - CONTENT: the merged text is a new local revision this device authored and
-   *    must reach the peer. So the producer mapping records the MERGED content,
-   *    which keeps it in lockstep with what is on disk.
-   *  - CAUSALITY: the incoming revision was absorbed into that merge, so it is a
-   *    genuine ancestor of whatever this device pushes next. So the producer head
-   *    advances to the INCOMING revisionId.
-   *
-   * Recording only the first is what forked file 6a9b8bc7 in production on
-   * 2026-09-19: the head stayed on the superseded revision, the next push
-   * parented on it, and the file gained a second head nothing ever retired
-   * (server sequences 88 to 95, eight revisions of divergence from one editing
-   * session). A failed merge absorbs nothing and must NOT move the head, two
-   * heads are the correct outcome for a genuine unresolved conflict.
+   * Keep the ancestor while branches are concurrent. A merged file is not an
+   * accepted remote revision: publish it explicitly, with its resolved parents,
+   * before changing the disk. The observer then deduplicates the reflected write.
    */
   private async tryMergeApply(
     event: RemoteEvent,
@@ -789,23 +747,29 @@ export class VaultApplyAdapter implements VaultApplyPort {
     }
     const merged = result.text;
     const mergedHash = await this.hashContent(merged);
+    if (this.producerSync?.onMergedWrite !== undefined) {
+      const queued = await this.producerSync.onMergedWrite({
+        fileId,
+        path: decoded.path,
+        content: merged,
+        contentHash: mergedHash,
+        remoteRevisionId: event.revision.revisionId,
+        remoteParentRevisionIds: event.revision.parentRevisionIds ?? [],
+      });
+      if (!queued) return null;
+    }
+
     // When the merge collapses to exactly the current on-disk content (e.g. the
     // remote side carried no change relative to the ancestor), there is nothing
-    // new to write and nothing to attribute to the peer (F4). Treat it as a
-    // convergence: advance the base to the merged state, but skip the redundant
-    // write and the remote-applied activity entry.
+    // new to write and nothing to attribute to the peer (F4). The explicit
+    // publication above still records the resolved branches; keep the ancestor
+    // and skip the redundant write and remote-applied activity entry.
     if (merged === onDisk) {
       await this.files.recordPathOwner(fileId, decoded.path);
-      await this.files.recordBaseHash(fileId, mergedHash);
-      await this.files.recordBaseContent(fileId, merged);
-      await this.adoptMergedRevision(event, decoded, fileId, merged, mergedHash);
       return 'noop';
     }
     await this.files.writeByPath(decoded.path, merged);
     await this.files.recordPathOwner(fileId, decoded.path);
-    await this.files.recordBaseHash(fileId, mergedHash);
-    await this.files.recordBaseContent(fileId, merged);
-    await this.adoptMergedRevision(event, decoded, fileId, merged, mergedHash);
     this.onRemoteApplied?.({
       revisionId: event.revision.revisionId,
       fileId,
@@ -819,28 +783,16 @@ export class VaultApplyAdapter implements VaultApplyPort {
     return 'applied';
   }
 
-  /**
-   * Records a completed merge with the producer: the mapping takes the MERGED
-   * content (so it matches the vault and the reflected write still pushes the
-   * merge to the peer), while the head takes the INCOMING revisionId (so the
-   * next local push descends from the revision this merge absorbed instead of
-   * forking away from it). Only ever called on a successful merge.
-   */
-  private async adoptMergedRevision(
-    event: RemoteEvent,
-    decoded: DecodedRevisionPayload,
+  /** Server acceptance alone never proves that an offline peer saw our version. */
+  private async cleanCausalHash(
     fileId: string,
-    merged: string,
-    mergedHash: string,
-  ): Promise<void> {
-    await this.producerSync?.onRemoteWrite({
-      fileId,
-      path: decoded.path,
-      content: merged,
-      contentHash: mergedHash,
-      contentKind: 'markdown',
-      revisionId: event.revision.revisionId,
-    });
+    event: RemoteEvent,
+    diskHash: string,
+  ): Promise<string | null> {
+    const local = await this.producerSync?.localVersionFor?.(fileId);
+    return local !== undefined && local !== null &&
+      event.revision.parentRevisionIds?.includes(local.revisionId) === true &&
+      diskHash === local.contentHash ? diskHash : null;
   }
 
   /**
@@ -915,7 +867,8 @@ export class VaultApplyAdapter implements VaultApplyPort {
       if (previousOnDisk !== null && !lastWriterWins) {
         const base = this.files.baseHashFor(fileId);
         const previousHash = await hashBlob(previousOnDisk);
-        if (base === null || previousHash !== base) {
+        if ((base === null || previousHash !== base) &&
+          await this.cleanCausalHash(fileId, event, previousHash) === null) {
           await this.writeConflict(event, decoded);
           return 'conflict';
         }
@@ -962,6 +915,9 @@ export class VaultApplyAdapter implements VaultApplyPort {
       await this.files.forgetBaseContent(owner);
     }
 
+    const cleanCausalHash = onDisk === null ? null : await this.cleanCausalHash(
+      fileId, event, await hashBlob(onDisk),
+    );
     if (onDisk !== null) {
       if (bytesEqual(onDisk, bytes)) {
         await this.files.recordBaseHash(fileId, incomingHash);
@@ -980,7 +936,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
       // the later writer, so the write further down replaces the bytes.
       const base = this.files.baseHashFor(fileId);
       const onDiskHash = await hashBlob(onDisk);
-      if (!lastWriterWins && (base === null || onDiskHash !== base)) {
+      if (!lastWriterWins && cleanCausalHash === null && (base === null || onDiskHash !== base)) {
         await this.writeConflict(event, decoded);
         return 'conflict';
       }
@@ -1011,7 +967,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
     ) {
       const preWriteBase = this.files.baseHashFor(fileId);
       const preWriteHash = await hashBlob(preWriteOnDisk);
-      if (preWriteBase === null || preWriteHash !== preWriteBase) {
+      if ((preWriteBase === null || preWriteHash !== preWriteBase) && preWriteHash !== cleanCausalHash) {
         await this.producerSync?.onRemoteDelete({ fileId, path: decoded.path });
         await this.writeConflict(event, decoded);
         return 'conflict';

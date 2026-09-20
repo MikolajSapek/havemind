@@ -118,6 +118,9 @@ export interface SyncTransport {
  * acknowledged revision.
  */
 export interface SyncStatePort {
+  /** Retire an unaccepted merge only when an applied remote merge proves it redundant. */
+  retireEquivalentMerges?(event: RemoteEvent): Promise<void>;
+
   /** The highest server sequence already materialized locally. */
   loadCursor(): Promise<number>;
   saveCursor(sequence: number): Promise<void>;
@@ -184,14 +187,7 @@ export interface VaultApplyPort {
   ): Promise<RemoteApplyOutcome>;
   /** Record a visible conflict artifact without overwriting the active file. */
   recordConflict(event: RemoteEvent): Promise<void>;
-  /**
-   * Advance the merge ancestor for an echo of a revision THIS device authored.
-   * The echo is never applied (that would re-write this device's own content),
-   * but it is the one moment both sides are known to hold the same text, so it
-   * is where the base catches up. Optional: a port that does not implement it
-   * keeps the previous behaviour.
-   */
-  acknowledgeOwnEcho?(event: RemoteEvent): Promise<void>;
+
 }
 
 /** Cancels one scheduled callback when the runtime is torn down. */
@@ -698,12 +694,8 @@ export class SyncRunner {
       }
 
       if (await this.options.state.isLocallyAuthored(remoteEvent.revision.revisionId)) {
-        // The echo is not applied (this device already holds the content), but
-        // the server accepting it is proof both sides now agree, so it is where
-        // the merge ancestor catches up. Without this the base stays pinned to
-        // the file's first authored version and every later peer edit reads as
-        // diverged (the stale-ancestor half of the 2026-09-19 conflict storm).
-        await this.options.vault.acknowledgeOwnEcho?.(remoteEvent);
+        // Acceptance does not establish a common ancestor with another device.
+        // Preserve the merge base; causal apply uses revision-bound producer state.
         suppressed += 1;
         cursor = remoteEvent.serverSequence;
         await this.options.state.saveCursor(cursor);
@@ -742,6 +734,7 @@ export class SyncRunner {
         if (outcome === 'conflict') {
           conflicts += 1;
         } else {
+          await this.options.state.retireEquivalentMerges?.(remoteEvent);
           applied += 1;
         }
       }

@@ -68,6 +68,7 @@ import {
   applyLocalMaterialization,
   forgetLocalMaterialization,
 } from '../../apps/obsidian-plugin/src/runtime/local-base-lifecycle.js';
+import { createRemoteApplyProducerSync } from '../../apps/obsidian-plugin/src/runtime/remote-apply-coordinator.js';
 import { buildConnectionResolvers } from '../../apps/obsidian-plugin/src/runtime/connection.js';
 import {
   OutboxLocalChangeRepository,
@@ -124,7 +125,7 @@ interface OwnerIdentity {
 class TwoDeviceServer {
   private constructor(
     readonly app: FastifyApp,
-    private readonly database: ReturnType<typeof openDatabase>,
+    readonly database: ReturnType<typeof openDatabase>,
     readonly owner: OwnerIdentity,
   ) {}
 
@@ -321,10 +322,10 @@ class DeviceRuntime {
    * is re-observed just like on a live device. Without this the harness never
    * exercised the re-entrancy guard on the receive side. */
   private readonly reflected: Array<{ path: string; kind: 'create' | 'modify' }> = [];
-  private readonly state: DurableSyncState;
+  readonly state: DurableSyncState;
   private readonly runner: SyncRunner;
   private readonly observer: VaultChangeObserver;
-  private readonly producer: OutboxLocalChangeRepository;
+  readonly producer: OutboxLocalChangeRepository;
 
   constructor(options: {
     readonly app: FastifyApp;
@@ -369,30 +370,7 @@ class DeviceRuntime {
       // peer finds no producer mapping and mints a fresh, unrelated fileId,
       // exactly the scenario the binary concurrent-edit test below exercises
       // (both devices editing the SAME received attachment independently).
-      producerSync: {
-        onRemoteWrite: async (input) => {
-          await this.producer.adoptRemoteMapping(
-            {
-              collisionKey: input.path.normalize('NFC').toLowerCase(),
-              content: input.content,
-              contentHash: input.contentHash,
-              ...(input.contentKind === undefined
-                ? {}
-                : { contentKind: input.contentKind }),
-              fileId: input.fileId,
-              path: input.path,
-            },
-            input.revisionId,
-          );
-        },
-        onRemoteDelete: async (input) => {
-          await this.producer.forgetRemoteMapping(
-            input.path.normalize('NFC').toLowerCase(),
-            input.fileId,
-          );
-        },
-        localHeadFor: (fileId) => this.producer.headFor(fileId),
-      },
+      producerSync: createRemoteApplyProducerSync(() => this.producer),
     });
 
     this.runner = new SyncRunner({
@@ -420,6 +398,7 @@ class DeviceRuntime {
       },
       store,
       enqueue: (envelope) => this.state.enqueue(envelope),
+      hasAuthoredRevision: (revisionId) => this.state.hasAuthoredRevision(revisionId),
       generateRevisionId: () => randomUUID(),
       // Seed the SHARED apply-store ownership+base for every file this device
       // authors/pushes, exactly as the production `startPushProducer` wiring
@@ -491,6 +470,22 @@ class DeviceRuntime {
     } else {
       await this.observer.observeCreate(path);
     }
+  }
+
+  async remove(path: string): Promise<void> {
+    this.files.delete(path);
+    this.binaryFiles.delete(path);
+    await this.observer.observeDelete(path);
+  }
+
+  async rename(path: string, destination: string): Promise<void> {
+    const text = this.files.get(path);
+    const bytes = this.binaryFiles.get(path);
+    if (text !== undefined) this.files.set(destination, text);
+    if (bytes !== undefined) this.binaryFiles.set(destination, bytes);
+    this.files.delete(path);
+    this.binaryFiles.delete(path);
+    await this.observer.observeRename(path, destination);
   }
 
   async sync(): Promise<SyncCycleResult> {
@@ -1061,5 +1056,114 @@ describe('two-device onboarding + sync (Magda) against a real opaque server', ()
     } finally {
       await server.close();
     }
+  });
+});
+
+describe('Revision causality through production client components', () => {
+  it('control: first local creation records an ancestor', async () => {
+    const server = await TwoDeviceServer.create();
+    try {
+      const { owner } = await connectTwoDevices(server);
+      await owner.edit('Shared.md', 'zero');
+      await owner.sync();
+      const fileId = owner.state.fileIdAtPath('Shared.md');
+      if (fileId === null) throw new Error('missing file identity');
+      expect(owner.state.baseContentFor(fileId)).toBe(canonicalizeMarkdown('zero'));
+    } finally { await server.close(); }
+  });
+  it('causal return edit after an owner-only update must not conflict', async () => {
+    const server = await TwoDeviceServer.create();
+    try {
+      const { owner, invitee } = await connectTwoDevices(server);
+      await owner.edit('Shared.md', 'zero');
+      await owner.sync(); await invitee.sync();
+      await owner.edit('Shared.md', 'one');
+      await owner.sync(); await invitee.sync();
+      expect(invitee.read('Shared.md')).toBe(canonicalizeMarkdown('one'));
+      await invitee.edit('Shared.md', 'two');
+      await invitee.sync();
+      const result = await owner.sync();
+      expect(result.conflicts).toBe(0);
+      expect(owner.read('Shared.md')).toBe(canonicalizeMarkdown('two'));
+    } finally { await server.close(); }
+  });
+  it.each([false, true])('converges a clean merge, drains queues, and bootstraps a third device (reverse=%s)', async (reverse) => {
+    const server = await TwoDeviceServer.create();
+    try {
+      const { owner, invitee } = await connectTwoDevices(server);
+      await owner.edit('Shared.md', 'alpha\nmiddle\nomega');
+      await owner.sync(); await invitee.sync();
+      await owner.edit('Shared.md', 'ALPHA\nmiddle\nomega');
+      await invitee.edit('Shared.md', 'alpha\nmiddle\nOMEGA');
+      const [first, second] = reverse ? [invitee, owner] : [owner, invitee];
+      await first.sync();
+      await second.sync();
+      for (let i = 0; i < 4; i++) { await owner.sync(); await invitee.sync(); }
+      const heads = server.database.prepare('SELECT revision_id FROM file_heads').all();
+      const mergeCount = server.database.prepare('SELECT count(*) AS n FROM (SELECT revision_id FROM revision_parents GROUP BY revision_id HAVING count(*) = 2)').get() as { n: number };
+      expect(mergeCount.n).toBe(1);
+      expect(owner.read('Shared.md')).toBe(canonicalizeMarkdown('ALPHA\nmiddle\nOMEGA'));
+      expect(invitee.read('Shared.md')).toBe(canonicalizeMarkdown('ALPHA\nmiddle\nOMEGA'));
+      expect(heads).toHaveLength(1);
+      expect(await owner.outboxSize()).toBe(0);
+      expect(await invitee.outboxSize()).toBe(0);
+      const { invitee: lateJoiner } = await connectTwoDevices(server);
+      expect(lateJoiner.read('Shared.md')).toBe(canonicalizeMarkdown('ALPHA\nmiddle\nOMEGA'));
+      expect(await lateJoiner.outboxSize()).toBe(0);
+      await owner.edit('Shared.md', 'ALPHA\nmiddle\nOMEGA\nafter merge');
+      await owner.sync();
+      const afterMerge = await invitee.sync();
+      expect(afterMerge.conflicts).toBe(0);
+      expect(invitee.read('Shared.md')).toBe(canonicalizeMarkdown('ALPHA\nmiddle\nOMEGA\nafter merge'));
+    } finally { await server.close(); }
+  });
+  it('a server echo cannot authorize overwriting a concurrent same-line edit', async () => {
+    const server = await TwoDeviceServer.create();
+    try {
+      const { owner, invitee } = await connectTwoDevices(server);
+      await owner.edit('Shared.md', 'base');
+      await owner.sync(); await invitee.sync();
+      await owner.edit('Shared.md', 'owner edit');
+      await invitee.edit('Shared.md', 'invitee edit');
+      await owner.sync();
+      await invitee.sync();
+      const result = await owner.sync();
+      expect(owner.read('Shared.md')).toBe('owner edit');
+      expect(result.conflicts).toBe(1);
+      expect([...owner.files.values()]).toContain(canonicalizeMarkdown('invitee edit'));
+    } finally { await server.close(); }
+  });
+  it.each(['rename', 'delete'])('applies a causal %s after an owner-only update', async (operation) => {
+    const server = await TwoDeviceServer.create();
+    try {
+      const { owner, invitee } = await connectTwoDevices(server);
+      await owner.edit('Shared.md', 'zero');
+      await owner.sync(); await invitee.sync();
+      await owner.edit('Shared.md', 'one');
+      await owner.sync(); await invitee.sync();
+      if (operation === 'rename') await invitee.rename('Shared.md', 'Renamed.md');
+      else await invitee.remove('Shared.md');
+      await invitee.sync();
+      const result = await owner.sync();
+      expect(result.conflicts).toBe(0);
+      expect(owner.read('Shared.md')).toBeUndefined();
+      if (operation === 'rename') expect(owner.read('Renamed.md')).toBe(canonicalizeMarkdown('one'));
+    } finally { await server.close(); }
+  });
+
+  it('sequential binary handoff does not need a Markdown merge ancestor', async () => {
+    const server = await TwoDeviceServer.create();
+    try {
+      const { owner, invitee } = await connectTwoDevices(server);
+      await owner.editBinary('photo.png', new Uint8Array([0, 1]));
+      await owner.sync(); await invitee.sync();
+      await owner.editBinary('photo.png', new Uint8Array([0, 2]));
+      await owner.sync(); await invitee.sync();
+      await invitee.editBinary('photo.png', new Uint8Array([0, 3]));
+      await invitee.sync();
+      const result = await owner.sync();
+      expect(result.conflicts).toBe(0);
+      expect(owner.readBinary('photo.png')).toEqual(new Uint8Array([0, 3]));
+    } finally { await server.close(); }
   });
 });

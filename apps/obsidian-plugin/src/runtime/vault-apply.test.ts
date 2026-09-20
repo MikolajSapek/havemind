@@ -1045,11 +1045,9 @@ describe('VaultApplyAdapter', () => {
         { path: 'Notes/a.md', content: 'A1\nB\nC\nD\nE1\n' },
       ]);
       expect(files.conflicts).toEqual([]);
-      // A successful merge IS a convergence event: the base advances to it.
-      expect(files.baseHashes.get('file-1')).toBe(
-        await fakeHash('A1\nB\nC\nD\nE1\n'),
-      );
-      expect(files.baseContents.get('file-1')).toBe('A1\nB\nC\nD\nE1\n');
+      // Publishing a local merge does not make it an ancestor of an offline peer.
+      expect(files.baseHashes.get('file-1')).toBe(await fakeHash(ancestor));
+      expect(files.baseContents.get('file-1')).toBe(ancestor);
     });
 
     it('applies a remote edit over an unchanged local file via merge (local == ancestor)', async () => {
@@ -1185,8 +1183,10 @@ describe('VaultApplyAdapter', () => {
           resolveAuthorName: () => 'Windows',
         },
         producerSync: {
-          onRemoteWrite: async ({ fileId, revisionId }) => {
-            writes.push({ fileId, revisionId });
+          onRemoteWrite: async () => undefined,
+          onMergedWrite: async ({ fileId, remoteRevisionId }) => {
+            writes.push({ fileId, revisionId: remoteRevisionId });
+            return true;
           },
           onRemoteDelete: async () => undefined,
           localHeadFor: async () => localHead,
@@ -1450,7 +1450,7 @@ describe('VaultApplyAdapter', () => {
       expect(files.baseContents.has('old-file')).toBe(false);
     });
 
-    it('short-circuits to noop when the merge result equals on-disk (no write, no activity, base advanced)', async () => {
+    it('short-circuits to noop when the merge result equals on-disk (no write, no activity, ancestor retained)', async () => {
       // Remote revision equals the shared ancestor (no remote change); local has
       // diverged. The three-way merge collapses to the local content == on-disk,
       // so there is nothing to write and nothing to attribute to the peer.
@@ -1476,9 +1476,9 @@ describe('VaultApplyAdapter', () => {
       expect(files.writes).toEqual([]);
       expect(files.conflicts).toEqual([]);
       expect(applied).toEqual([]);
-      // The base still advances to the (already on-disk) merged state.
-      expect(files.baseHashes.get('file-1')).toBe(await fakeHash(local));
-      expect(files.baseContents.get('file-1')).toBe(local);
+      // Retain the ancestor until a causal remote apply establishes a new base.
+      expect(files.baseHashes.get('file-1')).toBe(await fakeHash(ancestor));
+      expect(files.baseContents.get('file-1')).toBe(ancestor);
       // The on-disk content is untouched.
       expect(files.onDisk.get('Notes/a.md')).toBe(local);
     });

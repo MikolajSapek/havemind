@@ -76,6 +76,29 @@ describe('DurableSyncState', () => {
     state = new DurableSyncState({ persist });
   });
 
+  it.each(['equivalent', 'different bytes', 'different parents', 'queued child', 'quarantined child', 'single parent'])('retires only a proven equivalent merge: %s', async (scenario) => {
+    await state.enqueue(envelope({
+      revisionId: 'local-merge', contentHash: 'merged-hash',
+      header: { parentRevisionIds: scenario === 'single parent' ? ['left'] : ['left', 'right'] },
+    }));
+    if (scenario === 'queued child' || scenario === 'quarantined child') await state.enqueue(envelope({
+      revisionId: 'child', header: { parentRevisionIds: ['local-merge'] },
+    }));
+    if (scenario === 'quarantined child') await state.quarantineOutboxItem('child', 'test');
+    await state.retireEquivalentMerges({
+      serverSequence: 4,
+      revision: {
+        revisionId: 'accepted-merge', fileId: 'file-1',
+        contentHash: scenario === 'different bytes' ? 'other-hash' : 'merged-hash',
+        parentRevisionIds: scenario === 'different parents' ? ['left', 'other'] : ['left', 'right'],
+      },
+    });
+    const reloaded = new DurableSyncState({ persist });
+    expect((await reloaded.listOutbox()).some((item) => item.revisionId === 'local-merge'))
+      .toBe(scenario !== 'equivalent');
+    expect(await reloaded.isLocallyAuthored('local-merge')).toBe(false);
+  });
+
   it('starts empty and defaults the cursor to zero', async () => {
     expect(await state.loadCursor()).toBe(0);
     expect(await state.listOutbox()).toEqual([]);

@@ -150,6 +150,7 @@ export function startPushProducer(
     identity,
     store,
     enqueue: (envelope) => state.enqueue(envelope),
+    hasAuthoredRevision: (revisionId) => state.hasAuthoredRevision(revisionId),
     generateRevisionId: () => globalThis.crypto.randomUUID(),
     // FIX 1: seed the SHARED apply store for every file this device authors or
     // pushes, so a later peer edit to a locally-authored file resolves to its

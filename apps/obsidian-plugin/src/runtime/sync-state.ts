@@ -392,6 +392,33 @@ export class DurableSyncState implements SyncStatePort {
     });
   }
 
+  /**
+   * Two peers can independently publish byte-identical merges of the same heads.
+   * The server accepts one and rejects the other with HEAD_SET_CHANGED. After
+   * applying the accepted merge, discard only a redundant leaf in our queue.
+   * Never claim the rejected ID was accepted, and never orphan a queued child.
+   */
+  async retireEquivalentMerges(event: RemoteEvent): Promise<void> {
+    const remoteParents = event.revision.parentRevisionIds ?? [];
+    if (remoteParents.length < 2) return;
+    await this.runExclusive(async () => {
+      const state = await this.ensureLoaded();
+      const dependentParents = new Set([...state.outbox, ...Object.values(state.quarantinedEnvelopes)]
+        .flatMap((entry) => parentIdsFromHeader(entry.header)));
+      const retired = state.outbox.filter((entry) => {
+        const parents = parentIdsFromHeader(entry.header);
+        return entry.fileId === event.revision.fileId &&
+          entry.contentHash === event.revision.contentHash &&
+          parents.length >= 2 && parents.every((id) => remoteParents.includes(id)) &&
+          !dependentParents.has(entry.revisionId);
+      });
+      if (retired.length === 0) return;
+      const ids = new Set(retired.map((entry) => entry.revisionId));
+      await this.mutate({ ...state, outbox: state.outbox.filter((entry) => !ids.has(entry.revisionId)) });
+      for (const entry of retired) await this.dropPayload(entry.revisionId);
+    });
+  }
+
   async recordPushReceipt(receipt: PushReceipt): Promise<void> {
     return this.runExclusive(async () => {
       const state = await this.ensureLoaded();
@@ -520,6 +547,13 @@ export class DurableSyncState implements SyncStatePort {
 
   async listQuarantine(): Promise<readonly QuarantinedRevision[]> {
     return (await this.ensureLoaded()).quarantine;
+  }
+
+  /** Includes unsent authored revisions; used to distinguish local work from history replay. */
+  async hasAuthoredRevision(revisionId: string): Promise<boolean> {
+    const state = await this.ensureLoaded();
+    return state.locallyAuthored.includes(revisionId) ||
+      state.outbox.some((entry) => entry.revisionId === revisionId);
   }
 
   async isLocallyAuthored(revisionId: string): Promise<boolean> {

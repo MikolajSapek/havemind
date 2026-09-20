@@ -15,6 +15,7 @@
 
 import { classifyVaultPath, type LocalFileMapping } from '../obsidian/vault-adapter';
 
+import type { OutboxLocalChangeRepository } from '../sync/outbox-repository';
 import type { RemoteApplyProducerSync } from './vault-apply';
 
 /** The narrow producer surface the coordinator drives (the outbox repository). */
@@ -33,6 +34,8 @@ export interface AdoptableProducer {
    * fast-forward from a concurrent divergence.
    */
   headFor(fileId: string): Promise<string | null>;
+  versionFor?: OutboxLocalChangeRepository['versionFor'];
+  commitMergedChange?: OutboxLocalChangeRepository['commitMergedChange'];
 }
 
 /**
@@ -62,6 +65,25 @@ export function createRemoteApplyProducerSync(
         path: classified.canonicalPath,
       };
       await producer.adoptRemoteMapping(mapping, revisionId);
+    },
+    async localVersionFor(fileId) {
+      return await getProducer()?.versionFor?.(fileId) ?? null;
+    },
+    async onMergedWrite(input) {
+      const producer = getProducer();
+      const classified = classifyVaultPath(input.path);
+      if (producer?.commitMergedChange === undefined || !classified.eligible) return false;
+      return producer.commitMergedChange({
+        mapping: {
+          fileId: input.fileId,
+          path: classified.canonicalPath,
+          collisionKey: classified.collisionKey,
+          content: input.content,
+          contentHash: input.contentHash,
+        },
+        remoteRevisionId: input.remoteRevisionId,
+        remoteParentRevisionIds: input.remoteParentRevisionIds,
+      });
     },
     async onRemoteDelete({ fileId, path }) {
       const producer = getProducer();

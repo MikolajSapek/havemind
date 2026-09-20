@@ -96,6 +96,8 @@ export interface OutboxLocalChangeRepositoryOptions {
   readonly store: ProducerStorePort;
   readonly enqueue: (envelope: OutboxEnvelope) => Promise<void>;
   readonly generateRevisionId: () => string;
+  /** A history replay must not author merges on behalf of other devices. */
+  readonly hasAuthoredRevision?: (revisionId: string) => Promise<boolean>;
   /**
    * Effective per-payload byte ceiling. A change whose payload would exceed it
    * is rejected here, before enqueue, with a surfaced
@@ -149,6 +151,56 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
   async headFor(fileId: string): Promise<string | null> {
     const state = await this.options.store.load();
     return state.heads[fileId] ?? null;
+  }
+
+  async versionFor(fileId: string): Promise<{ revisionId: string; contentHash: string } | null> {
+    const state = await this.options.store.load();
+    const mapping = state.mappings.find((item) => item.fileId === fileId);
+    const revisionId = state.heads[fileId];
+    return mapping === undefined || revisionId === undefined ? null : {
+      revisionId, contentHash: mapping.contentHash,
+    };
+  }
+
+  async commitMergedChange(input: {
+    readonly mapping: LocalFileMapping;
+    readonly remoteRevisionId: string;
+    readonly remoteParentRevisionIds: readonly string[];
+  }): Promise<boolean> {
+    const state = await this.options.store.load();
+    const { mapping, remoteRevisionId, remoteParentRevisionIds } = input;
+    const localHead = state.heads[mapping.fileId];
+    if (localHead === undefined ||
+      !(await this.options.hasAuthoredRevision?.(localHead))) return false;
+    // An unsent disk edit over a remote child only needs that child as parent.
+    // Concurrent authored revisions require BOTH branches, not just the peer.
+    const parents = remoteParentRevisionIds.includes(localHead) || localHead === remoteRevisionId
+      ? [remoteRevisionId] : [localHead, remoteRevisionId];
+    const revisionId = this.options.generateRevisionId();
+    const built = await buildRevisionEnvelope({
+      identity: { ...this.options.identity, fileId: mapping.fileId },
+      revisionId,
+      parentRevisionIds: parents,
+      operation: 'update',
+      path: mapping.path,
+      content: mapping.content,
+      idempotencyKey: revisionId,
+      ...(this.options.maxPayloadBytes === undefined ? {} : { maxPayloadBytes: this.options.maxPayloadBytes }),
+    });
+    await this.options.enqueue({
+      header: built.header,
+      idempotencyKey: built.idempotencyKey,
+      payloadBase64: built.payloadBase64,
+      operationId: revisionId,
+      revisionId,
+      fileId: mapping.fileId,
+      contentHash: built.contentHash,
+    });
+    await this.options.store.save({
+      mappings: upsertMapping(state.mappings, mapping),
+      heads: { ...state.heads, [mapping.fileId]: revisionId },
+    });
+    return true;
   }
 
   async commitLocalChange(commit: LocalChangeCommit): Promise<string | null> {

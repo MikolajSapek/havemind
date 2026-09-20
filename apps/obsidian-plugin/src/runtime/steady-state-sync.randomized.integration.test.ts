@@ -44,7 +44,8 @@ import { describe, expect, it } from 'vitest';
 
 import { TFile, TFolder } from 'obsidian';
 
-import type { DecodedRevisionPayload } from '@havemind/sync-core';
+import { decodeRevisionPayload, type DecodedRevisionPayload } from '@havemind/sync-core';
+import { protectedRevisionHeaderSchema } from '@havemind/protocol';
 
 import {
   VaultChangeObserver,
@@ -58,7 +59,7 @@ import {
   forgetLocalMaterialization,
 } from './local-base-lifecycle';
 import { createRemoteApplyProducerSync } from './remote-apply-coordinator';
-import { DurableSyncState, type PersistedSyncState } from './sync-state';
+import { DurableSyncState, type PersistedSyncState, type OutboxEnvelope } from './sync-state';
 import { VaultApplyAdapter } from './vault-apply';
 import type { RemoteEvent } from '../sync/sync-runner';
 
@@ -236,6 +237,8 @@ interface WireItem {
   readonly previousPath: string | null;
   readonly contentKind: 'markdown' | 'binary';
   readonly content: string | null;
+  readonly parentRevisionIds: readonly string[];
+  readonly contentHash: string;
 }
 
 type DeviceTag = 'A' | 'B';
@@ -251,7 +254,7 @@ function makeDevice(tag: DeviceTag) {
   } = { mappings: [], heads: {} };
 
   const localActivity: LocalChangeOperation[] = [];
-  const outbox: string[] = [];
+  const outbox: OutboxEnvelope[] = [];
   let revisionCounter = 0;
   let opCounter = 0;
   const fileIdQueue: string[] = [];
@@ -269,8 +272,9 @@ function makeDevice(tag: DeviceTag) {
         };
       },
     },
+    hasAuthoredRevision: async (id) => outbox.some((entry) => entry.revisionId === id),
     enqueue: async (envelope) => {
-      outbox.push(envelope.revisionId);
+      outbox.push(envelope);
     },
     generateRevisionId: () => {
       const n = (revisionCounter += 1);
@@ -352,32 +356,34 @@ function makeDevice(tag: DeviceTag) {
     }
   }
 
-  function remoteEvent(revisionId: string, fileId: string): RemoteEvent {
-    // No parentRevisionIds, production pulls do not surface parentage, so the
-    // on-disk-vs-base guard is the only overwrite protection (the real regime).
+  function remoteEvent(revisionId: string, fileId: string, wire?: WireItem): RemoteEvent {
     return {
       serverSequence: 1,
-      revision: { revisionId, fileId, contentHash: `ch-${revisionId}` },
+      revision: {
+        revisionId, fileId, contentHash: wire?.contentHash ?? `ch-${revisionId}`,
+        ...(wire === undefined ? {} : { parentRevisionIds: wire.parentRevisionIds }),
+      },
     };
   }
 
-  /** New producer revisions since the last harvest, as wire items. */
+  /** Harvest actual envelopes, including explicit merges without a local activity event. */
   function harvestOutbound(fromIndex: number): WireItem[] {
-    const items: WireItem[] = [];
-    for (let i = fromIndex; i < localActivity.length; i += 1) {
-      const op = localActivity[i];
-      if (op === undefined || op.revisionId === null) continue;
-      items.push({
-        revisionId: op.revisionId,
-        fileId: op.fileId,
-        operation: op.kind,
-        path: op.path,
-        previousPath: op.previousPath,
-        contentKind: op.contentKind ?? 'markdown',
-        content: op.content,
-      });
-    }
-    return items;
+    return outbox.slice(fromIndex).map((entry) => {
+      const payload = decodeRevisionPayload(Buffer.from(entry.payloadBase64, 'base64').toString('utf8'));
+      const header = protectedRevisionHeaderSchema.parse(entry.header);
+      return {
+        revisionId: entry.revisionId,
+        fileId: entry.fileId,
+        contentHash: entry.contentHash,
+        parentRevisionIds: header.parentRevisionIds,
+        operation: payload.operation,
+        path: payload.path,
+        previousPath: payload.previousPath,
+        contentKind: payload.kind ?? 'markdown',
+        content: payload.kind === 'binary'
+          ? Buffer.from(payload.binaryContent ?? []).toString('base64') : payload.content,
+      };
+    });
   }
 
   return {
@@ -390,7 +396,7 @@ function makeDevice(tag: DeviceTag) {
     drainEvents,
     remoteEvent,
     harvestOutbound,
-    activityLength: () => localActivity.length,
+    activityLength: () => outbox.length,
     outboxLength: () => outbox.length,
     setRemote: (revisionId: string, payload: DecodedRevisionPayload) =>
       resolved.set(revisionId, payload),
@@ -502,7 +508,7 @@ function runScenario(seed: number, ops: number): { run: () => Promise<void> } {
           };
     to.setRemote(item.revisionId, payload);
     const before = to.activityLength();
-    const outcome = await to.adapter.applyRemote(to.remoteEvent(item.revisionId, item.fileId));
+    const outcome = await to.adapter.applyRemote(to.remoteEvent(item.revisionId, item.fileId, item));
     await to.drainEvents();
     // A concurrent round's edits both land on a diverged receiver, so an
     // 'applied' update delivery is exactly a successful three-way merge.
@@ -657,26 +663,15 @@ function runScenario(seed: number, ops: number): { run: () => Promise<void> } {
     dev.vault.ensureFolderChain(next);
     dev.vault.contents.set(next, content);
     dev.vault.contents.delete(prev);
-    // A rename is driven by calling observeRename directly (Obsidian fires a
-    // dedicated rename event, not modify+delete), so it bypasses the create/
-    // modify/delete `observed()` wrapper that feeds localActivity. Capture the
-    // returned op directly and turn it into the wire item.
+    // Renames and explicit merges are harvested from their actual envelopes.
+    const before = dev.activityLength();
     const op = await dev.observer.observeRename(prev, next);
     await dev.drainEvents();
     models.delete(prev);
     model.path = next;
     models.set(next, model);
     if (op !== null && op.revisionId !== null) {
-      const item: WireItem = {
-        revisionId: op.revisionId,
-        fileId: op.fileId,
-        operation: op.kind,
-        path: op.path,
-        previousPath: op.previousPath,
-        contentKind: op.contentKind ?? 'markdown',
-        content: op.content,
-      };
-      enqueueOutbound(dev, [item]);
+      enqueueOutbound(dev, dev.harvestOutbound(before));
       cov.renames += 1;
     }
     // Relay the rename so BOTH vaults (and `models`) reflect the move before the
@@ -837,7 +832,7 @@ describe('randomized two-device convergence (integration)', () => {
       previousPath: null,
       content: BASE,
     });
-    await b.adapter.applyRemote(b.remoteEvent(baseRev.revisionId, FILE));
+    await b.adapter.applyRemote(b.remoteEvent(baseRev.revisionId, FILE, baseRev));
     await b.drainEvents();
     expect(b.state.baseHashFor(FILE)).toBe(await realSha256(BASE));
 
@@ -853,10 +848,10 @@ describe('randomized two-device convergence (integration)', () => {
 
     // Relay each side's edit to the other.
     b.setRemote(aEdit.revisionId, { operation: 'update', path: PATH, previousPath: null, content: aEdit.content ?? '' });
-    const bOutcome = await b.adapter.applyRemote(b.remoteEvent(aEdit.revisionId, FILE));
+    const bOutcome = await b.adapter.applyRemote(b.remoteEvent(aEdit.revisionId, FILE, aEdit));
     await b.drainEvents();
     a.setRemote(bEdit.revisionId, { operation: 'update', path: PATH, previousPath: null, content: bEdit.content ?? '' });
-    const aOutcome = await a.adapter.applyRemote(a.remoteEvent(bEdit.revisionId, FILE));
+    const aOutcome = await a.adapter.applyRemote(a.remoteEvent(bEdit.revisionId, FILE, bEdit));
     await a.drainEvents();
 
     expect(aOutcome).toBe('conflict');
