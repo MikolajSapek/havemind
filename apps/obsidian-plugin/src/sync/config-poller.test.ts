@@ -179,7 +179,6 @@ describe('config poller, cycle guard after a remote apply (test #6)', () => {
     adapter.files.set(path, canonical);
     const mapping: LocalFileMapping = {
       collisionKey: path.toLowerCase(),
-      content: canonical,
       contentHash: await realSha256(canonical),
       contentKind: 'markdown',
       fileId: 'aaaaaaaa-0000-4000-8000-000000000001',
@@ -202,7 +201,6 @@ describe('config poller, cycle guard after a remote apply (test #6)', () => {
     await repository.adoptRemoteMapping(
       {
         collisionKey: path.toLowerCase(),
-        content: canonical,
         contentHash: await realSha256(canonical),
         contentKind: 'markdown',
         fileId: 'aaaaaaaa-0000-4000-8000-000000000001',

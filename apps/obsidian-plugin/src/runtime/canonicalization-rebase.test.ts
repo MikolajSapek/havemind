@@ -10,7 +10,7 @@ import {
   VaultChangeObserver,
   type LocalChangeCommit,
   type LocalChangeRepository,
-  type LocalFileMapping,
+  type LocalFileMapping as MetadataMapping,
   type VaultSnapshotPort,
 } from '../obsidian/vault-adapter';
 import { reconcileVaultState } from '../sync/reconciliation';
@@ -21,6 +21,8 @@ import {
 import { parseProducerState } from './obsidian-adapters';
 
 const PERSIST_KEY = 'syncState';
+// This suite exercises the pre-compaction, legacy rebase format.
+type LocalFileMapping = MetadataMapping & { content: string };
 const PRODUCER_KEY = 'pushProducer';
 const MARKER_KEY = 'canonicalizationRebaseVersion';
 
@@ -367,7 +369,6 @@ describe('rebaseCanonicalizedHashes', () => {
     await repository.adoptRemoteMapping(
       {
         collisionKey: binaryPath.toLowerCase(),
-        content: binaryBase64,
         contentHash: rawHash,
         contentKind: 'binary',
         fileId: binaryFileId,
@@ -380,7 +381,6 @@ describe('rebaseCanonicalizedHashes', () => {
     await repository.adoptRemoteMapping(
       {
         collisionKey: 'notes/other.md',
-        content: 'Other\n',
         contentHash: 'md-hash',
         fileId: 'file-md',
         path: 'Notes/Other.md',
@@ -404,7 +404,7 @@ describe('rebaseCanonicalizedHashes', () => {
     // The discriminator survived the round-trip …
     expect(binaryMapping?.contentKind).toBe('binary');
     // … so its raw-byte content/hash were left untouched by the rebase.
-    expect(binaryMapping?.content).toBe(binaryBase64);
+    expect(binaryMapping).not.toHaveProperty('content');
     expect(binaryMapping?.contentHash).toBe(rawHash);
     const persist = saved[PERSIST_KEY] as { baseHashes: Record<string, string> };
     expect(persist.baseHashes[binaryFileId]).toBe(rawHash);

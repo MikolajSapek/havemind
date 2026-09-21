@@ -428,7 +428,7 @@ export class DurableSyncState implements SyncStatePort {
             pathOwners[mapping.path] = fileId;
             // Local updates must never advance an existing common ancestor.
             baseHashes[fileId] ??= mapping.contentHash;
-            if (mapping.contentKind !== 'binary' && baseContents[fileId] === undefined &&
+            if (mapping.contentKind !== 'binary' && mapping.content !== undefined && baseContents[fileId] === undefined &&
               baseHashes[fileId] === mapping.contentHash) baseContents[fileId] = mapping.content;
           }
         }

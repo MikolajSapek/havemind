@@ -88,7 +88,7 @@ export interface RebaseResult {
 
 interface StoredMapping {
   readonly collisionKey: string;
-  readonly content: string;
+  readonly content?: string;
   readonly contentHash: string;
   readonly contentKind?: string;
   readonly fileId: string;
@@ -103,7 +103,6 @@ function readMapping(entry: unknown): StoredMapping | null {
   if (
     !isRecord(entry) ||
     typeof entry.collisionKey !== 'string' ||
-    typeof entry.content !== 'string' ||
     typeof entry.contentHash !== 'string' ||
     typeof entry.fileId !== 'string' ||
     typeof entry.path !== 'string'
@@ -112,7 +111,7 @@ function readMapping(entry: unknown): StoredMapping | null {
   }
   return {
     collisionKey: entry.collisionKey,
-    content: entry.content,
+    ...(typeof entry.content === 'string' ? { content: entry.content } : {}),
     contentHash: entry.contentHash,
     ...(typeof entry.contentKind === 'string'
       ? { contentKind: entry.contentKind }
@@ -173,7 +172,7 @@ export async function rebaseCanonicalizedHashes(
       }
       const canonical = deps.canonicalize(await deps.vault.read(mapping.path));
       const contentHash = await deps.hash(canonical);
-      nextMappings.push({ ...mapping, content: canonical, contentHash });
+      nextMappings.push({ ...mapping, ...(mapping.content === undefined ? {} : { content: canonical }), contentHash });
       mappingsRebased += 1;
     }
     nextProducer = { ...producer, mappings: nextMappings };

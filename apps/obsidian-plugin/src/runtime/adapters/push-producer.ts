@@ -138,6 +138,17 @@ export function startPushProducer(
           'Havemind: failed to preserve corrupt producer state to a sidecar.',
         );
       }
+      // Compact legacy payloads even on an idle vault. Re-read under the data
+      // mutex so another writer's mappings cannot be overwritten by this load.
+      // Malformed entries remain untouched for the existing recovery path.
+      if (result.status === 'ok' && result.quarantinedMappings.length === 0 &&
+        isRecord(raw) && Array.isArray(raw.mappings) && raw.mappings.some((m) => isRecord(m) && 'content' in m)) {
+        await getPluginDataMutex(plugin).update((base) => {
+          const current = parseProducerStateResult(base[PUSH_PRODUCER_KEY]);
+          return current.status === 'ok' && current.quarantinedMappings.length === 0
+            ? { ...base, [PUSH_PRODUCER_KEY]: current.state } : base;
+        });
+      }
       return result.state;
     },
     async save(next) {

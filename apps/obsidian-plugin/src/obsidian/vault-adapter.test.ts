@@ -1,6 +1,7 @@
 import {
   canonicalizeVaultPath,
   hashBlob,
+  hashPlaintext,
   isReservedVaultPath,
 } from '@havemind/protocol';
 import { describe, expect, it, vi } from 'vitest';
@@ -163,14 +164,13 @@ describe('VaultChangeObserver', () => {
       fileId: FILE_ID,
       kind: 'create',
       path: 'Notes/Plan.md',
-      previousContent: null,
       previousPath: null,
     });
     expect(created?.contentHash).toMatch(/^[0-9a-f]{64}$/u);
     expect(duplicate).toBeNull();
     expect(repository.commits).toHaveLength(1);
     expect(repository.mappings.get(FILE_ID)).toMatchObject({
-      content: 'First\nline\n',
+      contentHash: await hashPlaintext('First\nline\n'),
       fileId: FILE_ID,
       path: 'Notes/Plan.md',
     });
@@ -211,7 +211,7 @@ describe('VaultChangeObserver', () => {
     expect(created?.revisionId).not.toBe(created?.operationId);
   });
 
-  it('records the durable previous snapshot before an update can be uploaded', async () => {
+  it('preserves the previous identity and hash when committing an update fails', async () => {
     const vault = new MemoryVault();
     const repository = new MemoryRepository([
       mapping('Notes/Plan.md', 'old text', 'old-hash'),
@@ -224,13 +224,12 @@ describe('VaultChangeObserver', () => {
       'Quota exhausted.',
     );
     expect(repository.commits).toHaveLength(0);
-    expect(repository.mappings.get(FILE_ID)?.content).toBe('old text');
+    expect(repository.mappings.get(FILE_ID)?.contentHash).toBe('old-hash');
 
     const operation = await observer.observeModify('Notes/Plan.md');
     expect(operation).toMatchObject({
       content: 'new text\n',
       kind: 'update',
-      previousContent: 'old text',
       previousContentHash: 'old-hash',
     });
     expect(repository.commits).toHaveLength(1);
@@ -289,7 +288,6 @@ describe('VaultChangeObserver', () => {
       fileId: FILE_ID,
       kind: 'delete',
       path: 'Notes/Deleted.md',
-      previousContent: 'recover me',
       previousContentHash: 'durable-hash',
     });
     expect(vault.reads).toEqual([]);
@@ -348,7 +346,6 @@ describe('VaultChangeObserver', () => {
     await expect(first).resolves.toMatchObject({ content: 'one\n' });
     await expect(second).resolves.toMatchObject({
       content: 'two\n',
-      previousContent: 'one\n',
     });
   });
 
@@ -377,7 +374,6 @@ describe('VaultChangeObserver', () => {
     const repository = new MemoryRepository([
       {
         collisionKey: 'notes/shared.md',
-        content: 'OLD\n',
         contentHash: 'stale-hash',
         fileId: 'adopted-remote-file',
         path: 'Notes/Shared.md',
@@ -414,7 +410,6 @@ describe('VaultChangeObserver binary attachments (F9)', () => {
       path: 'image.png',
     });
     expect(repository.mappings.get(FILE_ID)).toMatchObject({
-      content: expectedContent,
       contentHash: expectedHash,
       contentKind: 'binary',
       path: 'image.png',
@@ -474,14 +469,12 @@ describe('VaultChangeObserver folder events (AUD-04)', () => {
     const repository = new MemoryRepository([
       {
         collisionKey: 'notes/sub/a.md',
-        content: 'A',
         contentHash: 'hash-a',
         fileId: 'file-a',
         path: 'Notes/Sub/a.md',
       },
       {
         collisionKey: 'notes/sub/b.md',
-        content: 'B',
         contentHash: 'hash-b',
         fileId: 'file-b',
         path: 'Notes/Sub/b.md',
@@ -511,14 +504,12 @@ describe('VaultChangeObserver folder events (AUD-04)', () => {
     const repository = new MemoryRepository([
       {
         collisionKey: 'notes/sub/a.md',
-        content: 'A',
         contentHash: 'hash-a',
         fileId: 'file-a',
         path: 'Notes/Sub/a.md',
       },
       {
         collisionKey: 'notes/sub/b.md',
-        content: 'B',
         contentHash: 'hash-b',
         fileId: 'file-b',
         path: 'Notes/Sub/b.md',
@@ -552,14 +543,12 @@ describe('VaultChangeObserver folder events (AUD-04)', () => {
     const repository = new MemoryRepository([
       {
         collisionKey: 'notes/sub/a.md',
-        content: 'A',
         contentHash: 'hash-a',
         fileId: 'file-a',
         path: 'Notes/Sub/a.md',
       },
       {
         collisionKey: 'notes/sub/b.md',
-        content: 'B',
         contentHash: 'hash-b',
         fileId: 'file-b',
         path: 'Notes/Sub/b.md',
@@ -582,14 +571,12 @@ describe('VaultChangeObserver folder events (AUD-04)', () => {
     const repository = new MemoryRepository([
       {
         collisionKey: 'notes/sub/x.md',
-        content: 'X',
         contentHash: 'hash-x',
         fileId: 'file-x',
         path: 'Notes/Sub/x.md',
       },
       {
         collisionKey: 'notes/subtle/y.md',
-        content: 'Y',
         contentHash: 'hash-y',
         fileId: 'file-y',
         path: 'Notes/Subtle/y.md',
@@ -615,7 +602,6 @@ describe('VaultChangeObserver folder events (AUD-04)', () => {
     const repository = new MemoryRepository([
       {
         collisionKey: 'notes/sub/a.md',
-        content: 'A',
         contentHash: 'hash-a',
         fileId: 'file-a',
         path: 'Notes/Sub/a.md',
@@ -635,7 +621,6 @@ describe('VaultChangeObserver folder events (AUD-04)', () => {
     const repository = new MemoryRepository([
       {
         collisionKey: 'notes/sub/a.md',
-        content: 'A',
         contentHash: 'hash-a',
         fileId: 'file-a',
         path: 'Notes/Sub/a.md',
@@ -665,12 +650,11 @@ function createObserver(
 
 function mapping(
   path: string,
-  content: string,
+  _content: string,
   contentHash: string,
 ): LocalFileMapping {
   return {
     collisionKey: path.toLowerCase(),
-    content,
     contentHash,
     fileId: FILE_ID,
     path,
@@ -776,7 +760,7 @@ describe('settled modify vs rename/delete of the same path (phantom-create guard
     ).toHaveLength(1);
     // The edited content landed at the new path.
     const renamed = [...repo.mappings.values()].find((m) => m.path === 'Notes/B.md');
-    expect(renamed?.content).toBe('Body edited\n');
+    expect(renamed?.contentHash).toBe(await hashPlaintext('Body edited\n'));
   });
 
   it('does not phantom-create the old path when a delete fires within the settle window', async () => {

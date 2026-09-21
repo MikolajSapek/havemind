@@ -49,7 +49,6 @@ describe('createRemoteApplyProducerSync', () => {
       {
         mapping: {
           collisionKey: 'notes/shared.md',
-          content: 'SHARED\n',
           contentHash: 'hash-s',
           fileId: 'remote-file',
           path: 'Notes/Shared.md',

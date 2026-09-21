@@ -146,6 +146,15 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
     this.options = options;
   }
 
+  private async saveState(state: ProducerState): Promise<void> {
+    // Whitelist metadata, including when replaying a legacy journal or when
+    // a merge caller supplies a transient snapshot along with its mapping.
+    await this.options.store.save({ ...state, mappings: state.mappings.map((m) => ({
+      fileId: m.fileId, path: m.path, collisionKey: m.collisionKey, contentHash: m.contentHash,
+      ...(m.contentKind === undefined ? {} : { contentKind: m.contentKind }),
+    })) });
+  }
+
   async recover(): Promise<void> {
     await this.mutations.runExclusive('state', () => this.recoverLocked());
   }
@@ -157,7 +166,7 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
       const current = await this.options.store.load();
       const ids = new Set(record.fileIds);
       const heads = Object.fromEntries(Object.entries(current.heads).filter(([id]) => !ids.has(id)));
-      await this.options.store.save({
+      await this.saveState({
         mappings: [...current.mappings.filter((m) => !ids.has(m.fileId)), ...record.state.mappings],
         heads: { ...heads, ...record.state.heads },
       });
@@ -194,7 +203,7 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
         const current = await this.options.store.load();
         const currentHead = current.heads[fileId];
         if (currentHead !== undefined && currentHead !== before.heads[fileId]) await this.options.cancelUnsentMerge?.(currentHead);
-        await this.options.store.save({
+        await this.saveState({
           mappings: [...current.mappings.filter((m) => !affected.has(m.fileId)), ...record.state.mappings],
           heads: { ...Object.fromEntries(Object.entries(current.heads).filter(([id]) => !affected.has(id))), ...record.state.heads },
         });
@@ -203,7 +212,7 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
   }
 
   async commitHeadResolution(input: {
-    mapping: LocalFileMapping; expectedHead: string; pendingIds: readonly string[];
+    mapping: LocalFileMapping & { content: string }; expectedHead: string; pendingIds: readonly string[];
     parents: readonly string[]; existingRevisionId?: string;
   }): Promise<void> {
     await this.mutations.runExclusive('state', async () => {
@@ -258,7 +267,7 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
   }
 
   async commitMergedChange(input: {
-    readonly mapping: LocalFileMapping;
+    readonly mapping: LocalFileMapping & { content: string };
     readonly remoteRevisionId: string;
     readonly remoteParentRevisionIds: readonly string[];
   }): Promise<boolean> {
@@ -292,7 +301,7 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
         fileId: mapping.fileId,
         contentHash: built.contentHash,
       });
-      await this.options.store.save({
+      await this.saveState({
         mappings: upsertMapping(state.mappings, mapping),
         heads: { ...state.heads, [mapping.fileId]: revisionId },
       });
@@ -323,7 +332,7 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
     const recovery = this.options.recovery;
     if (recovery === undefined) {
       await this.options.enqueue(envelope);
-      await this.options.store.save(next);
+      await this.saveState(next);
       await this.seedSharedState(operation);
       return;
     }
@@ -332,7 +341,10 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
       kind: 'resolution',
       fileIds: [operation.fileId],
       state: {
-        mappings: next.mappings.filter((m) => m.fileId === operation.fileId),
+        mappings: next.mappings.filter((m) => m.fileId === operation.fileId).map((m) => ({
+          ...m,
+          ...(operation.contentKind === 'binary' || operation.content === null ? {} : { content: operation.content }),
+        })),
         heads: Object.fromEntries(
           Object.entries(next.heads).filter(([id]) => id === operation.fileId),
         ),
@@ -346,7 +358,7 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
     if (!started) {
       throw new Error('Local commit recovery transaction was refused.');
     }
-    await this.options.store.save(next);
+    await this.saveState(next);
     await this.seedSharedState(operation);
     await recovery.completeProducerRecovery(record.id);
   }
@@ -439,7 +451,7 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
       }
 
       // Delete of a never-pushed file: drop the local mapping without a revision.
-      await this.options.store.save(
+      await this.saveState(
         applyCommit(state, commit, {
           fileId: operation.fileId,
           revisionId: null,
@@ -480,7 +492,7 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
   /**
    * Adopts, without enqueuing, the producer mapping+head for a file the apply
    * side just materialised from a remote revision. This keeps the producer's
-   * fileId↔path↔content map in lockstep with the vault write, so the vault event
+   * fileId↔path↔hash map in lockstep with the vault write, so the vault event
    * that write triggers dedupes to a no-op instead of (a) re-pushing the peer's
    * edit, (b) recording it as LOCAL activity, or (c) minting a fresh random
    * fileId for the same path (a duplicate fileId across devices).
@@ -492,7 +504,7 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
     return this.mutations.runExclusive('state', async () => {
       const state = await this.options.store.load();
       const mappings = upsertMapping(state.mappings, mapping);
-      await this.options.store.save({
+      await this.saveState({
         mappings,
         heads: { ...state.heads, [mapping.fileId]: headRevisionId },
       });
@@ -509,7 +521,7 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
       );
       const heads = { ...state.heads };
       delete heads[fileId];
-      await this.options.store.save({ mappings, heads });
+      await this.saveState({ mappings, heads });
     });
   }
 }

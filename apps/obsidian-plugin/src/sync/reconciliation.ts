@@ -1,9 +1,8 @@
-import { canonicalizeMarkdown } from '@havemind/protocol';
+import { canonicalizeMarkdown, hashBlob, hashPlaintext } from '@havemind/protocol';
 
 import { isSyncableConfigPath } from './appearance-scope';
 import { normalizeConfigContent } from './config-normalize';
 import {
-  bytesToBase64,
   classifyVaultPath,
   LocalVaultError,
   MAX_BINARY_FILE_BYTES,
@@ -121,35 +120,35 @@ export function warnSkippedPaths(result: ReconcileResult): void {
 
 interface EligibleVaultFile {
   collisionKey: string;
-  content: string;
+  contentHash: string;
+  kind: SyncContentKind;
   readPath: string;
 }
 
 /**
- * Reads an eligible file's content for comparison, honouring its sync kind. A
- * binary attachment (F9) is compared over its RAW bytes (hashed with `hashBlob`,
- * carried as base64) so a byte-identical asset reads as unchanged; markdown is
- * canonicalised text. A binary file over {@link MAX_BINARY_FILE_BYTES} returns
+ * Reads and hashes an eligible file, honouring its sync kind. A binary
+ * attachment (F9) is hashed over RAW bytes with `hashBlob`; markdown is hashed
+ * over canonicalised text. A binary file over {@link MAX_BINARY_FILE_BYTES} returns
  * `'too-large'`, excluded-with-notice, never an error.
  */
 async function readEligibleContent(
   vault: VaultSnapshotPort,
   readPath: string,
   kind: SyncContentKind,
-): Promise<{ content: string } | 'too-large'> {
+): Promise<{ contentHash: string } | 'too-large'> {
   if (kind === 'binary') {
     const bytes = await vault.readBinary(readPath);
     if (bytes.byteLength > MAX_BINARY_FILE_BYTES) return 'too-large';
-    return { content: bytesToBase64(bytes) };
+    return { contentHash: await hashBlob(bytes) };
   }
   // Same volatile-field filter the observer applies when it hashes a config file
   // (`config-normalize.ts`), so a graph.json whose zoom changed since the last
   // scan reads as UNCHANGED here instead of being handed to `observeModify`,
   // the mapping it is compared against holds the normalized form.
   return {
-    content: normalizeContent(
+    contentHash: await hashPlaintext(normalizeContent(
       normalizeConfigContent(readPath, await vault.readText(readPath)),
-    ),
+    )),
   };
 }
 
@@ -216,15 +215,15 @@ export async function reconcileVaultState(
       mappingsByCollision.delete(collisionKey);
       continue;
     }
-    const { content } = read;
+    const { contentHash } = read;
     const mapping = mappingsByCollision.get(collisionKey);
     if (mapping === undefined) {
-      unmatchedVault.push({ collisionKey, content, readPath });
+      unmatchedVault.push({ collisionKey, contentHash, kind, readPath });
       continue;
     }
 
     mappingsByCollision.delete(collisionKey);
-    if (mapping.content === content) {
+    if (mapping.contentHash === contentHash) {
       unchanged += 1;
     } else if (
       await observeResilient(readPath, recordSkip, () => observer.observeModify(readPath))
@@ -305,8 +304,8 @@ async function applyRenamesCreatesDeletes(
   unmatchedMappings: readonly LocalFileMapping[],
   onSkip: (detail: SkippedFileDetail) => void,
 ): Promise<{ created: number; deleted: number; renamed: number; skipped: number }> {
-  const vaultByContent = groupBy(unmatchedVault, (file) => file.content);
-  const mappingsByContent = groupBy(unmatchedMappings, (m) => m.content);
+  const vaultByContent = groupBy(unmatchedVault, (file) => `${file.kind}:${file.contentHash}`);
+  const mappingsByContent = groupBy(unmatchedMappings, (m) => `${m.contentKind ?? 'markdown'}:${m.contentHash}`);
 
   const consumedVault = new Set<EligibleVaultFile>();
   const consumedMappings = new Set<LocalFileMapping>();

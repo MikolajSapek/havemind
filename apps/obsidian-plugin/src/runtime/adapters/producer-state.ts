@@ -1,5 +1,5 @@
 /**
- * Parsing the untrusted persisted PRODUCER blob (the path↔fileId↔content mapping
+ * Parsing the untrusted persisted PRODUCER blob (the path↔fileId↔hash mapping
  * set) under the GAP-3 fail-closed policy. Pure and never-throwing: it runs
  * during connect-time producer setup, so it must always return a verdict,
  * absent, ok (with any malformed entry quarantined rather than dropped), or
@@ -49,7 +49,6 @@ function isValidProducerMapping(
   return (
     isRecord(entry) &&
     typeof entry.collisionKey === 'string' &&
-    typeof entry.content === 'string' &&
     typeof entry.contentHash === 'string' &&
     typeof entry.fileId === 'string' &&
     typeof entry.path === 'string'
@@ -60,7 +59,6 @@ function isValidProducerMapping(
 function buildProducerMapping(entry: Record<string, unknown>): LocalFileMapping {
   return {
     collisionKey: entry.collisionKey as string,
-    content: entry.content as string,
     contentHash: entry.contentHash as string,
     // Preserve the binary/markdown discriminator across every load→save
     // cycle. Dropping it here silently converts a persisted binary mapping
@@ -107,7 +105,7 @@ export function parseProducerStateResult(raw: unknown): ProducerParseResult {
   }
 
   // OK: keep every valid mapping and QUARANTINE (never drop) each malformed one so
-  // a lost path↔fileId↔content entry can't later mint a duplicate fileId silently.
+  // a lost path↔fileId↔hash entry can't later mint a duplicate fileId silently.
   const mappings: LocalFileMapping[] = [];
   const quarantinedMappings: unknown[] = [];
   for (const entry of raw.mappings) {

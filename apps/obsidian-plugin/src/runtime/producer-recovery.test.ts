@@ -51,6 +51,24 @@ const journal = (id: string, retired: string[]): ProducerRecovery => ({
 });
 
 describe('durable producer recovery', () => {
+  it('retains the committed snapshot only in the journal and recovers it after the disk has moved on', async () => {
+    const h = setup(); const state = h.state();
+    const { content, ...metadata } = mapping;
+    h.failProducer(true);
+    await expect(h.producer(state).commitLocalChange({ upsertMapping: metadata, removeFileId: null,
+      operation: { kind: 'create', ...metadata, content, operationId: 'crash', observedAt: 1,
+         previousContentHash: null, previousPath: null, revisionId: null },
+    })).rejects.toThrow('producer save failed');
+    // Recovery has no vault port: neither newer disk text nor a deleted file
+    // can substitute for the exact committed snapshot in the journal.
+    expect(h.raw().producerRecovery?.[0]?.state.mappings[0]).toMatchObject({ content });
+    h.failProducer(false);
+    await h.producer(h.state()).recover();
+    expect(h.raw().baseContents[mapping.fileId]).toBe(content);
+    expect(h.producerState().mappings).toEqual([metadata]);
+    expect(await h.state().pendingProducerRecoveries()).toEqual([]);
+  });
+
   it('stages replacement, originals and mapping intent atomically, then replays after restart', async () => {
     const h = setup(); const state = h.state();
     await state.enqueue(env('old'));
@@ -152,11 +170,12 @@ describe('durable producer recovery', () => {
     await expect(producer.commitLocalChange({ upsertMapping: mapping, removeFileId: null, operation: {
       kind: 'create', fileId: mapping.fileId, path: mapping.path, content: mapping.content,
       contentHash: mapping.contentHash, operationId: 'local-create', observedAt: 1,
-      previousContent: null, previousContentHash: null, previousPath: null, revisionId: null,
+       previousContentHash: null, previousPath: null, revisionId: null,
     } })).rejects.toThrow('producer save failed');
     h.failProducer(false);
     const restarted = h.producer(h.state());
-    expect(await restarted.listMappings()).toEqual([mapping]);
+    expect(await restarted.listMappings()).toEqual([expect.objectContaining({ fileId: mapping.fileId, contentHash: mapping.contentHash })]);
+    expect((await restarted.listMappings())[0]).not.toHaveProperty('content');
     expect(await h.state().listOutbox()).toHaveLength(1);
     expect(h.producerState().heads[mapping.fileId]).toBe((await h.state().listOutbox())[0]?.revisionId);
     expect(h.raw().pathOwners[mapping.path]).toBe(mapping.fileId);
@@ -174,7 +193,7 @@ describe('durable producer recovery', () => {
       upsertMapping: kind === 'delete' ? null : next, removeFileId: kind === 'delete' ? mapping.fileId : null,
       operation: { kind, fileId: mapping.fileId, path: kind === 'delete' ? mapping.path : next.path,
         content: kind === 'delete' ? null : next.content, contentHash: kind === 'delete' ? null : next.contentHash,
-        operationId: 'interrupted', observedAt: 1, previousContent: mapping.content,
+        operationId: 'interrupted', observedAt: 1,
         previousContentHash: mapping.contentHash, previousPath: kind === 'rename' ? mapping.path : null, revisionId: null },
     })).rejects.toThrow('producer save failed');
     h.failProducer(false);
@@ -197,7 +216,7 @@ describe('durable producer recovery', () => {
     await expect(producer.commitLocalChange({ upsertMapping: mapping, removeFileId: null, operation: {
       kind: 'create', fileId: mapping.fileId, path: mapping.path, content: mapping.content,
       contentHash: mapping.contentHash, operationId: 'local-create', observedAt: 1,
-      previousContent: null, previousContentHash: null, previousPath: null, revisionId: null,
+       previousContentHash: null, previousPath: null, revisionId: null,
     } })).rejects.toThrow('disk full');
     h.failSaveWhen(() => false);
     await h.producer(h.state()).recover();

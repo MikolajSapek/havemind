@@ -238,7 +238,7 @@ describe('owner initial seed is quiet in the Activity feed', () => {
         operation: 'create',
         kind: 'markdown',
         path: mapping.path,
-        content: mapping.content,
+        content: h.vault.contents.get(mapping.path),
         previousPath: null,
       } as unknown as DecodedRevisionPayload);
       const outcome = await h.adapter.applyRemote({

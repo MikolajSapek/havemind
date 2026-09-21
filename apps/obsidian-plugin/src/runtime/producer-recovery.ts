@@ -11,7 +11,11 @@ export interface ProducerRecovery {
     readonly baseContents: Readonly<Record<string, string>>;
   };
   readonly fileIds: readonly string[];
-  readonly state: ProducerState;
+  // Only unfinished forward commits need a snapshot. Keep the legacy journal
+  // shape readable; steady-state producer mappings contain metadata alone.
+  readonly state: Omit<ProducerState, 'mappings'> & {
+    readonly mappings: readonly (ProducerState['mappings'][number] & { readonly content?: string })[];
+  };
   readonly discardRevisionIds: readonly string[];
 }
 export interface ProducerRecoveryPort {
@@ -41,7 +45,8 @@ export function validRecovery(value: unknown): value is ProducerRecovery {
     state.mappings.every((m: unknown) => {
       if (typeof m !== 'object' || m === null) return false;
       const item = m as Record<string, unknown>;
-      return ['fileId', 'path', 'collisionKey', 'content', 'contentHash'].every((key) => typeof item[key] === 'string') &&
+      return ['fileId', 'path', 'collisionKey', 'contentHash'].every((key) => typeof item[key] === 'string') &&
+        (row.kind !== 'resolution' || item.contentKind === 'binary' || typeof item.content === 'string') &&
         (row.fileIds as string[]).includes(item.fileId as string) &&
         (item.contentKind === undefined || item.contentKind === 'markdown' || item.contentKind === 'binary');
     });

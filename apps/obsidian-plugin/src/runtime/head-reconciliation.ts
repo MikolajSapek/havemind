@@ -1,4 +1,4 @@
-import { canonicalizeMarkdown } from '@havemind/protocol';
+import { canonicalizeMarkdown, hashPlaintext } from '@havemind/protocol';
 import { mergeText } from '@havemind/sync-core';
 import type { OutboxLocalChangeRepository } from '../sync/outbox-repository';
 import type { DurableSyncState } from './sync-state';
@@ -34,7 +34,10 @@ export async function reconcileHeads(options: {
       let tip = local.revisionId;
       const lineage = ancestors(graph, tip);
       if (pending.some((entry) => !lineage.has(entry.revisionId))) return;
-      let content = canonicalizeMarkdown(mapping.content);
+      const initialDisk = await files.readByPath(mapping.path);
+      if (initialDisk === null || await hashPlaintext(initialDisk) !== mapping.contentHash) return;
+      const initialContent = canonicalizeMarkdown(initialDisk);
+      let content = initialContent;
       for (const head of heads) {
         const remoteId = head.revision.revisionId;
         if (ancestors(graph, tip).has(remoteId)) continue;
@@ -65,7 +68,7 @@ export async function reconcileHeads(options: {
           fileId: mapping.fileId, revisionId: tip, contentHash: '', parentRevisionIds: [previous, remoteId],
         } });
       }
-      if (canonicalizeMarkdown(mapping.content) !== content) return;
+      if (initialContent !== content) return;
       // Awaited history reads must not authorize replacing a new local save.
       const disk = await files.readByPath(mapping.path);
       if (disk === null || canonicalizeMarkdown(disk) !== content) return;
@@ -75,7 +78,7 @@ export async function reconcileHeads(options: {
       const existingRevisionId = adopted?.kind !== 'binary' && adopted?.operation !== 'delete' &&
         adopted?.path === mapping.path && adopted?.content === content ? onlyHead?.revision.revisionId : undefined;
       await producer.commitHeadResolution({
-        mapping, expectedHead: local.revisionId,
+        mapping: { ...mapping, content }, expectedHead: local.revisionId,
         pendingIds: pending.map((entry) => entry.revisionId),
         parents: heads.map((head) => head.revision.revisionId),
         ...(existingRevisionId === undefined ? {} : { existingRevisionId }),

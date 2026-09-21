@@ -69,12 +69,6 @@ export type LocalChangeKind = 'create' | 'update' | 'rename' | 'delete';
 export interface LocalFileMapping {
   collisionKey: string;
   /**
-   * Canonical markdown text, or, for a binary attachment (F9), the base64 of
-   * the raw file bytes. Optional discriminator `contentKind` says which; absent
-   * means markdown, so every legacy mapping keeps its meaning unchanged.
-   */
-  content: string;
-  /**
    * SHA-256 hex. For markdown this is the hash of the canonical text; for a
    * binary attachment it is the hash of the RAW bytes (`hashBlob`), never a
    * canonicalised form.
@@ -99,7 +93,6 @@ export interface LocalChangeOperation {
   observedAt: number;
   operationId: string;
   path: string;
-  previousContent: string | null;
   previousContentHash: string | null;
   previousPath: string | null;
   /**
@@ -472,7 +465,6 @@ export class VaultChangeObserver {
       fileId,
       kind: 'create',
       path: classified.canonicalPath,
-      previousContent: null,
       previousContentHash: null,
       previousPath: null,
     });
@@ -482,7 +474,6 @@ export class VaultChangeObserver {
       removeFileId: null,
       upsertMapping: {
         collisionKey: classified.collisionKey,
-        content,
         contentHash,
         contentKind: classified.kind,
         fileId,
@@ -536,7 +527,6 @@ export class VaultChangeObserver {
       fileId: mapping.fileId,
       kind: 'update',
       path: classified.canonicalPath,
-      previousContent: mapping.content,
       previousContentHash: mapping.contentHash,
       previousPath: null,
     });
@@ -546,7 +536,6 @@ export class VaultChangeObserver {
       removeFileId: null,
       upsertMapping: {
         collisionKey: classified.collisionKey,
-        content,
         contentHash,
         contentKind: classified.kind,
         fileId: mapping.fileId,
@@ -603,7 +592,6 @@ export class VaultChangeObserver {
       fileId: mapping.fileId,
       kind: 'rename',
       path: to.canonicalPath,
-      previousContent: mapping.content,
       previousContentHash: mapping.contentHash,
       previousPath: from.canonicalPath,
     });
@@ -613,7 +601,6 @@ export class VaultChangeObserver {
       removeFileId: null,
       upsertMapping: {
         collisionKey: to.collisionKey,
-        content,
         contentHash,
         contentKind: to.kind,
         fileId: mapping.fileId,
@@ -683,7 +670,6 @@ export class VaultChangeObserver {
       fileId: mapping.fileId,
       kind: 'delete',
       path: mapping.path,
-      previousContent: mapping.content,
       previousContentHash: mapping.contentHash,
       previousPath: null,
     });

@@ -49,7 +49,7 @@ export async function bootstrapIdentities(options: {
     await state.recordBaseHash(head.revision.fileId, contentHash);
     if (remote.kind !== 'binary') await state.recordBaseContent(head.revision.fileId, content);
     await producer.adoptRemoteMapping({ fileId: head.revision.fileId, path: path.canonicalPath,
-      collisionKey: path.collisionKey, content, contentHash,
+      collisionKey: path.collisionKey, contentHash,
       ...(remote.kind === 'binary' ? { contentKind: 'binary' } : {}),
     }, head.revision.revisionId);
     mapped.add(path.collisionKey);

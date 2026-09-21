@@ -1,6 +1,6 @@
 /**
  * Bridges the apply side's remote writes into the push producer's durable
- * fileId↔path↔content map, so the vault event a remote-apply write triggers is
+ * fileId↔path↔hash map, so the vault event a remote-apply write triggers is
  * never re-observed as a fresh LOCAL change. Without this bridge a two-person
  * steady state loops forever: applying the peer's edit fires a vault event, the
  * producer re-pushes it as a new local revision, records it as local activity,
@@ -51,14 +51,13 @@ export function createRemoteApplyProducerSync(
     async checkpointApply(fileId, paths) {
       return await getProducer()?.checkpointApply?.(fileId, paths) ?? (async () => undefined);
     },
-    async onRemoteWrite({ fileId, path, content, contentHash, revisionId, contentKind }) {
+    async onRemoteWrite({ fileId, path, contentHash, revisionId, contentKind }) {
       const producer = getProducer();
       if (producer === null) return;
       const classified = classifyVaultPath(path);
       if (!classified.eligible) return;
       const mapping: LocalFileMapping = {
         collisionKey: classified.collisionKey,
-        content,
         contentHash,
         // Carry the binary discriminator into the durable producer mapping so a
         // RECEIVED binary is persisted (and rebased) as binary, never markdown.

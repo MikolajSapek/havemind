@@ -1,4 +1,5 @@
 import { canonicalizeMarkdown } from '@havemind/protocol';
+import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { RevisionPayloadTooLargeError } from '@havemind/sync-core';
@@ -168,8 +169,8 @@ describe('startup reconciliation', () => {
     );
     expect(
       repository.commits.find((entry) => entry.operation.kind === 'delete')
-        ?.operation.previousContent,
-    ).toBe('recoverable\n');
+        ?.operation.previousContentHash,
+    ).toBe(createHash('sha256').update('recoverable\n').digest('hex'));
   });
 
   it('infers only an unambiguous same-content rename and preserves its file identity', async () => {
@@ -546,25 +547,20 @@ function mapping(
   path: string,
   content: string,
 ): LocalFileMapping {
-  // Stored mappings hold the CANONICAL content form in production (the producer
-  // canonicalises on write and the AUD-03 startup rebase canonicalises existing
-  // state), so the fixture must too, otherwise a content-match comparison
-  // against the now-canonicalised vault read would drift and mint a spurious
-  // revision only in the test, never in production.
+  // Use the real canonical digest so unchanged and offline-rename checks
+  // exercise the same comparison as the production observer.
   const canonical = canonicalizeMarkdown(content);
   return {
     collisionKey: path.toLowerCase(),
-    content: canonical,
-    contentHash: `hash:${canonical}`,
+    contentHash: createHash('sha256').update(canonical).digest('hex'),
     fileId,
     path,
   };
 }
 
 /**
- * A stored binary-attachment mapping (F9): `content` is base64 of the RAW
- * bytes (never canonicalised), matching what `bytesToBase64` produces for the
- * same bytes on the vault-read side.
+ * A stored binary-attachment mapping (F9): the hash covers RAW bytes,
+ * never canonicalised text or base64.
  */
 function binaryMapping(
   fileId: string,
@@ -573,8 +569,7 @@ function binaryMapping(
 ): LocalFileMapping {
   return {
     collisionKey: path.toLowerCase(),
-    content: bytesToBase64(bytes),
-    contentHash: `hash:${path}`,
+    contentHash: createHash('sha256').update(bytes).digest('hex'),
     contentKind: 'binary',
     fileId,
     path,

@@ -29,7 +29,6 @@ function makeOperation(
     observedAt: 1,
     operationId: 'op-1',
     path: 'Notes/a.md',
-    previousContent: null,
     previousContentHash: null,
     previousPath: null,
     revisionId: null,
@@ -101,7 +100,7 @@ describe('OutboxLocalChangeRepository', () => {
       },
     });
     await expect(repo.commitLocalChange({ operation: makeOperation(), removeFileId: null,
-      upsertMapping: { fileId: FILE_ID, path: 'Notes/a.md', collisionKey: 'notes/a.md', content: 'Hello\n', contentHash: 'hash-1' },
+      upsertMapping: { fileId: FILE_ID, path: 'Notes/a.md', collisionKey: 'notes/a.md',  contentHash: 'hash-1' },
     })).rejects.toThrow('refused');
     expect(enqueued).toEqual([]);
     expect(store.state).toEqual({ mappings: [], heads: {} });
@@ -113,7 +112,7 @@ describe('OutboxLocalChangeRepository', () => {
     await Promise.all(ids.map((fileId, index) => repo.commitLocalChange({
       operation: makeOperation({ fileId, path: `${index}.md`, operationId: `op-${index}` }),
       removeFileId: null,
-      upsertMapping: { fileId, path: `${index}.md`, collisionKey: `${index}.md`, content: 'Hello\n', contentHash: 'hash-1' },
+      upsertMapping: { fileId, path: `${index}.md`, collisionKey: `${index}.md`,  contentHash: 'hash-1' },
     })));
     expect(enqueued).toHaveLength(2);
     expect(store.state.mappings.map((m) => m.fileId).sort()).toEqual(ids.sort());
@@ -128,7 +127,6 @@ describe('OutboxLocalChangeRepository', () => {
       removeFileId: null,
       upsertMapping: {
         collisionKey: 'notes/a.md',
-        content: 'Hello\n',
         contentHash: 'hash-1',
         fileId: FILE_ID,
         path: 'Notes/a.md',
@@ -163,7 +161,6 @@ describe('OutboxLocalChangeRepository', () => {
       removeFileId: null,
       upsertMapping: {
         collisionKey: 'notes/a.md',
-        content: 'Hello\n',
         contentHash: 'hash-1',
         fileId: FILE_ID,
         path: 'Notes/a.md',
@@ -194,7 +191,6 @@ describe('OutboxLocalChangeRepository', () => {
       removeFileId: null,
       upsertMapping: {
         collisionKey: 'notes/a.md',
-        content: 'Hello\n',
         contentHash: 'hash-1',
         fileId: FILE_ID,
         path: 'Notes/a.md',
@@ -212,7 +208,6 @@ describe('OutboxLocalChangeRepository', () => {
       removeFileId: null,
       upsertMapping: {
         collisionKey: 'notes/a.md',
-        content: 'Hello again\n',
         contentHash: 'hash-2',
         fileId: FILE_ID,
         path: 'Notes/a.md',
@@ -237,7 +232,6 @@ describe('OutboxLocalChangeRepository', () => {
         removeFileId: null,
         upsertMapping: {
           collisionKey: 'notes/a.md',
-          content: 'This note is well over the tiny per-payload limit.\n',
           contentHash: 'hash-1',
           fileId: FILE_ID,
           path: 'Notes/a.md',
@@ -259,7 +253,6 @@ describe('OutboxLocalChangeRepository', () => {
       removeFileId: null,
       upsertMapping: {
         collisionKey: 'notes/a.md',
-        content: 'Hello\n',
         contentHash: 'hash-1',
         fileId: FILE_ID,
         path: 'Notes/a.md',
@@ -289,7 +282,6 @@ describe('OutboxLocalChangeRepository', () => {
         removeFileId: null,
         upsertMapping: {
           collisionKey: 'notes/a.md',
-          content: 'Hello\n',
           contentHash: 'hash-1',
           fileId: FILE_ID,
           path: 'Notes/a.md',
@@ -315,7 +307,6 @@ describe('OutboxLocalChangeRepository', () => {
         removeFileId: null,
         upsertMapping: {
           collisionKey: 'notes/a.md',
-          content: 'Hello\n',
           contentHash: 'hash-1',
           fileId: FILE_ID,
           path: 'Notes/a.md',
@@ -332,7 +323,6 @@ describe('OutboxLocalChangeRepository', () => {
         removeFileId: null,
         upsertMapping: {
           collisionKey: 'notes/b.md',
-          content: 'Hello\n',
           contentHash: 'hash-1',
           fileId: FILE_ID,
           path: 'Notes/b.md',
@@ -354,7 +344,6 @@ describe('OutboxLocalChangeRepository', () => {
         removeFileId: null,
         upsertMapping: {
           collisionKey: 'notes/a.md',
-          content: 'Hello\n',
           contentHash: 'hash-1',
           fileId: FILE_ID,
           path: 'Notes/a.md',
@@ -383,7 +372,6 @@ describe('OutboxLocalChangeRepository', () => {
       await repo.adoptRemoteMapping(
         {
           collisionKey: 'notes/shared.md',
-          content: 'SHARED\n',
           contentHash: 'hash-s',
           fileId: REMOTE_FILE,
           path: 'Notes/Shared.md',
@@ -406,7 +394,6 @@ describe('OutboxLocalChangeRepository', () => {
         removeFileId: null,
         upsertMapping: {
           collisionKey: 'notes/shared.md',
-          content: 'SHARED edit\n',
           contentHash: 'hash-s2',
           fileId: REMOTE_FILE,
           path: 'Notes/Shared.md',
@@ -429,11 +416,11 @@ describe('OutboxLocalChangeRepository', () => {
       };
       await repo.adoptRemoteMapping(mapping, REMOTE_REV);
       await repo.adoptRemoteMapping(
-        { ...mapping, content: 'SHARED2\n' },
+        { ...mapping, contentHash: 'hash-s2' },
         '88888888-8888-4888-8888-888888888888',
       );
       expect(store.state.mappings).toHaveLength(1);
-      expect(store.state.mappings[0]?.content).toBe('SHARED2\n');
+      expect(store.state.mappings[0]?.contentHash).toBe('hash-s2');
       expect(store.state.heads[REMOTE_FILE]).toBe(
         '88888888-8888-4888-8888-888888888888',
       );
@@ -444,7 +431,6 @@ describe('OutboxLocalChangeRepository', () => {
       await repo.adoptRemoteMapping(
         {
           collisionKey: 'notes/shared.md',
-          content: 'SHARED\n',
           contentHash: 'hash-s',
           fileId: REMOTE_FILE,
           path: 'Notes/Shared.md',
@@ -549,7 +535,7 @@ describe('OutboxLocalChangeRepository', () => {
       await repo.adoptRemoteMapping(sharedMapping('PEER\n', 'hash-93'), PEER_HEAD);
 
       const mapping = store.state.mappings.find((m) => m.fileId === SHARED_FILE);
-      expect(mapping?.content).toBe('PEER\n');
+      expect(mapping).not.toHaveProperty('content');
       expect(mapping?.contentHash).toBe('hash-93');
       expect(store.state.heads[SHARED_FILE]).toBe(PEER_HEAD);
     });
@@ -628,7 +614,6 @@ describe('OutboxLocalChangeRepository', () => {
         removeFileId: null,
         upsertMapping: {
           collisionKey: 'attachments/img.png',
-          content: base64,
           contentHash: 'blob-hash-1',
           contentKind: 'binary',
           fileId: FILE_ID,
@@ -665,7 +650,6 @@ describe('OutboxLocalChangeRepository', () => {
           removeFileId: null,
           upsertMapping: {
             collisionKey: 'attachments/big.png',
-            content: base64,
             contentHash: 'blob-hash-big',
             contentKind: 'binary',
             fileId: FILE_ID,
