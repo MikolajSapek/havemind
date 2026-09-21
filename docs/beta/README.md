@@ -31,8 +31,8 @@ Obsidian app, since 1.4.0.
 
 ## Installation and first connection
 
-1. Install **Havemind** from the Obsidian Community directory. To try a
-   prerelease, use BRAT with <https://github.com/MikolajSapek/obsidian-havemind>.
+1. Install **Havemind** from the Obsidian Community directory. Update it through
+   Settings, then Community plugins, then Check for updates.
 2. Open the Havemind sidebar and select **Connect**.
 3. The server owner first pairs their own device using the single-use setup
    token. They then create a one-time invitation for each additional device.

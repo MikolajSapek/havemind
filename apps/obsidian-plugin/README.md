@@ -6,9 +6,8 @@ than in a Havemind-hosted cloud.
 
 ## Install
 
-Install from the Obsidian Community directory, or use BRAT with this repository
-to try a prerelease. Havemind is desktop-only and requires a server the vault
-owner self-hosts.
+Install and update Havemind from the Obsidian Community directory. Havemind
+supports desktop and mobile and requires a server the vault owner self-hosts.
 
 ## Privacy and permission disclosures
 

@@ -29,7 +29,7 @@ Each follow-up plan is a SEPARATE document in `plans/00X-*.md`, executed sequent
 
 | Follow-up plan | Gate required before starting (from the open-source readiness amendment (removed 2026-09-10)) |
 |---|---|
-| GitHub/BRAT alpha (public repo) | Stage 2 checklist: SECURITY.md/CONTRIBUTING.md/CODE_OF_CONDUCT.md/CHANGELOG.md, diagnostics with no secret leakage, quick-start documentation |
+| GitHub alpha (public repo) | Stage 2 checklist: SECURITY.md/CONTRIBUTING.md/CODE_OF_CONDUCT.md/CHANGELOG.md, diagnostics with no secret leakage, quick-start documentation |
 | E2EE and recovery kit | `plans/001-technical-plan.md` §10 in full; a dedicated threat-model spike BEFORE implementation; zero custom cryptography |
 | Attachments/quota | Atomic binary-version tests + a documented quota policy |
 | Encrypted checkpoints/retention | Safe new-device bootstrap defined BEFORE deleting any history |

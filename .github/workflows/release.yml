@@ -12,8 +12,7 @@ permissions:
   # Artifact attestations: `id-token` signs the provenance claim with the
   # workflow's OIDC identity, `attestations` records it. Together they let a
   # user verify main.js/styles.css were built by this workflow from this
-  # repository, the gap plans/003 T1 flagged, where BRAT trusts a release with
-  # no signature check and account control is the only boundary.
+  # repository, so users can verify the provenance of a release artifact.
   id-token: write
   attestations: write
 

@@ -358,7 +358,7 @@ Gate: seven-day pilot, forced network outages, service restart, client restart a
 
 ### Phase 8, gated follow-up plans
 
-After the disposable pilot passes, write separate implementation plans for (a) public GitHub/BRAT alpha packaging, (b) E2EE/device recovery, (c) attachments/quota and (d) encrypted checkpoints/retention. Execute them sequentially rather than combining four high-risk changes.
+After the disposable pilot passes, write separate implementation plans for (a) public GitHub alpha packaging, (b) E2EE/device recovery, (c) attachments/quota and (d) encrypted checkpoints/retention. Execute them sequentially rather than combining four high-risk changes.
 
 Gate: each follow-up plan preserves this protocol's safety invariants and satisfies the relevant release stage in the open-source readiness amendment (removed) before implementation or publication.
 

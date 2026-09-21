@@ -262,10 +262,10 @@ in the phase report (what works, what's deferred, evidence).
 
 ## F9, Follow-up (equivalent to Phase 8 in `plans/001-technical-plan.md`; ⚠ HARD, separate plans, sequential)
 
-- [x] **F9-01** `user-decision` Prepare 4 separate follow-up plans (T033), GitHub/BRAT alpha,
+- [x] **F9-01** `user-decision` Prepare 4 separate follow-up plans (T033), GitHub alpha,
   E2EE/recovery, attachments/quota, encrypted checkpoints.
   - ✅ CLOSED 2026-08-07: 4 plans exist. 003 done de facto (the obsidian-havemind
-    distribution repo + BRAT works); 004 and 006 dropped by user decision (E2EE abandoned,
+    distribution repo publishes installable releases); 004 and 006 dropped by user decision (E2EE abandoned,
     tailnet-only model); 005 partially done (binaries work; per-vault quota still open).
   - AC: 4 files `plans/00X-*.md` exist, each containing the headings `## Spec`, `## Threat model`,
     `## Acceptance tests`, `## Rollout/rollback` (functional, method: script/grep checking

@@ -375,7 +375,7 @@ loss across real two-device use from 2026-07-25.
 
 First feature-complete build for the two-person technical alpha. Distributed as
 a three-file Obsidian artifact (`main.js`, `manifest.json`, `styles.css`) via
-GitHub Releases and BRAT.
+GitHub Releases.
 
 > **Alpha, disposable vaults only.** The pilot payload format is plaintext and
 > has no end-to-end encryption. Do not connect a vault with real or sensitive

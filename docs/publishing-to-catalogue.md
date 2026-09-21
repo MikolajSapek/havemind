@@ -15,8 +15,8 @@ manifest at root). Monorepo `apps/obsidian-plugin/` stays the source of truth.
   `versions.json`, `README.md`, `LICENSE` at the root.
 - GitHub Release tagged `0.9.0` with `main.js` + `manifest.json` + `styles.css`
   attached as assets.
-- BRAT installs from the distribution repo, which is how users installed
-  before the catalogue accepted the entry and how beta builds still ship.
+- The Community directory installs and updates the plugin from releases in
+  the distribution repo.
 
 ## How the entry was submitted (completed, kept for reference)
 
@@ -48,5 +48,5 @@ infrastructure, network traffic only to the server URL the user configures.
 
 Run `scripts/publish-plugin.sh` from the monorepo: it rebuilds, scans the bundle
 for secret markers, copies the artefacts to the distribution repo, commits, and
-cuts a GitHub Release tagged to the manifest version. BRAT and the catalogue
-auto-update users from there.
+cuts a GitHub Release tagged to the manifest version. Users receive the update
+through the Obsidian Community directory.

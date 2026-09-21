@@ -1,7 +1,7 @@
 # Historical pilot installation guide
 
 > **Historical document.** These are the original two-MacBook pilot steps. For
-> a current installation, use the Community directory or BRAT and follow the
+> a current installation, use the Community directory and follow the
 > [closed beta guide](../beta/README.md). The direct file-copy method below is
 > useful only for local development and recovery.
 
