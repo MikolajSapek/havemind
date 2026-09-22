@@ -5,6 +5,14 @@ All notable changes to this project are documented here. The format is based on
 follows independent [Semantic Versioning](https://semver.org) for the plugin
 and the server.
 
+## [1.5.2], 2026-09-22
+
+### Changed
+
+- Installation and update guidance now consistently directs users to the
+  Obsidian Community directory. The plugin no longer documents BRAT as a
+  distribution path.
+
 ## [1.4.10], 2026-09-14
 
 ### Fixed
