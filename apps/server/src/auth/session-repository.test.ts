@@ -3,7 +3,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type Database from 'better-sqlite3';
-import fc from 'fast-check';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { openDatabase } from '../db.js';
@@ -488,60 +487,59 @@ describe('SessionRepository', () => {
     );
   });
 
-  it('property: identical replay is idempotent, any divergence revokes the family', () => {
-    fc.assert(
-      fc.property(
-        fc.boolean(),
-        fc.boolean(),
-        (divergeRotation, divergeSuccessor) => {
-          const fixture = makeFixture();
-          try {
-            const first = createRefreshSuccessor();
-            const rotated = fixture.repository.rotateRefresh({
-              currentRefreshToken: fixture.initialRefreshToken,
-              rotationId: first.rotationId,
-              successorRefreshToken: first.refreshToken,
-            });
-            const other = createRefreshSuccessor();
-            const replay = {
-              currentRefreshToken: fixture.initialRefreshToken,
-              rotationId: divergeRotation ? other.rotationId : first.rotationId,
-              successorRefreshToken: divergeSuccessor
-                ? other.refreshToken
-                : first.refreshToken,
-            };
-            const readFamilyStatus = (): unknown =>
-              fixture.database
-                .prepare('SELECT status FROM refresh_token_families')
-                .get();
+  it.each([
+    [false, false],
+    [false, true],
+    [true, false],
+    [true, true],
+  ])(
+    'replay (divergeRotation=%s, divergeSuccessor=%s) is idempotent when identical, revokes the family otherwise',
+    (divergeRotation, divergeSuccessor) => {
+      const fixture = makeFixture();
+      try {
+        const first = createRefreshSuccessor();
+        const rotated = fixture.repository.rotateRefresh({
+          currentRefreshToken: fixture.initialRefreshToken,
+          rotationId: first.rotationId,
+          successorRefreshToken: first.refreshToken,
+        });
+        const other = createRefreshSuccessor();
+        const replay = {
+          currentRefreshToken: fixture.initialRefreshToken,
+          rotationId: divergeRotation ? other.rotationId : first.rotationId,
+          successorRefreshToken: divergeSuccessor
+            ? other.refreshToken
+            : first.refreshToken,
+        };
+        const readFamilyStatus = (): unknown =>
+          fixture.database
+            .prepare('SELECT status FROM refresh_token_families')
+            .get();
 
-            if (!divergeRotation && !divergeSuccessor) {
-              const retried = fixture.repository.rotateRefresh(replay);
-              expect(retried.wasRetry).toBe(true);
-              expect(retried.generation).toBe(1);
-              expect(
-                fixture.repository.lookupAccess(retried.accessToken),
-              ).not.toBeNull();
-              expect(readFamilyStatus()).toEqual({ status: 'active' });
-            } else {
-              expectSessionCode(
-                () => fixture.repository.rotateRefresh(replay),
-                'REFRESH_REUSE_DETECTED',
-              );
-              expect(readFamilyStatus()).toEqual({ status: 'reuse-detected' });
-              expect(
-                fixture.repository.lookupAccess(fixture.accessToken),
-              ).toBeNull();
-              expect(
-                fixture.repository.lookupAccess(rotated.accessToken),
-              ).toBeNull();
-            }
-          } finally {
-            fixture.database.close();
-          }
-        },
-      ),
-      { numRuns: 1_000 },
-    );
-  }, 120_000);
+        if (!divergeRotation && !divergeSuccessor) {
+          const retried = fixture.repository.rotateRefresh(replay);
+          expect(retried.wasRetry).toBe(true);
+          expect(retried.generation).toBe(1);
+          expect(
+            fixture.repository.lookupAccess(retried.accessToken),
+          ).not.toBeNull();
+          expect(readFamilyStatus()).toEqual({ status: 'active' });
+        } else {
+          expectSessionCode(
+            () => fixture.repository.rotateRefresh(replay),
+            'REFRESH_REUSE_DETECTED',
+          );
+          expect(readFamilyStatus()).toEqual({ status: 'reuse-detected' });
+          expect(
+            fixture.repository.lookupAccess(fixture.accessToken),
+          ).toBeNull();
+          expect(
+            fixture.repository.lookupAccess(rotated.accessToken),
+          ).toBeNull();
+        }
+      } finally {
+        fixture.database.close();
+      }
+    },
+  );
 });
