@@ -3,9 +3,13 @@ import { describe, expect, it } from 'vitest';
 import { decodeRevisionPayload } from '@havemind/sync-core';
 import { protectedRevisionHeaderSchema } from '@havemind/protocol';
 
-import type { LocalChangeOperation } from '../obsidian/vault-adapter';
+import {
+  MAX_BINARY_FILE_BYTES,
+  type LocalChangeOperation,
+} from '../obsidian/vault-adapter';
 import type { OutboxEnvelope } from '../runtime/sync-state';
 import {
+  MAX_BINARY_PAYLOAD_BYTES,
   OutboxLocalChangeRepository,
   type ProducerState,
 } from './outbox-repository';
@@ -631,12 +635,10 @@ describe('OutboxLocalChangeRepository', () => {
     });
 
     it('does not throw RevisionPayloadTooLargeError for a large binary within the file cap (raised ceiling)', async () => {
-      // A 20MB attachment (within MAX_BINARY_FILE_BYTES = 25MB, base64 ≈ 27MB)
-      // would be rejected outright by the markdown default ceiling (512KB); a
-      // binary change uses MAX_BINARY_PAYLOAD_BYTES (40MB) instead, so the
-      // largest attachments the eligibility gate admits are never rejected here.
+      // A 1 MiB attachment (base64 ~1.4 MB) is over the 512 KB markdown
+      // default, so passing proves a binary change gets the raised ceiling.
       const { repo, enqueued } = makeRepo();
-      const bytes = new Uint8Array(20 * 1024 * 1024);
+      const bytes = new Uint8Array(1024 * 1024);
       const base64 = Buffer.from(bytes).toString('base64');
 
       await expect(
@@ -659,11 +661,13 @@ describe('OutboxLocalChangeRepository', () => {
       ).resolves.not.toBeNull();
 
       expect(enqueued).toHaveLength(1);
-      // Encoding a 20MB attachment takes ~8s under machine load; the default
-      // 5s vitest timeout makes this test flaky. Perf headroom, not logic.
-      // 20s was enough on an idle machine but not under parallel load or V8
-      // coverage instrumentation, where this same encode takes ~26s. Generous
-      // here rather than globally: the default stays a smoke alarm for hangs.
-    }, 120_000);
+    });
+
+    it('the raised ceiling holds the largest attachment the file cap admits', () => {
+      // Base64 grows bytes by 4/3; the rest of the JSON payload (path, hashes,
+      // ids) is well under 1 MB, so this bounds the real envelope size.
+      const base64Bytes = 4 * Math.ceil(MAX_BINARY_FILE_BYTES / 3);
+      expect(base64Bytes + 1024 * 1024).toBeLessThan(MAX_BINARY_PAYLOAD_BYTES);
+    });
   });
 });
