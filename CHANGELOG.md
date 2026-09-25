@@ -5,6 +5,18 @@ All notable changes to this project are documented here. The format is based on
 follows independent [Semantic Versioning](https://semver.org) for the plugin
 and the server.
 
+## [1.5.3], 2026-09-25
+
+### Changed
+
+- The test suite runs about 17 seconds faster. Three slow tests now prove the
+  same behaviour with less work: the refresh-token replay cases are listed
+  explicitly instead of sampled 1000 times, the binary payload ceiling is
+  checked with a 1 MiB attachment plus an explicit bound for the 25 MB file
+  cap, and the 1.5 MB encryption round trip no longer fills its payload
+  through libsodium's slow random generator. No change to plugin or server
+  behaviour.
+
 ## [1.5.2], 2026-09-22
 
 ### Changed
