@@ -1,3 +1,5 @@
+import { randomBytes } from 'node:crypto';
+
 import { beforeAll, describe, expect, it } from 'vitest';
 
 import { loadSodium, type Sodium } from './sodium.js';
@@ -218,13 +220,11 @@ describe('encryptPayload / decryptPayload', () => {
     ).toThrow(/ciphertext/i);
   });
 
-  // Runs in ~4s uninstrumented, but V8 coverage over libsodium's WASM pushes it
-  // past the 10s default and turns `npm run test:coverage` red. Given its own
-  // budget rather than raising the global default, which stays a useful smoke
-  // alarm for accidental hangs.
-  it('round-trips a >1 MB payload (size/perf sanity)', { timeout: 60_000 }, () => {
+  // The payload comes from node:crypto: libsodium's WASM randombytes_buf
+  // spends over a second filling 1.5 MB, while the AEAD itself takes ~15 ms.
+  it('round-trips a >1 MB payload (size/perf sanity)', () => {
     const vaultKey = generateVaultKey(sodium);
-    const big = sodium.randombytes_buf(1_500_000);
+    const big = new Uint8Array(randomBytes(1_500_000));
     const ciphertext = encryptPayload(sodium, big, vaultKey);
     const decrypted = decryptPayload(sodium, ciphertext, vaultKey);
     expect(decrypted.length).toBe(big.length);
