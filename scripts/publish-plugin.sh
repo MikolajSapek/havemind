@@ -13,7 +13,7 @@ set -euo pipefail
 
 MONOREPO="$(cd "$(dirname "$0")/.." && pwd)"
 PLUGIN_SRC="$MONOREPO/apps/obsidian-plugin"
-PLUGIN_README="$PLUGIN_SRC/README.md"
+MONOREPO_README="$MONOREPO/README.md"
 PLUGIN_REPO="${PLUGIN_REPO:-$(cd "$MONOREPO/.." && pwd)/obsidian-havemind}"
 
 if [[ ! -d "$PLUGIN_REPO/.git" ]]; then
@@ -39,16 +39,18 @@ if [[ ! -s "$RELEASE_NOTES" ]]; then
   echo "FAIL: release notes are missing or empty: $RELEASE_NOTES" >&2
   exit 1
 fi
-if [[ ! -s "$PLUGIN_README" ]]; then
-  echo "FAIL: plugin README is missing or empty: $PLUGIN_README" >&2
+if [[ ! -s "$MONOREPO_README" ]]; then
+  echo "FAIL: monorepo README is missing or empty: $MONOREPO_README" >&2
   exit 1
 fi
 echo "==> Version $VERSION"
 
 echo "==> Copying artefacts to $PLUGIN_REPO"
 cp "$PLUGIN_SRC/main.js" "$PLUGIN_SRC/manifest.json" "$PLUGIN_SRC/styles.css" \
-   "$PLUGIN_SRC/manifest-beta.json" "$MONOREPO/versions.json" "$PLUGIN_README" \
-   "$PLUGIN_REPO/"
+   "$PLUGIN_SRC/manifest-beta.json" "$MONOREPO/versions.json" "$PLUGIN_REPO/"
+# The plugin page shows the full monorepo README, not the short plugin one.
+node "$MONOREPO/scripts/dist-readme.mjs" "$MONOREPO_README" "$PLUGIN_REPO" \
+  > "$PLUGIN_REPO/README.md"
 
 cd "$PLUGIN_REPO"
 if git diff --quiet && git diff --cached --quiet; then

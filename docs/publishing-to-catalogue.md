@@ -47,6 +47,8 @@ infrastructure, network traffic only to the server URL the user configures.
 ## Shipping updates
 
 Run `scripts/publish-plugin.sh` from the monorepo: it rebuilds, scans the bundle
-for secret markers, copies the artefacts to the distribution repo, commits, and
+for secret markers, copies the artefacts to the distribution repo, writes the
+full monorepo README there (links to files the distribution repo lacks point at
+the monorepo), commits, and
 cuts a GitHub Release tagged to the manifest version. Users receive the update
 through the Obsidian Community directory.
