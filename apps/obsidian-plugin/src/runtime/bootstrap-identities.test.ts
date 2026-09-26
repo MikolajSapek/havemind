@@ -45,3 +45,53 @@ it('completes identity adoption after an interrupted shared-base write', async (
   expect((raw as PersistedSyncState).baseContents[fileId]).toBe(content);
   expect(await reopened.state.listOutbox()).toEqual([]);
 });
+
+// A connected device restarts with every local file already mapped. Downloading
+// each head's full payload to rediscover paths it already knows made a phone
+// fetch the whole vault on every start and never reach the pull.
+const MAPPED_ID = '00000000-0000-4000-8000-000000000010';
+const REMOTE_ONLY_ID = '00000000-0000-4000-8000-000000000011';
+const UNTRACKED_ID = '00000000-0000-4000-8000-000000000012';
+
+function establishedDevice(localPaths: readonly string[]) {
+  const fetched: string[] = [];
+  const producerRaw: ProducerState = {
+    mappings: [{ fileId: MAPPED_ID, path: 'known.md', collisionKey: 'known.md', contentHash: 'h' }],
+    heads: { [MAPPED_ID]: 'rev-known' },
+  };
+  const state = new DurableSyncState({ persist: { load: async () => null, loadBackup: async () => null,
+    preserveCorrupt: async () => undefined, save: async () => undefined } });
+  const producer = new OutboxLocalChangeRepository({
+    identity: { vaultId: 'vault', memberId: 'member', deviceId: 'device' },
+    store: { load: async () => producerRaw, save: async () => undefined },
+    recovery: state, enqueue: (envelope) => state.enqueue(envelope), generateRevisionId: () => 'unused',
+  });
+  const paths: Record<string, string> = { [MAPPED_ID]: 'known.md', [REMOTE_ONLY_ID]: 'new-on-pc.md', [UNTRACKED_ID]: 'local-only.md' };
+  const events = [MAPPED_ID, REMOTE_ONLY_ID, UNTRACKED_ID].map((fileId, index) => ({
+    serverSequence: index + 1,
+    revision: { fileId, revisionId: `rev-${index}`, contentHash: `hash-${index}`, parentRevisionIds: [] },
+  }));
+  const history = new RevisionHistory({ state,
+    transport: { pull: async (after) => ({ cursor: 3, events: after === 0 ? events : [] }) },
+    resolveRevision: async (event) => {
+      fetched.push(event.revision.fileId);
+      return { operation: 'create', kind: 'markdown', path: paths[event.revision.fileId] as string, previousPath: null, content: 'x\n' };
+    },
+  });
+  const vault = { exists: async (path: string) => localPaths.includes(path),
+    readText: async () => 'other\n', readBinary: async () => new Uint8Array(),
+    listSyncablePaths: async () => localPaths, listAllPaths: async () => localPaths };
+  return { fetched, options: { state, producer, history, vault } };
+}
+
+it('downloads nothing when every local file is already mapped', async () => {
+  const { fetched, options } = establishedDevice(['known.md']);
+  expect(await bootstrapIdentities(options)).toEqual(new Set());
+  expect(fetched).toEqual([]);
+});
+
+it('never downloads a head whose file this device already maps', async () => {
+  const { fetched, options } = establishedDevice(['known.md', 'local-only.md']);
+  await bootstrapIdentities(options);
+  expect(fetched).not.toContain(MAPPED_ID);
+});
