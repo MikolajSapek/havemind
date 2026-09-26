@@ -5,6 +5,21 @@ All notable changes to this project are documented here. The format is based on
 follows independent [Semantic Versioning](https://semver.org) for the plugin
 and the server.
 
+## [1.5.4], 2026-09-26
+
+### Fixed
+
+- A connected device no longer downloads every file in the vault each time
+  Obsidian starts. The startup identity check fetched the full contents of all
+  files, PDFs included, before the first pull; on a phone that restarted
+  before it finished, updates from other devices never arrived. The check now
+  downloads nothing unless the vault holds a local file sync does not know yet.
+
+### Changed
+
+- The release script publishes the full README to the distribution
+  repository instead of replacing it with the short plugin README.
+
 ## [1.5.3], 2026-09-25
 
 ### Changed
