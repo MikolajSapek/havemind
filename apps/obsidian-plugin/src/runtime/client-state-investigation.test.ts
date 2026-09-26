@@ -84,4 +84,15 @@ describe('client state investigation', () => {
     expect(disk).toBe('base\n');
     expect(await files.openBufferStates('file')).toMatchObject([{ unsaved: true }]);
   });
+
+  it('never reads an attachment as text when no editor has it open', async () => {
+    // iOS refuses to decode a PDF as text ("the file is not in the correct
+    // format"); throwing here failed every pull cycle at the first binary update.
+    const vault = { getAbstractFileByPath: () => ({ path: 'doc.pdf' }),
+      read: async () => { throw new Error('The file could not be opened because it is not in the correct format.'); } };
+    const workspace = { iterateAllLeaves: () => undefined } as Pick<Workspace, 'iterateAllLeaves'>;
+    const files = createVaultFilePort({ vault: vault as never, workspace,
+      state: { pathForFileId: () => 'doc.pdf' } as never });
+    expect(await files.openBufferStates('file')).toEqual([]);
+  });
 });

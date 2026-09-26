@@ -173,9 +173,12 @@ export function createVaultFilePort(options: VaultFilePortOptions): VaultFilePor
     async openBufferStates(fileId): Promise<readonly OpenBuffer[]> {
       const path = state.pathForFileId(fileId);
       if (path === null) return [];
+      // No open editor, nothing to protect: never read the disk. iOS refuses to
+      // decode an attachment as text and would fail every pull at a PDF update.
+      const texts = editorTexts(workspace, path);
+      if (texts.length === 0) return [];
       const file = vault.getAbstractFileByPath(path);
       const disk = file === null ? null : canonicalizeMarkdown(await vault.read(file as TFile));
-      const texts = editorTexts(workspace, path);
       return Promise.all(texts.map(async (content) => ({
         baseHash: disk === null ? null : await hashPlaintext(disk),
         currentHash: await hashPlaintext(content),
