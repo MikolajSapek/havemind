@@ -5,6 +5,16 @@ All notable changes to this project are documented here. The format is based on
 follows independent [Semantic Versioning](https://semver.org) for the plugin
 and the server.
 
+## [1.5.5], 2026-09-26
+
+### Fixed
+
+- Mobile devices stopped receiving updates at the first changed attachment.
+  Before applying a remote change the plugin read the file on disk as text to
+  check for unsaved edits, even when no editor had it open. iOS refuses to read
+  a PDF as text, so every sync cycle failed there and the device stayed offline.
+  The disk is now read only when an editor has the file open.
+
 ## [1.5.4], 2026-09-26
 
 ### Fixed
