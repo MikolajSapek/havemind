@@ -9,6 +9,7 @@ import {
   parseAccessToken,
   parseRefreshRotationId,
   parseRefreshToken,
+  REFRESH_TOKEN_MAX_TTL_SECONDS,
   tokenHashesEqual,
   validateAccessTokenTtl,
   validateRefreshTokenTtl,
@@ -702,6 +703,14 @@ export class SessionRepository {
     if (!Number.isSafeInteger(nextGeneration)) {
       throw new SessionRepositoryError('REPOSITORY_INTEGRITY');
     }
+    // Sliding lifetime: a refresh moves the deadline a full window ahead, so a
+    // device in use never ages out, and one that stops refreshing still expires
+    // a window after its last refresh. Never shortens an existing deadline.
+    const slidExpiresAt = addSeconds(now, REFRESH_TOKEN_MAX_TTL_SECONDS);
+    const familyExpiresAt =
+      requireStoredDate(slidExpiresAt) > requireStoredDate(row.familyExpiresAt)
+        ? slidExpiresAt
+        : row.familyExpiresAt;
     this.#database
       .prepare(
         `INSERT INTO refresh_tokens (
@@ -715,14 +724,14 @@ export class SessionRepository {
         nextGeneration,
         prepared.successorTokenHash,
         now.toISOString(),
-        row.familyExpiresAt,
+        familyExpiresAt,
       );
     const advanced = this.#database
       .prepare(
-        `UPDATE refresh_token_families SET current_generation = ?
+        `UPDATE refresh_token_families SET current_generation = ?, expires_at = ?
          WHERE id = ? AND status = 'active' AND current_generation = ?`,
       )
-      .run(nextGeneration, row.familyId, generation);
+      .run(nextGeneration, familyExpiresAt, row.familyId, generation);
     if (advanced.changes !== 1) {
       throw new SessionRepositoryError('REPOSITORY_INTEGRITY');
     }
@@ -732,7 +741,7 @@ export class SessionRepository {
         row.userId,
         row.deviceId,
         now,
-        row.familyExpiresAt,
+        familyExpiresAt,
       ),
       familyId: row.familyId,
       generation: nextGeneration,

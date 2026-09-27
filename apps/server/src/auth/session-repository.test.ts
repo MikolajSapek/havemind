@@ -22,6 +22,7 @@ import {
   hashRefreshToken,
   parseAccessToken,
   parseRefreshToken,
+  REFRESH_TOKEN_MAX_TTL_SECONDS,
 } from './tokens.js';
 
 const START_TIME = '2026-07-15T03:00:00.000Z';
@@ -542,4 +543,51 @@ describe('SessionRepository', () => {
       }
     },
   );
+
+  // A session expired 30 days after pairing no matter how often it was used,
+  // so every device paired together dropped out together (both production
+  // devices on 21 October 2026). A refresh now slides the deadline instead.
+  it('keeps a device that refreshes regularly signed in past the original expiry', () => {
+    const fixture = makeFixture(); // family created with a 24 h lifetime
+    let current = fixture.initialRefreshToken;
+    for (let day = 0; day < 40; day += 1) {
+      fixture.clock.advance(23 * 60 * 60 * 1_000);
+      const successor = createRefreshSuccessor();
+      fixture.repository.rotateRefresh({
+        currentRefreshToken: current,
+        rotationId: successor.rotationId,
+        successorRefreshToken: successor.refreshToken,
+      });
+      current = successor.refreshToken;
+    }
+
+    const family = fixture.database
+      .prepare('SELECT expires_at AS expiresAt FROM refresh_token_families WHERE id = ?')
+      .get(fixture.familyId) as { expiresAt: string };
+    expect(Date.parse(family.expiresAt)).toBe(
+      fixture.clock.now().getTime() + REFRESH_TOKEN_MAX_TTL_SECONDS * 1_000,
+    );
+  });
+
+  it('still ends a session that stops refreshing for the whole window', () => {
+    const fixture = makeFixture();
+    const successor = createRefreshSuccessor();
+    fixture.repository.rotateRefresh({
+      currentRefreshToken: fixture.initialRefreshToken,
+      rotationId: successor.rotationId,
+      successorRefreshToken: successor.refreshToken,
+    });
+    fixture.clock.advance(REFRESH_TOKEN_MAX_TTL_SECONDS * 1_000 + 1);
+
+    const next = createRefreshSuccessor();
+    expectSessionCode(
+      () =>
+        fixture.repository.rotateRefresh({
+          currentRefreshToken: successor.refreshToken,
+          rotationId: next.rotationId,
+          successorRefreshToken: next.refreshToken,
+        }),
+      'INVALID_REFRESH',
+    );
+  });
 });
