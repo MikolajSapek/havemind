@@ -921,6 +921,9 @@ export default class HavemindPlugin extends Plugin {
           if (outcome === 'vanished') {
             new Notice('This conflict was already auto-resolved.');
           }
+          if (outcome === 'target-missing') {
+            new Notice('The note was moved or deleted, so the conflict copy was kept.');
+          }
           modal.close();
           this.views.refreshOnboarding();
         },

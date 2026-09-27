@@ -219,7 +219,9 @@ describe('createConflictResolver', () => {
   });
 
   it('keepTheirs writes the copy into the note then deletes the copy', async () => {
-    const port = fakePort({ contents: { [newCopy.copyPath]: 'theirs body' } });
+    const port = fakePort({
+      contents: { [newCopy.copyPath]: 'theirs body', 'Notatka.md': 'mine' },
+    });
     const resolver = createConflictResolver(port);
 
     const result = await resolver.resolve(newCopy, 'keepTheirs');
@@ -289,7 +291,7 @@ describe('createConflictResolver', () => {
     // "make the note empty", it must still apply because the copy exists.
     const port = fakePort({
       contents: { [newCopy.copyPath]: '' },
-      existingPaths: [newCopy.copyPath],
+      existingPaths: [newCopy.copyPath, 'Notatka.md'],
     });
     const resolver = createConflictResolver(port);
 
@@ -298,6 +300,42 @@ describe('createConflictResolver', () => {
     expect(result).toBe('resolved');
     expect(port.writes).toEqual([{ path: 'Notatka.md', content: '' }]);
     expect(port.deletes).toEqual([newCopy.copyPath]);
+  });
+
+  it('keepTheirs keeps the copy when the note it belongs to is gone', async () => {
+    // A remote delete or rename can land while the modal is open. Deleting the
+    // copy then would lose both versions, so the copy stays where it is.
+    const port = fakePort({ contents: { [newCopy.copyPath]: 'theirs body' } });
+    const resolver = createConflictResolver(port);
+
+    expect(await resolver.resolve(newCopy, 'keepTheirs')).toBe('target-missing');
+    expect(
+      await resolver.resolve({ ...newCopy, targetPath: null, targetKnown: false }, 'keepTheirs'),
+    ).toBe('target-missing');
+    expect(port.writes).toEqual([]);
+    expect(port.deletes).toEqual([]);
+  });
+
+  it('still resolves a conflict after "Keep both" closed it once', async () => {
+    const port = fakePort({ contents: { [newCopy.copyPath]: 'theirs body' } });
+    const resolver = createConflictResolver(port);
+
+    await resolver.resolve(newCopy, 'keepBoth');
+
+    expect(await resolver.resolve(newCopy, 'keepMine')).toBe('resolved');
+    expect(port.deletes).toEqual([newCopy.copyPath]);
+  });
+
+  it('lets a resolution that failed be tried again', async () => {
+    const port = fakePort({ contents: { [newCopy.copyPath]: 'theirs body' } });
+    port.deleteFile = vi
+      .fn<ConflictVaultPort['deleteFile']>()
+      .mockRejectedValueOnce(new Error('disk busy'))
+      .mockResolvedValue(undefined);
+    const resolver = createConflictResolver(port);
+
+    await expect(resolver.resolve(newCopy, 'keepMine')).rejects.toThrow('disk busy');
+    expect(await resolver.resolve(newCopy, 'keepMine')).toBe('resolved');
   });
 });
 
@@ -354,6 +392,13 @@ describe('createObsidianConflictPort', () => {
     await port.deleteFile(`${CONFLICT_FOLDER}/c.md`);
     expect(modified).toEqual([{ path: 'N.md', content: 'new body' }]);
     expect(deleted).toEqual([`${CONFLICT_FOLDER}/c.md`]);
+  });
+
+  it('refuses to write into a note that no longer exists', async () => {
+    const { vault, modified } = fakeVault([{ path: `${CONFLICT_FOLDER}/c.md`, name: 'c.md' }]);
+    const port = createObsidianConflictPort(vault);
+    await expect(port.writeText('Gone.md', 'body')).rejects.toThrow();
+    expect(modified).toEqual([]);
   });
 
   it('degrades to no conflicts when the vault lacks getFiles', () => {

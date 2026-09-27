@@ -258,7 +258,7 @@ export function computeLineDiff(mine: string, theirs: string): DiffLine[] {
 
 export type ResolveAction = 'keepMine' | 'keepTheirs' | 'keepBoth';
 
-export type ResolveOutcome = 'resolved' | 'ignored' | 'vanished';
+export type ResolveOutcome = 'resolved' | 'ignored' | 'vanished' | 'target-missing';
 
 export interface ConflictResolver {
   /**
@@ -270,61 +270,57 @@ export interface ConflictResolver {
    *  - `'vanished'` when a keepTheirs was asked to apply a copy the auto-sweep
    *    had already resolved and deleted. The copy no longer exists, so applying
    *    it would read '' and blank the (already-merged) live note, DATA LOSS.
-   *    The caller surfaces a Notice ("already auto-resolved") and refreshes.
+   *    The caller surfaces a Notice ("already auto-resolved") and refreshes;
+   *  - `'target-missing'` when keepTheirs has no note to write into (deleted
+   *    or renamed while the modal was open). The copy is kept.
    */
   resolve(copy: ConflictCopy, action: ResolveAction): Promise<ResolveOutcome>;
 }
 
 export function createConflictResolver(port: ConflictVaultPort): ConflictResolver {
-  // Copies whose resolution has started (or finished). Never cleared: once a
-  // copy is resolved its row disappears on refresh, so re-resolving is a bug.
-  const settled = new Set<string>();
+  // Copies with a resolution in flight: a double click must not run it twice,
+  // but a finished or failed resolution can always be tried again.
+  const inFlight = new Set<string>();
 
   return {
     async resolve(copy, action): Promise<ResolveOutcome> {
-      if (settled.has(copy.copyPath)) return 'ignored';
-      settled.add(copy.copyPath);
-
-      switch (action) {
-        case 'keepMine':
-          // Discard the copy; the live note is already what we want. If the
-          // sweep already deleted it, deleteFile is a graceful no-op.
-          await port.deleteFile(copy.copyPath);
-          break;
-        case 'keepTheirs': {
-          // Overwrite the note with the copy, then discard the copy. A missing
-          // target cannot be written; guard rather than throwing mid-UI.
-          if (copy.targetPath === null) {
-            await port.deleteFile(copy.copyPath);
-            break;
-          }
-          // DATA-LOSS GUARD: the auto-sweep may have resolved and deleted this
-          // copy in the meantime. A vanished copy reads as '' and would blank
-          // the (already-merged) live note. Verify the copy still exists before
-          // reading/writing; if not, abort so the caller can tell the user it
-          // was already auto-resolved and refresh the stale panel/modal.
-          if (!(await port.exists(copy.copyPath))) {
-            return 'vanished';
-          }
-          // MINOR 6: the read itself is the authoritative absence signal,
-          // exists() above is belt-and-braces, but a copy deleted between the
-          // guard and the read returns null here and aborts, never reading '' and
-          // blanking the merged note (the exists→read TOCTOU, closed for good).
-          const content = await port.readText(copy.copyPath);
-          if (content === null) {
-            return 'vanished';
-          }
-          await port.writeText(copy.targetPath, content);
-          await port.deleteFile(copy.copyPath);
-          break;
-        }
-        case 'keepBoth':
-          // Leave both files in place, no vault mutation.
-          break;
+      if (inFlight.has(copy.copyPath)) return 'ignored';
+      inFlight.add(copy.copyPath);
+      try {
+        return await resolveOnce(port, copy, action);
+      } finally {
+        inFlight.delete(copy.copyPath);
       }
-      return 'resolved';
     },
   };
+}
+
+async function resolveOnce(
+  port: ConflictVaultPort,
+  copy: ConflictCopy,
+  action: ResolveAction,
+): Promise<ResolveOutcome> {
+  switch (action) {
+    case 'keepMine':
+      await port.deleteFile(copy.copyPath);
+      return 'resolved';
+    case 'keepTheirs': {
+      // The sweep may have resolved and deleted the copy meanwhile; never
+      // blank the note with an empty read.
+      if (!(await port.exists(copy.copyPath))) return 'vanished';
+      const content = await port.readText(copy.copyPath);
+      if (content === null) return 'vanished';
+      // Without a note to write into, deleting the copy would lose both versions.
+      if (copy.targetPath === null || !(await port.exists(copy.targetPath))) {
+        return 'target-missing';
+      }
+      await port.writeText(copy.targetPath, content);
+      await port.deleteFile(copy.copyPath);
+      return 'resolved';
+    }
+    case 'keepBoth':
+      return 'resolved';
+  }
 }
 
 /**
@@ -358,7 +354,9 @@ export function createObsidianConflictPort(vault: Vault): ConflictVaultPort {
     },
     writeText: async (path, content) => {
       const file = vault.getAbstractFileByPath(path);
-      if (file === null) return;
+      // Callers delete the conflict copy right after this write, so a silent
+      // no-op here would lose both versions.
+      if (file === null) throw new Error(`${path} no longer exists.`);
       await vault.modify(file as TFile, content);
     },
     deleteFile: async (path) => {
