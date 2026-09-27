@@ -292,7 +292,12 @@ export function buildConnectionPanel(
     // wrong before the failures add up to Offline.
     input.status === 'retrying'
   ) {
-    parts.push(input.errorMessage ?? 'The server refused the session.');
+    parts.push(
+      input.errorMessage ??
+        (input.status === 'reconnect-required'
+          ? 'The server refused the session.'
+          : 'Could not sync, retrying.'),
+    );
   }
   if (input.status === 'deferred') {
     parts.push(DEFERRED_DETAIL);

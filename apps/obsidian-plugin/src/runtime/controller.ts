@@ -32,6 +32,8 @@ export interface SyncRunnerLike {
 export type StatusListener = (
   status: ConnectionStatus,
   view: StatusBarView,
+  /** Why the last cycle failed, when it did. */
+  detail?: string,
 ) => void;
 
 /**
@@ -190,7 +192,7 @@ export class HavemindSyncController {
         this.consecutiveFailures >= OFFLINE_FAILURE_THRESHOLD
           ? 'offline'
           : 'retrying';
-      this.report(status);
+      this.report(status, result.error);
       return;
     }
 
@@ -209,7 +211,7 @@ export class HavemindSyncController {
     }
   }
 
-  private report(status: ConnectionStatus): void {
+  private report(status: ConnectionStatus, detail?: string): void {
     this.options.onStatus(
       status,
       formatStatusBar(
@@ -217,6 +219,7 @@ export class HavemindSyncController {
           ? { status }
           : { status, lastSyncedAt: this.lastSyncedAt },
       ),
+      detail,
     );
   }
 }

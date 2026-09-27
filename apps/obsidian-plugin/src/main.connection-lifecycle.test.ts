@@ -346,6 +346,15 @@ describe('Retry now (user-initiated reconnect)', () => {
     expect(internals(plugin).connection).toBeNull();
   });
 
+  it('shows why syncing failed instead of blaming the server', () => {
+    const plugin = newPlugin();
+    internals(plugin).handleStatus('offline', STATUS_VIEW, 'The file has an invalid format.');
+    const panel = internals(plugin).connectionPanel() as { detail: string };
+    expect(panel.detail).toContain('The file has an invalid format.');
+    expect(panel.detail).not.toContain('refused');
+    plugin.unload();
+  });
+
   it('restarts on a terminal reconnect-required state and DISARMS the rejoin poll (FINDING 1)', async () => {
     const plugin = newPlugin();
     const controller = { attempt: vi.fn(), getState: () => 'terminal-auth' };

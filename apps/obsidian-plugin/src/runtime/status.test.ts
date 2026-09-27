@@ -95,6 +95,14 @@ describe('buildConnectionPanel', () => {
     );
   });
 
+  it('blames the server only when it actually refused the session', () => {
+    expect(buildConnectionPanel({ status: 'offline' }).detail).not.toContain('refused');
+    expect(buildConnectionPanel({ status: 'retrying' }).detail).not.toContain('refused');
+    expect(buildConnectionPanel({ status: 'reconnect-required' }).detail).toContain(
+      'The server refused the session.',
+    );
+  });
+
   it('explains a deferred apply as waiting, never as a conflict', () => {
     const panel = buildConnectionPanel({ status: 'deferred' });
     expect(panel.icon).toBe('clock');

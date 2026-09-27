@@ -262,6 +262,8 @@ export interface SyncCycleResult {
    * the same cycle) so the indicator always reflects the LATEST cycle.
    */
   readonly cycleId?: number;
+  /** Why a failed cycle failed, so the panel can say so instead of guessing. */
+  readonly error?: string;
 }
 
 type RemoteApplyDecision = 'apply' | 'conflict' | 'defer';
@@ -474,6 +476,7 @@ export class SyncRunner {
         quarantined: 0,
         status,
         suppressed: 0,
+        error: error instanceof Error ? error.message : String(error),
       };
     }
     // Report every completed cycle, including backoff-driven retries, so a

@@ -760,7 +760,7 @@ export default class HavemindPlugin extends Plugin {
     if (attempt.signal.aborted) return;
     const handle = await startHavemindConnection(
       this,
-      (status, view) => this.handleStatus(status, view),
+      (status, view, detail) => this.handleStatus(status, view, detail),
       this.activityHooks(),
       attempt.signal,
     );
@@ -1033,7 +1033,7 @@ export default class HavemindPlugin extends Plugin {
     const previousConnection = this.connection;
     const handle = await connectFromInput(this, input, serverUrl, {
       report,
-      onStatus: (status, view) => this.handleStatus(status, view),
+      onStatus: (status, view, detail) => this.handleStatus(status, view, detail),
       hooks: this.activityHooks(),
       // Durably record the waiting state so a pane reopen resumes the waiting
       // screen (with the code) instead of a blank paste form.
@@ -1143,8 +1143,15 @@ export default class HavemindPlugin extends Plugin {
   }
 
   /** Updates the status bar and live Connect indicator from a cycle status. */
-  private handleStatus(status: ConnectionStatus, view: StatusBarView): void {
+  private handleStatus(
+    status: ConnectionStatus,
+    view: StatusBarView,
+    detail?: string,
+  ): void {
     this.connectionStatus = status;
+    if (status === 'offline' || status === 'retrying') {
+      this.connectionError = detail;
+    }
     if (status === 'synced') {
       this.lastSyncedAt = Date.now();
       this.connectionError = undefined;

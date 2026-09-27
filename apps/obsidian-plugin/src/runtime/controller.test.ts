@@ -108,18 +108,21 @@ function build(overrides?: {
   hooks: FakeHooks;
   statuses: StatusBarView[];
   reported: ConnectionStatus[];
+  details: Array<string | undefined>;
 } {
   const runner = new FakeRunner();
   const hooks = new FakeHooks();
   const statuses: StatusBarView[] = [];
   const reported: ConnectionStatus[] = [];
+  const details: Array<string | undefined> = [];
   const controller = new HavemindSyncController({
     runner,
     hooks,
     intervalMs: overrides?.intervalMs ?? 60_000,
-    onStatus: (status, view) => {
+    onStatus: (status, view, detail) => {
       reported.push(status);
       statuses.push(view);
+      details.push(detail);
     },
     now: () => 1_000,
     ...(overrides?.wake === undefined ? {} : { wake: overrides.wake }),
@@ -128,7 +131,7 @@ function build(overrides?: {
       : { pushConnectedIntervalMs: overrides.pushConnectedIntervalMs }),
     ...(overrides?.onStop === undefined ? {} : { onStop: overrides.onStop }),
   });
-  return { controller, runner, hooks, statuses, reported };
+  return { controller, runner, hooks, statuses, reported, details };
 }
 
 describe('HavemindSyncController', () => {
@@ -274,6 +277,12 @@ const OFFLINE: SyncCycleResult = { ...CLEAN, status: 'offline' };
     expect(statuses.at(-1)?.text).toBe('Havemind: Retrying…');
     expect(statuses.at(-1)?.text).not.toBe('Havemind: Offline');
     expect(statuses.at(-1)?.text).not.toBe('Havemind: Syncing');
+  });
+
+  it('passes the reason a cycle failed on to the status listener', () => {
+    const { controller, details } = build();
+    controller.observeCycle({ ...OFFLINE, error: 'The file has an invalid format.' });
+    expect(details.at(-1)).toBe('The file has an invalid format.');
   });
 
   it('reports the retrying status, not syncing, for every failure below the threshold', () => {

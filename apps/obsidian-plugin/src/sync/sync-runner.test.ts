@@ -518,6 +518,24 @@ describe('SyncRunner lineage cascade', () => {
   });
 });
 
+describe('SyncRunner failure reason', () => {
+  it('carries the reason a cycle failed instead of dropping it', async () => {
+    const { runner } = makeRunner({
+      transport: {
+        push: vi.fn(async () => []),
+        pull: vi.fn(async () => {
+          throw new Error('The file has an invalid format.');
+        }),
+      },
+    });
+
+    const result = await runner.trigger();
+
+    expect(result.status).toBe('offline');
+    expect(result.error).toBe('The file has an invalid format.');
+  });
+});
+
 describe('SyncRunner single-flight and backoff', () => {
   it('coalesces overlapping triggers into a single in-flight cycle', async () => {
     let release: () => void = () => undefined;
