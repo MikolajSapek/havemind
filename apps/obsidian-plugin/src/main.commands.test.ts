@@ -52,6 +52,7 @@ function newPlugin(): HavemindPlugin {
 interface ConnectionSpy {
   stops: number;
   starts: number;
+  syncs: number;
 }
 
 /**
@@ -60,11 +61,14 @@ interface ConnectionSpy {
  * `starts` counts the fresh cycle a forced sync asks for.
  */
 function installFakeConnection(plugin: HavemindPlugin): ConnectionSpy {
-  const spy: ConnectionSpy = { stops: 0, starts: 0 };
+  const spy: ConnectionSpy = { stops: 0, starts: 0, syncs: 0 };
   (plugin as unknown as { connection: unknown }).connection = {
     serverName: 'server.example',
     stop: () => {
       spy.stops += 1;
+    },
+    syncNow: async () => {
+      spy.syncs += 1;
     },
   };
   (
@@ -144,7 +148,7 @@ describe('command palette actions', () => {
     );
   });
 
-  it('forces a fresh cycle from Sync now through the panel retry path', async () => {
+  it('runs one sync cycle from Sync now without rebuilding the connection', async () => {
     const plugin = newPlugin();
     await plugin.onload();
     const spy = installFakeConnection(plugin);
@@ -152,8 +156,10 @@ describe('command palette actions', () => {
     command('sync-now').checkCallback?.(false);
     await flush();
 
-    expect(spy.stops).toBe(1);
-    expect(spy.starts).toBe(1);
+    // Rebuilding would abort work in flight and re-read the whole vault.
+    expect(spy.syncs).toBe(1);
+    expect(spy.stops).toBe(0);
+    expect(spy.starts).toBe(0);
     expect(registrationState.notices).not.toContain(
       'Havemind: connect before syncing.',
     );

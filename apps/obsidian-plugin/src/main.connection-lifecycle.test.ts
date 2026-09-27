@@ -297,6 +297,20 @@ describe('Retry now (user-initiated reconnect)', () => {
     plugin.unload();
   });
 
+  it('runs one sync cycle when offline with a live connection instead of rebuilding it', async () => {
+    const plugin = newPlugin();
+    const live = { ...fakeHandle('live'), syncNow: vi.fn(async () => undefined) };
+    internals(plugin).connection = live;
+    internals(plugin).connectionStatus = 'offline';
+
+    await internals(plugin).retryConnection();
+
+    expect(live.syncNow).toHaveBeenCalledTimes(1);
+    expect(live.stop).not.toHaveBeenCalled();
+    expect(adapterMocks.startHavemindConnection).not.toHaveBeenCalled();
+    plugin.unload();
+  });
+
   it('is idempotent under a rapid double-click: exactly one live handle', async () => {
     const plugin = newPlugin();
     const stale = fakeHandle('stale');

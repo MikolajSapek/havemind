@@ -63,6 +63,8 @@ export interface ConnectionHandle {
    * (no push identity), which is also when no failed-to-queue row can exist.
    */
   readonly retryFailedCommit?: (path: string) => RetryFailedCommitOutcome;
+  /** Runs one sync cycle now. Absent on the no-op handle. */
+  readonly syncNow?: () => Promise<void>;
 }
 
 export const NOOP_HANDLE: ConnectionHandle = {
@@ -225,5 +227,6 @@ export async function startSyncLoop(
       ? {}
       : { retryFailedCommit: producer.retryFailedCommit }),
     serverName: serverNameFromUrl(connection.apiBaseUrl),
+    syncNow: () => controller.syncNow(),
   };
 }

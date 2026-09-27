@@ -65,15 +65,19 @@ function newPlugin(app: App = new App()): HavemindPlugin {
 interface ConnectionSpy {
   stops: number;
   starts: number;
+  syncs: number;
 }
 
 /** Installs a stand-in connection handle, as the command-palette tests do. */
 function installFakeConnection(plugin: HavemindPlugin): ConnectionSpy {
-  const spy: ConnectionSpy = { stops: 0, starts: 0 };
+  const spy: ConnectionSpy = { stops: 0, starts: 0, syncs: 0 };
   (plugin as unknown as { connection: unknown }).connection = {
     serverName: 'vault.example',
     stop: () => {
       spy.stops += 1;
+    },
+    syncNow: async () => {
+      spy.syncs += 1;
     },
   };
   (
@@ -248,8 +252,9 @@ describe('HavemindSettingTab actions (FINDING 7)', () => {
     button('Sync now').trigger();
     await flush();
 
-    expect(spy.stops).toBe(1);
-    expect(spy.starts).toBe(1);
+    expect(spy.syncs).toBe(1);
+    expect(spy.stops).toBe(0);
+    expect(spy.starts).toBe(0);
   });
 
   it('stops the live loop from the Disconnect button', async () => {

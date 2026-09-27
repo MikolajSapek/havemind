@@ -1102,8 +1102,15 @@ export default class HavemindPlugin extends Plugin {
    * looking like a silent no-op.
    */
   private async syncNow(): Promise<void> {
-    if (this.connection === null) {
+    const connection = this.connection;
+    if (connection === null) {
       new Notice('Havemind: connect before syncing.');
+      return;
+    }
+    // One cycle, not a rebuild: rebuilding aborts work in flight and re-reads
+    // the whole vault. The no-op handle has no loop, so it is rebuilt instead.
+    if (connection.syncNow !== undefined) {
+      await connection.syncNow();
       return;
     }
     await this.retryConnection();
@@ -1605,6 +1612,15 @@ export default class HavemindPlugin extends Plugin {
    */
   private async retryConnection(): Promise<void> {
     if (this.retryInFlight) return;
+    const connection = this.connection;
+    // Offline with a live loop: the session is fine, only a cycle failed.
+    if (
+      connection?.syncNow !== undefined &&
+      (this.connectionStatus === 'offline' || this.connectionStatus === 'retrying')
+    ) {
+      await connection.syncNow();
+      return;
+    }
     this.retryInFlight = true;
     try {
       this.disarmRejoin();
