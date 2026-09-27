@@ -1,19 +1,21 @@
 import { join } from 'node:path';
 
-// F9 binary attachments: DEFAULT_MAX_PAYLOAD_BYTES in sync-routes.ts is 36 MiB
-// (a 25 MB raw file inflates to ~33.4 MB as base64). The Fastify body limit
-// must sit above that plus JSON envelope/batch overhead, so the default is
-// raised to 40 MiB; MAX_BODY_LIMIT_BYTES is extended to keep env-var override
-// headroom above the new default.
+// F9 binary attachments: a 25 MiB file is base64-encoded inside its revision
+// payload (~33.4 MiB, under DEFAULT_MAX_PAYLOAD_BYTES = 36 MiB in
+// sync-routes.ts), and the push body carries that payload base64-encoded AGAIN,
+// so the request is ~44.5 MiB. The default sits above that; at 40 MiB every
+// attachment from ~22.5 MiB up was refused with 413 and stuck in quarantine.
+// tests/attachment-limits.test.ts builds the real request and keeps the
+// plugin's size cap and this limit in agreement.
 // AUD-10(c): this is a PER-REQUEST cap only. Nothing bounds how many requests
 // may be in flight at once, so peak transient memory is `concurrent requests x
-// up to this limit` (~100-150 MiB for a handful of parallel large-attachment
+// up to this limit` (~150-200 MiB for a handful of parallel large-attachment
 // pushes). Accepted for the two-device, single-trusted-operator tailnet
 // deployment, where every caller is authenticated and legitimate concurrency is
 // small. Add a semaphore around the push handler if the trust boundary widens
 // (more members, a shared tailnet, or any unauthenticated path to /revisions).
 // See docs/pilot/known-limitations.md, "Server audit follow-ups (backlog AUD-10)".
-export const DEFAULT_BODY_LIMIT_BYTES = 40 * 1024 * 1024;
+export const DEFAULT_BODY_LIMIT_BYTES = 48 * 1024 * 1024;
 
 // Per-vault storage quota (F9 attachments/quota, plans/005). Accounting is a
 // pure byte sum over the DISTINCT blob_hash set a vault references, so the

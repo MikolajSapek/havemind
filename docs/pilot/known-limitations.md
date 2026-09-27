@@ -154,12 +154,12 @@ guarantee were corrected instead. Pinned by
 blobByteHash: the field is unread metadata".
 
 **(c) No cap on concurrent in-flight pushes, accepted and recorded.** Each
-request body is capped at 40 MiB (`DEFAULT_BODY_LIMIT_BYTES`) with a 36 MiB
+request body is capped at 48 MiB (`DEFAULT_BODY_LIMIT_BYTES`) with a 36 MiB
 payload ceiling inside it (`DEFAULT_MAX_PAYLOAD_BYTES`), and the protected
 surface is rate limited at 120 requests / 60 s per client key
 (`DEFAULT_RATE_LIMIT`). Nothing bounds how many of those requests may be
 in flight *simultaneously*, so peak transient memory is
-`concurrent requests x up to 40 MiB`, roughly 100-150 MiB at the ceiling for a
+`concurrent requests x up to 48 MiB`, roughly 150-200 MiB at the ceiling for a
 handful of parallel large-attachment pushes. This is accepted, not fixed: the
 deployment is a two-device tailnet with a trusted operator, where the request
 concurrency a legitimate client generates is small and every caller is
