@@ -65,6 +65,23 @@ describe('driveToConnected', () => {
     expect(sleeps).toEqual([]);
   });
 
+  // B11: an unconnected device resumed 720 times at every start, since idle
+  // neither ended the loop nor waited.
+  it.each(['idle', 'origin-review', 'invitation-review'])(
+    'returns at once from %s, which waits on the user',
+    async (phase) => {
+      const controller = scripted([phase]);
+      const state = await driveToConnected({
+        controller,
+        sleep: async () => undefined,
+        pollIntervalMs: 1,
+        maxSteps: 720,
+      });
+      expect(state.phase).toBe(phase);
+      expect(controller.calls).toBe(1);
+    },
+  );
+
   it('stops after maxSteps if it never reaches connected', async () => {
     const controller = scripted(['pending-approval']);
     const state = await driveToConnected({

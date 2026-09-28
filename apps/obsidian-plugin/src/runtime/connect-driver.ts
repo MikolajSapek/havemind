@@ -70,6 +70,15 @@ export async function driveToConnected(
       // signal. Both leave the poll loop immediately rather than sleeping.
       return state;
     }
+    // These wait on the user (nothing paired, or a review to confirm):
+    // resuming again changes nothing, so looping only burns the step budget.
+    if (
+      state.phase === 'idle' ||
+      state.phase === 'origin-review' ||
+      state.phase === 'invitation-review'
+    ) {
+      return state;
+    }
     if (state.phase === 'pending-approval') {
       const slept = await awaitOrCancel(
         options.sleep(options.pollIntervalMs),
