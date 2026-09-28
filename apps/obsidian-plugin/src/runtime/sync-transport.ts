@@ -215,6 +215,15 @@ export class RequestUrlTransport implements SyncTransport {
       throw: false,
     });
     if (response.status < 200 || response.status >= 300) {
+      // A full vault quota refuses the whole request so the client waits for
+      // space; no single revision is at fault, so none may be quarantined.
+      if (wholeRequestCode(response) === 'QUOTA_EXCEEDED') {
+        throw new RequestUrlTransportError(
+          'http-status',
+          'The vault storage quota is full. Free space on the server to resume syncing.',
+          { authDenied: false, permanent: false },
+        );
+      }
       throw new RequestUrlTransportError(
         'http-status',
         `Server returned HTTP ${response.status}.`,
@@ -226,6 +235,18 @@ export class RequestUrlTransport implements SyncTransport {
     }
     return response;
   }
+}
+
+/** The `{ error: { code } }` a whole-request failure carries, if readable. */
+function wholeRequestCode(response: RequestUrlResponseLike): string | undefined {
+  let body: unknown;
+  try {
+    body = response.json;
+  } catch {
+    return undefined;
+  }
+  if (!isRecord(body) || !isRecord(body.error)) return undefined;
+  return typeof body.error.code === 'string' ? body.error.code : undefined;
 }
 
 function parsePushResponse(

@@ -189,6 +189,21 @@ describe('RequestUrlTransport', () => {
     }
   });
 
+  // The server refuses the whole request with 413 QUOTA_EXCEEDED so the client
+  // stops and waits for space. Treating it as permanent split the batch and
+  // quarantined every queued revision one by one.
+  it('treats a full vault quota as transient, never as a poison revision', async () => {
+    const { transport } = build(() => ({
+      status: 413,
+      json: { error: { code: 'QUOTA_EXCEEDED' } },
+    }));
+    await expect(transport.push([pushRevision])).rejects.toMatchObject({
+      permanent: false,
+      authDenied: false,
+      message: expect.stringContaining('storage quota'),
+    });
+  });
+
   it('classifies a per-revision rejection: permanent for a poison code, transient otherwise', async () => {
     const permanent = build(() => ({
       status: 200,
