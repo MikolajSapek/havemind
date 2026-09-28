@@ -45,7 +45,7 @@ import {
   PUSH_PRODUCER_KEY,
   withCorruptSidecar,
 } from './plugin-data-keys';
-import { isRecord, type AppWithVault } from './shared';
+import type { AppWithVault } from './shared';
 
 /**
  * Durable state persistence over `Plugin.saveData`/`loadData`. Only the
@@ -56,14 +56,10 @@ export function createPersistPort(plugin: Plugin): SyncStatePersistPort {
   const mutex = getPluginDataMutex(plugin);
   return {
     async load() {
-      const data = await plugin.loadData();
-      if (isRecord(data)) return data[PERSIST_KEY] ?? null;
-      return null;
+      return (await mutex.load())[PERSIST_KEY] ?? null;
     },
     async loadBackup() {
-      const data = await plugin.loadData();
-      if (isRecord(data)) return data[PERSIST_BAK_KEY] ?? null;
-      return null;
+      return (await mutex.load())[PERSIST_BAK_KEY] ?? null;
     },
     async save(state) {
       // Atomic save (GAP-1). Two serialized load-modify-saves, so a torn write
@@ -132,8 +128,8 @@ export async function runCanonicalizationRebase(plugin: Plugin): Promise<void> {
   };
   await rebaseCanonicalizedHashes({
     data: {
-      load: () => plugin.loadData(),
-      save: (data) => plugin.saveData(data),
+      load: () => getPluginDataMutex(plugin).load(),
+      save: (data) => getPluginDataMutex(plugin).update(() => data as Record<string, unknown>),
     },
     vault,
     hash: (content) => hashPlaintext(content),
@@ -161,8 +157,7 @@ export function createClientInstanceRepo(
 ): ClientInstanceIdRepository {
   return {
     async readClientInstanceId() {
-      const data = await plugin.loadData();
-      const value = isRecord(data) ? data[CLIENT_INSTANCE_KEY] : null;
+      const value = (await getPluginDataMutex(plugin).load())[CLIENT_INSTANCE_KEY];
       return typeof value === 'string' ? value : null;
     },
     async writeClientInstanceId(value) {

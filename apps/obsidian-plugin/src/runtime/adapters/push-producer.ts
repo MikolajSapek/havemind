@@ -116,8 +116,8 @@ export function startPushProducer(
   const vault = (plugin.app as unknown as AppWithVault).vault;
   const store: ProducerStorePort = {
     async load() {
-      const data = await plugin.loadData();
-      const raw = isRecord(data) ? data[PUSH_PRODUCER_KEY] : null;
+      const data = await getPluginDataMutex(plugin).load();
+      const raw = data[PUSH_PRODUCER_KEY] ?? null;
       const result = parseProducerStateResult(raw);
       // GAP-3: preserve unparseable producer bytes to a sidecar so a lost mapping
       // can't silently fork a duplicate fileId. Connect-safety: the persist may

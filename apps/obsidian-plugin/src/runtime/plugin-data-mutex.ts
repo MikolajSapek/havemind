@@ -25,32 +25,51 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export class PluginDataMutex {
   private readonly access: PluginDataAccess;
   private queue: Promise<unknown> = Promise.resolve();
+  /**
+   * The blob as last read or written (P4). This plugin is the only writer of
+   * its data.json, so after the first read the disk is re-read only when
+   * Obsidian reports an external change ({@link invalidate}). Every load and
+   * update used to read the whole file again, about 93 times a sync cycle.
+   */
+  private cache: Record<string, unknown> | null = null;
 
   constructor(access: PluginDataAccess) {
     this.access = access;
   }
 
-  /** The current on-disk blob (an empty record when absent/malformed). */
+  /** The current blob (an empty record when absent/malformed). */
   load(): Promise<Record<string, unknown>> {
-    return this.enqueue(async () => {
-      const data = await this.access.loadData();
-      return isRecord(data) ? data : {};
-    });
+    // A shallow copy: callers spread and replace top-level keys, never mutate
+    // the cached object in place.
+    return this.enqueue(async () => ({ ...(await this.current()) }));
   }
 
   /**
    * Atomically read-modify-write the whole blob: `mutator` receives the LATEST
-   * on-disk snapshot (read inside the critical section) and returns the blob to
+   * snapshot (read inside the critical section) and returns the blob to
    * persist. Runs strictly after every previously-enqueued operation.
    */
   update(
     mutator: (current: Record<string, unknown>) => Record<string, unknown>,
   ): Promise<void> {
     return this.enqueue(async () => {
-      const data = await this.access.loadData();
-      const base = isRecord(data) ? data : {};
-      await this.access.saveData(mutator(base));
+      const next = mutator({ ...(await this.current()) });
+      await this.access.saveData(next);
+      this.cache = next;
     });
+  }
+
+  /** Forgets the cached blob; the next operation reads data.json again. */
+  invalidate(): void {
+    this.cache = null;
+  }
+
+  private async current(): Promise<Record<string, unknown>> {
+    if (this.cache === null) {
+      const data = await this.access.loadData();
+      this.cache = isRecord(data) ? data : {};
+    }
+    return this.cache;
   }
 
   private enqueue<T>(task: () => Promise<T>): Promise<T> {

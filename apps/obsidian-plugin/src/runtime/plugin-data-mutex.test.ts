@@ -103,3 +103,51 @@ describe('getPluginDataMutex', () => {
     expect(getPluginDataMutex(access)).toBe(getPluginDataMutex(access));
   });
 });
+
+// P4: every load and every update read the whole data.json from disk again;
+// a single sync cycle read it about 93 times. This plugin is the only writer,
+// so the blob it last read or wrote is what is on disk.
+describe('PluginDataMutex cache (P4)', () => {
+  it('reads data.json from disk once, then serves loads and updates from memory', async () => {
+    const access = new FakeAccess();
+    const mutex = new PluginDataMutex(access);
+
+    await mutex.load();
+    await mutex.update((base) => ({ ...base, a: 1 }));
+    const loaded = await mutex.load();
+
+    expect(loaded).toEqual({ a: 1 });
+    expect(access.loads).toBe(1);
+    expect(access.snapshot()).toEqual({ a: 1 });
+  });
+
+  it('never lets a caller change the cached blob by mutating what it loaded', async () => {
+    const mutex = new PluginDataMutex(new FakeAccess());
+    const loaded = await mutex.load();
+    loaded.stray = true;
+    expect(await mutex.load()).toEqual({});
+  });
+
+  it('keeps the previous blob when a save fails', async () => {
+    const access = new FakeAccess();
+    const mutex = new PluginDataMutex(access);
+    await mutex.update(() => ({ a: 1 }));
+    access.saveData = async () => {
+      throw new Error('disk full');
+    };
+    await expect(mutex.update(() => ({ a: 2 }))).rejects.toThrow('disk full');
+    expect(await mutex.load()).toEqual({ a: 1 });
+  });
+
+  it('reads the disk again after an external change', async () => {
+    const access = new FakeAccess();
+    const mutex = new PluginDataMutex(access);
+    await mutex.load();
+    await access.saveData({ fromElsewhere: true });
+
+    mutex.invalidate();
+
+    expect(await mutex.load()).toEqual({ fromElsewhere: true });
+    expect(access.loads).toBe(2);
+  });
+});

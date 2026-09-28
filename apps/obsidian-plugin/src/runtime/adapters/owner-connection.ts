@@ -102,8 +102,8 @@ function isCanonicalHttpsOrigin(value: unknown): value is string {
 async function readOwnerConnectionResult(
   plugin: Plugin,
 ): Promise<OwnerConnectionReadResult> {
-  const data = await plugin.loadData();
-  return parseOwnerConnection(isRecord(data) ? data[OWNER_CONNECTION_KEY] : null);
+  const data = await getPluginDataMutex(plugin).load();
+  return parseOwnerConnection(data[OWNER_CONNECTION_KEY] ?? null);
 }
 
 /**

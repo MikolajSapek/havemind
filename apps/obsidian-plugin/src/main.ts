@@ -546,6 +546,15 @@ export default class HavemindPlugin extends Plugin {
     });
   }
 
+  /**
+   * Obsidian calls this when data.json changed on disk from outside the plugin
+   * (another sync tool, a hand edit). The data mutex keeps the blob in memory
+   * (P4), so it must read the file again.
+   */
+  onExternalSettingsChange(): void {
+    getPluginDataMutex(this).invalidate();
+  }
+
   override onunload(): void {
     // Mark unloaded BEFORE anything else so an in-flight `startConnection` await
     // that resolves after this point stops its handle instead of assigning it.
