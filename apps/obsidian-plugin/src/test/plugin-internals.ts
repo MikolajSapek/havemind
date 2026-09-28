@@ -37,6 +37,7 @@ export interface PluginInternals {
   saveData(data: unknown): Promise<void>;
   startConnection(): Promise<void>;
   syncState: unknown;
+  refreshLastEdited(): Promise<void>;
 }
 
 /**

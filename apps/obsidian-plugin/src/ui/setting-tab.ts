@@ -119,22 +119,5 @@ export class HavemindSettingTab extends PluginSettingTab {
           .setButtonText('Reset connection')
           .onClick(() => actions.resetConnection()),
       );
-
-    const overlayOn = plugin.authorOverlayEnabled();
-    new Setting(this.containerEl)
-      .setName('Author overlay')
-      .setDesc(
-        overlayOn
-          ? 'Currently on. Each note shows who last changed it, by colour and by name.'
-          : 'Currently off. Author colours and names are hidden in both editor views.',
-      )
-      .addButton((button) =>
-        button
-          .setButtonText(overlayOn ? 'Hide authors' : 'Show authors')
-          .onClick(() => {
-            plugin.toggleAuthorOverlay();
-            this.display();
-          }),
-      );
   }
 }

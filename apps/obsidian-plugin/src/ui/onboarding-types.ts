@@ -95,10 +95,6 @@ export interface OnboardingViewOptions {
    * the standalone Activity view uses, so the two cannot disagree.
    */
   readonly activityFeedProvider?: () => readonly RevisionRecord[];
-  /** Current author-overlay state, for the footer toggle. */
-  readonly authorOverlayProvider?: () => boolean;
-  /** Flips the author overlay from the footer (the toggle lost its ribbon icon). */
-  readonly onToggleAuthorOverlay?: () => void;
   /** Opens the owner's invite composer from the action bar. */
   readonly onOpenComposer?: () => void;
   /** Closes the owner's invite composer and returns to the People tab. */

@@ -33,8 +33,6 @@ export interface PaneHeaderOptions {
    * new chrome and removes the read of "eight equal buttons", header icons are
    * visibly chrome, tabs are visibly navigation.
    */
-  readonly authorOverlayOn?: boolean;
-  readonly onToggleAuthorOverlay?: () => void;
   readonly onInvite?: () => void;
   /**
    * True when something needs the user. Marks the pane's own hexagon, so a
@@ -71,23 +69,6 @@ export function renderPaneHeader(
   }
 
   strip.createEl('span', { text: options.title, cls: 'havemind-pane-title' });
-
-  if (
-    options.authorOverlayOn !== undefined &&
-    options.onToggleAuthorOverlay !== undefined
-  ) {
-    const on = options.authorOverlayOn;
-    const toggle = strip.createEl('button', {
-      attr: {
-        'aria-label': 'Authorship colours',
-        'aria-pressed': on ? 'true' : 'false',
-      },
-    });
-    toggle.addClass('havemind-header-action');
-    if (on) toggle.addClass('is-on');
-    setIcon(toggle, 'eye');
-    toggle.onClickEvent(() => options.onToggleAuthorOverlay?.());
-  }
 
   if (options.onInvite !== undefined) {
     const invite = strip.createEl('button', {

@@ -15,12 +15,6 @@ havemind-alarm-conflict
 havemind-alarm-rows
 havemind-alarm-send
 havemind-approve-
-havemind-author
-havemind-author-block
-havemind-author-block-animate
-havemind-author-mark
-havemind-author-mark-animate
-havemind-authors
 havemind-client-
 havemind-comb
 havemind-composer-close
@@ -56,7 +50,6 @@ havemind-entry-option-title
 havemind-entry-options
 havemind-entry-primary
 havemind-entry-subheading
-havemind-feed
 havemind-form-status
 havemind-getting-started
 havemind-getting-started-requirement

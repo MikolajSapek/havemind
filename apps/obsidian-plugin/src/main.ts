@@ -7,16 +7,6 @@ import {
 } from 'obsidian';
 
 
-import {
-  buildLivePreviewOverlay,
-  buildReadingViewOverlay,
-} from './attribution/attribution';
-import { buildFileOverlayInput } from './attribution/overlay-source';
-import { createAuthorOverlayExtension } from './attribution/editor-extension';
-import {
-  createAuthorReadingViewProcessor,
-  type ReadingViewSectionInfo,
-} from './attribution/reading-view';
 import { isSafePassiveJoinProtocolData } from './onboarding/invite';
 import { parseFailedToQueuePath } from './runtime/sync-state';
 import type { DurableSyncState } from './runtime/sync-state';
@@ -42,6 +32,7 @@ import {
 } from './runtime/plugin-data-mutex';
 import { RerunGuard } from './runtime/rerun-guard';
 import { restoreRevision, type RestoreDeps } from './runtime/activity-restore';
+import { lastEditedLabel } from './runtime/last-edited';
 import {
   ActivityLog,
   activityEntriesToRecords,
@@ -122,7 +113,6 @@ import { HAVEMIND_ONBOARDING_VIEW } from './ui/view-types';
 const CONFLICT_SWEEP_DEBOUNCE_MS = 2000;
 
 /** `data.json` key holding the F6 "Show authors" toggle. */
-const SHOW_AUTHORS_KEY = 'showAuthors';
 
 export default class HavemindPlugin extends Plugin {
   private statusItem: HTMLElement | null = null;
@@ -160,8 +150,6 @@ export default class HavemindPlugin extends Plugin {
   private readonly views = new PluginViewRegistry();
   /** Live feed behind the Activity view (previously orphaned, now wired). */
   private readonly activityLog = new ActivityLog();
-  /** Bumped on every Activity feed change, so the editor overlay can rebuild. */
-  private activityRevision = 0;
   /** Disposer for the activityLog subscription set up in onload(); torn down in onunload(). */
   private activityLogUnsubscribe: (() => void) | null = null;
   /**
@@ -249,27 +237,13 @@ export default class HavemindPlugin extends Plugin {
   private readonly conflictSweepGuard = new RerunGuard(() =>
     this.runConflictSweepOnce(),
   );
-  /**
-   * F6 author overlay: whether "Show authors" is on for this vault. OFF by
-   * default, attribution decoration changes how every note looks, so it is
-   * opt-in. Persisted under `showAuthors` in `data.json` through the shared
-   * plugin-data mutex; a data.json that cannot be read leaves the flag
-   * session-only rather than blocking load.
-   */
-  private showAuthors = false;
-  /**
-   * True once the user has decided for this session. `restoreAuthorOverlayFlag`
-   * runs asynchronously from `onload`, so a toggle can land BEFORE the stored
-   * value comes back off disk; without this guard the restore would silently
-   * undo that toggle and then persist the undone value.
-   */
-  private authorOverlayChosen = false;
+  /** Status bar item naming who last edited the open note. */
+  private lastEditedItem: HTMLElement | null = null;
 
   override onload(): void {
     // The pane carries the activity feed as a tab (plans/007 Stage 0) and is the
     // only registered surface, so one repaint covers it.
     this.activityLogUnsubscribe = this.activityLog.subscribe(() => {
-      this.activityRevision += 1;
       this.views.refreshOnboarding();
     });
 
@@ -295,8 +269,6 @@ export default class HavemindPlugin extends Plugin {
         },
         // The overlay toggle lost its ribbon icon in Stage 0 and lives in the
         // pane footer now, beside the vault it annotates.
-        authorOverlayProvider: () => this.authorOverlayEnabled(),
-        onToggleAuthorOverlay: () => this.toggleAuthorOverlay(),
         arrivedWithInvitationProvider: () => this.arrivedWithInvitation,
         onOpenComposer: () => {
           void this.openCreateConnectionView();
@@ -421,15 +393,6 @@ export default class HavemindPlugin extends Plugin {
         actions.resetConnection();
       },
     });
-    // F6 author overlay: the one control that turns both surfaces on and off.
-    // No availability guard, with nothing recorded yet the overlay simply draws
-    // nothing, which is a legitimate state rather than an unavailable action.
-    this.addCommand({
-      id: 'show-authors',
-      name: 'Show authors',
-      callback: () => this.toggleAuthorOverlay(),
-    });
-
     // One hexagon, one pane (plans/007 Stage 0). The plugin used to offer three
     // doors, this icon for the activity feed, a second icon for the author
     // overlay, and the command palette for the panel that actually connects a
@@ -440,32 +403,6 @@ export default class HavemindPlugin extends Plugin {
     this.addRibbonIcon('hexagon', 'Open Havemind', () => {
       void this.openHavemindPane();
     });
-
-    // FINDING 1: both author-overlay surfaces promised by `specs/001-mvp.md`.
-    // Obsidian owns their lifecycle, a registered editor extension and markdown
-    // post processor are torn down with the plugin, and both read the live flag
-    // and the live Activity feed through closures, so nothing else is retained.
-    this.registerEditorExtension(
-      createAuthorOverlayExtension({
-        overlayFor: (path, content) => {
-          const input = this.overlayInputFor(path, content);
-          return input === null ? null : buildLivePreviewOverlay(input);
-        },
-        // P14: nothing is read while the overlay is off, and marks are rebuilt
-        // only when the feed, the roster or the text actually change.
-        enabled: () => this.showAuthors,
-        revision: () => [this.activityRevision, this.rosterMembers],
-      }),
-    );
-    this.registerMarkdownPostProcessor(
-      createAuthorReadingViewProcessor({
-        overlayFor: (path, content, section) =>
-          this.readingViewOverlay(path, content, section),
-      }),
-    );
-    // Restore the persisted toggle. Fire-and-forget: onload must not wait on
-    // disk, and a failure leaves the overlay off rather than blocking startup.
-    void this.restoreAuthorOverlayFlag();
 
     this.statusItem = this.addStatusBarItem();
     this.statusItem.addClass('havemind-status-bar');
@@ -492,6 +429,18 @@ export default class HavemindPlugin extends Plugin {
       void this.openView(HAVEMIND_ONBOARDING_VIEW);
     });
     this.setStatus(formatStatusBar({ status: 'disconnected' }));
+
+    // Who last edited the open note, from the server-stamped revision author.
+    this.lastEditedItem = this.addStatusBarItem();
+    const workspace = this.app.workspace as unknown as {
+      on?: (name: string, handler: () => void) => unknown;
+    };
+    const fileOpen = workspace.on?.('file-open', () => {
+      void this.refreshLastEdited();
+    });
+    if (fileOpen !== undefined && fileOpen !== null) {
+      this.registerEvent(fileOpen as Parameters<typeof this.registerEvent>[0]);
+    }
 
     this.addSettingTab(new HavemindSettingTab(this.app, this));
 
@@ -1183,6 +1132,7 @@ export default class HavemindPlugin extends Plugin {
     if (status === 'synced') {
       this.lastSyncedAt = Date.now();
       this.connectionError = undefined;
+      void this.refreshLastEdited();
     }
     if (status === 'reset-required') {
       // The stored connection is damaged (P1 #5): drop any stale server-side
@@ -1759,93 +1709,22 @@ export default class HavemindPlugin extends Plugin {
     };
   }
 
-  /** Whether the F6 author overlay is currently drawing. */
-  authorOverlayEnabled(): boolean {
-    return this.showAuthors;
-  }
-
-  /**
-   * The "Show authors" action, shared by the command, the ribbon and the
-   * settings tab. Holds no listener of its own: both overlay surfaces read this
-   * flag through a closure, so flipping it plus asking Obsidian to re-run the
-   * registered editor extensions is the whole effect. Reading view redraws on
-   * its next render, which the Notice says out loud rather than leaving the user
-   * wondering why one pane changed and the other did not.
-   */
-  toggleAuthorOverlay(): void {
-    this.showAuthors = !this.showAuthors;
-    this.authorOverlayChosen = true;
-    this.app.workspace.updateOptions?.();
-    new Notice(
-      `Havemind: author overlay ${
-        this.showAuthors ? 'on' : 'off'
-      }. Reading view updates on its next render.`,
-    );
-    void this.persistAuthorOverlayFlag();
-  }
-
-  /** Reads the persisted "Show authors" flag; absent or unreadable means off. */
-  private async restoreAuthorOverlayFlag(): Promise<void> {
-    try {
-      const stored = await getPluginDataMutex(this).load();
-      // A toggle that landed while this read was in flight wins: the user's
-      // explicit choice must never be undone by the value it just replaced.
-      if (this.authorOverlayChosen) return;
-      this.showAuthors = stored[SHOW_AUTHORS_KEY] === true;
-      if (this.showAuthors) {
-        this.app.workspace.updateOptions?.();
+  /** Names the last editor of the open note in the status bar. */
+  private async refreshLastEdited(): Promise<void> {
+    const item = this.lastEditedItem;
+    if (item === null) return;
+    const file = (this.app.workspace as { getActiveFile?: () => { path: string } | null })
+      .getActiveFile?.();
+    const fileId = file === null || file === undefined ? null : this.syncState?.fileIdAtPath(file.path) ?? null;
+    let author: string | null = null;
+    if (fileId !== null) {
+      try {
+        author = (await this.connection?.lastAuthor?.(fileId)) ?? null;
+      } catch {
+        author = null;
       }
-    } catch {
-      // data.json is unreadable (the corrupt-file state P1 #5 exists for). The
-      // overlay stays off for this session; never block load over a preference.
     }
-  }
-
-  /** Persists the flag without disturbing any other `data.json` key. */
-  private async persistAuthorOverlayFlag(): Promise<void> {
-    try {
-      await getPluginDataMutex(this).update((current) => ({
-        ...current,
-        [SHOW_AUTHORS_KEY]: this.showAuthors,
-      }));
-    } catch {
-      // Same as above: the toggle simply stays session-only.
-    }
-  }
-
-  /**
-   * Overlay input for one file, honestly degraded to whole-file attribution,
-   * see `attribution/overlay-source.ts` for why per-line is not derivable yet.
-   */
-  private overlayInputFor(
-    path: string | null,
-    content: string,
-  ): ReturnType<typeof buildFileOverlayInput> {
-    return buildFileOverlayInput({
-      enabled: this.showAuthors,
-      path,
-      content,
-      entries: this.activityLog.snapshot(),
-      roster: this.rosterMembers,
-      reducedMotion: prefersReducedMotion(),
-      formatTimestamp: formatActivityTime,
-    });
-  }
-
-  /** The Reading-view overlay for the one block Obsidian just rendered. */
-  private readingViewOverlay(
-    path: string,
-    content: string,
-    section: ReadingViewSectionInfo,
-  ): ReturnType<typeof buildReadingViewOverlay> | null {
-    const input = this.overlayInputFor(path, content);
-    if (input === null) return null;
-    return buildReadingViewOverlay(input, [
-      {
-        blockId: `${path}:${section.lineStart}-${section.lineEnd}`,
-        section: { lineStart: section.lineStart, lineEnd: section.lineEnd },
-      },
-    ]);
+    item.setText(lastEditedLabel(author, this.rosterMembers));
   }
 
   private connectionPanel(): ConnectionPanelView {

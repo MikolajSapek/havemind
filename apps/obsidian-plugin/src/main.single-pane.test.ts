@@ -61,7 +61,6 @@ describe('one hexagon, one pane (UI-00)', () => {
     for (const id of [
       'open-activity',
       'connect',
-      'show-authors',
       'sync-now',
     ]) {
       expect(ids, `command ${id} must survive Stage 0`).toContain(id);

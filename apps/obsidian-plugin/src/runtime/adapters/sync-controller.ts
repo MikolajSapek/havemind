@@ -9,6 +9,7 @@
  */
 
 import type { RevisionContent } from '../activity-restore';
+import { newestAuthor } from '../last-edited';
 import { Notice, type Plugin } from 'obsidian';
 
 import { hashPlaintext } from '@havemind/protocol';
@@ -79,6 +80,8 @@ export interface BuiltSyncController {
   readonly conflictAncestor: (copyPath: string, fileId: string, targetPath: string) => Promise<string | null>;
   /** A revision's note text for the Activity Restore, or null when it has none. */
   readonly revisionContent: (revisionId: string) => Promise<RevisionContent | null>;
+  /** The membership that wrote a file's newest revision, or null. */
+  readonly lastAuthor: (fileId: string) => Promise<string | null>;
 }
 
 /**
@@ -265,6 +268,7 @@ export function buildSyncController(
     controller,
     state,
     initializeProducer: (producer, vault) => bootstrapIdentities({ history, state, producer, vault }),
+    lastAuthor: async (fileId: string) => newestAuthor(await history.heads(fileId)),
     // The Activity feed's Restore reads a revision's text from the history.
     revisionContent: async (revisionId: string) => {
       const event = await history.event(revisionId);

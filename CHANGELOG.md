@@ -12,6 +12,8 @@ and the server.
 - Plugin: Restore in the Activity feed now really restores. It fetches the
   note's text from that revision in the server history and writes it as a
   normal edit. It used to add a feed entry only.
+- Plugin: the status bar names who last edited the open note, from the
+  author the server stamps on each revision, so it survives a restart.
 - Plugin: People no longer shows an invented connected/disconnected state;
   Rejoin is offered on every other member. The owner can reject a waiting
   device.
@@ -23,6 +25,9 @@ and the server.
   enabled in production; backups stay plaintext on the host and are encrypted
   off it by restic, as the docs now say.
 - sync-core: the revision DAG and recipe modules the old Restore used.
+- Plugin: the author overlay and its Show authors toggle. It coloured a whole
+  note by an in-memory entry lost on restart; the status-bar label replaces
+  it. sync-core's provenance module went with it.
 
 ## [1.5.6], 2026-09-29
 

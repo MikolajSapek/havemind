@@ -22,10 +22,8 @@ import { flatten } from '../test/dom';
 function feedOf(count: number) {
   return Array.from({ length: count }, (_, i) => ({
     revisionId: `rev-${i}`,
-    vaultId: 'vault-1',
     fileId: `file-${i}`,
     path: `Notes/note-${i}.md`,
-    previousPath: null,
     kind: 'edit' as const,
     actor: {
       kind: 'author' as const,
@@ -34,10 +32,6 @@ function feedOf(count: number) {
     },
     timestamp: 1_000 + i,
     content: null,
-    blobHash: `hash-${i}`,
-    parentRevisionIds: [],
-    provenance: [],
-    restoredFromRevisionId: null,
   }));
 }
 

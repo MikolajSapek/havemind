@@ -1,30 +1,18 @@
 import { describe, expect, it } from 'vitest';
 
-import { createInitialProvenance } from '@havemind/sync-core';
-
 import { buildActivityFeed, type RevisionRecord } from './activity';
 
-const VAULT = 'vault-1';
 const FILE = 'file-1';
 
 function record(overrides: Partial<RevisionRecord> & { revisionId: string }): RevisionRecord {
   const content = overrides.content === undefined ? 'body\n' : overrides.content;
   return {
     actor: { kind: 'initial-import' },
-    blobHash: `hash-${overrides.revisionId}`,
     content,
     fileId: FILE,
     kind: 'create',
-    parentRevisionIds: [],
     path: 'Note.md',
-    previousPath: null,
-    provenance:
-      content === null
-        ? []
-        : createInitialProvenance(content, overrides.revisionId),
-    restoredFromRevisionId: null,
     timestamp: 1,
-    vaultId: VAULT,
     ...overrides,
   };
 }
@@ -39,14 +27,12 @@ describe('buildActivityFeed', () => {
         kind: 'edit',
         content: 'body edited\n',
         actor: { kind: 'author', actorId: 'a-bob', displayName: 'Bob' },
-        parentRevisionIds: ['r1'],
       }),
       record({
         revisionId: 'r3',
         timestamp: 20,
         kind: 'conflict',
         actor: { kind: 'author', actorId: 'a-ana', displayName: 'Ana' },
-        parentRevisionIds: ['r1'],
       }),
     ]);
 
@@ -68,7 +54,6 @@ describe('buildActivityFeed', () => {
         timestamp: 8,
         kind: 'delete',
         content: null,
-        parentRevisionIds: ['ra'],
       }),
     ]);
 

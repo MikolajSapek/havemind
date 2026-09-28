@@ -40,8 +40,6 @@ const boom = (): never => {
 /** A pane that is connected and has every surface populated. */
 const HEALTHY: OnboardingViewOptions = {
   panelProvider: () => buildConnectionPanel({ status: 'synced' }),
-  authorOverlayProvider: () => false,
-  onToggleAuthorOverlay: () => {},
   onOpenComposer: () => {},
   onSyncNow: () => {},
   onDisconnect: () => {},
@@ -62,7 +60,6 @@ describe('the shell survives a throwing provider', () => {
     ['panelProvider', { panelProvider: boom }],
     ['guestWaitingProvider', { guestWaitingProvider: boom }],
     ['guestInvalidProvider', { guestInvalidProvider: boom }],
-    ['authorOverlayProvider', { authorOverlayProvider: boom }],
     ['composerProvider', { composerProvider: boom }],
   ])('%s', (_name, override) => {
     const root = pane({ ...HEALTHY, ...override });

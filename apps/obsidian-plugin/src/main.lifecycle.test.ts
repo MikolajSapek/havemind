@@ -75,20 +75,16 @@ describe('plugin lifecycle', () => {
 
     expect(registrationState.settingsTabs).toHaveLength(1);
     // One ribbon action: the hexagon opens the single Havemind pane (plans/007
-    // Stage 0). "Show authors" lost its icon and became a control inside that
-    // pane; its `show-authors` command keeps the keyboard route.
+    // Stage 0).
     expect(registrationState.ribbons).toHaveLength(1);
-    expect(registrationState.statusItems).toHaveLength(1);
+    // The sync status, and who last edited the open note.
+    expect(registrationState.statusItems).toHaveLength(2);
     // UI-00: one registered view type. The Activity feed is a tab of that pane
     // now, so its old standalone type is no longer registered.
     expect([...registrationState.views.keys()]).toEqual([HAVEMIND_ONBOARDING_VIEW]);
-    // Audit #3 finding 10 removed an EMPTY editor extension and a no-op markdown
-    // post-processor that stood in for the author overlay. FINDING 1 replaced
-    // both with the real thing: the Live Preview decoration extension and the
-    // Reading-view block-marker processor, each registered exactly once and each
-    // silent until "Show authors" is on.
-    expect(registrationState.editorExtensions).toHaveLength(1);
-    expect(registrationState.markdownPostProcessors).toHaveLength(1);
+    // The author overlay was withdrawn (R5): nothing decorates the editor.
+    expect(registrationState.editorExtensions).toHaveLength(0);
+    expect(registrationState.markdownPostProcessors).toHaveLength(0);
     expect(registrationState.protocolHandlers.has('havemind-join')).toBe(true);
     expect(registrationState.commands.map(({ id }) => id)).toEqual([
       'open-activity',
@@ -97,7 +93,6 @@ describe('plugin lifecycle', () => {
       'sync-now',
       'disconnect',
       'reset-connection',
-      'show-authors',
     ]);
     expect(app.vault.getMarkdownFilesCalls).toBe(0);
     expect(app.network.requestCalls).toBe(0);
@@ -209,7 +204,6 @@ describe('plugin lifecycle', () => {
       ['Sync now'],
       ['Disconnect'],
       ['Reset connection'],
-      ['Author overlay'],
     ]);
 
     // A block whose section did not resolve: the overlay must stay silent rather
@@ -764,18 +758,12 @@ describe('plugin lifecycle', () => {
       activityFeedProvider: () => [
         {
           revisionId: 'rev-1',
-          vaultId: 'vault-1',
           fileId: 'file-1',
           path: 'Notes/a.md',
-          previousPath: null,
           kind: 'edit',
           actor: { kind: 'author', actorId: 'u1', displayName: 'Alice' },
           timestamp: 100,
           content: 'A\n',
-          blobHash: 'h1',
-          parentRevisionIds: [],
-          provenance: [],
-          restoredFromRevisionId: null,
         },
       ],
       onRestore: (revisionId) => restored.push(revisionId),
@@ -1399,5 +1387,29 @@ describe('conflict scanning is cached', () => {
 
     // A vault event must reach the cache, or a new conflict stays invisible.
     expect(() => vault.emit('create')).not.toThrow();
+  });
+});
+
+describe('last edited label', () => {
+  beforeEach(() => resetObsidianMock());
+
+  it('shows who last edited the open note in the status bar', async () => {
+    const app = new App();
+    Object.assign(app.workspace, { getActiveFile: () => ({ path: 'Notes/a.md' }) });
+    const plugin = new HavemindPlugin(app, manifest);
+    await plugin.onload();
+    internals(plugin).rosterMembers = [
+      { membershipId: 'm-magda', displayName: 'Magda', role: 'editor', self: false },
+    ];
+    internals(plugin).syncState = { fileIdAtPath: () => 'file-1' };
+    internals(plugin).connection = {
+      stop: () => undefined,
+      serverName: 'server.example',
+      lastAuthor: async (fileId: string) => (fileId === 'file-1' ? 'm-magda' : null),
+    };
+
+    await internals(plugin).refreshLastEdited();
+
+    expect(registrationState.statusItems.some(({ text }) => text === 'Last edited by Magda')).toBe(true);
   });
 });

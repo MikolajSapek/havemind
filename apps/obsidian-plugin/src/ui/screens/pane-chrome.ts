@@ -12,7 +12,6 @@
 import type { ConnectionPanelView } from '../../runtime/status';
 import type { OnboardingViewOptions } from '../onboarding-types';
 import { renderPaneHeader, type PaneMenuItem } from '../pane-header';
-import { safeRead } from '../primitives';
 
 import { buildHeaderMenuItems } from './header-menu';
 import { attentionCount } from './tab-screens';
@@ -21,10 +20,8 @@ export interface PaneChromeOptions {
   readonly panel: ConnectionPanelView;
   readonly menuOpen: boolean;
   readonly alarmed: boolean;
-  readonly overlayOn: boolean | undefined;
   readonly items: PaneMenuItem[];
   readonly onToggleMenu: () => void;
-  readonly onToggleAuthorOverlay?: (() => void) | undefined;
   readonly onInvite?: (() => void) | undefined;
 }
 
@@ -32,7 +29,7 @@ function renderPaneChrome(
   content: HTMLElement,
   options: PaneChromeOptions,
 ): void {
-  const { panel, overlayOn } = options;
+  const { panel } = options;
   renderPaneHeader(content, {
     title: 'Havemind',
     menuOpen: options.menuOpen,
@@ -40,10 +37,6 @@ function renderPaneChrome(
     items: options.items,
     alarmed: options.alarmed,
     // Only once connected, hence the `showForm` guard on each.
-    ...(panel.showForm || overlayOn === undefined ? {} : { authorOverlayOn: overlayOn }),
-    ...(panel.showForm || options.onToggleAuthorOverlay === undefined
-      ? {}
-      : { onToggleAuthorOverlay: options.onToggleAuthorOverlay }),
     ...(panel.showForm || options.onInvite === undefined
       ? {}
       : { onInvite: options.onInvite }),
@@ -84,7 +77,6 @@ export function renderPaneChromeFor(
     panel,
     menuOpen: state.menuOpen,
     alarmed: attentionCount(options) > 0,
-    overlayOn: safeRead('authorOverlay', options.authorOverlayProvider, undefined),
     items: buildHeaderMenuItems(panel, state.helpOpen, {
       onSyncNow: options.onSyncNow,
       onDisconnect: options.onDisconnect,
@@ -102,7 +94,6 @@ export function renderPaneChromeFor(
       callbacks.setMenuOpen(!state.menuOpen);
       callbacks.repaint();
     },
-    onToggleAuthorOverlay: options.onToggleAuthorOverlay,
     onInvite: options.onOpenComposer,
   });
 }

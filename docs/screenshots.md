@@ -68,7 +68,5 @@ Record both screens, then composite with `scripts/frame-gif.py`.
 - **The onboarding row**: invitation composer, the 6-digit code on the joining
   device, and the owner's approval row with its attempt counter. Three
   captures, best shown as one row.
-- **The author overlay** in the editor. No competing plugin has anything like
-  it.
 - **Activity, re-shot.** The current capture reads "Remote edit" instead of
   author names, the three-person attribution defect being fixed.

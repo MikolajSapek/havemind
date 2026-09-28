@@ -212,38 +212,3 @@ describe('priority column, no duplicated sections', () => {
     expect(rosterRows).toHaveLength(1);
   });
 });
-
-describe('priority column, footer', () => {
-  it('carries the authorship toggle that lost its ribbon icon', () => {
-    let toggled = 0;
-    const root = syncedPane({
-      authorOverlayProvider: () => false,
-      onToggleAuthorOverlay: () => {
-        toggled += 1;
-      },
-    });
-
-    // Icon-only in the action bar (design 2a), so its accessible name lives in
-    // aria-label rather than in visible text, which is precisely why the
-    // label has to exist.
-    const toggle = flatten(root).find((el) =>
-      /authorship/i.test(el.attrs['aria-label'] ?? ''),
-    );
-    expect(toggle).toBeDefined();
-
-    toggle?.triggerClick();
-    expect(toggled).toBe(1);
-  });
-
-  it('states the toggle position for a screen reader, not by colour alone', () => {
-    const root = syncedPane({
-      authorOverlayProvider: () => true,
-      onToggleAuthorOverlay: () => {},
-    });
-
-    const pressed = flatten(root).some(
-      (el) => el.attrs['aria-pressed'] === 'true',
-    );
-    expect(pressed).toBe(true);
-  });
-});

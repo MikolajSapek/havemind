@@ -80,6 +80,8 @@ export interface ConnectionHandle {
   readonly readRoster?: (selfMembershipId: string | null) => Promise<RosterMember[]>;
   /** A revision's note text for the Activity Restore. Absent on the no-op handle. */
   readonly revisionContent?: (revisionId: string) => Promise<RevisionContent | null>;
+  /** The membership that wrote a file's newest revision. Absent on the no-op handle. */
+  readonly lastAuthor?: (fileId: string) => Promise<string | null>;
 }
 
 export const NOOP_HANDLE: ConnectionHandle = {
@@ -139,7 +141,7 @@ export async function startSyncLoop(
   // (rule 3 TOCTOU close). Distinct files still sync in parallel.
   const fileApplyLock = new KeyedMutex();
   let producer: PushProducerHandle | null = null;
-  const { controller, state, initializeProducer, conflictAncestor, revisionContent } = buildSyncController(
+  const { controller, state, initializeProducer, conflictAncestor, revisionContent, lastAuthor } = buildSyncController(
     plugin,
     {
       apiBaseUrl: resolvers.apiBaseUrl,
@@ -234,6 +236,7 @@ export async function startSyncLoop(
     syncNow: () => controller.syncNow(),
     conflictAncestor,
     revisionContent,
+    lastAuthor,
     readRoster: (selfMembershipId) =>
       fetchVaultMembers({
         apiBaseUrl: connection.apiBaseUrl,

@@ -47,9 +47,6 @@ const DEFAULT_MAX_ENTRIES = 200;
 /** A neutral, stable id used only to colour unattributable remote entries. */
 const REMOTE_COLOR_ID = 'havemind-remote';
 
-/** Placeholder vaultId: the feed never tracks a real per-entry vaultId. */
-const FEED_VAULT_ID = 'havemind-feed';
-
 /**
  * An append-only, bounded activity log with change notification. Entries are
  * de-duplicated by `revisionId` (a local push and its later remote echo are the
@@ -208,19 +205,12 @@ export function activityEntriesToRecords(
     const author = resolveAuthor(entry.author, byMembership);
     return {
       revisionId: entry.revisionId,
-      vaultId: FEED_VAULT_ID,
       fileId: entry.fileId,
       path: entry.path,
-      previousPath: null,
       kind: entry.kind,
       actor: author,
       timestamp: entry.timestamp,
       content: entry.hasContent ? '' : null,
-      // The feed never tracks a real content hash; keyed so entries stay distinct.
-      blobHash: `feed:${entry.revisionId}`,
-      parentRevisionIds: [],
-      provenance: [],
-      restoredFromRevisionId: null,
     };
   });
 }

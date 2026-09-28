@@ -278,18 +278,4 @@ describe('HavemindSettingTab actions (FINDING 7)', () => {
       ),
     ).toBe(true);
   });
-
-  it('toggles the author overlay from the settings tab', async () => {
-    const plugin = newPlugin();
-    await plugin.onload();
-    const tab = await renderSettings();
-
-    expect(row('Author overlay').descriptions[0]).toContain('Currently off');
-    button('Show authors').trigger();
-    expect(plugin.authorOverlayEnabled()).toBe(true);
-
-    tab.display();
-    expect(row('Author overlay').descriptions[0]).toContain('Currently on');
-    expect(button('Hide authors')).toBeDefined();
-  });
 });

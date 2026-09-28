@@ -12,18 +12,12 @@ import type { RevisionRecord } from '../activity/activity';
 function record(overrides: Partial<RevisionRecord> = {}): RevisionRecord {
   return {
     revisionId: 'rev-1',
-    vaultId: 'vault-1',
     fileId: 'file-1',
     path: 'Notes/a.md',
-    previousPath: null,
     kind: 'edit',
     actor: { kind: 'author', actorId: 'u1', displayName: 'Alice' },
     timestamp: 100,
     content: 'A\n',
-    blobHash: 'h1',
-    parentRevisionIds: [],
-    provenance: [],
-    restoredFromRevisionId: null,
     ...overrides,
   };
 }
