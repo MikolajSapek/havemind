@@ -59,10 +59,11 @@ import {
   forgetLocalMaterialization,
 } from './local-base-lifecycle';
 import { createRemoteApplyProducerSync } from './remote-apply-coordinator';
-import { DurableSyncState, type PersistedSyncState, type OutboxEnvelope } from './sync-state';
+import { DurableSyncState, type OutboxEnvelope } from './sync-state';
 import { VaultApplyAdapter } from './vault-apply';
 import type { RemoteEvent } from '../sync/sync-runner';
 import { memoryRecovery } from '../test/memory-recovery';
+import { realSha256, makeMemoryPersist } from '../test/fixtures';
 
 const VAULT_ID = '11111111-1111-4111-8111-111111111111';
 const MEMBER_ID = '33333333-3333-4333-8333-333333333333';
@@ -92,14 +93,6 @@ function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
 
 function base64ToBytes(base64: string): Uint8Array {
   return new Uint8Array(Buffer.from(base64, 'base64'));
-}
-
-async function realSha256(text: string): Promise<string> {
-  const data = new TextEncoder().encode(text);
-  const digest = await globalThis.crypto.subtle.digest('SHA-256', data);
-  return [...new Uint8Array(digest)]
-    .map((byte) => byte.toString(16).padStart(2, '0'))
-    .join('');
 }
 
 function isConflictPath(path: string): boolean {
@@ -212,31 +205,6 @@ class InMemoryVault {
   syncablePaths(): string[] {
     return [...this.contents.keys(), ...this.binaries.keys()];
   }
-}
-
-function makeMemoryPersist(): {
-  load(): Promise<unknown>;
-  loadBackup(): Promise<unknown>;
-  save(state: PersistedSyncState): Promise<void>;
-  preserveCorrupt(raw: unknown, timestamp: number): Promise<void>;
-} {
-  let stored: PersistedSyncState | null = null;
-  let backup: PersistedSyncState | null = null;
-  return {
-    async load() {
-      return stored;
-    },
-    async loadBackup() {
-      return backup;
-    },
-    async save(state) {
-      backup = stored;
-      stored = state;
-    },
-    async preserveCorrupt() {
-      /* no-op: this steady-state harness never seeds a corrupt blob */
-    },
-  };
 }
 
 /** A single produced revision on the wire, carrying everything the peer needs. */

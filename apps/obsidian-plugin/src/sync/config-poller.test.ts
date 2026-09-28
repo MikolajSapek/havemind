@@ -10,7 +10,6 @@ import {
 import type { OutboxEnvelope } from '../runtime/sync-state';
 import {
   OutboxLocalChangeRepository,
-  type ProducerState,
 } from './outbox-repository';
 import {
   listSyncableConfigPaths,
@@ -19,20 +18,13 @@ import {
 } from './config-adapter';
 import { pollConfigOnce } from './config-poller';
 import { memoryRecovery } from '../test/memory-recovery';
+import { realSha256, MemoryProducerStore } from '../test/fixtures';
 
 const IDENTITY = {
   vaultId: '11111111-1111-4111-8111-111111111111',
   memberId: '33333333-3333-4333-8333-333333333333',
   deviceId: '44444444-4444-4444-8444-444444444444',
 } as const;
-
-async function realSha256(text: string): Promise<string> {
-  const data = new TextEncoder().encode(text);
-  const digest = await globalThis.crypto.subtle.digest('SHA-256', data);
-  return [...new Uint8Array(digest)]
-    .map((byte) => byte.toString(16).padStart(2, '0'))
-    .join('');
-}
 
 /** In-memory DataAdapter double (full paths from `list`, like Obsidian). */
 class InMemoryAdapter implements ConfigAdapterPort {
@@ -87,16 +79,6 @@ class HiddenConfigVault {
   }
 }
 
-class MemoryStore {
-  state: ProducerState = { mappings: [], heads: {} };
-  async load(): Promise<ProducerState> {
-    return this.state;
-  }
-  async save(state: ProducerState): Promise<void> {
-    this.state = state;
-  }
-}
-
 function makeHarness(adapter: ConfigAdapterPort) {
   const enqueued: OutboxEnvelope[] = [];
   let rev = 0;
@@ -104,7 +86,7 @@ function makeHarness(adapter: ConfigAdapterPort) {
   let op = 0;
   const repository = new OutboxLocalChangeRepository({
     identity: IDENTITY,
-    store: new MemoryStore(),
+    store: new MemoryProducerStore(),
     recovery: memoryRecovery(async (envelope) => {
       enqueued.push(envelope);
     }),

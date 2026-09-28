@@ -22,18 +22,11 @@ import { DurableSyncState, type PersistedSyncState } from './sync-state';
 import { VaultApplyAdapter, type RemoteAppliedEvent } from './vault-apply';
 import type { RemoteEvent } from '../sync/sync-runner';
 import { memoryRecovery } from '../test/memory-recovery';
+import { realSha256 } from '../test/fixtures';
 
 const VAULT_ID = '11111111-1111-4111-8111-111111111111';
 const MEMBER_ID = '33333333-3333-4333-8333-333333333333';
 const DEVICE_ID = '44444444-4444-4444-8444-444444444444';
-
-async function realSha256(text: string): Promise<string> {
-  const data = new TextEncoder().encode(text);
-  const digest = await globalThis.crypto.subtle.digest('SHA-256', data);
-  return [...new Uint8Array(digest)]
-    .map((byte) => byte.toString(16).padStart(2, '0'))
-    .join('');
-}
 
 class InMemoryVault {
   readonly contents = new Map<string, string>();

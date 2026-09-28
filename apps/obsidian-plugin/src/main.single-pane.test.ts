@@ -21,18 +21,8 @@ import {
   App,
   registrationState,
   resetObsidianMock,
-  type PluginManifest,
 } from './test/obsidian.mock';
-
-const manifest: PluginManifest = {
-  author: 'Mikolaj Pawel Sapek',
-  description: 'Synchronize shared Markdown vaults with durable history.',
-  id: 'havemind-sync',
-  isDesktopOnly: true,
-  minAppVersion: '1.11.4',
-  name: 'Havemind',
-  version: '0.0.1',
-};
+import { manifest } from './test/fixtures';
 
 describe('one hexagon, one pane (UI-00)', () => {
   beforeEach(() => {

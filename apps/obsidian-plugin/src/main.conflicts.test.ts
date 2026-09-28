@@ -8,32 +8,17 @@ import {
 } from './ui/conflict-modal';
 import { renderConflictSection } from './ui/conflict-section';
 import { HavemindOnboardingView } from './ui/onboarding-view';
-import type { PluginManifest } from './test/obsidian.mock';
 import type { ConflictCopy } from './runtime/conflict-resolution';
 import { buildConnectionPanel } from './runtime/status';
 import type { RejoinRosterView } from './runtime/rejoin-roster';
 import {
   App,
-  ItemView,
   type MockElement,
   resetObsidianMock,
   WorkspaceLeaf,
 } from './test/obsidian.mock';
-
-function flatten(element: MockElement): MockElement[] {
-  return element.children.flatMap((child) => [child, ...flatten(child)]);
-}
-
-/** A blank rendered pane element, mirroring an ItemView's content child. */
-function createContent(): MockElement {
-  const view = new ItemView(new WorkspaceLeaf());
-  return view.containerEl.children[1] as unknown as MockElement;
-}
-
-/** The exported render helpers are typed against the real HTMLElement. */
-function asEl(element: MockElement): HTMLElement {
-  return element as unknown as HTMLElement;
-}
+import { descendants, createContent, asEl } from './test/dom';
+import { manifest } from './test/fixtures';
 
 function newCopy(overrides: Partial<ConflictCopy> = {}): ConflictCopy {
   return {
@@ -67,7 +52,7 @@ describe('renderConflictSection', () => {
       onResolve: (path) => resolved.push(path),
     });
 
-    const all = flatten(container);
+    const all = descendants(container);
     // The count reads as a sentence ("2 conflicts"), not as a bare numeral
     // parked at the far edge of the row, where the design found it looked like
     // a badge belonging to whatever sat next to it.
@@ -78,7 +63,7 @@ describe('renderConflictSection', () => {
     // the count is read from the heading's own label span.
     expect(header).toBeDefined();
     expect(
-      flatten(header ?? container).some((e) => e.text.includes('2 conflicts')),
+      descendants(header ?? container).some((e) => e.text.includes('2 conflicts')),
     ).toBe(true);
     const buttons = all.filter((e) => e.text === 'Resolve');
     expect(buttons).toHaveLength(2);
@@ -93,7 +78,7 @@ describe('renderConflictSection', () => {
       [newCopy({ targetKnown: false, targetPath: null, manualHint: 'Target unknown, open files manually.' })],
       { onResolve: () => undefined },
     );
-    const all = flatten(container);
+    const all = descendants(container);
     expect(all.some((e) => e.text.includes('Target unknown'))).toBe(true);
   });
 });
@@ -136,7 +121,7 @@ describe('renderConflictModalBody', () => {
       },
     );
 
-    const all = flatten(container);
+    const all = descendants(container);
     expect(all.some((e) => e.classes.includes('havemind-conflict-line-added'))).toBe(true);
     expect(all.some((e) => e.classes.includes('havemind-conflict-line-removed'))).toBe(true);
 
@@ -154,7 +139,7 @@ describe('renderConflictModalBody', () => {
       onKeepBoth: () => calls.push('both'),
     });
 
-    const keepMine = flatten(container).find((e) => e.text === 'Keep mine');
+    const keepMine = descendants(container).find((e) => e.text === 'Keep mine');
     keepMine?.triggerClick();
     expect(calls).toEqual([]); // armed, not fired
     expect(keepMine?.text).toBe('Confirm keep mine');
@@ -170,7 +155,7 @@ describe('renderConflictModalBody', () => {
       { onKeepBoth: () => undefined },
     );
     expect(
-      flatten(container).some((e) => e.text.startsWith('The difference is too large')),
+      descendants(container).some((e) => e.text.startsWith('The difference is too large')),
     ).toBe(true);
   });
 
@@ -188,7 +173,7 @@ describe('renderConflictModalBody', () => {
         onKeepBoth: () => undefined,
       },
     );
-    const all = flatten(container);
+    const all = descendants(container);
     expect(all.some((e) => e.text === 'Keep theirs')).toBe(false);
     expect(all.some((e) => e.text === 'Keep mine')).toBe(true);
     expect(all.some((e) => e.text === 'Keep both (close)')).toBe(true);
@@ -204,7 +189,7 @@ describe('ConflictResolveModal', () => {
     );
     modal.open();
     expect((modal as unknown as { opened: boolean }).opened).toBe(true);
-    const all = flatten(modal.contentEl as unknown as MockElement);
+    const all = descendants(modal.contentEl as unknown as MockElement);
     expect(all.some((e) => e.text === 'Keep both (close)')).toBe(true);
   });
 });
@@ -220,7 +205,7 @@ describe('HavemindOnboardingView conflict section', () => {
     withCopies.onOpen();
     const content = (withCopies.containerEl as unknown as MockElement).children[1] as MockElement;
     expect(
-      flatten(content).some((e) => e.classes.includes('havemind-conflict-header')),
+      descendants(content).some((e) => e.classes.includes('havemind-conflict-header')),
     ).toBe(true);
   });
 
@@ -232,7 +217,7 @@ describe('HavemindOnboardingView conflict section', () => {
     empty.onOpen();
     const content = (empty.containerEl as unknown as MockElement).children[1] as MockElement;
     expect(
-      flatten(content).some((e) => e.classes.includes('havemind-conflict-header')),
+      descendants(content).some((e) => e.classes.includes('havemind-conflict-header')),
     ).toBe(false);
   });
 
@@ -244,7 +229,7 @@ describe('HavemindOnboardingView conflict section', () => {
     });
     view.onOpen();
     const content = (view.containerEl as unknown as MockElement).children[1] as MockElement;
-    const resolve = flatten(content).find((e) => e.text === 'Resolve');
+    const resolve = descendants(content).find((e) => e.text === 'Resolve');
     resolve?.triggerClick();
     expect(onResolveConflict).toHaveBeenCalledWith(newCopy().copyPath);
   });
@@ -282,7 +267,7 @@ describe('HavemindOnboardingView per-section render isolation (MAJOR 5)', () => 
     view.onOpen();
     const content = (view.containerEl as unknown as MockElement)
       .children[1] as MockElement;
-    const all = flatten(content);
+    const all = descendants(content);
 
     // Status and the tab strip still render despite the conflicts throw. The
     // strip matters most here: it is built before the guarded sections, so an
@@ -296,16 +281,6 @@ describe('HavemindOnboardingView per-section render isolation (MAJOR 5)', () => 
     expect(fallback?.text).toBe('Section unavailable');
   });
 });
-
-const manifest: PluginManifest = {
-  author: 'Mikolaj Pawel Sapek',
-  description: 'Synchronize shared Markdown vaults with durable history.',
-  id: 'havemind-sync',
-  isDesktopOnly: true,
-  minAppVersion: '1.11.4',
-  name: 'Havemind',
-  version: '0.0.1',
-};
 
 interface FakeFile {
   path: string;
@@ -366,7 +341,7 @@ describe('HavemindPlugin conflict resolution flow', () => {
     );
     expect(modal).not.toBeNull();
 
-    const all = flatten((modal as ConflictResolveModal).contentEl as unknown as MockElement);
+    const all = descendants((modal as ConflictResolveModal).contentEl as unknown as MockElement);
     // The diff shows the diverging line from both sides.
     expect(all.some((e) => e.text.includes('mine'))).toBe(true);
     expect(all.some((e) => e.text.includes('theirs'))).toBe(true);

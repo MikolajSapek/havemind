@@ -27,20 +27,11 @@ import {
   type MockElement,
   resetObsidianMock,
   SecretStorage,
-  type PluginManifest,
   WorkspaceLeaf,
 } from './test/obsidian.mock';
 import { internals } from './test/plugin-internals';
-
-const manifest: PluginManifest = {
-  author: 'Mikolaj Pawel Sapek',
-  description: 'Synchronize shared Markdown vaults with durable history.',
-  id: 'havemind-sync',
-  isDesktopOnly: true,
-  minAppVersion: '1.11.4',
-  name: 'Havemind',
-  version: '0.0.1',
-};
+import { descendants } from './test/dom';
+import { manifest } from './test/fixtures';
 
 /** A valid client_instance_id (16-64 lowercase alphanumerics/hyphens). */
 const CLIENT_INSTANCE_ID = '11111111-2222-4333-8444-555555555555';
@@ -55,11 +46,6 @@ const INTACT_RECORD = {
 
 interface Disk {
   value: Record<string, unknown>;
-}
-
-/** Depth-first list of an element and all of its descendants. */
-function flatten(element: MockElement): MockElement[] {
-  return element.children.flatMap((child) => [child, ...flatten(child)]);
 }
 
 /** A bare Plugin double: plugin-data over `disk`, plus a SecretStorage. */
@@ -327,7 +313,7 @@ describe('Reset connection action (P1 #5)', () => {
     await view.onOpen();
 
     const content = (view.containerEl as unknown as MockElement).children[1];
-    const all = flatten(content as MockElement);
+    const all = descendants(content as MockElement);
     const button = all.find(({ text }) => text === 'Reset connection');
     expect(button).toBeDefined();
     // Accessible name, English, no emoji.
@@ -349,7 +335,7 @@ describe('Reset connection action (P1 #5)', () => {
     await view.onOpen();
 
     const content = (view.containerEl as unknown as MockElement).children[1];
-    const all = flatten(content as MockElement);
+    const all = descendants(content as MockElement);
     expect(all.some(({ text }) => text === 'Retry now')).toBe(false);
   });
 

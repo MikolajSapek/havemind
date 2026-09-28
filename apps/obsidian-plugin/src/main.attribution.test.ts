@@ -21,21 +21,11 @@ import {
   type Command,
   createMockElement,
   type MockElement,
-  type PluginManifest,
   registrationState,
   resetObsidianMock,
 } from './test/obsidian.mock';
 import { internals } from './test/plugin-internals';
-
-const manifest: PluginManifest = {
-  author: 'Mikolaj Pawel Sapek',
-  description: 'Synchronize shared Markdown vaults with durable history.',
-  id: 'havemind-sync',
-  isDesktopOnly: true,
-  minAppVersion: '1.11.4',
-  name: 'Havemind',
-  version: '0.0.1',
-};
+import { manifest, flush } from './test/fixtures';
 
 const MAGDA: RosterMember = {
   membershipId: 'm-magda',
@@ -95,12 +85,6 @@ function renderBlock(
     });
   }
   return element;
-}
-
-function flush(): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, 0);
-  });
 }
 
 describe('author overlay wiring (FINDING 1)', () => {

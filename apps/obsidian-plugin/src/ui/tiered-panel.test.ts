@@ -14,23 +14,9 @@
 import { describe, expect, it } from 'vitest';
 
 import { buildRejoinRosterView } from '../runtime/rejoin-roster';
-import { buildConnectionPanel } from '../runtime/status';
-import { WorkspaceLeaf, type MockElement } from '../test/obsidian.mock';
+import { type MockElement } from '../test/obsidian.mock';
 
-import { HavemindOnboardingView, type OnboardingViewOptions } from './onboarding-view';
-
-function flatten(el: MockElement): MockElement[] {
-  return [el, ...(el.children ?? []).flatMap(flatten)];
-}
-
-function pane(options: OnboardingViewOptions = {}): MockElement {
-  const view = new HavemindOnboardingView(new WorkspaceLeaf(), {
-    panelProvider: () => buildConnectionPanel({ status: 'synced' }),
-    ...options,
-  });
-  view.onOpen();
-  return view.containerEl as unknown as MockElement;
-}
+import { flatten, syncedPane } from '../test/dom';
 
 function texts(root: MockElement): string[] {
   return flatten(root)
@@ -56,7 +42,7 @@ describe('UI-02, a healthy panel is nearly empty', () => {
     // The handlers ARE wired, as they are in the real plugin: without them the
     // sections bail out early and this test would pass for the wrong reason,
     // proving only that an unwired pane draws nothing.
-    const root = pane({
+    const root = syncedPane({
       conflictsProvider: () => [],
       onResolveConflict: () => undefined,
       sendQueueProvider: () => null,
@@ -81,7 +67,7 @@ describe('UI-02, a healthy panel is nearly empty', () => {
   });
 
   it('AT2-2: one conflict is visible without interaction', () => {
-    const root = pane({ conflictsProvider: () => [CONFLICT], onResolveConflict: () => undefined });
+    const root = syncedPane({ conflictsProvider: () => [CONFLICT], onResolveConflict: () => undefined });
 
     // The section states its own count and names the note; a conflict is
     // legible without opening anything.
@@ -94,7 +80,7 @@ describe('UI-02, a healthy panel is nearly empty', () => {
     // The negative AC. A tab may hide content; it must never hide an alarm, so
     // the conflict has to sit ABOVE the tab strip in DOM order rather than
     // inside whichever tab happens to be open.
-    const root = pane({ conflictsProvider: () => [CONFLICT], onResolveConflict: () => undefined });
+    const root = syncedPane({ conflictsProvider: () => [CONFLICT], onResolveConflict: () => undefined });
 
     const all = flatten(root);
     const strip = all.findIndex((el) => (el.classes ?? []).includes('havemind-tabs'));
@@ -115,7 +101,7 @@ describe('UI-02, a healthy panel is nearly empty', () => {
       { membershipId: 'm-1', displayName: 'You', role: 'owner', self: true },
       { membershipId: 'm-2', displayName: 'Bob', role: 'editor', self: false },
     ]);
-    const root = pane({ rejoinRosterProvider: () => roster });
+    const root = syncedPane({ rejoinRosterProvider: () => roster });
 
     expect(texts(root).some((t) => /^Bob$/.test(t))).toBe(false);
     // And the tab that holds them is reachable without the command palette.
@@ -126,7 +112,7 @@ describe('UI-02, a healthy panel is nearly empty', () => {
   });
 
   it('AT2-4: the tutorial stays behind its affordance in a healthy pane', () => {
-    const root = pane();
+    const root = syncedPane();
     expect(texts(root).some((t) => /Install Docker/i.test(t))).toBe(false);
   });
 });
@@ -138,7 +124,7 @@ describe('UI-03, the composer is a modal over the panel (AT3-2)', () => {
     // so a connected vault rendered no "Connected, synced" anywhere and read as
     // disconnected. `resolveViewState` has no composer variant at all: the
     // composer draws OVER the connected state, so it cannot displace it.
-    const root = pane({
+    const root = syncedPane({
       composerProvider: () => ({
         role: 'editor' as const,
         name: '',

@@ -22,9 +22,10 @@ import {
   type VaultSnapshotPort,
 } from '../obsidian/vault-adapter';
 import type { OutboxEnvelope } from '../runtime/sync-state';
-import { OutboxLocalChangeRepository, type ProducerState } from './outbox-repository';
+import { OutboxLocalChangeRepository } from './outbox-repository';
 import { reconcileVaultState } from './reconciliation';
 import { memoryRecovery } from '../test/memory-recovery';
+import { MemoryProducerStore } from '../test/fixtures';
 
 const IDENTITY = {
   vaultId: '11111111-1111-4111-8111-111111111111',
@@ -62,16 +63,6 @@ class InMemoryConfigVault implements VaultSnapshotPort {
   }
 }
 
-class MemoryStore {
-  state: ProducerState = { mappings: [], heads: {} };
-  async load(): Promise<ProducerState> {
-    return this.state;
-  }
-  async save(state: ProducerState): Promise<void> {
-    this.state = state;
-  }
-}
-
 function makeHarness() {
   const vault = new InMemoryConfigVault();
   const enqueued: OutboxEnvelope[] = [];
@@ -81,7 +72,7 @@ function makeHarness() {
 
   const repository = new OutboxLocalChangeRepository({
     identity: IDENTITY,
-    store: new MemoryStore(),
+    store: new MemoryProducerStore(),
     recovery: memoryRecovery(async (envelope) => {
       enqueued.push(envelope);
     }),

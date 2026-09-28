@@ -10,25 +10,11 @@ import {
   type MockElement,
   registrationState,
   resetObsidianMock,
-  type PluginManifest,
   WorkspaceLeaf,
 } from './test/obsidian.mock';
 import { internals } from './test/plugin-internals';
-
-const manifest: PluginManifest = {
-  author: 'Mikolaj Pawel Sapek',
-  description: 'Synchronize shared Markdown vaults with durable history.',
-  id: 'havemind-sync',
-  isDesktopOnly: true,
-  minAppVersion: '1.11.4',
-  name: 'Havemind',
-  version: '0.0.1',
-};
-
-/** Depth-first list of an element and all of its descendants. */
-function flatten(element: MockElement): MockElement[] {
-  return element.children.flatMap((child) => [child, ...flatten(child)]);
-}
+import { descendants } from './test/dom';
+import { manifest } from './test/fixtures';
 
 /**
  * Picks "Someone sent me an invitation" on the entry chooser (design 1d), which
@@ -37,10 +23,10 @@ function flatten(element: MockElement): MockElement[] {
  */
 function chooseInvitationPath(view: { containerEl: unknown }): void {
   const root = view.containerEl as unknown as MockElement;
-  const option = flatten(root).find(
+  const option = descendants(root).find(
     (el) =>
       el.tag === 'button' &&
-      flatten(el).some((child) => /sent me an invitation/i.test(child.text ?? '')),
+      descendants(el).some((child) => /sent me an invitation/i.test(child.text ?? '')),
   );
   if (option === undefined) throw new Error('entry chooser option not rendered');
   // The click re-renders on its own; calling onOpen() again would wipe it.
@@ -54,7 +40,7 @@ function chooseInvitationPath(view: { containerEl: unknown }): void {
  */
 function openTab(view: { containerEl: unknown }, label: RegExp): void {
   const root = view.containerEl as unknown as MockElement;
-  const tab = flatten(root).find(
+  const tab = descendants(root).find(
     (el) =>
       el.attrs['role'] === 'tab' && label.test(el.attrs['aria-label'] ?? ''),
   );
@@ -139,7 +125,7 @@ describe('plugin lifecycle', () => {
       .find((button) => button.buttonText === 'Open Havemind panel');
     expect(cta?.cta).toBe(true);
     // Refresh stays a plain control in the container (FINDING 4).
-    const refresh = flatten(tab?.containerEl as unknown as MockElement).find(
+    const refresh = descendants(tab?.containerEl as unknown as MockElement).find(
       (e) => e.text === 'Refresh',
     );
     expect(refresh).toBeDefined();
@@ -207,7 +193,7 @@ describe('plugin lifecycle', () => {
 
     const container = await openActivityTab(plugin);
     expect(
-      flatten(container).some(({ text }) =>
+      descendants(container).some(({ text }) =>
         text === 'No activity yet. Connect to a vault to see changes as they happen.'),
     ).toBe(true);
 
@@ -258,7 +244,7 @@ describe('plugin lifecycle', () => {
     const kids = container.children[1]?.children ?? [];
     // The header strip names the plugin, not one of its screens: the pane holds
     // connecting, activity, people and conflicts (design 1a).
-    expect(flatten(container).some(({ text }) => text === 'Havemind')).toBe(true);
+    expect(descendants(container).some(({ text }) => text === 'Havemind')).toBe(true);
     expect(kids.some(({ tag }) => tag === 'textarea')).toBe(true);
     expect(kids.some(({ text }) => text === 'Connect')).toBe(true);
   });
@@ -318,7 +304,7 @@ describe('plugin lifecycle', () => {
       ?.(new WorkspaceLeaf());
     expect(view?.getIcon()).toBe('hexagon');
     await view?.onOpen();
-    const all = flatten(view?.containerEl as unknown as MockElement);
+    const all = descendants(view?.containerEl as unknown as MockElement);
     expect(all.some(({ text }) => text === 'Invite someone')).toBe(true);
     expect(all.some(({ text }) => text === 'Create invitation')).toBe(true);
     // Before an invitation exists there is nothing to wait for, so the waiting
@@ -351,7 +337,7 @@ describe('plugin lifecycle', () => {
     await view.onOpen();
 
     const content = (view.containerEl as unknown as MockElement).children[1];
-    const all = flatten(content as MockElement);
+    const all = descendants(content as MockElement);
     // Top (create) section.
     expect(all.some(({ text }) => text === 'Invite someone')).toBe(true);
     expect(all.some(({ tag }) => tag === 'select')).toBe(true);
@@ -385,7 +371,7 @@ describe('plugin lifecycle', () => {
     await view.onOpen();
 
     const content = (view.containerEl as unknown as MockElement).children[1];
-    const all = flatten(content as MockElement);
+    const all = descendants(content as MockElement);
     const roleSelect = all.find(({ tag }) => tag === 'select');
     if (roleSelect) roleSelect.value = 'owner';
     const nameInput = all.find(({ tag }) => tag === 'input');
@@ -417,7 +403,7 @@ describe('plugin lifecycle', () => {
     await view.onOpen();
 
     const content = (view.containerEl as unknown as MockElement).children[1];
-    const all = flatten(content as MockElement);
+    const all = descendants(content as MockElement);
     const readonlyField = all.find(
       ({ tag, value }) =>
         (tag === 'textarea' || tag === 'input') && value === 'v1.COPYME',
@@ -445,12 +431,12 @@ describe('plugin lifecycle', () => {
     await view.onOpen();
 
     const content = (view.containerEl as unknown as MockElement).children[1];
-    const all = flatten(content as MockElement);
+    const all = descendants(content as MockElement);
     all.find(({ text }) => text === 'Copy')?.triggerClick();
     await Promise.resolve();
 
     expect(
-      flatten(content as MockElement).some(({ text }) =>
+      descendants(content as MockElement).some(({ text }) =>
         text.includes('Could not copy automatically.'),
       ),
     ).toBe(true);
@@ -483,15 +469,15 @@ describe('plugin lifecycle', () => {
     await view.onOpen();
 
     const content = (view.containerEl as unknown as MockElement).children[1];
-    const row = flatten(content as MockElement).find(({ classes }) =>
+    const row = descendants(content as MockElement).find(({ classes }) =>
       classes.includes('havemind-pending-row'),
     );
     expect(row).toBeDefined();
-    const phraseInput = flatten(row as MockElement).find(
+    const phraseInput = descendants(row as MockElement).find(
       ({ tag }) => tag === 'input',
     );
     if (phraseInput) phraseInput.value = '123456';
-    flatten(row as MockElement)
+    descendants(row as MockElement)
       .find(({ text }) => text === 'Approve')
       ?.triggerClick();
 
@@ -500,7 +486,7 @@ describe('plugin lifecycle', () => {
     ]);
 
     // The top (create) section must still be present after approving.
-    const after = flatten(content as MockElement);
+    const after = descendants(content as MockElement);
     expect(after.some(({ text }) => text === 'v1.KEEP')).toBe(true);
     expect(after.some(({ text }) => text === 'Create invitation')).toBe(true);
   });
@@ -537,18 +523,18 @@ describe('plugin lifecycle', () => {
     await view.onOpen();
 
     const content = (view.containerEl as unknown as MockElement).children[1];
-    const row = flatten(content as MockElement).find(({ classes }) =>
+    const row = descendants(content as MockElement).find(({ classes }) =>
       classes.includes('havemind-pending-row'),
     );
-    const phraseInput = flatten(row as MockElement).find(
+    const phraseInput = descendants(row as MockElement).find(
       ({ tag }) => tag === 'input',
     );
     if (phraseInput) phraseInput.value = '123456';
-    flatten(row as MockElement)
+    descendants(row as MockElement)
       .find(({ text }) => text === 'Approve')
       ?.triggerClick();
 
-    const all = flatten(content as MockElement);
+    const all = descendants(content as MockElement);
     // The approved device's waiting row is gone.
     expect(
       all.some(({ classes }) => classes.includes('havemind-pending-row')),
@@ -562,12 +548,12 @@ describe('plugin lifecycle', () => {
     const confirmation = all.find(
       ({ classes, children }) =>
         classes.includes('havemind-status') &&
-        flatten({ children } as MockElement).some(
+        descendants({ children } as MockElement).some(
           ({ text }) => text === ' Magda connected.',
         ),
     );
     expect(confirmation).toBeDefined();
-    const confirmationChildren = flatten(confirmation as MockElement);
+    const confirmationChildren = descendants(confirmation as MockElement);
     expect(confirmationChildren.some(({ iconName }) => iconName === 'check-circle')).toBe(true);
     expect(all.some(({ text }) => text === ' Magda connected.')).toBe(true);
   });
@@ -592,16 +578,16 @@ describe('plugin lifecycle', () => {
     await view.onOpen();
 
     const content = (view.containerEl as unknown as MockElement).children[1];
-    const row = flatten(content as MockElement).find(({ classes }) =>
+    const row = descendants(content as MockElement).find(({ classes }) =>
       classes.includes('havemind-pending-row'),
     );
-    flatten(row as MockElement)
+    descendants(row as MockElement)
       .find(({ text }) => text === 'Approve')
       ?.triggerClick();
 
     expect(approvals).toEqual([]);
     expect(
-      flatten(row as MockElement).some(
+      descendants(row as MockElement).some(
         ({ text }) => text === 'Enter the code you heard, then approve.',
       ),
     ).toBe(true);
@@ -626,7 +612,7 @@ describe('plugin lifecycle', () => {
     });
     await view.onOpen();
     const codeInput = (): MockElement | undefined =>
-      flatten((view.containerEl as unknown as MockElement).children[1] as MockElement).find(
+      descendants((view.containerEl as unknown as MockElement).children[1] as MockElement).find(
         ({ tag, attrs }) => tag === 'input' && attrs.id?.endsWith('-id-1') === true,
       );
 
@@ -657,10 +643,10 @@ describe('plugin lifecycle', () => {
     await view.onOpen();
 
     const content = (view.containerEl as unknown as MockElement).children[1];
-    const row = flatten(content as MockElement).find(({ classes }) =>
+    const row = descendants(content as MockElement).find(({ classes }) =>
       classes.includes('havemind-pending-row'),
     );
-    const cells = flatten(row as MockElement);
+    const cells = descendants(row as MockElement);
     // The owner types the code in, an input exists, prompting for the code.
     expect(cells.some(({ tag }) => tag === 'input')).toBe(true);
     expect(
@@ -685,7 +671,7 @@ describe('plugin lifecycle', () => {
     });
     await view.onOpen();
 
-    const all = flatten(view.containerEl as unknown as MockElement);
+    const all = descendants(view.containerEl as unknown as MockElement);
     // The digits are grouped 3+3 to be spoken (design 1e), so assert on the
     // block that carries them rather than on one undivided string.
     const code = all.find(({ classes }) =>
@@ -694,7 +680,7 @@ describe('plugin lifecycle', () => {
     expect(code).toBeDefined();
     // Grouped for the eye, announced whole for a screen reader.
     expect(code?.attrs['aria-label']).toBe('123456');
-    expect(flatten(code as MockElement).map(({ text }) => text)).toContain('123');
+    expect(descendants(code as MockElement).map(({ text }) => text)).toContain('123');
 
     // The instruction is an imperative naming the other person…
     expect(all.some(({ text }) => /read these six digits out loud/i.test(text))).toBe(
@@ -713,7 +699,7 @@ describe('plugin lifecycle', () => {
     });
     await view.onOpen();
 
-    const all = flatten(view.containerEl as unknown as MockElement);
+    const all = descendants(view.containerEl as unknown as MockElement);
     // Names the cause rather than reporting a failure (design 1e).
     expect(
       all.some(({ text }) => /invitation has been used/i.test(text)),
@@ -764,7 +750,7 @@ describe('plugin lifecycle', () => {
     view.refreshNow();
 
     const content = (view.containerEl as unknown as MockElement).children[1];
-    const all = flatten(content as MockElement);
+    const all = descendants(content as MockElement);
     expect(all.some(({ text }) => text === 'v1.KEEP')).toBe(true);
     expect(
       all.some(({ classes }) => classes.includes('havemind-pending-row')),
@@ -796,7 +782,7 @@ describe('plugin lifecycle', () => {
     });
     await view.onOpen();
     openTab(view, /Activity/);
-    const row = flatten(view.containerEl as unknown as MockElement).find(({ classes }) =>
+    const row = descendants(view.containerEl as unknown as MockElement).find(({ classes }) =>
       classes.includes('havemind-activity-row'),
     );
     // Two-line row: `author verb` headline over the vault path (in a text block).
@@ -804,7 +790,7 @@ describe('plugin lifecycle', () => {
     expect(textBlock?.children[0]?.text).toBe('Alice edit');
     expect(textBlock?.children[1]?.text).toBe('Notes/a.md');
 
-    const restoreButton = flatten(row as MockElement).find(({ classes }) =>
+    const restoreButton = descendants(row as MockElement).find(({ classes }) =>
       classes.includes('havemind-activity-action'),
     );
     restoreButton?.triggerClick();
@@ -837,7 +823,7 @@ describe('plugin lifecycle', () => {
     });
 
     const container = await openActivityTab(plugin);
-    const restoreButton = flatten(container).find(({ classes }) =>
+    const restoreButton = descendants(container).find(({ classes }) =>
       classes.includes('havemind-activity-action'),
     );
     expect(restoreButton?.text).toBe('Restore');
@@ -868,7 +854,7 @@ describe('plugin lifecycle', () => {
     });
 
     const container = await openActivityTab(plugin);
-    const restoreButton = flatten(container).find(({ classes }) =>
+    const restoreButton = descendants(container).find(({ classes }) =>
       classes.includes('havemind-activity-action'),
     );
     expect(restoreButton).toBeDefined();
@@ -937,7 +923,7 @@ describe('plugin lifecycle', () => {
     await view.onOpen();
     chooseInvitationPath(view);
 
-    const kids = flatten(view.containerEl as unknown as MockElement);
+    const kids = descendants(view.containerEl as unknown as MockElement);
     const textarea = kids.find(({ tag }) => tag === 'textarea');
     const server = kids.find(({ tag }) => tag === 'input');
     const button = kids.find(({ text }) => text === 'Connect');
@@ -958,10 +944,10 @@ describe('plugin lifecycle', () => {
     chooseInvitationPath(view);
 
     const content = (view.containerEl as unknown as MockElement).children[1];
-    const textarea = flatten(content as MockElement).find(
+    const textarea = descendants(content as MockElement).find(
       ({ tag }) => tag === 'textarea',
     );
-    const server = flatten(content as MockElement).find(
+    const server = descendants(content as MockElement).find(
       ({ tag }) => tag === 'input',
     );
     if (textarea) textarea.value = 'v1.HALF-TYPED';
@@ -970,10 +956,10 @@ describe('plugin lifecycle', () => {
     // A background status change re-renders the view while the user is typing.
     view.refreshNow();
 
-    const textareaAfter = flatten(content as MockElement).find(
+    const textareaAfter = descendants(content as MockElement).find(
       ({ tag }) => tag === 'textarea',
     );
-    const serverAfter = flatten(content as MockElement).find(
+    const serverAfter = descendants(content as MockElement).find(
       ({ tag }) => tag === 'input',
     );
     expect(textareaAfter?.value).toBe('v1.HALF-TYPED');
@@ -987,7 +973,7 @@ describe('plugin lifecycle', () => {
     });
     // First open renders the waiting screen.
     await view.onOpen();
-    let all = flatten(view.containerEl as unknown as MockElement);
+    let all = descendants(view.containerEl as unknown as MockElement);
     expect(all.some(({ text }) => text.includes('7 tiger lamp'))).toBe(true);
     // The screen states what to do with the code, in the imperative: the
     // spinner it replaced described the system's state, not the user's job.
@@ -997,7 +983,7 @@ describe('plugin lifecycle', () => {
 
     // Reopening the pane keeps the phrase, the wait resumes, not a blank form.
     await view.onOpen();
-    all = flatten(view.containerEl as unknown as MockElement);
+    all = descendants(view.containerEl as unknown as MockElement);
     expect(all.some(({ text }) => text.includes('7 tiger lamp'))).toBe(true);
     expect(all.some(({ tag }) => tag === 'textarea')).toBe(false);
   });
@@ -1022,12 +1008,11 @@ describe('plugin lifecycle', () => {
     await view.onOpen();
 
     const content = (view.containerEl as unknown as MockElement).children[1];
-    flatten(content as MockElement)
+    descendants(content as MockElement)
       .find(({ text }) => text === 'Done')
       ?.triggerClick();
     expect(dismissed).toBe(1);
   });
-
 
   it('withholds an expired invitation envelope and offers recovery', async () => {
     const view = new HavemindOnboardingView(new WorkspaceLeaf(), {
@@ -1046,7 +1031,7 @@ describe('plugin lifecycle', () => {
     await view.onOpen();
 
     const content = (view.containerEl as unknown as MockElement).children[1];
-    const all = flatten(content as MockElement);
+    const all = descendants(content as MockElement);
     // The stale envelope is not shown; a recovery message is.
     expect(all.some(({ text }) => text === 'v1.STALE')).toBe(false);
     expect(all.some(({ text }) => text.includes('expired'))).toBe(true);
@@ -1072,14 +1057,14 @@ describe('plugin lifecycle', () => {
 
     // Disconnect moved into the header overflow menu (design 1a): a standing
     // button spent a line on the action a connected user least wants to hit.
-    const more = flatten(root).find(
+    const more = descendants(root).find(
       (el) => el.attrs['aria-label'] === 'More options',
     );
     expect(more).toBeDefined();
     more?.triggerClick();
     await view.onOpen();
 
-    const disconnect = flatten(view.containerEl as unknown as MockElement).find(
+    const disconnect = descendants(view.containerEl as unknown as MockElement).find(
       ({ text }) => text === 'Disconnect',
     );
     expect(disconnect).toBeDefined();
@@ -1098,12 +1083,12 @@ describe('plugin lifecycle', () => {
     await view.onOpen();
 
     const root = view.containerEl as unknown as MockElement;
-    flatten(root)
+    descendants(root)
       .find((element) => element.attrs['aria-label'] === 'More options')
       ?.triggerClick();
     await view.onOpen();
 
-    const menuEntries = flatten(view.containerEl as unknown as MockElement)
+    const menuEntries = descendants(view.containerEl as unknown as MockElement)
       .filter(
         (element) =>
           element.classes.includes('havemind-pane-menu-item') ||
@@ -1129,7 +1114,7 @@ describe('plugin lifecycle', () => {
     await view.onOpen();
 
     const content = (view.containerEl as unknown as MockElement).children[1];
-    const all = flatten(content as MockElement);
+    const all = descendants(content as MockElement);
     const retry = all.find(({ text }) => text === 'Retry now');
     expect(retry).toBeDefined();
     // English, and the primary-action treatment so it reads as the way forward.
@@ -1146,7 +1131,7 @@ describe('plugin lifecycle', () => {
     await view.onOpen();
 
     const content = (view.containerEl as unknown as MockElement).children[1];
-    const all = flatten(content as MockElement);
+    const all = descendants(content as MockElement);
     expect(all.some(({ text }) => text === 'Retry now')).toBe(true);
   });
 
@@ -1162,7 +1147,7 @@ describe('plugin lifecycle', () => {
       await view.onOpen();
 
       const content = (view.containerEl as unknown as MockElement).children[1];
-      const all = flatten(content as MockElement);
+      const all = descendants(content as MockElement);
       expect(all.some(({ text }) => text === 'Retry now')).toBe(false);
     },
   );
@@ -1180,7 +1165,7 @@ describe('plugin lifecycle', () => {
     await view.onOpen();
 
     const content = (view.containerEl as unknown as MockElement).children[1];
-    flatten(content as MockElement)
+    descendants(content as MockElement)
       .find(({ text }) => text === 'Retry now')
       ?.triggerClick();
 
@@ -1209,7 +1194,7 @@ describe('plugin lifecycle', () => {
     await view.onOpen();
     chooseInvitationPath(view);
 
-    const kids = flatten(view.containerEl as unknown as MockElement);
+    const kids = descendants(view.containerEl as unknown as MockElement);
     kids.find(({ text }) => text === 'Connect')?.triggerClick();
 
     expect(captured).toEqual([]);
@@ -1238,7 +1223,7 @@ describe('plugin lifecycle', () => {
     openTab(view, /People/);
 
     const content = (view.containerEl as unknown as MockElement).children[1];
-    const all = flatten(content as MockElement);
+    const all = descendants(content as MockElement);
     // The owner is connected: name over `role · you` (never colour alone).
     expect(all.some(({ text }) => text === 'You')).toBe(true);
     expect(all.some(({ text }) => text === 'owner · you')).toBe(true);
@@ -1267,7 +1252,7 @@ describe('plugin lifecycle', () => {
     openTab(view, /People/);
 
     const content = (view.containerEl as unknown as MockElement).children[1];
-    flatten(content as MockElement)
+    descendants(content as MockElement)
       .find(({ text }) => text === 'Rejoin')
       ?.triggerClick();
 
@@ -1290,7 +1275,7 @@ describe('plugin lifecycle', () => {
     openTab(view, /People/);
 
     const content = (view.containerEl as unknown as MockElement).children[1];
-    const all = flatten(content as MockElement);
+    const all = descendants(content as MockElement);
     expect(
       all.some(({ text }) => text === 'Waiting for Magda to reconnect…'),
     ).toBe(true);
@@ -1315,7 +1300,7 @@ describe('plugin lifecycle', () => {
     openTab(view, /People/);
 
     const content = (view.containerEl as unknown as MockElement).children[1];
-    const all = flatten(content as MockElement);
+    const all = descendants(content as MockElement);
     // Everyone is connected, so no Rejoin yet, only the owner-assert affordance.
     expect(all.some(({ text }) => text === 'Rejoin')).toBe(false);
     all.find(({ text }) => text === 'Mark offline')?.triggerClick();
@@ -1338,7 +1323,7 @@ describe('plugin lifecycle', () => {
     openTab(view, /People/);
 
     const content = (view.containerEl as unknown as MockElement).children[1];
-    const all = flatten(content as MockElement);
+    const all = descendants(content as MockElement);
     // Exactly one Remove button, on the non-self member, never the owner self row.
     // (Everyone is connected, so Remove is offered independent of the dead set.)
     expect(all.filter(({ text }) => text === 'Remove')).toHaveLength(1);
@@ -1364,7 +1349,7 @@ describe('plugin lifecycle', () => {
     openTab(view, /People/);
 
     const content = (view.containerEl as unknown as MockElement).children[1];
-    const remove = flatten(content as MockElement).find(
+    const remove = descendants(content as MockElement).find(
       ({ text }) => text === 'Remove',
     );
     expect(remove).toBeDefined();

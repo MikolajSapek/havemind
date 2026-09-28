@@ -11,9 +11,9 @@ import type { OutboxEnvelope } from '../runtime/sync-state';
 import {
   MAX_BINARY_PAYLOAD_BYTES,
   OutboxLocalChangeRepository,
-  type ProducerState,
 } from './outbox-repository';
 import { memoryRecovery } from '../test/memory-recovery';
+import { MemoryProducerStore } from '../test/fixtures';
 
 const IDENTITY = {
   vaultId: '11111111-1111-4111-8111-111111111111',
@@ -45,16 +45,6 @@ function decode(envelope: OutboxEnvelope): string {
   return Buffer.from(envelope.payloadBase64, 'base64').toString('utf8');
 }
 
-class MemoryStore {
-  state: ProducerState = { mappings: [], heads: {} };
-  async load(): Promise<ProducerState> {
-    return this.state;
-  }
-  async save(state: ProducerState): Promise<void> {
-    this.state = state;
-  }
-}
-
 interface Materialized {
   fileId: string;
   path: string;
@@ -63,7 +53,7 @@ interface Materialized {
 }
 
 function makeRepo(maxPayloadBytes?: number) {
-  const store = new MemoryStore();
+  const store = new MemoryProducerStore();
   const enqueued: OutboxEnvelope[] = [];
   const materialized: Materialized[] = [];
   const forgotten: Array<{ fileId: string; path: string }> = [];
@@ -91,7 +81,7 @@ function makeRepo(maxPayloadBytes?: number) {
 
 describe('OutboxLocalChangeRepository', () => {
   it('does not bypass a refused durable transaction with separate queue and mapping writes', async () => {
-    const store = new MemoryStore();
+    const store = new MemoryProducerStore();
     const enqueued: OutboxEnvelope[] = [];
     const repo = new OutboxLocalChangeRepository({
       identity: IDENTITY, store, 

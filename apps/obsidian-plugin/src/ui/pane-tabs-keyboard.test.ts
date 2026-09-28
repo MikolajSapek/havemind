@@ -19,10 +19,7 @@ import { buildPaneTabs, type PaneTabId } from '../runtime/pane-tabs';
 import { createMockElement, type MockElement } from '../test/obsidian.mock';
 
 import { renderPaneTabs } from './pane-tabs-section';
-
-function flatten(el: MockElement): MockElement[] {
-  return [el, ...(el.children ?? []).flatMap(flatten)];
-}
+import { flatten } from '../test/dom';
 
 function strip(active: PaneTabId = 'status') {
   const root = createMockElement();

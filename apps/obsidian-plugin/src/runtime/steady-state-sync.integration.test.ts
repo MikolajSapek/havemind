@@ -30,25 +30,17 @@ import { createRemoteApplyProducerSync } from './remote-apply-coordinator';
 import {
   DurableSyncState,
   type OutboxEnvelope,
-  type PersistedSyncState,
 } from './sync-state';
 import { VaultApplyAdapter } from './vault-apply';
 import type { RemoteEvent } from '../sync/sync-runner';
 import { memoryRecovery } from '../test/memory-recovery';
+import { realSha256, makeMemoryPersist } from '../test/fixtures';
 
 const VAULT_ID = '11111111-1111-4111-8111-111111111111';
 const MEMBER_ID = '33333333-3333-4333-8333-333333333333';
 const DEVICE_ID = '44444444-4444-4444-8444-444444444444';
 const FILE_A = '22222222-2222-4222-8222-222222222222';
 const REMOTE_FILE = '55555555-5555-4555-8555-555555555555';
-
-async function realSha256(text: string): Promise<string> {
-  const data = new TextEncoder().encode(text);
-  const digest = await globalThis.crypto.subtle.digest('SHA-256', data);
-  return [...new Uint8Array(digest)]
-    .map((byte) => byte.toString(16).padStart(2, '0'))
-    .join('');
-}
 
 /** A single vault backing both the producer's reads and the apply writes. */
 class InMemoryVault {
@@ -130,31 +122,6 @@ class InMemoryVault {
   setUnobserved(path: string, content: string): void {
     this.contents.set(path, content);
   }
-}
-
-function makeMemoryPersist(): {
-  load(): Promise<unknown>;
-  loadBackup(): Promise<unknown>;
-  save(state: PersistedSyncState): Promise<void>;
-  preserveCorrupt(raw: unknown, timestamp: number): Promise<void>;
-} {
-  let stored: PersistedSyncState | null = null;
-  let backup: PersistedSyncState | null = null;
-  return {
-    async load() {
-      return stored;
-    },
-    async loadBackup() {
-      return backup;
-    },
-    async save(state) {
-      backup = stored;
-      stored = state;
-    },
-    async preserveCorrupt() {
-      /* no-op: this steady-state harness never seeds a corrupt blob */
-    },
-  };
 }
 
 function makeHarness() {

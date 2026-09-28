@@ -26,26 +26,16 @@ import {
 import type { OutboxEnvelope } from '../runtime/sync-state';
 import {
   OutboxLocalChangeRepository,
-  type ProducerState,
 } from './outbox-repository';
 import { reconcileVaultState } from './reconciliation';
 import { memoryRecovery } from '../test/memory-recovery';
+import { MemoryProducerStore } from '../test/fixtures';
 
 const IDENTITY = {
   vaultId: '11111111-1111-4111-8111-111111111111',
   memberId: '33333333-3333-4333-8333-333333333333',
   deviceId: '44444444-4444-4444-8444-444444444444',
 } as const;
-
-class MemoryStore {
-  state: ProducerState = { mappings: [], heads: {} };
-  async load(): Promise<ProducerState> {
-    return this.state;
-  }
-  async save(state: ProducerState): Promise<void> {
-    this.state = state;
-  }
-}
 
 /**
  * The forward-slash / NFC key form Obsidian indexes files under. The test vault
@@ -87,7 +77,7 @@ class MemoryVault implements VaultSnapshotPort {
 
 /** Wires the real observer onto the real outbox repository (production path). */
 function createProducer(vault: VaultSnapshotPort, maxPayloadBytes?: number) {
-  const store = new MemoryStore();
+  const store = new MemoryProducerStore();
   const enqueued: OutboxEnvelope[] = [];
   let fileCounter = 0;
   let revisionCounter = 0;

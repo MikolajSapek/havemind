@@ -20,44 +20,19 @@ import { buildRejoinRosterView } from './runtime/rejoin-roster';
 import { buildConnectionPanel } from './runtime/status';
 import {
   App,
-  ItemView,
   type MockElement,
-  type PluginManifest,
   registrationState,
   resetObsidianMock,
   WorkspaceLeaf,
 } from './test/obsidian.mock';
-
-const manifest: PluginManifest = {
-  author: 'Mikolaj Pawel Sapek',
-  description: 'Synchronize shared Markdown vaults with durable history.',
-  id: 'havemind-sync',
-  isDesktopOnly: true,
-  minAppVersion: '1.11.4',
-  name: 'Havemind',
-  version: '0.0.1',
-};
-
-/** Depth-first list of an element and all of its descendants. */
-function flatten(element: MockElement): MockElement[] {
-  return element.children.flatMap((child) => [child, ...flatten(child)]);
-}
-
-/** A bare content host, mirroring the second child of a view container. */
-function createContent(): MockElement {
-  const view = new ItemView(new WorkspaceLeaf());
-  return view.containerEl.children[1] as unknown as MockElement;
-}
-
-function asEl(element: MockElement): HTMLElement {
-  return element as unknown as HTMLElement;
-}
+import { descendants, createContent, asEl } from './test/dom';
+import { manifest, flush } from './test/fixtures';
 
 /** Every element carrying a Lucide glyph, anywhere under `root`. */
 /** Opens a tab in the connected pane (one sidebar, tabs to switch). */
 function openTab(view: { containerEl: unknown }, label: RegExp): void {
   const root = view.containerEl as unknown as MockElement;
-  const tab = flatten(root).find(
+  const tab = descendants(root).find(
     (el) => el.attrs['role'] === 'tab' && label.test(el.attrs['aria-label'] ?? ''),
   );
   if (tab === undefined) throw new Error(`tab ${label} not rendered`);
@@ -65,14 +40,7 @@ function openTab(view: { containerEl: unknown }, label: RegExp): void {
 }
 
 function glyphs(root: MockElement): MockElement[] {
-  return [root, ...flatten(root)].filter(({ iconName }) => iconName !== '');
-}
-
-/** Drains pending microtasks so a fire-and-forget open completes. */
-function flush(): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, 0);
-  });
+  return [root, ...descendants(root)].filter(({ iconName }) => iconName !== '');
 }
 
 /** A keydown event double that records whether the default was prevented. */
@@ -249,7 +217,7 @@ describe('panel glyph accessibility', () => {
 
     const content = (view.containerEl as unknown as MockElement)
       .children[1] as MockElement;
-    const all = flatten(content);
+    const all = descendants(content);
     const dot = all.find((element) =>
       element.classes.includes('havemind-roster-dot'),
     );
@@ -271,14 +239,14 @@ describe('panel glyph accessibility', () => {
     // Getting started moved into the header overflow menu (round 2): read once
     // and then never again is exactly what an overflow menu is for. It must
     // still be reachable, and its label must state what pressing it will do.
-    const more = flatten(content).find(
+    const more = descendants(content).find(
       (element) => element.attrs['aria-label'] === 'More options',
     );
     expect(more).toBeDefined();
     more?.triggerClick();
     await view.onOpen();
 
-    const entry = flatten(
+    const entry = descendants(
       view.containerEl as unknown as MockElement,
     ).find(({ text }) => /show getting started/i.test(text));
     expect(entry).toBeDefined();

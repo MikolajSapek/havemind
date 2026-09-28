@@ -18,21 +18,8 @@ import {
 
 import {
   HavemindOnboardingView,
-  type OnboardingViewOptions,
 } from './onboarding-view';
-
-function flatten(el: MockElement): MockElement[] {
-  return [el, ...(el.children ?? []).flatMap(flatten)];
-}
-
-function connectedPane(options: OnboardingViewOptions = {}): MockElement {
-  const view = new HavemindOnboardingView(new WorkspaceLeaf(), {
-    panelProvider: () => buildConnectionPanel({ status: 'synced' }),
-    ...options,
-  });
-  void view.onOpen();
-  return view.containerEl as unknown as MockElement;
-}
+import { flatten, syncedPane } from '../test/dom';
 
 /** Clicks a tab by its accessible name. */
 function openTab(root: MockElement, label: RegExp): void {
@@ -45,7 +32,7 @@ function openTab(root: MockElement, label: RegExp): void {
 
 describe('activity in the pane', () => {
   it('offers an Activity tab', () => {
-    const root = connectedPane({ activityFeedProvider: () => [] });
+    const root = syncedPane({ activityFeedProvider: () => [] });
     const labels = flatten(root)
       .filter((el) => el.attrs['role'] === 'tab')
       .map((el) => el.attrs['aria-label'] ?? '');

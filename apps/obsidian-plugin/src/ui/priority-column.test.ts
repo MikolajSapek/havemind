@@ -21,22 +21,8 @@ import {
   type MockElement,
 } from '../test/obsidian.mock';
 
-import { HavemindOnboardingView, type OnboardingViewOptions } from './onboarding-view';
-
-function flatten(el: MockElement): MockElement[] {
-  return [el, ...(el.children ?? []).flatMap(flatten)];
-}
-
-function pane(options: OnboardingViewOptions = {}): MockElement {
-  const view = new HavemindOnboardingView(new WorkspaceLeaf(), {
-    panelProvider: () => buildConnectionPanel({ status: 'synced' }),
-    ...options,
-  });
-  // The mock renders synchronously, but read the container *after* the call so
-  // the tree is the rendered one rather than an empty shell.
-  view.onOpen();
-  return view.containerEl as unknown as MockElement;
-}
+import { HavemindOnboardingView } from './onboarding-view';
+import { flatten, syncedPane } from '../test/dom';
 
 function texts(root: MockElement): string[] {
   return flatten(root).map((el) => el.text);
@@ -44,7 +30,7 @@ function texts(root: MockElement): string[] {
 
 describe('connection controls', () => {
   it('makes connection management a visible tab', () => {
-    const root = pane({
+    const root = syncedPane({
       panelProvider: () =>
         buildConnectionPanel({ status: 'synced', serverName: 'sap.ts.net' }),
       onSyncNow: () => {},
@@ -70,7 +56,7 @@ describe('priority column, calm state', () => {
     // reads the same as one that stopped updating three days ago. The calm
     // state keeps a detail line under the status word, recency when there is
     // any, and always the honest note about what the server can read.
-    const root = pane();
+    const root = syncedPane();
     const detail = flatten(root).find((el) =>
       el.classes.includes('havemind-status-detail'),
     );
@@ -81,7 +67,7 @@ describe('priority column, calm state', () => {
 
   it('renders no uppercase section captions', () => {
     // Seven captions cost seven lines and each repeated the row beneath it.
-    const root = pane();
+    const root = syncedPane();
     const shouty = texts(root).filter(
       (t) => t.length > 3 && t === t.toUpperCase() && /[A-Z]{4,}/.test(t),
     );
@@ -92,7 +78,7 @@ describe('priority column, calm state', () => {
 
 describe('entry chooser', () => {
   it('asks which path a fresh user is on', () => {
-    const root = pane({
+    const root = syncedPane({
       panelProvider: () => buildConnectionPanel({ status: 'disconnected' }),
     });
 
@@ -105,7 +91,7 @@ describe('entry chooser', () => {
     // A phone cannot run Docker or stay awake, so the host branch is not an
     // option it can complete. `canHost: false` is what the plugin passes when
     // Obsidian reports a mobile app.
-    const root = pane({
+    const root = syncedPane({
       canHost: false,
       panelProvider: () => buildConnectionPanel({ status: 'disconnected' }),
     });
@@ -161,7 +147,7 @@ describe('entry chooser', () => {
   it('skips the question for someone who followed a join link', () => {
     // Clicking obsidian://havemind-join already answers it: that user holds an
     // invitation. Asking anyway makes them answer twice.
-    const root = pane({
+    const root = syncedPane({
       panelProvider: () => buildConnectionPanel({ status: 'disconnected' }),
       arrivedWithInvitationProvider: () => true,
     });
@@ -174,7 +160,7 @@ describe('entry chooser', () => {
 describe('priority column, no duplicated sections', () => {
   it('lets the owner close the invite composer before creating an invitation', () => {
     let closed = 0;
-    const root = pane({
+    const root = syncedPane({
       composerProvider: () => ({
         role: 'editor',
         name: '',
@@ -199,7 +185,7 @@ describe('priority column, no duplicated sections', () => {
     //
     // An open composer selects People on its own, so no click is needed here:
     // that selection is exactly what put the two rosters on the same tab.
-    const root = pane({
+    const root = syncedPane({
       rejoinRosterProvider: () =>
         buildRejoinRosterView(
           [
@@ -231,7 +217,7 @@ describe('priority column, no duplicated sections', () => {
 describe('priority column, footer', () => {
   it('carries the authorship toggle that lost its ribbon icon', () => {
     let toggled = 0;
-    const root = pane({
+    const root = syncedPane({
       authorOverlayProvider: () => false,
       onToggleAuthorOverlay: () => {
         toggled += 1;
@@ -251,7 +237,7 @@ describe('priority column, footer', () => {
   });
 
   it('states the toggle position for a screen reader, not by colour alone', () => {
-    const root = pane({
+    const root = syncedPane({
       authorOverlayProvider: () => true,
       onToggleAuthorOverlay: () => {},
     });

@@ -17,10 +17,7 @@ import { WorkspaceLeaf, type MockElement } from '../test/obsidian.mock';
 
 import { buildActivityViewModel } from '../runtime/activity-render';
 import { HavemindOnboardingView } from './onboarding-view';
-
-function flatten(el: MockElement): MockElement[] {
-  return [el, ...(el.children ?? []).flatMap(flatten)];
-}
+import { flatten } from '../test/dom';
 
 function feedOf(count: number) {
   return Array.from({ length: count }, (_, i) => ({

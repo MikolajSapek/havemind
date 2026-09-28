@@ -2,24 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { renderRecoveryNotice, renderSendQueueSection } from './ui/send-queue-section';
 import type { SendQueueStatusView } from './runtime/send-queue-status';
-import {
-  ItemView,
-  type MockElement,
-  WorkspaceLeaf,
-} from './test/obsidian.mock';
-
-function flatten(element: MockElement): MockElement[] {
-  return element.children.flatMap((child) => [child, ...flatten(child)]);
-}
-
-function createContent(): MockElement {
-  const view = new ItemView(new WorkspaceLeaf());
-  return view.containerEl.children[1] as unknown as MockElement;
-}
-
-function asEl(element: MockElement): HTMLElement {
-  return element as unknown as HTMLElement;
-}
+import { descendants, createContent, asEl } from './test/dom';
 
 const NOOP = {
   onRetry: () => undefined,
@@ -40,7 +23,7 @@ describe('renderSendQueueSection', () => {
   it('renders the muted waiting line only when items are stale', () => {
     const container = createContent();
     renderSendQueueSection(asEl(container), view({ waitingCount: 3 }), NOOP);
-    const waiting = flatten(container).find((e) =>
+    const waiting = descendants(container).find((e) =>
       e.classes.includes('havemind-send-waiting'),
     );
     expect(waiting?.text).toBe('3 changes waiting to send');
@@ -58,7 +41,7 @@ describe('renderSendQueueSection', () => {
       }),
       NOOP,
     );
-    const all = flatten(container);
+    const all = descendants(container);
     const header = all.find((e) => e.classes.includes('havemind-send-failed'));
     // "change(s)" was placeholder grammar nobody speaks; the design writes the
     // sentence out and picks the right form from the count.
@@ -79,7 +62,7 @@ describe('renderSendQueueSection', () => {
       view({ failed: [{ revisionId: 'r1', label: 'A.md', reason: 'x' }] }),
       { onRetry: (id) => retried.push(id), onDiscard: () => undefined },
     );
-    const retry = flatten(container).find((e) => e.text === 'Retry');
+    const retry = descendants(container).find((e) => e.text === 'Retry');
     retry?.triggerClick();
     expect(retried).toEqual(['r1']);
   });
@@ -93,7 +76,7 @@ describe('renderSendQueueSection', () => {
   it('surfaces a "local queue needs recovery" warning when recovery is required', () => {
     const container = createContent();
     renderRecoveryNotice(asEl(container), true);
-    const notice = flatten(container).find((e) =>
+    const notice = descendants(container).find((e) =>
       e.classes.includes('havemind-send-recovery'),
     );
     expect(notice?.text).toContain('Local queue needs recovery');
@@ -107,7 +90,7 @@ describe('renderSendQueueSection', () => {
       view({ failed: [{ revisionId: 'r1', label: 'A.md', reason: 'x' }] }),
       { onRetry: () => undefined, onDiscard: (id) => discarded.push(id) },
     );
-    const discard = flatten(container).find((e) => e.text === 'Discard');
+    const discard = descendants(container).find((e) => e.text === 'Discard');
     // First click arms (swaps label), does not fire.
     discard?.triggerClick();
     expect(discarded).toEqual([]);

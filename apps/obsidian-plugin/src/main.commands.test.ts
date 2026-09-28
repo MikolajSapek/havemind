@@ -15,21 +15,11 @@ import {
   App,
   type Command,
   type MockElement,
-  type PluginManifest,
   registrationState,
   resetObsidianMock,
 } from './test/obsidian.mock';
 import { internals } from './test/plugin-internals';
-
-const manifest: PluginManifest = {
-  author: 'Mikolaj Pawel Sapek',
-  description: 'Synchronize shared Markdown vaults with durable history.',
-  id: 'havemind-sync',
-  isDesktopOnly: true,
-  minAppVersion: '1.11.4',
-  name: 'Havemind',
-  version: '0.0.1',
-};
+import { manifest, flush } from './test/fixtures';
 
 /** The registered command with this id, or a hard setup failure. */
 function command(id: string): Command {
@@ -89,13 +79,6 @@ function clickButton(root: unknown, text: string): void {
   const button = root === undefined ? undefined : find(root as MockElement);
   if (button === undefined) throw new Error(`no "${text}" button`);
   button.triggerClick();
-}
-
-/** Drains pending microtasks so a fire-and-forget command action completes. */
-function flush(): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, 0);
-  });
 }
 
 describe('command palette actions', () => {

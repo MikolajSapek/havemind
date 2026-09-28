@@ -13,13 +13,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildGettingStartedViewModel } from '../runtime/getting-started-render';
 import { renderGettingStarted } from './getting-started-section';
 import { createMockElement, type MockElement } from '../test/obsidian.mock';
+import { flatten } from '../test/dom';
 
 const GUIDE_URL =
   'https://github.com/MikolajSapek/havemind/blob/main/docs/self-hosting.md';
-
-function flatten(el: MockElement): MockElement[] {
-  return [el, ...(el.children ?? []).flatMap(flatten)];
-}
 
 function renderAndFindLink(): MockElement {
   const root = createMockElement();

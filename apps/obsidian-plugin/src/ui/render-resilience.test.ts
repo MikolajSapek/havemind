@@ -25,10 +25,7 @@ import {
   HavemindOnboardingView,
   type OnboardingViewOptions,
 } from './onboarding-view';
-
-function flatten(el: MockElement): MockElement[] {
-  return [el, ...(el.children ?? []).flatMap(flatten)];
-}
+import { flatten } from '../test/dom';
 
 function pane(options: OnboardingViewOptions): MockElement {
   const view = new HavemindOnboardingView(new WorkspaceLeaf(), options);

@@ -31,18 +31,9 @@ vi.mock('./runtime/obsidian-adapters', async (importOriginal) => {
 import HavemindPlugin from './main';
 import { LegacyRosterServerError } from './runtime/member-roster';
 import type { RosterMember } from './runtime/roster';
-import { App, resetObsidianMock, type PluginManifest } from './test/obsidian.mock';
+import { App, resetObsidianMock } from './test/obsidian.mock';
 import { internals } from './test/plugin-internals';
-
-const manifest: PluginManifest = {
-  author: 'Mikolaj Pawel Sapek',
-  description: 'Synchronize shared Markdown vaults with durable history.',
-  id: 'havemind-sync',
-  isDesktopOnly: true,
-  minAppVersion: '1.11.4',
-  name: 'Havemind',
-  version: '0.0.1',
-};
+import { manifest } from './test/fixtures';
 
 const SERVER_ROSTER: RosterMember[] = [
   { membershipId: 'm-owner', displayName: 'Mikolaj', role: 'owner', self: false },

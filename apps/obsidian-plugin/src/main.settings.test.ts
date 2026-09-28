@@ -5,26 +5,13 @@ import {
   App,
   type ButtonComponent,
   type MockElement,
-  type PluginManifest,
   registrationState,
   resetObsidianMock,
   type Setting,
 } from './test/obsidian.mock';
 import { internals } from './test/plugin-internals';
-
-const manifest: PluginManifest = {
-  author: 'Mikolaj Pawel Sapek',
-  description: 'Synchronize shared Markdown vaults with durable history.',
-  id: 'havemind-sync',
-  isDesktopOnly: true,
-  minAppVersion: '1.11.4',
-  name: 'Havemind',
-  version: '0.0.1',
-};
-
-function flatten(element: MockElement): MockElement[] {
-  return element.children.flatMap((child) => [child, ...flatten(child)]);
-}
+import { descendants } from './test/dom';
+import { manifest, flush } from './test/fixtures';
 
 /** The setting row carrying `name`, or a hard setup failure. */
 function row(name: string): Setting {
@@ -88,12 +75,6 @@ function installFakeConnection(plugin: HavemindPlugin): ConnectionSpy {
   return spy;
 }
 
-function flush(): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, 0);
-  });
-}
-
 /** Renders the registered settings tab and returns a re-render handle. */
 async function renderSettings(): Promise<{
   display: () => void;
@@ -152,7 +133,7 @@ describe('HavemindSettingTab refresh affordance (FINDING 4)', () => {
       'synced';
     const staleLabel = connectionDesc();
 
-    const refresh = flatten(tab.containerEl as unknown as MockElement).find(
+    const refresh = descendants(tab.containerEl as unknown as MockElement).find(
       (e) => e.text === 'Refresh',
     );
     expect(refresh).toBeDefined();
@@ -285,7 +266,7 @@ describe('HavemindSettingTab actions (FINDING 7)', () => {
     const modal = registrationState.modals[0];
     const confirm = modal === undefined
       ? undefined
-      : flatten(modal.contentEl).find(
+      : descendants(modal.contentEl).find(
           (node) => node.tag === 'button' && node.text === 'Reset connection',
         );
     confirm?.triggerClick();

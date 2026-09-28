@@ -21,6 +21,7 @@ import {
   type SyncStatePort,
   type SyncTransport,
 } from '../sync/sync-runner';
+import { realSha256 } from '../test/fixtures';
 
 /**
  * Regression guard for the initial-bootstrap flood (UX): when a device first
@@ -154,14 +155,6 @@ class ScriptedTransport implements SyncTransport {
   async pull(after: number): Promise<PullResult> {
     return this.pulls.shift() ?? { cursor: after, events: [] };
   }
-}
-
-async function realSha256(text: string): Promise<string> {
-  const data = new TextEncoder().encode(text);
-  const digest = await globalThis.crypto.subtle.digest('SHA-256', data);
-  return [...new Uint8Array(digest)]
-    .map((byte) => byte.toString(16).padStart(2, '0'))
-    .join('');
 }
 
 function makeHarness(pulls: PullResult[]) {

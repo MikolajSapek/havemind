@@ -16,23 +16,8 @@
 import { describe, expect, it } from 'vitest';
 
 import type { ConflictCopy } from '../runtime/conflict-resolution';
-import { buildConnectionPanel } from '../runtime/status';
-import { WorkspaceLeaf, type MockElement } from '../test/obsidian.mock';
 
-import { HavemindOnboardingView, type OnboardingViewOptions } from './onboarding-view';
-
-function flatten(el: MockElement): MockElement[] {
-  return [el, ...(el.children ?? []).flatMap(flatten)];
-}
-
-function pane(options: OnboardingViewOptions = {}): MockElement {
-  const view = new HavemindOnboardingView(new WorkspaceLeaf(), {
-    panelProvider: () => buildConnectionPanel({ status: 'synced' }),
-    ...options,
-  });
-  view.onOpen();
-  return view.containerEl as unknown as MockElement;
-}
+import { flatten, syncedPane } from '../test/dom';
 
 const TWO_CONFLICTS: readonly ConflictCopy[] = [
   {
@@ -63,7 +48,7 @@ const TWO_CONFLICTS: readonly ConflictCopy[] = [
 
 describe('alarm block, conflicts', () => {
   it('wraps the heading and every row in one block', () => {
-    const root = pane({ conflictsProvider: () => TWO_CONFLICTS, onResolveConflict: () => {} });
+    const root = syncedPane({ conflictsProvider: () => TWO_CONFLICTS, onResolveConflict: () => {} });
 
     const blocks = flatten(root).filter((el) =>
       el.classes.includes('havemind-alarm'),
@@ -84,7 +69,7 @@ describe('alarm block, conflicts', () => {
   });
 
   it('draws no block when there is nothing to alarm about', () => {
-    const root = pane({ conflictsProvider: () => [], onResolveConflict: () => {} });
+    const root = syncedPane({ conflictsProvider: () => [], onResolveConflict: () => {} });
 
     expect(
       flatten(root).some((el) => el.classes.includes('havemind-alarm')),
@@ -96,7 +81,7 @@ describe('alarm block, failed sends', () => {
   it('wraps a failed send in the same block as conflicts use', () => {
     // One vocabulary for both alarms: a user who has learned to read the
     // conflict block should not have to learn a second shape for a failed send.
-    const root = pane({
+    const root = syncedPane({
       sendQueueProvider: () => ({
         waitingCount: 0,
         failed: [
