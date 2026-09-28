@@ -81,6 +81,7 @@ export function buildTabScreens(context: TabScreensContext): TabBodyScreens {
             onCopy: options.onCopyInvitation,
             onDismiss: options.onDismissInvitation,
             onApprove: options.onApprove,
+            onReject: options.onReject,
           }),
         onOpenComposer: options.onOpenComposer,
       }),

@@ -11,7 +11,11 @@
 
 import type { Plugin } from 'obsidian';
 
-import { approveRedeemedDevice, type ApprovedDevice } from '../approve-device';
+import {
+  approveRedeemedDevice,
+  rejectPendingDevice,
+  type ApprovedDevice,
+} from '../approve-device';
 import {
   createVaultInvitation,
   type CreatedInvitation,
@@ -102,6 +106,33 @@ export async function approvePendingDeviceForOwner(
     verificationPhrase: options.verificationPhrase,
     getAccessToken: () => accessProvider.getAccessToken(),
   });
+}
+
+/** Owner-only: refuse the device waiting on an invitation. Null when not connected. */
+export async function rejectPendingDeviceForOwner(
+  plugin: Plugin,
+  options: { invitationId: string },
+): Promise<'rejected' | null> {
+  const connected = await resolveConnectedVault(plugin);
+  if (connected === null) {
+    return null;
+  }
+  const clientInstanceId = await ensureClientInstanceId(
+    createClientInstanceRepo(plugin),
+  );
+  const secrets = new ObsidianOnboardingSecrets({
+    clientInstanceId,
+    secretStorage: plugin.app.secretStorage,
+  });
+  const accessProvider = sharedAccessProvider(plugin, connected.apiBaseUrl, secrets);
+  await rejectPendingDevice({
+    requestUrl: createRequestUrlFn(),
+    apiBaseUrl: connected.apiBaseUrl,
+    vaultId: connected.vaultId,
+    invitationId: options.invitationId,
+    getAccessToken: () => accessProvider.getAccessToken(),
+  });
+  return 'rejected';
 }
 
 /** Reads the server-authoritative, secret-free pending approval queue. */

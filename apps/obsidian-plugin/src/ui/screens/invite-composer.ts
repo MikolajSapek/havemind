@@ -63,6 +63,9 @@ export interface InviteComposerActions {
   readonly onApprove?:
     | ((invitationId: string, phrase: string, report: (message: string) => void) => void)
     | undefined;
+  readonly onReject?:
+    | ((invitationId: string, report: (message: string) => void) => void)
+    | undefined;
 }
 
 export function renderInviteComposer(

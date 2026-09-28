@@ -104,6 +104,30 @@ export async function approveRedeemedDevice(
  * how many attempts remain (from the server-authoritative counter); the code
  * itself is never interpolated into the message.
  */
+
+export interface RejectDeviceOptions {
+  readonly requestUrl: RequestUrlFn;
+  readonly apiBaseUrl: string;
+  readonly vaultId: string;
+  readonly invitationId: string;
+  readonly getAccessToken: () => Promise<string>;
+}
+
+/** Owner-only: refuse the device waiting on an invitation, voiding it. */
+export async function rejectPendingDevice(options: RejectDeviceOptions): Promise<void> {
+  const token = await options.getAccessToken();
+  const response = await options.requestUrl({
+    url: `${options.apiBaseUrl}/vaults/${options.vaultId}/invitations/${options.invitationId}/reject`,
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    throw: false,
+    body: JSON.stringify({}),
+  });
+  if (response.status < 200 || response.status >= 300) {
+    throw describeFailure(response.status, response.json);
+  }
+}
+
 function describeFailure(status: number, json: unknown): ApproveDeviceError {
   const error = isRecord(json) && isRecord(json.error) ? json.error : undefined;
   const code = typeof error?.code === 'string' ? error.code : undefined;

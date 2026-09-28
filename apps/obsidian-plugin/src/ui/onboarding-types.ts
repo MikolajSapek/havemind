@@ -213,4 +213,6 @@ export interface OnboardingViewOptions {
     verificationPhrase: string,
     report: ConnectReporter,
   ) => void;
+  /** Refuse the joining device waiting on the given invitation. */
+  readonly onReject?: (invitationId: string, report: ConnectReporter) => void;
 }

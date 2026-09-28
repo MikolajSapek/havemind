@@ -1,7 +1,7 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
-import { approveRedeemedDevice, ApproveDeviceError } from './approve-device';
+import { approveRedeemedDevice, ApproveDeviceError, rejectPendingDevice } from './approve-device';
 import { listPendingApprovals } from './list-pending-approvals';
 import type {
   RequestUrlOptions,
@@ -204,5 +204,37 @@ describe('listPendingApprovals', () => {
         vaultId: VAULT,
       }),
     ).rejects.toThrow('malformed');
+  });
+});
+
+describe('rejectPendingDevice', () => {
+  it('posts to the reject route with a bearer token', async () => {
+    const calls: RequestUrlOptions[] = [];
+    await rejectPendingDevice({
+      requestUrl: async (options) => {
+        calls.push(options);
+        return { status: 200, json: { status: 'rejected' } };
+      },
+      apiBaseUrl: API,
+      vaultId: VAULT,
+      invitationId: INVITATION,
+      getAccessToken: async () => 'access-1',
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.method).toBe('POST');
+    expect(calls[0]?.url).toBe(`${API}/vaults/${VAULT}/invitations/${INVITATION}/reject`);
+    expect(calls[0]?.headers?.Authorization).toBe('Bearer access-1');
+  });
+
+  it('fails with a readable message when the server refuses', async () => {
+    await expect(
+      rejectPendingDevice({
+        requestUrl: async () => ({ status: 403, json: { error: { code: 'FORBIDDEN' } } }),
+        apiBaseUrl: API,
+        vaultId: VAULT,
+        invitationId: INVITATION,
+        getAccessToken: async () => 'access-1',
+      }),
+    ).rejects.toThrow('You are not the owner of this vault');
   });
 });

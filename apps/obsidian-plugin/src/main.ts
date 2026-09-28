@@ -69,6 +69,7 @@ import {
 } from './runtime/status';
 import {
   approvePendingDeviceForOwner,
+  rejectPendingDeviceForOwner,
   buildRejoinControllerForInvitee,
   connectFromInput,
   createInvitationForOwner,
@@ -358,6 +359,9 @@ export default class HavemindPlugin extends Plugin {
         onApprove: (invitationId, verificationPhrase, report) => {
           void this.approvePendingDevice(invitationId, verificationPhrase, report);
         },
+        onReject: (invitationId, report) => {
+          void this.rejectPendingDevice(invitationId, report);
+        },
         onClosed: () => this.views.unregisterOnboarding(view),
       });
       this.views.registerOnboarding(view);
@@ -609,6 +613,28 @@ export default class HavemindPlugin extends Plugin {
     if (this.pendingInvitation === null) return false;
     const expiry = Date.parse(this.pendingInvitation.expiresAt);
     return Number.isFinite(expiry) && Date.now() >= expiry;
+  }
+
+  /** Owner action: refuse the device waiting on `invitationId` and drop its row. */
+  private async rejectPendingDevice(
+    invitationId: string,
+    report: ConnectReporter,
+  ): Promise<void> {
+    try {
+      const rejected = await rejectPendingDeviceForOwner(this, { invitationId });
+      if (rejected === null) {
+        report('Connect as the vault owner before rejecting a device.');
+        return;
+      }
+      this.pendingApprovals = this.pendingApprovals.filter(
+        (entry) => entry.invitationId !== invitationId,
+      );
+      this.connectionNotice = 'Device rejected. Its invitation no longer works.';
+      this.connectionNoticeKind = undefined;
+      this.views.refreshOnboardingNow();
+    } catch (error) {
+      report(error instanceof Error ? error.message : 'Could not reject the device.');
+    }
   }
 
   /**

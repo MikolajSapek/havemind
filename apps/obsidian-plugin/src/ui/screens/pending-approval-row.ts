@@ -10,11 +10,14 @@
 import { setIcon } from 'obsidian';
 
 import type { PendingApprovalEntry } from '../onboarding-view';
-import { DECORATIVE, renderFormStatus } from '../primitives';
+import { armedButton, DECORATIVE, renderFormStatus } from '../primitives';
 
 export interface PendingApprovalActions {
   readonly onApprove?:
     | ((invitationId: string, phrase: string, report: (message: string) => void) => void)
+    | undefined;
+  readonly onReject?:
+    | ((invitationId: string, report: (message: string) => void) => void)
     | undefined;
 }
 
@@ -71,4 +74,11 @@ export function renderPendingRow(
       status.setText(message),
     );
   });
+  const onReject = actions.onReject;
+  if (onReject !== undefined) {
+    armedButton(row, 'Reject', 'Confirm reject', 'mod-warning', () => {
+      status.setText('Rejecting…');
+      onReject(entry.invitationId, (message) => status.setText(message));
+    });
+  }
 }

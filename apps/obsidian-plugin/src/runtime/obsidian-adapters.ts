@@ -107,6 +107,7 @@ export {
 
 export {
   approvePendingDeviceForOwner,
+  rejectPendingDeviceForOwner,
   createInvitationForOwner,
   fetchMemberRosterForVault,
   listPendingApprovalsForOwner,
