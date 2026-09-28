@@ -17,7 +17,7 @@ you own passes the changes around and remembers who wrote what.
 Built for people. If you also run Claude, MCP or another local agent in that
 vault, its edits land in the same history.
 
-**Version 1.5.5, desktop and mobile.** A two-week pilot on two devices lost no
+**Version 1.5.6, desktop and mobile.** A two-week pilot on two devices lost no
 data, including through three real incidents.
 
 There is no end-to-end encryption. Your server stores the vault in plaintext,
@@ -108,8 +108,8 @@ The long version, including backups and multiple vaults, is in
   The Activity feed holds up to 200 entries in memory and resets when the
   plugin reloads. Its current Restore action only adds an Activity entry; it
   does not restore file contents. Do not use it for recovery.
-- **Notes, attachments and how the vault looks.** Markdown with line-level
-  history, images and PDFs up to 25 MB, plus your theme, snippets, hotkeys and
+- **Notes, attachments and how the vault looks.** Markdown notes, images and
+  PDFs up to 25 MB, plus your theme, snippets, hotkeys and
   graph settings.
 - **Joining takes a phone call.** The new device shows six digits, the owner
   types in what they hear. Three tries. That is what ties a person to a device.
@@ -121,9 +121,9 @@ The long version, including backups and multiple vaults, is in
 |---|---|
 | Sync speed | A peer's change lands in about a second over the long-poll channel. An edit waits 1.5 s to settle first, reducing bursts from format-on-save tools. Incompatible formatter settings can still cause churn. Creates, renames and deletes go out immediately. |
 | `.obsidian/` scope | An allowlist, nothing more: `themes/`, `snippets/`, `hotkeys.json`, `graph.json`, `appearance.json`, `app.json`, `core-plugins.json`. |
-| Attachments | PNG, JPG, GIF, WebP, SVG, PDF, up to 25 MB, byte for byte. |
+| Attachments | PNG, JPG, GIF, WebP, SVG, PDF, up to 25 MB, byte for byte. Other files (Canvas, Bases, audio, video) are not synced; the plugin says how many it skipped. |
 | Crash safety | The outbox survives a crash. A torn state file is kept as a sidecar and flagged, never dropped. |
-| Presence | The owner sees who is connected. A dead session reconnects in one click, no new code. |
+| Members | The owner sees who is in the vault and can remove them. A device whose session died reconnects with Rejoin, no new code. |
 | Several vaults | One server, independent vaults. Two teams share a box without seeing each other's data. |
 | Backups | Off unless you set `HAVEMIND_BACKUP_DIR`; the shipped compose file sets it. Then a snapshot every 24 h, last 7 kept. Checkpoints are sealed to a public key, so the server that writes one cannot open it. |
 | Limits | Storage quota per vault, throttling per device. |

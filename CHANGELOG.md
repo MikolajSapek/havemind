@@ -5,7 +5,7 @@ All notable changes to this project are documented here. The format is based on
 follows independent [Semantic Versioning](https://semver.org) for the plugin
 and the server.
 
-## [Unreleased]
+## [1.5.6], 2026-09-29
 
 ### Fixed
 
@@ -48,6 +48,9 @@ and the server.
 - Server: expired tokens and idempotency records are pruned hourly, each
   pushed payload is hashed once, and backups hard-link unchanged blobs
   instead of copying them again.
+
+- README: no longer claims line-level history or live presence, and says
+  which file types are not synced.
 
 ### Removed
 
