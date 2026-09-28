@@ -129,6 +129,20 @@ describe('Fastify application', () => {
     expect(app.server.listening).toBe(false);
   });
 
+  it('gives a slow upload ten minutes but a client only thirty seconds to send headers', async () => {
+    const app = createApp();
+    await app.ready();
+
+    // A 25 MiB attachment is a ~44.5 MiB base64 request: the whole-request
+    // budget must fit it on a slow phone link, while the header budget stays
+    // short so a slowloris client cannot hold a socket open for minutes.
+    expect(app.server.requestTimeout).toBe(600_000);
+    expect(app.server.headersTimeout).toBe(30_000);
+    expect(app.server.headersTimeout).toBeLessThanOrEqual(
+      app.server.requestTimeout,
+    );
+  });
+
   it('returns a protocol-valid discovery document without caching it', async () => {
     const app = createApp();
 

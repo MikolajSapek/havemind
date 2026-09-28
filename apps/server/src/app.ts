@@ -33,6 +33,18 @@ const LOGGER_REDACTION_PATHS = [
   'request.headers.cookie',
 ] as const;
 
+// A 25 MiB attachment travels as a ~44.5 MiB base64 request, which a slow
+// phone link cannot deliver in seconds: the whole-request budget is ten
+// minutes so it is not cut off and retried forever. The header budget stays
+// short against slowloris clients, and Node checks both every five seconds
+// instead of its default thirty, so the limits are enforced close to their
+// values. These go to http.createServer, because Node reads headersTimeout
+// and the checking interval there; Fastify then reassigns requestTimeout
+// from its own option, so that one is passed to both.
+const REQUEST_TIMEOUT_MS = 600_000;
+const HEADERS_TIMEOUT_MS = 30_000;
+const CONNECTIONS_CHECKING_INTERVAL_MS = 5_000;
+
 export interface ReadinessResult {
   readonly ready: boolean;
   readonly checks?: Readonly<Record<string, boolean>>;
@@ -59,11 +71,16 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
   };
   const app = Fastify({
     bodyLimit: options.config.bodyLimitBytes,
+    http: {
+      connectionsCheckingInterval: CONNECTIONS_CHECKING_INTERVAL_MS,
+      headersTimeout: HEADERS_TIMEOUT_MS,
+      requestTimeout: REQUEST_TIMEOUT_MS,
+    },
     logController: new LogController({ disableRequestLogging: true }),
     logger,
     onConstructorPoisoning: 'error',
     onProtoPoisoning: 'error',
-    requestTimeout: 30_000,
+    requestTimeout: REQUEST_TIMEOUT_MS,
     trustProxy: false,
   });
 
