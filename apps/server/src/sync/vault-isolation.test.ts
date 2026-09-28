@@ -1,36 +1,35 @@
 import { randomUUID } from 'node:crypto';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import {
-  hashBlob,
-  PROTOCOL_VERSION,
-  type ProtectedRevisionHeader,
-} from '@havemind/protocol';
+import { hashBlob } from '@havemind/protocol';
 import type Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { buildApp } from '../app.js';
+import type { buildApp } from '../app.js';
 import { InvitationService } from '../auth/invitations.js';
 import { SessionRepository } from '../auth/session-repository.js';
 import { OwnerSetupService } from '../auth/setup.js';
 import { generateRefreshToken } from '../auth/tokens.js';
 import { BlobStore } from '../blob-store.js';
-import { parseServerConfig } from '../config.js';
-import { openDatabase } from '../db.js';
-import { runMigrations } from '../migrations.js';
 import { RevisionRepository } from '../revision-repository.js';
+import {
+  ACCESS_TTL_SECONDS,
+  createTestApp,
+  makeTempDir,
+  mintAccessToken,
+  openMigratedDatabase,
+  pushRevisions as push,
+  REFRESH_TTL_SECONDS,
+  releaseTestResources,
+  revisionEntry,
+  revisionHeader,
+  type RevisionInput,
+  rowSeeder,
+  setVaultQuota,
+} from '../test/fixtures/server-fixtures.js';
 import { VaultWakeRegistry } from './vault-wake-registry.js';
 
-const TEST_ENV = {
-  HAVEMIND_API_BASE_URL: 'https://sync.example.test/api/v1',
-  HAVEMIND_SERVER_NAME: 'Test Havemind',
-} as const;
-
 const START_TIME = '2026-07-26T03:00:00.000Z';
-const REFRESH_TTL_SECONDS = 24 * 60 * 60;
-const ACCESS_TTL_SECONDS = 600;
 
 // Vault A is the instance-owner vault, built via direct SQL. Vault B is built
 // through OwnerSetupService.createVault (Phase 1) so the isolation guarantees
@@ -56,12 +55,7 @@ const FILE_B = 'b0000000-0000-4000-8000-0000000000f1';
 const REVISION_A1 = 'a0000000-0000-4000-8000-000000000001';
 const REVISION_B1 = 'b0000000-0000-4000-8000-000000000001';
 
-const SEMANTICS = Object.freeze({
-  pathNormalization: 'nfc-lowercase-v1',
-  payloadFormat: 'revision-payload-v1',
-  provenanceRecipe: 'source-range-v1',
-  syncSemantics: 'dag-cas-v1',
-} as const);
+const { insertDevice, insertMembership, insertUser, insertVault } = rowSeeder(START_TIME);
 
 interface VaultActor {
   readonly userId: string;
@@ -84,89 +78,14 @@ interface Fixture {
   readonly memberB: VaultActor;
 }
 
-const databases: Database.Database[] = [];
-const temporaryDirectories: string[] = [];
-const applications: Array<ReturnType<typeof buildApp>> = [];
 const wakeRegistries: Array<{
   readonly registry: VaultWakeRegistry;
   readonly vaultIds: readonly string[];
 }> = [];
 
-function insertUser(
-  database: Database.Database,
-  id: string,
-  name: string,
-  isInstanceOwner: 0 | 1,
-): void {
-  database
-    .prepare(
-      `INSERT INTO users (id, display_name, is_instance_owner, status, created_at, revoked_at)
-       VALUES (?, ?, ?, 'active', ?, NULL)`,
-    )
-    .run(id, name, isInstanceOwner, START_TIME);
-}
-
-function insertDevice(
-  database: Database.Database,
-  id: string,
-  userId: string,
-  name: string,
-): void {
-  database
-    .prepare(
-      `INSERT INTO devices (id, user_id, display_name, public_key, status, created_at, approved_at, revoked_at)
-       VALUES (?, ?, ?, ?, 'approved', ?, ?, NULL)`,
-    )
-    .run(id, userId, name, Buffer.alloc(32, 0x11), START_TIME, START_TIME);
-}
-
-function insertVault(database: Database.Database, id: string, name: string): void {
-  database
-    .prepare(
-      `INSERT INTO vaults (id, display_name, write_epoch, next_server_sequence, created_at, deleted_at)
-       VALUES (?, ?, 0, 1, ?, NULL)`,
-    )
-    .run(id, name, START_TIME);
-}
-
-function insertMembership(
-  database: Database.Database,
-  id: string,
-  vaultId: string,
-  userId: string,
-  role: 'owner' | 'editor',
-): void {
-  database
-    .prepare(
-      `INSERT INTO memberships (id, vault_id, user_id, role, status, created_at, revoked_at)
-       VALUES (?, ?, ?, ?, 'active', ?, NULL)`,
-    )
-    .run(id, vaultId, userId, role, START_TIME);
-}
-
-function mintAccessToken(
-  database: Database.Database,
-  sessions: SessionRepository,
-  userId: string,
-  deviceId: string,
-): string {
-  const issue = database.transaction(() =>
-    sessions.createInitialSessionInCurrentTransaction({
-      deviceId,
-      initialRefreshToken: generateRefreshToken(),
-      refreshTokenTtlSeconds: REFRESH_TTL_SECONDS,
-      userId,
-    }),
-  );
-  return issue.immediate().accessToken;
-}
-
 function makeFixture(): Fixture {
-  const directory = mkdtempSync(join(tmpdir(), 'havemind-vault-isolation-'));
-  temporaryDirectories.push(directory);
-  const database = openDatabase(join(directory, 'havemind.sqlite'));
-  databases.push(database);
-  runMigrations(database);
+  const directory = makeTempDir('havemind-vault-isolation-');
+  const database = openMigratedDatabase(directory);
 
   const now = (): Date => new Date(START_TIME);
   const sessions = new SessionRepository(database, {
@@ -272,46 +191,19 @@ function createApp(
   fixture: Fixture,
   options?: { readonly waitTimeoutMs?: number },
 ): ReturnType<typeof buildApp> {
-  const config = parseServerConfig(TEST_ENV);
-  const app = buildApp({
-    auth: {
-      clientKey: () => 'fixed-test-client',
+  return createTestApp({
+    database: fixture.database,
+    invitations: fixture.invitations,
+    now: () => new Date(START_TIME),
+    sessions: fixture.sessions,
+    sync: {
+      blobStore: fixture.blobStore,
       database: fixture.database,
-      invitations: fixture.invitations,
-      now: () => new Date(START_TIME),
-      sessions: fixture.sessions,
-      sync: {
-        blobStore: fixture.blobStore,
-        database: fixture.database,
-        revisions: fixture.revisions,
-        wakeRegistry: fixture.wakeRegistry,
-        waitTimeoutMs: options?.waitTimeoutMs ?? 200,
-      },
+      revisions: fixture.revisions,
+      wakeRegistry: fixture.wakeRegistry,
+      waitTimeoutMs: options?.waitTimeoutMs ?? 200,
     },
-    config,
   });
-  applications.push(app);
-  return app;
-}
-
-function header(
-  vaultId: string,
-  actor: VaultActor,
-  revisionId: string,
-  fileId: string,
-  parents: readonly string[] = [],
-): ProtectedRevisionHeader {
-  return {
-    expectedDeviceId: actor.deviceId,
-    expectedMemberId: actor.membershipId,
-    fileId,
-    parentRevisionIds: [...parents],
-    payloadEncoding: 'plaintext-json-v1',
-    protocol: PROTOCOL_VERSION,
-    revisionId,
-    semantics: SEMANTICS,
-    vaultId,
-  };
 }
 
 function revisionInput(
@@ -322,30 +214,12 @@ function revisionInput(
   idempotencyKey: string,
   content: string,
   parents: readonly string[] = [],
-): { header: ProtectedRevisionHeader; idempotencyKey: string; payload: string } {
-  return {
-    header: header(vaultId, actor, revisionId, fileId, parents),
+): RevisionInput {
+  return revisionEntry(
+    revisionHeader(vaultId, actor, revisionId, fileId, parents),
     idempotencyKey,
-    payload: Buffer.from(content, 'utf8').toString('base64'),
-  };
-}
-
-function push(
-  app: ReturnType<typeof buildApp>,
-  token: string,
-  vaultId: string,
-  revisions: ReadonlyArray<ReturnType<typeof revisionInput>>,
-) {
-  return app.inject({
-    headers: { authorization: `Bearer ${token}` },
-    method: 'POST',
-    payload: { revisions },
-    url: `/vaults/${vaultId}/revisions`,
-  });
-}
-
-function setVaultQuota(database: Database.Database, vaultId: string, quota: number): void {
-  database.prepare(`UPDATE vaults SET quota_bytes = ? WHERE id = ?`).run(quota, vaultId);
+    content,
+  );
 }
 
 async function waitFor(predicate: () => boolean, timeoutMs = 1_000): Promise<void> {
@@ -366,13 +240,7 @@ afterEach(async () => {
       registry.notify(vaultId, 0);
     }
   }
-  await Promise.all(applications.splice(0).map(async (app) => app.close()));
-  for (const database of databases.splice(0)) {
-    database.close();
-  }
-  for (const directory of temporaryDirectories.splice(0)) {
-    rmSync(directory, { force: true, recursive: true });
-  }
+  await releaseTestResources();
 });
 
 describe('adversarial cross-vault isolation (two vaults, one server)', () => {

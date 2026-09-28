@@ -1,27 +1,28 @@
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { PROTOCOL_VERSION, type ProtectedRevisionHeader } from '@havemind/protocol';
 import type Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { buildApp } from '../app.js';
+import type { buildApp } from '../app.js';
 import { SessionRepository } from '../auth/session-repository.js';
-import { generateRefreshToken } from '../auth/tokens.js';
 import { BlobStore, type BlobWriteResult } from '../blob-store.js';
-import { parseServerConfig } from '../config.js';
-import { openDatabase } from '../db.js';
-import { runMigrations } from '../migrations.js';
 import { RevisionRepository } from '../revision-repository.js';
-
-const TEST_ENV = {
-  HAVEMIND_API_BASE_URL: 'https://sync.example.test/api/v1',
-  HAVEMIND_SERVER_NAME: 'Test Havemind',
-} as const;
+import {
+  createTestApp,
+  definedOnly,
+  makeTempDir,
+  mintAccessToken,
+  openMigratedDatabase,
+  pushRevisions as push,
+  releaseTestResources,
+  revisionEntry,
+  revisionHeader,
+  type RevisionInput,
+  rowSeeder,
+  setVaultQuota,
+} from '../test/fixtures/server-fixtures.js';
 
 const START_TIME = '2026-07-24T03:00:00.000Z';
-const REFRESH_TTL_SECONDS = 24 * 60 * 60;
 
 const USER_A = '80000000-0000-4000-8000-0000000000a1';
 const DEVICE_A = '80000000-0000-4000-8000-0000000000a2';
@@ -34,13 +35,6 @@ const REVISION_1 = '80000000-0000-4000-8000-000000000001';
 const REVISION_2 = '80000000-0000-4000-8000-000000000002';
 const REVISION_3 = '80000000-0000-4000-8000-000000000003';
 
-const SEMANTICS = Object.freeze({
-  pathNormalization: 'nfc-lowercase-v1',
-  payloadFormat: 'revision-payload-v1',
-  provenanceRecipe: 'source-range-v1',
-  syncSemantics: 'dag-cas-v1',
-} as const);
-
 interface Fixture {
   readonly database: Database.Database;
   readonly sessions: SessionRepository;
@@ -49,80 +43,23 @@ interface Fixture {
   readonly accessTokenA: string;
 }
 
-const databases: Database.Database[] = [];
-const temporaryDirectories: string[] = [];
-const applications: Array<ReturnType<typeof buildApp>> = [];
-
 function makeFixture(): Fixture {
-  const directory = mkdtempSync(join(tmpdir(), 'havemind-quota-'));
-  temporaryDirectories.push(directory);
-  const database = openDatabase(join(directory, 'havemind.sqlite'));
-  databases.push(database);
-  runMigrations(database);
+  const directory = makeTempDir('havemind-quota-');
+  const database = openMigratedDatabase(directory);
 
   const now = (): Date => new Date(START_TIME);
   const sessions = new SessionRepository(database, { now });
   const blobStore = new BlobStore(join(directory, 'blobs'));
   const revisions = new RevisionRepository(database, blobStore, { now });
 
-  database
-    .prepare(
-      `INSERT INTO users (id, display_name, is_instance_owner, status, created_at, revoked_at)
-       VALUES (?, 'Alice', 0, 'active', ?, NULL)`,
-    )
-    .run(USER_A, START_TIME);
-  database
-    .prepare(
-      `INSERT INTO devices (id, user_id, display_name, public_key, status, created_at, approved_at, revoked_at)
-       VALUES (?, ?, 'Alice Laptop', ?, 'approved', ?, ?, NULL)`,
-    )
-    .run(DEVICE_A, USER_A, Buffer.alloc(32, 0x11), START_TIME, START_TIME);
-  database
-    .prepare(
-      `INSERT INTO vaults (id, display_name, write_epoch, next_server_sequence, created_at, deleted_at)
-       VALUES (?, 'Vault A', 0, 1, ?, NULL)`,
-    )
-    .run(VAULT_A, START_TIME);
-  database
-    .prepare(
-      `INSERT INTO memberships (id, vault_id, user_id, role, status, created_at, revoked_at)
-       VALUES (?, ?, ?, 'owner', 'active', ?, NULL)`,
-    )
-    .run(MEMBERSHIP_A, VAULT_A, USER_A, START_TIME);
-
-  const issue = database.transaction(() =>
-    sessions.createInitialSessionInCurrentTransaction({
-      deviceId: DEVICE_A,
-      initialRefreshToken: generateRefreshToken(),
-      refreshTokenTtlSeconds: REFRESH_TTL_SECONDS,
-      userId: USER_A,
-    }),
-  );
-  const accessTokenA = issue.immediate().accessToken;
+  const { insertDevice, insertMembership, insertUser, insertVault } = rowSeeder(START_TIME);
+  insertUser(database, USER_A, 'Alice');
+  insertDevice(database, DEVICE_A, USER_A, 'Alice Laptop');
+  insertVault(database, VAULT_A, 'Vault A');
+  insertMembership(database, MEMBERSHIP_A, VAULT_A, USER_A);
+  const accessTokenA = mintAccessToken(database, sessions, USER_A, DEVICE_A);
 
   return { accessTokenA, blobStore, database, revisions, sessions };
-}
-
-function setVaultQuota(database: Database.Database, vaultId: string, quota: number): void {
-  database.prepare(`UPDATE vaults SET quota_bytes = ? WHERE id = ?`).run(quota, vaultId);
-}
-
-function header(
-  revisionId: string,
-  fileId: string,
-  parents: readonly string[] = [],
-): ProtectedRevisionHeader {
-  return {
-    expectedDeviceId: DEVICE_A,
-    expectedMemberId: MEMBERSHIP_A,
-    fileId,
-    parentRevisionIds: [...parents],
-    payloadEncoding: 'plaintext-json-v1',
-    protocol: PROTOCOL_VERSION,
-    revisionId,
-    semantics: SEMANTICS,
-    vaultId: VAULT_A,
-  };
 }
 
 function revisionInput(
@@ -131,12 +68,13 @@ function revisionInput(
   idempotencyKey: string,
   content: string,
   parents: readonly string[] = [],
-): { header: ProtectedRevisionHeader; idempotencyKey: string; payload: string } {
-  return {
-    header: header(revisionId, fileId, parents),
+): RevisionInput {
+  const author = { deviceId: DEVICE_A, membershipId: MEMBERSHIP_A };
+  return revisionEntry(
+    revisionHeader(VAULT_A, author, revisionId, fileId, parents),
     idempotencyKey,
-    payload: Buffer.from(content, 'utf8').toString('base64'),
-  };
+    content,
+  );
 }
 
 interface CreateAppOptions {
@@ -146,49 +84,24 @@ interface CreateAppOptions {
 }
 
 function createApp(fixture: Fixture, options: CreateAppOptions = {}): ReturnType<typeof buildApp> {
-  const config = parseServerConfig(TEST_ENV);
+  const { freeDiskBytes, minFreeDiskBytes, onPut } = options;
   const wrappedBlobStore = {
     put: async (input: Uint8Array): Promise<BlobWriteResult> => {
-      options.onPut?.();
+      onPut?.();
       return fixture.blobStore.put(input);
     },
     read: (hash: Parameters<BlobStore['read']>[0]): Promise<Buffer> =>
       fixture.blobStore.read(hash),
   };
-  const app = buildApp({
-    auth: {
-      clientKey: () => 'fixed-test-client',
+  return createTestApp({
+    database: fixture.database,
+    sessions: fixture.sessions,
+    sync: {
+      blobStore: wrappedBlobStore,
       database: fixture.database,
-      sessions: fixture.sessions,
-      sync: {
-        blobStore: wrappedBlobStore,
-        database: fixture.database,
-        revisions: fixture.revisions,
-        ...(options.freeDiskBytes === undefined
-          ? {}
-          : { freeDiskBytes: options.freeDiskBytes }),
-        ...(options.minFreeDiskBytes === undefined
-          ? {}
-          : { minFreeDiskBytes: options.minFreeDiskBytes }),
-      },
+      revisions: fixture.revisions,
+      ...definedOnly({ freeDiskBytes, minFreeDiskBytes }),
     },
-    config,
-  });
-  applications.push(app);
-  return app;
-}
-
-function push(
-  app: ReturnType<typeof buildApp>,
-  token: string,
-  vaultId: string,
-  revisions: ReadonlyArray<ReturnType<typeof revisionInput>>,
-) {
-  return app.inject({
-    headers: { authorization: `Bearer ${token}` },
-    method: 'POST',
-    payload: { revisions },
-    url: `/vaults/${vaultId}/revisions`,
   });
 }
 
@@ -200,15 +113,7 @@ function readUsage(app: ReturnType<typeof buildApp>, token: string, vaultId: str
   });
 }
 
-afterEach(async () => {
-  await Promise.all(applications.splice(0).map(async (app) => app.close()));
-  for (const database of databases.splice(0)) {
-    database.close();
-  }
-  for (const directory of temporaryDirectories.splice(0)) {
-    rmSync(directory, { force: true, recursive: true });
-  }
-});
+afterEach(releaseTestResources);
 
 describe('per-vault storage quota enforcement', () => {
   it('accepts an under-quota commit and reports usage as the distinct-blob sum', async () => {
