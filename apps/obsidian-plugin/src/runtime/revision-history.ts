@@ -2,6 +2,12 @@ import { decodeRevisionPayload, type DecodedRevisionPayload } from '@havemind/sy
 import type { RemoteEvent, SyncTransport } from '../sync/sync-runner';
 import type { DurableSyncState } from './sync-state';
 
+/**
+ * Note payloads kept for reuse within a connection (P13). Merges read the
+ * same few ancestors repeatedly; anything older is fetched again if needed.
+ */
+const MAX_CACHED_PAYLOADS = 200;
+
 /** A revision-bound view of ancestry, reconstructed from the append-only event log.
  * Payloads are fetched lazily and verified by the connection resolver. No server
  * schema change or retained, unversioned "last common text" is needed.
@@ -71,12 +77,24 @@ export class RevisionHistory {
   async payload(event: RemoteEvent): Promise<DecodedRevisionPayload> {
     const id = event.revision.revisionId;
     const cached = this.payloads.get(id);
-    if (cached !== undefined) return cached;
+    if (cached !== undefined) {
+      // Refresh its place so the least recently used payload is evicted first.
+      this.payloads.delete(id);
+      this.payloads.set(id, cached);
+      return cached;
+    }
     const queued = await this.options.state.getEnvelope(id);
     const payload = queued === undefined
       ? await this.options.resolveRevision(event)
       : decodeRevisionPayload(Uint8Array.from(atob(queued.payloadBase64), (char) => char.charCodeAt(0)));
+    // An attachment is never merged from here and can be megabytes: keeping
+    // every one fetched made memory grow for the whole connection (P13).
+    if (payload.kind === 'binary') return payload;
     this.payloads.set(id, payload);
+    if (this.payloads.size > MAX_CACHED_PAYLOADS) {
+      const oldest = this.payloads.keys().next().value;
+      if (oldest !== undefined) this.payloads.delete(oldest);
+    }
     return payload;
   }
 }

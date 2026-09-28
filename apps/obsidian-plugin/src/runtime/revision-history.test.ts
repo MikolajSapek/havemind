@@ -65,3 +65,40 @@ describe('revision-bound ancestors', () => {
     }
   });
 });
+
+// P13: the payload cache kept every payload fetched during a connection,
+// attachments included, so memory only ever grew on a phone.
+describe('revision payload cache', () => {
+  function history(resolve: (event: RemoteEvent) => Promise<unknown>): RevisionHistory {
+    return new RevisionHistory({
+      transport: { pull: async () => ({ cursor: 0, events: [] }) },
+      resolveRevision: resolve as never,
+      state: { listOutbox: async () => [], getEnvelope: async () => undefined } as never,
+    });
+  }
+
+  it('never keeps an attachment payload in memory', async () => {
+    let fetches = 0;
+    const subject = history(async () => {
+      fetches += 1;
+      return { kind: 'binary', operation: 'update', path: 'a.pdf', previousPath: null, content: null, binaryContent: new Uint8Array(8) };
+    });
+    await subject.payload(node('pdf'));
+    await subject.payload(node('pdf'));
+    expect(fetches).toBe(2);
+  });
+
+  it('keeps recent note payloads, within a bound', async () => {
+    const fetched: string[] = [];
+    const subject = history(async (event) => {
+      fetched.push(event.revision.revisionId);
+      return { operation: 'update', path: 'a.md', previousPath: null, content: 'text' };
+    });
+    await subject.payload(node('first'));
+    await subject.payload(node('first'));
+    expect(fetched).toEqual(['first']);
+    for (let index = 0; index < 1_000; index += 1) await subject.payload(node(`n${index}`));
+    await subject.payload(node('first'));
+    expect(fetched.filter((id) => id === 'first')).toHaveLength(2);
+  });
+});
