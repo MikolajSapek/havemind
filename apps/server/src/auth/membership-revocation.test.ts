@@ -1,21 +1,23 @@
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-
 import type Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { openDatabase } from '../db.js';
-import { runMigrations } from '../migrations.js';
+import {
+  deviceStatus,
+  familyStatus,
+  liveAccessTokenCount,
+  makeTempDir,
+  openMigratedDatabase,
+  openSession as openUserSession,
+  releaseTestResources,
+  rowSeeder,
+} from '../test/fixtures/server-fixtures.js';
 import {
   MembershipRevocationError,
   MembershipRevocationService,
 } from './membership-revocation.js';
 import { SessionRepository } from './session-repository.js';
-import { generateRefreshToken } from './tokens.js';
 
 const START_TIME = '2026-07-21T03:00:00.000Z';
-const REFRESH_TTL_SECONDS = 24 * 60 * 60;
 
 const OWNER_USER = '92000000-0000-4000-8000-0000000000a1';
 const OWNER_DEVICE = '92000000-0000-4000-8000-0000000000a2';
@@ -34,48 +36,10 @@ const OTHER_VAULT_DEVICE = '92000000-0000-4000-8000-0000000000d2';
 // A device onboarded before the vault-scope column existed (vault_id IS NULL).
 const LEGACY_DEVICE = '92000000-0000-4000-8000-0000000000e2';
 
-const databases: Database.Database[] = [];
-const temporaryDirectories: string[] = [];
-
-function insertUser(db: Database.Database, id: string, name: string, owner: 0 | 1): void {
-  db.prepare(
-    `INSERT INTO users (id, display_name, is_instance_owner, status, created_at, revoked_at)
-     VALUES (?, ?, ?, 'active', ?, NULL)`,
-  ).run(id, name, owner, START_TIME);
-}
-
-function insertDevice(
-  db: Database.Database,
-  id: string,
-  userId: string,
-  name: string,
-  vaultId: string | null,
-): void {
-  db.prepare(
-    `INSERT INTO devices (id, user_id, display_name, public_key, status, created_at, approved_at, revoked_at, vault_id)
-     VALUES (?, ?, ?, ?, 'approved', ?, ?, NULL, ?)`,
-  ).run(id, userId, name, Buffer.alloc(32, 0x33), START_TIME, START_TIME, vaultId);
-}
-
-function insertVault(db: Database.Database, id: string, name: string): void {
-  db.prepare(
-    `INSERT INTO vaults (id, display_name, write_epoch, next_server_sequence, created_at, deleted_at)
-     VALUES (?, ?, 0, 1, ?, NULL)`,
-  ).run(id, name, START_TIME);
-}
-
-function insertMembership(
-  db: Database.Database,
-  id: string,
-  userId: string,
-  role: 'owner' | 'editor',
-  vaultId: string = VAULT,
-): void {
-  db.prepare(
-    `INSERT INTO memberships (id, vault_id, user_id, role, status, created_at, revoked_at)
-     VALUES (?, ?, ?, ?, 'active', ?, NULL)`,
-  ).run(id, vaultId, userId, role, START_TIME);
-}
+const { insertDevice, insertMembership, insertUser, insertVault } = rowSeeder(
+  START_TIME,
+  Buffer.alloc(32, 0x33),
+);
 
 interface Fixture {
   readonly database: Database.Database;
@@ -85,11 +49,7 @@ interface Fixture {
 }
 
 function makeFixture(): Fixture {
-  const directory = mkdtempSync(join(tmpdir(), 'havemind-membership-revoke-'));
-  temporaryDirectories.push(directory);
-  const database = openDatabase(join(directory, 'havemind.sqlite'));
-  databases.push(database);
-  runMigrations(database);
+  const database = openMigratedDatabase(makeTempDir('havemind-membership-revoke-'));
 
   const now = (): Date => new Date(START_TIME);
   const sessions = new SessionRepository(database, { now });
@@ -98,35 +58,20 @@ function makeFixture(): Fixture {
   insertUser(database, OWNER_USER, 'Alice', 1);
   insertUser(database, INVITEE_USER, 'Magda', 0);
   insertVault(database, VAULT, 'Shared Vault');
-  insertDevice(database, OWNER_DEVICE, OWNER_USER, 'Alice Laptop', VAULT);
-  insertDevice(database, INVITEE_DEVICE, INVITEE_USER, 'Magda Laptop', VAULT);
-  insertMembership(database, OWNER_MEMBERSHIP, OWNER_USER, 'owner');
-  insertMembership(database, INVITEE_MEMBERSHIP, INVITEE_USER, 'editor');
+  insertDevice(database, OWNER_DEVICE, OWNER_USER, 'Alice Laptop', { vaultId: VAULT });
+  insertDevice(database, INVITEE_DEVICE, INVITEE_USER, 'Magda Laptop', { vaultId: VAULT });
+  insertMembership(database, OWNER_MEMBERSHIP, VAULT, OWNER_USER, 'owner');
+  insertMembership(database, INVITEE_MEMBERSHIP, VAULT, INVITEE_USER, 'editor');
 
-  const issued = database.transaction(() =>
-    sessions.createInitialSessionInCurrentTransaction({
-      deviceId: INVITEE_DEVICE,
-      initialRefreshToken: generateRefreshToken(),
-      refreshTokenTtlSeconds: REFRESH_TTL_SECONDS,
-      userId: INVITEE_USER,
-    }),
-  );
-  const inviteeFamilyId = issued.immediate().familyId;
+  const inviteeFamilyId = openUserSession(database, sessions, INVITEE_USER, INVITEE_DEVICE)
+    .familyId;
 
   return { database, inviteeFamilyId, service, sessions };
 }
 
 /** Opens a live session for `deviceId` and returns the refresh family id. */
 function openSession(fixture: Fixture, deviceId: string): string {
-  const issued = fixture.database.transaction(() =>
-    fixture.sessions.createInitialSessionInCurrentTransaction({
-      deviceId,
-      initialRefreshToken: generateRefreshToken(),
-      refreshTokenTtlSeconds: REFRESH_TTL_SECONDS,
-      userId: INVITEE_USER,
-    }),
-  );
-  return issued.immediate().familyId;
+  return openUserSession(fixture.database, fixture.sessions, INVITEE_USER, deviceId).familyId;
 }
 
 /**
@@ -136,63 +81,14 @@ function openSession(fixture: Fixture, deviceId: string): string {
  */
 function addOtherVaultForInvitee(fixture: Fixture): string {
   insertVault(fixture.database, OTHER_VAULT, 'Other Vault');
-  insertMembership(
-    fixture.database,
-    OTHER_MEMBERSHIP,
-    INVITEE_USER,
-    'editor',
-    OTHER_VAULT,
-  );
-  insertDevice(
-    fixture.database,
-    OTHER_VAULT_DEVICE,
-    INVITEE_USER,
-    'Magda Tablet',
-    OTHER_VAULT,
-  );
+  insertMembership(fixture.database, OTHER_MEMBERSHIP, OTHER_VAULT, INVITEE_USER, 'editor');
+  insertDevice(fixture.database, OTHER_VAULT_DEVICE, INVITEE_USER, 'Magda Tablet', {
+    vaultId: OTHER_VAULT,
+  });
   return openSession(fixture, OTHER_VAULT_DEVICE);
 }
 
-function liveAccessTokenCount(
-  fixture: Fixture,
-  deviceId: string,
-): number {
-  const row = fixture.database
-    .prepare(
-      `SELECT COUNT(*) AS live FROM access_tokens
-       WHERE device_id = ? AND revoked_at IS NULL`,
-    )
-    .get(deviceId) as { live: number };
-  return row.live;
-}
-
-function deviceStatus(fixture: Fixture, deviceId: string): string {
-  return (
-    fixture.database
-      .prepare('SELECT status FROM devices WHERE id = ?')
-      .get(deviceId) as { status: string }
-  ).status;
-}
-
-function familyStatus(fixture: Fixture, familyId: string): string {
-  return (
-    fixture.database
-      .prepare('SELECT status FROM refresh_token_families WHERE id = ?')
-      .get(familyId) as { status: string }
-  ).status;
-}
-
-afterEach(() => {
-  while (databases.length > 0) {
-    databases.pop()?.close();
-  }
-  while (temporaryDirectories.length > 0) {
-    const directory = temporaryDirectories.pop();
-    if (directory !== undefined) {
-      rmSync(directory, { force: true, recursive: true });
-    }
-  }
-});
+afterEach(releaseTestResources);
 
 describe('MembershipRevocationService', () => {
   it('flips the membership status to revoked without deleting the row', () => {
@@ -286,13 +182,9 @@ describe('MembershipRevocationService', () => {
     // A device onboarded before the vault-scope column existed carries
     // vault_id IS NULL. Its vault cannot be proven, so revocation must keep
     // burning it, failing closed exactly as it did before the fix.
-    insertDevice(
-      fixture.database,
-      LEGACY_DEVICE,
-      INVITEE_USER,
-      'Magda Old Laptop',
-      null,
-    );
+    insertDevice(fixture.database, LEGACY_DEVICE, INVITEE_USER, 'Magda Old Laptop', {
+      vaultId: null,
+    });
     const legacyFamilyId = openSession(fixture, LEGACY_DEVICE);
 
     fixture.service.revokeMembership({ membershipId: INVITEE_MEMBERSHIP });

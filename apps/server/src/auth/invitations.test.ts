@@ -1,12 +1,13 @@
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-
 import type Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { openDatabase } from '../db.js';
-import { runMigrations } from '../migrations.js';
+import {
+  ACCESS_TTL_SECONDS,
+  makeTempDir,
+  openMigratedDatabase,
+  REFRESH_TTL_SECONDS,
+  releaseTestResources,
+} from '../test/fixtures/server-fixtures.js';
 import {
   InvitationError,
   InvitationService,
@@ -26,8 +27,6 @@ const FIFTEEN_MINUTES_MS = 15 * 60 * 1_000;
 const OWNER_DEVICE_ID = '70000000-0000-4000-8000-000000000001';
 const REDEMPTION_ID = '70000000-0000-4000-8000-000000000002';
 const OWNER_PUBLIC_KEY = Buffer.alloc(32, 0x7a);
-const ACCESS_TTL_SECONDS = 600;
-const REFRESH_TTL_SECONDS = 24 * 60 * 60;
 
 interface Fixture {
   readonly database: Database.Database;
@@ -37,15 +36,8 @@ interface Fixture {
   readonly vaultId: string;
 }
 
-const databases: Database.Database[] = [];
-const temporaryDirectories: string[] = [];
-
 function makeFixture(): Fixture {
-  const directory = mkdtempSync(join(tmpdir(), 'havemind-invitations-'));
-  temporaryDirectories.push(directory);
-  const database = openDatabase(join(directory, 'havemind.sqlite'));
-  databases.push(database);
-  runMigrations(database);
+  const database = openMigratedDatabase(makeTempDir('havemind-invitations-'));
   const now = (): Date => new Date(START_TIME);
 
   const owner = new OwnerSetupService(database, {
@@ -147,17 +139,7 @@ function expectInvitationError(
   expect(error.httpStatus).toBe(httpStatus);
 }
 
-afterEach(() => {
-  while (databases.length > 0) {
-    databases.pop()?.close();
-  }
-  while (temporaryDirectories.length > 0) {
-    const directory = temporaryDirectories.pop();
-    if (directory !== undefined) {
-      rmSync(directory, { force: true, recursive: true });
-    }
-  }
-});
+afterEach(releaseTestResources);
 
 describe('InvitationService.createInvitation', () => {
   it('issues a single-use 256-bit token with a 15-minute expiry stored hashed', () => {

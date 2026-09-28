@@ -1,12 +1,16 @@
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-
 import type Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { openDatabase } from '../db.js';
-import { runMigrations } from '../migrations.js';
+import {
+  ACCESS_TTL_SECONDS,
+  createClock,
+  makeTempDir,
+  type MutableClock,
+  openMigratedDatabase,
+  REFRESH_TTL_SECONDS,
+  releaseTestResources,
+  rowSeeder,
+} from '../test/fixtures/server-fixtures.js';
 import {
   RejoinGrantError,
   RejoinGrantService,
@@ -30,8 +34,6 @@ const INVITEE_REJOIN_SECRET = generateRejoinSecret();
 
 const START_TIME = '2026-07-21T03:00:00.000Z';
 const FIFTEEN_MINUTES_MS = 15 * 60 * 1_000;
-const ACCESS_TTL_SECONDS = 600;
-const REFRESH_TTL_SECONDS = 24 * 60 * 60;
 
 const OWNER_USER = '90000000-0000-4000-8000-0000000000a1';
 const OWNER_DEVICE = '90000000-0000-4000-8000-0000000000a2';
@@ -41,10 +43,10 @@ const INVITEE_USER = '90000000-0000-4000-8000-0000000000b1';
 const INVITEE_DEVICE = '90000000-0000-4000-8000-0000000000b2';
 const INVITEE_MEMBERSHIP = '90000000-0000-4000-8000-0000000000b4';
 
-interface MutableClock {
-  readonly now: () => Date;
-  advance(milliseconds: number): void;
-}
+const { insertDevice, insertMembership, insertUser, insertVault } = rowSeeder(
+  START_TIME,
+  Buffer.alloc(32, 0x22),
+);
 
 interface Fixture {
   readonly clock: MutableClock;
@@ -53,80 +55,20 @@ interface Fixture {
   readonly sessions: SessionRepository;
 }
 
-const databases: Database.Database[] = [];
-const temporaryDirectories: string[] = [];
-
-function createClock(initial = START_TIME): MutableClock {
-  let milliseconds = Date.parse(initial);
-  return {
-    advance(value): void {
-      milliseconds += value;
-    },
-    now: () => new Date(milliseconds),
-  };
-}
-
-function insertUser(database: Database.Database, id: string, name: string, owner: 0 | 1): void {
-  database
-    .prepare(
-      `INSERT INTO users (id, display_name, is_instance_owner, status, created_at, revoked_at)
-       VALUES (?, ?, ?, 'active', ?, NULL)`,
-    )
-    .run(id, name, owner, START_TIME);
-}
-
-function insertDevice(
-  database: Database.Database,
-  id: string,
-  userId: string,
-  name: string,
-): void {
-  database
-    .prepare(
-      `INSERT INTO devices (id, user_id, display_name, public_key, status, created_at, approved_at, revoked_at)
-       VALUES (?, ?, ?, ?, 'approved', ?, ?, NULL)`,
-    )
-    .run(id, userId, name, Buffer.alloc(32, 0x22), START_TIME, START_TIME);
-}
-
-function insertMembership(
-  database: Database.Database,
-  id: string,
-  userId: string,
-  role: 'owner' | 'editor',
-): void {
-  database
-    .prepare(
-      `INSERT INTO memberships (id, vault_id, user_id, role, status, created_at, revoked_at)
-       VALUES (?, ?, ?, ?, 'active', ?, NULL)`,
-    )
-    .run(id, VAULT, userId, role, START_TIME);
-}
-
 function makeFixture(): Fixture {
-  const directory = mkdtempSync(join(tmpdir(), 'havemind-rejoin-'));
-  temporaryDirectories.push(directory);
-  const database = openDatabase(join(directory, 'havemind.sqlite'));
-  databases.push(database);
-  runMigrations(database);
+  const database = openMigratedDatabase(makeTempDir('havemind-rejoin-'));
 
-  const clock = createClock();
+  const clock = createClock(START_TIME);
   insertUser(database, OWNER_USER, 'Owner', 1);
   insertUser(database, INVITEE_USER, 'Magda', 0);
   insertDevice(database, OWNER_DEVICE, OWNER_USER, "Owner's laptop");
-  insertDevice(database, INVITEE_DEVICE, INVITEE_USER, "Magda's laptop");
   // Provision the invitee device with its rejoin secret hash, as onboarding does.
-  database
-    .prepare('UPDATE devices SET rejoin_secret_hash = ? WHERE id = ?')
-    .run(hashRejoinSecret(INVITEE_REJOIN_SECRET), INVITEE_DEVICE);
-  database
-    .prepare(
-      `INSERT INTO vaults (id, display_name, write_epoch, next_server_sequence, created_at, deleted_at)
-       VALUES (?, ?, 0, 1, ?, NULL)`,
-    )
-    .run(VAULT, 'Pilot vault', START_TIME);
-  insertMembership(database, OWNER_MEMBERSHIP, OWNER_USER, 'owner');
-  insertMembership(database, INVITEE_MEMBERSHIP, INVITEE_USER, 'editor');
+  insertDevice(database, INVITEE_DEVICE, INVITEE_USER, "Magda's laptop", {
+    rejoinSecretHash: hashRejoinSecret(INVITEE_REJOIN_SECRET),
+  });
+  insertVault(database, VAULT, 'Pilot vault');
+  insertMembership(database, OWNER_MEMBERSHIP, VAULT, OWNER_USER, 'owner');
+  insertMembership(database, INVITEE_MEMBERSHIP, VAULT, INVITEE_USER, 'editor');
 
   const service = new RejoinGrantService(database, {
     accessTokenTtlSeconds: ACCESS_TTL_SECONDS,
@@ -150,17 +92,7 @@ function expectRejoinError(fn: () => unknown, code: RejoinGrantError['code']): v
   }
 }
 
-afterEach(() => {
-  while (databases.length > 0) {
-    databases.pop()?.close();
-  }
-  while (temporaryDirectories.length > 0) {
-    const directory = temporaryDirectories.pop();
-    if (directory !== undefined) {
-      rmSync(directory, { force: true, recursive: true });
-    }
-  }
-});
+afterEach(releaseTestResources);
 
 describe('RejoinGrantService.createGrant', () => {
   it('binds a grant to the target membership and its approved device', () => {
@@ -500,7 +432,7 @@ describe('AUD2-03: one live grant per membership', () => {
     const otherMembership = '90000000-0000-4000-8000-0000000000c4';
     insertUser(fixture.database, otherUser, 'Ola', 0);
     insertDevice(fixture.database, otherDevice, otherUser, "Ola's laptop");
-    insertMembership(fixture.database, otherMembership, otherUser, 'editor');
+    insertMembership(fixture.database, otherMembership, VAULT, otherUser, 'editor');
 
     const other = fixture.service.createGrant({
       ownerMembershipId: OWNER_MEMBERSHIP,

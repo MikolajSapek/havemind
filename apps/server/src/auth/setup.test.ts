@@ -1,12 +1,13 @@
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-
 import type Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { openDatabase } from '../db.js';
-import { runMigrations } from '../migrations.js';
+import {
+  createClock,
+  makeTempDir,
+  type MutableClock,
+  openMigratedDatabase,
+  releaseTestResources,
+} from '../test/fixtures/server-fixtures.js';
 import {
   OwnerSetupError,
   OwnerSetupService,
@@ -28,41 +29,15 @@ const START_TIME = '2026-07-15T03:00:00.000Z';
 const DEVICE_ID = '70000000-0000-4000-8000-000000000001';
 const PUBLIC_KEY = Buffer.alloc(32, 0x7a);
 
-interface MutableClock {
-  readonly now: () => Date;
-  advance(milliseconds: number): void;
-}
-
 interface SetupFixture {
   readonly clock: MutableClock;
   readonly database: Database.Database;
   readonly service: OwnerSetupService;
 }
 
-const databases: Database.Database[] = [];
-const temporaryDirectories: string[] = [];
-
-function createClock(initial = START_TIME): MutableClock {
-  let milliseconds = Date.parse(initial);
-  return {
-    advance(value): void {
-      milliseconds += value;
-    },
-    now: () => new Date(milliseconds),
-  };
-}
-
-function trackDatabase(database: Database.Database): Database.Database {
-  databases.push(database);
-  return database;
-}
-
 function makeFixture(): SetupFixture {
-  const directory = mkdtempSync(join(tmpdir(), 'havemind-owner-setup-'));
-  temporaryDirectories.push(directory);
-  const database = trackDatabase(openDatabase(join(directory, 'havemind.sqlite')));
-  runMigrations(database);
-  const clock = createClock();
+  const database = openMigratedDatabase(makeTempDir('havemind-owner-setup-'));
+  const clock = createClock(START_TIME);
   const service = new OwnerSetupService(database, {
     accessTokenTtlSeconds: 600,
     now: clock.now,
@@ -71,16 +46,7 @@ function makeFixture(): SetupFixture {
   return { clock, database, service };
 }
 
-afterEach(() => {
-  for (const database of databases.splice(0)) {
-    if (database.open) {
-      database.close();
-    }
-  }
-  for (const directory of temporaryDirectories.splice(0)) {
-    rmSync(directory, { force: true, recursive: true });
-  }
-});
+afterEach(releaseTestResources);
 
 function initialize(service: OwnerSetupService) {
   return service.initializeOwner(createLocalOwnerSetupContext(), {

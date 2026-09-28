@@ -1,5 +1,3 @@
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type Database from 'better-sqlite3';
@@ -7,6 +5,14 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { openDatabase } from '../db.js';
 import { runMigrations } from '../migrations.js';
+import {
+  createClock,
+  makeTempDir,
+  type MutableClock,
+  openMigratedDatabase,
+  releaseTestResources,
+  trackDatabase,
+} from '../test/fixtures/server-fixtures.js';
 import {
   OwnerSetupService,
   createLocalOwnerSetupContext,
@@ -28,11 +34,6 @@ const START_TIME = '2026-07-15T03:00:00.000Z';
 const DEVICE_ID = '70000000-0000-4000-8000-000000000001';
 const PUBLIC_KEY = Buffer.alloc(32, 0x7a);
 
-interface MutableClock {
-  readonly now: () => Date;
-  advance(milliseconds: number): void;
-}
-
 interface SessionFixture {
   readonly accessToken: string;
   readonly clock: MutableClock;
@@ -45,31 +46,11 @@ interface SessionFixture {
   readonly userId: string;
 }
 
-const databases: Database.Database[] = [];
-const temporaryDirectories: string[] = [];
-
-function createClock(): MutableClock {
-  let milliseconds = Date.parse(START_TIME);
-  return {
-    advance(value): void {
-      milliseconds += value;
-    },
-    now: () => new Date(milliseconds),
-  };
-}
-
-function trackDatabase(database: Database.Database): Database.Database {
-  databases.push(database);
-  return database;
-}
-
 function makeFixture(): SessionFixture {
-  const directory = mkdtempSync(join(tmpdir(), 'havemind-sessions-'));
-  temporaryDirectories.push(directory);
+  const directory = makeTempDir('havemind-sessions-');
   const databasePath = join(directory, 'havemind.sqlite');
-  const database = trackDatabase(openDatabase(databasePath));
-  runMigrations(database);
-  const clock = createClock();
+  const database = openMigratedDatabase(directory);
+  const clock = createClock(START_TIME);
   const setup = new OwnerSetupService(database, {
     accessTokenTtlSeconds: 600,
     now: clock.now,
@@ -104,16 +85,7 @@ function makeFixture(): SessionFixture {
   };
 }
 
-afterEach(() => {
-  for (const database of databases.splice(0)) {
-    if (database.open) {
-      database.close();
-    }
-  }
-  for (const directory of temporaryDirectories.splice(0)) {
-    rmSync(directory, { force: true, recursive: true });
-  }
-});
+afterEach(releaseTestResources);
 
 function expectSessionCode(
   action: () => unknown,
