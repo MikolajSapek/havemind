@@ -731,6 +731,30 @@ export class DurableSyncState implements SyncStatePort {
     return this.cache?.pathOwners[path] ?? null;
   }
 
+  /**
+   * Records an applied revision: `fileId` owns `path`, with base `hash` and,
+   * for markdown, base `content`. One write instead of three (P1), and never a
+   * half-recorded base after a crash between them.
+   */
+  async recordApplied(
+    fileId: string,
+    path: string,
+    hash: string,
+    content: string | null,
+  ): Promise<void> {
+    return this.runExclusive(async () => {
+      const state = await this.ensureLoaded();
+      await this.mutate({
+        ...state,
+        pathOwners: { ...state.pathOwners, [path]: fileId },
+        baseHashes: { ...state.baseHashes, [fileId]: hash },
+        ...(content === null
+          ? {}
+          : { baseContents: { ...state.baseContents, [fileId]: content } }),
+      });
+    });
+  }
+
   async recordPathOwner(fileId: string, path: string): Promise<void> {
     return this.runExclusive(async () => {
       const state = await this.ensureLoaded();

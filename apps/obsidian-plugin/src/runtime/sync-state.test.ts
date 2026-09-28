@@ -352,6 +352,20 @@ describe('DurableSyncState', () => {
     expect(recovered.baseHashFor('file-1')).toBeNull();
   });
 
+  // P1: a remote apply recorded the path owner, the base hash and the base
+  // content in three whole-file writes of data.json.
+  it('records an applied revision in one write', async () => {
+    await state.loadCursor();
+    const before = persist.saveCalls;
+
+    await state.recordApplied('file-9', 'Notes/n.md', 'hash-9', 'body');
+
+    expect(persist.saveCalls - before).toBe(1);
+    expect(state.fileIdAtPath('Notes/n.md')).toBe('file-9');
+    expect(state.baseHashFor('file-9')).toBe('hash-9');
+    expect(state.baseContentFor('file-9')).toBe('body');
+  });
+
   it('remembers durably which file a conflict copy belongs to', async () => {
     await state.recordConflictArtifactPath('rev-9', 'Havemind Conflicts/N (conflict A 2026-09-28 1200).md', 'file-7');
     const reopened = new DurableSyncState({ persist });

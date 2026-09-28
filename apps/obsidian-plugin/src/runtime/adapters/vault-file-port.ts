@@ -230,10 +230,8 @@ export function createVaultFilePort(options: VaultFilePortOptions): VaultFilePor
       return new Uint8Array(buffer);
     },
     baseHashFor: (fileId) => state.baseHashFor(fileId),
-    recordBaseHash: (fileId, hash) => state.recordBaseHash(fileId, hash),
     forgetBaseHash: (fileId) => state.forgetBaseHash(fileId),
     baseContentFor: (fileId) => state.baseContentFor(fileId),
-    recordBaseContent: (fileId, content) => state.recordBaseContent(fileId, content),
     forgetBaseContent: (fileId) => state.forgetBaseContent(fileId),
     async conflictArtifactExists(path) {
       return vault.getAbstractFileByPath(path) !== null;
@@ -358,6 +356,8 @@ export function createVaultFilePort(options: VaultFilePortOptions): VaultFilePor
       await vault.modifyBinary(existing as TFile, data);
     },
     recordPathOwner: (fileId, path) => state.recordPathOwner(fileId, path),
+    recordApplied: (fileId, path, hash, content) =>
+      state.recordApplied(fileId, path, hash, content),
     forgetPath: (path) => state.forgetPath(path),
   };
 }

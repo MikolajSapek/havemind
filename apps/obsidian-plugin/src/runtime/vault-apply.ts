@@ -80,12 +80,20 @@ export interface VaultFilePort {
   writeBinaryConflictArtifact(path: string, bytes: Uint8Array): Promise<void>;
   /** Durably record that `fileId` now owns `path` (for in-place updates). */
   recordPathOwner(fileId: string, path: string): Promise<void>;
+  /**
+   * Durably record, in one write, that `fileId` owns `path` with base `hash`
+   * and, unless null, base `content` (P1).
+   */
+  recordApplied(
+    fileId: string,
+    path: string,
+    hash: string,
+    content: string | null,
+  ): Promise<void>;
   /** Durably forget the owner of `path` (after a delete or rename move). */
   forgetPath(path: string): Promise<void>;
   /** The last synced base content hash for `fileId`, or null if none recorded. */
   baseHashFor(fileId: string): string | null;
-  /** Durably record the last synced base content hash for `fileId`. */
-  recordBaseHash(fileId: string, hash: string): Promise<void>;
   /** Durably forget the base content hash for `fileId` (after a delete). */
   forgetBaseHash(fileId: string): Promise<void>;
   /**
@@ -93,8 +101,6 @@ export interface VaultFilePort {
    * Markdown-only: a binary file never merges and records no base content.
    */
   baseContentFor(fileId: string): string | null;
-  /** Durably record the base CONTENT for `fileId` (paired with the base hash). */
-  recordBaseContent(fileId: string, content: string): Promise<void>;
   /** Durably forget the base content for `fileId` (after a delete). */
   forgetBaseContent(fileId: string): Promise<void>;
   /** True when a file already exists at `path` (conflict-name collision probe). */
@@ -560,14 +566,12 @@ export class VaultApplyAdapter implements VaultApplyPort {
         // Forget the superseded owner's base CONTENT too (F3): only its base hash
         // was being cleared, leaking one baseContents entry per adoption.
         await this.files.forgetBaseContent(owner);
-        await this.files.recordPathOwner(fileId, decoded.path);
-        await this.files.recordBaseHash(fileId, contentHash);
         // Persist the base CONTENT too (not just its hash): both sides already
         // hold `text` as the adopted content, so it is a valid three-way merge
         // ancestor. Without this, `baseContentFor(fileId)` stays null after
         // adoption and the next concurrent edit falls through `tryMergeApply`
         // straight to a conflict copy even though a clean merge was possible.
-        await this.files.recordBaseContent(fileId, text);
+        await this.files.recordApplied(fileId, decoded.path, contentHash, text);
         // Adopt the remote fileId into the producer mapping too (no disk write
         // fires here, but a later LOCAL edit must push under the shared fileId,
         // never the old random one this device minted for the same note).
@@ -624,9 +628,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
         // Both sides already hold the incoming content: advance the base and
         // skip the write entirely (test: on-disk == incoming → no write).
         const contentHash = await this.hashContent(text);
-        await this.files.recordBaseHash(fileId, contentHash);
-        await this.files.recordBaseContent(fileId, text);
-        await this.files.recordPathOwner(fileId, decoded.path);
+        await this.files.recordApplied(fileId, decoded.path, contentHash, text);
         await this.producerSync?.onRemoteWrite({
           fileId,
           path: decoded.path,
@@ -737,11 +739,9 @@ export class VaultApplyAdapter implements VaultApplyPort {
       }
       throw error;
     }
-    await this.files.recordPathOwner(fileId, decoded.path);
-    await this.files.recordBaseHash(fileId, contentHash);
     // Persist the base CONTENT too so a later divergence has the ancestor the
     // three-way merge needs (MRG-01).
-    await this.files.recordBaseContent(fileId, text);
+    await this.files.recordApplied(fileId, decoded.path, contentHash, text);
     this.onRemoteApplied?.({
       revisionId: event.revision.revisionId,
       fileId,
@@ -950,8 +950,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
         if (this.history !== undefined && owner < fileId && (await this.history.heads(owner)).length > 0) return 'noop';
         await this.producerSync?.onRemoteDelete({ fileId: owner, path: decoded.path });
         await this.files.forgetBaseHash(owner);
-        await this.files.recordPathOwner(fileId, decoded.path);
-        await this.files.recordBaseHash(fileId, incomingHash);
+        await this.files.recordApplied(fileId, decoded.path, incomingHash, null);
         await this.producerSync?.onRemoteWrite({
           fileId,
           path: decoded.path,
@@ -978,8 +977,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
     );
     if (onDisk !== null) {
       if (bytesEqual(onDisk, bytes)) {
-        await this.files.recordBaseHash(fileId, incomingHash);
-        await this.files.recordPathOwner(fileId, decoded.path);
+        await this.files.recordApplied(fileId, decoded.path, incomingHash, null);
         await this.producerSync?.onRemoteWrite({
           fileId,
           path: decoded.path,
@@ -1045,8 +1043,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
       }
       throw error;
     }
-    await this.files.recordPathOwner(fileId, decoded.path);
-    await this.files.recordBaseHash(fileId, incomingHash);
+    await this.files.recordApplied(fileId, decoded.path, incomingHash, null);
     this.onRemoteApplied?.({
       revisionId: event.revision.revisionId,
       fileId,

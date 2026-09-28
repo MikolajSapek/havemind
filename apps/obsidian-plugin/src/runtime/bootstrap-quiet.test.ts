@@ -91,6 +91,17 @@ class MemoryFiles implements VaultFilePort {
   baseContentFor(fileId: string): string | null {
     return this.baseContents.get(fileId) ?? null;
   }
+  async recordApplied(
+    fileId: string,
+    path: string,
+    hash: string,
+    content: string | null,
+  ): Promise<void> {
+    await this.recordPathOwner(fileId, path);
+    await this.recordBaseHash(fileId, hash);
+    if (content !== null) await this.recordBaseContent(fileId, content);
+  }
+
   async recordBaseContent(fileId: string, content: string): Promise<void> {
     this.baseContents.set(fileId, content);
   }
