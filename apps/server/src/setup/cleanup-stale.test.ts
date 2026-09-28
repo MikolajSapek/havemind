@@ -6,6 +6,8 @@ import { join } from 'node:path';
 import type Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { InvitationService } from '../auth/invitations.js';
+import { generateRefreshToken } from '../auth/tokens.js';
 import { openDatabase } from '../db.js';
 import { runMigrations } from '../migrations.js';
 import { runStaleCleanup } from './cleanup-stale.js';
@@ -263,6 +265,70 @@ describe('runStaleCleanup', () => {
       true,
     );
     expect(deviceExists(database, context.stalePendingDeviceId)).toBe(true);
+  });
+
+  // A redeemed invitation still backs the onboarding until the owner approves:
+  // the joining device polls status by its pending credential and approval
+  // reads the pending device and refresh hash from this row.
+  it('keeps a redeemed invitation whose onboarding is still in progress', () => {
+    const invitations = new InvitationService(database, { now: () => NOW });
+    const invite = invitations.createInvitation({
+      createdByMembershipId: context.ownerMembershipId,
+      inviterDeviceId: context.approvedDeviceId,
+      vaultId: context.vaultId,
+    });
+    const redeemed = invitations.redeemInvitationForOnboarding({
+      deviceLabel: 'Phone',
+      initialRefreshToken: generateRefreshToken(),
+      invitationToken: invite.invitationToken,
+      redemptionId: randomUUID(),
+    });
+
+    // Half an hour later: past the invitation's own 15-minute expiry, well
+    // inside the pending-device threshold.
+    runStaleCleanup(database, {
+      now: () => new Date(NOW.getTime() + HOUR_MS / 2),
+    });
+
+    expect(invitationExists(database, invite.invitationId)).toBe(true);
+    expect(
+      invitations.getApprovalStatus(
+        redeemed.pendingDeviceId,
+        redeemed.pendingCredential,
+      ),
+    ).toEqual({ status: 'pending' });
+    invitations.approveRedeemedDevice({
+      approverMembershipId: context.ownerMembershipId,
+      invitationId: invite.invitationId,
+      verificationPhrase: redeemed.verificationPhrase,
+    });
+    expect(
+      invitations.getApprovalStatus(
+        redeemed.pendingDeviceId,
+        redeemed.pendingCredential,
+      ).status,
+    ).toBe('approved');
+  });
+
+  it('removes a redeemed invitation once its onboarding is older than the threshold', () => {
+    const invitations = new InvitationService(database, { now: () => NOW });
+    const invite = invitations.createInvitation({
+      createdByMembershipId: context.ownerMembershipId,
+      inviterDeviceId: context.approvedDeviceId,
+      vaultId: context.vaultId,
+    });
+    invitations.redeemInvitationForOnboarding({
+      deviceLabel: 'Phone',
+      initialRefreshToken: generateRefreshToken(),
+      invitationToken: invite.invitationToken,
+      redemptionId: randomUUID(),
+    });
+
+    runStaleCleanup(database, {
+      now: () => new Date(NOW.getTime() + 25 * HOUR_MS),
+    });
+
+    expect(invitationExists(database, invite.invitationId)).toBe(false);
   });
 
   it('rejects a negative pendingOlderThanHours', () => {

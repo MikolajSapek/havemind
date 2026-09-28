@@ -8,9 +8,12 @@ import type Database from 'better-sqlite3';
  * replacement, exposed as the `cleanup-stale` CLI subcommand.
  *
  * What it removes:
- *   - invitations that are expired (`expires_at` in the past) or already
- *     consumed (`consumed_at` set), the invitation row itself is never a
- *     foreign-key target, so deleting it is always safe.
+ *   - invitations that are expired and never redeemed, and consumed
+ *     invitations whose onboarding is finished or abandoned (no pending
+ *     device left, or a pending device older than the pending threshold).
+ *     A redeemed invitation awaiting approval is kept: approval and status
+ *     polling read it. The invitation row itself is never a foreign-key
+ *     target, so deleting it is always safe.
  *   - devices stuck in `status = 'pending'` older than a threshold (default
  *     24h), *unless* another table still holds an `ON DELETE RESTRICT`
  *     reference to that device (`revisions.device_id`,
@@ -41,16 +44,29 @@ interface IdRow {
   readonly id: string;
 }
 
+/**
+ * An unredeemed invitation is stale once expired. A consumed one may still
+ * back an onboarding in progress (the joining device polls by its pending
+ * credential, approval reads the pending device and refresh hash from the
+ * row), so it goes only once that onboarding is over: no pending device is
+ * left, or the pending device is older than the same threshold that ages out
+ * pending devices.
+ */
 function findStaleInvitationIds(
   database: Database.Database,
   nowIso: string,
+  thresholdIso: string,
 ): readonly string[] {
   const rows = database
     .prepare(
       `SELECT id FROM invitations
-       WHERE expires_at < ? OR consumed_at IS NOT NULL`,
+       WHERE (consumed_at IS NULL AND expires_at < ?)
+          OR (consumed_at IS NOT NULL AND (
+                pending_device_id IS NULL
+                OR pending_device_id IN (
+                  SELECT id FROM devices WHERE created_at < ?)))`,
     )
-    .all(nowIso) as IdRow[];
+    .all(nowIso, thresholdIso) as IdRow[];
   return rows.map((row) => row.id);
 }
 
@@ -121,7 +137,11 @@ export function runStaleCleanup(
   ).toISOString();
 
   const sweep = database.transaction((): CleanupStaleResult => {
-    const staleInvitationIds = findStaleInvitationIds(database, nowIso);
+    const staleInvitationIds = findStaleInvitationIds(
+      database,
+      nowIso,
+      thresholdIso,
+    );
     const stalePendingDeviceIds = findStalePendingDeviceIds(
       database,
       thresholdIso,
