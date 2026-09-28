@@ -18,17 +18,45 @@ and the server.
 - Plugin: one quarantined change no longer blocks every later edit of that
   file, a full vault quota no longer quarantines the whole queue, and Retry
   never silently drops a change whose queued copy was lost.
-- Plugin: Disconnect and Reset are not undone by a connection still being
-  built, and instant updates keep arriving while an apply waits on an
-  unsaved editor.
+- Plugin: a failing upload no longer stops the device receiving changes, and
+  instant updates keep arriving while an apply waits on an unsaved editor.
+- Plugin: Reset connection asks first; Disconnect and Reset are not undone by
+  a connection still being built.
+- Plugin: a rejected guest is no longer stuck failing every start, a
+  case-only name collision no longer stops the whole vault, and a guest
+  device stops getting 403 and 401 at every start.
+- Plugin: a half-typed approval code survives a repaint, and a huge
+  conflict diff no longer exhausts memory.
 - Server: a device that keeps syncing stays signed in; the session deadline
   slides on every refresh instead of ending 30 days after pairing.
-- Server: attachments up to the advertised 25 MiB are accepted (the body
-  limit is 48 MiB).
-- Server: a replayed old refresh token still burns its session, sessions
-  slide by their own configured window, junk pre-auth traffic can no longer
-  starve token refresh, `cleanup-stale` keeps onboardings in progress, and
-  backup intervals above 596 hours no longer run back to back.
+- Server: attachments up to the advertised 25 MiB are accepted, and a slow
+  upload is no longer cut off after 60 to 90 seconds.
+- Server: a replayed old refresh token still burns its session, junk
+  pre-auth traffic can no longer starve token refresh, `cleanup-stale` keeps
+  onboardings in progress, and backup intervals above 596 hours no longer
+  run back to back.
+
+### Changed
+
+- Plugin: faster and lighter on phones. data.json is read once instead of
+  on every access, no longer holds the text of every note, and a sync-state
+  save is one write; a remote change costs fewer writes; `.obsidian` is
+  polled every 30 s and only changed files are read; the author overlay
+  costs nothing while off; a new connection reads only the revision history
+  it lacks; obsolete revisions are skipped before download; attachments are
+  no longer kept in memory.
+- Server: expired tokens and idempotency records are pruned hourly, each
+  pushed payload is hashed once, and backups hard-link unchanged blobs
+  instead of copying them again.
+
+### Removed
+
+- The unused database key (`HAVEMIND_DB_KEY_FILE`, `generate-db-key`); the
+  live database was never encrypted with it, and the docs now say so.
+- Dead code: the unscheduled end-to-end encryption module, unused sync-core
+  modules, the old server invitation path, the plugin's second secret store
+  and IndexedDB queue, the join-time bootstrap phase in the plugin, and the
+  unregistered Activity view.
 
 ## [1.5.5], 2026-09-26
 
