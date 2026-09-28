@@ -32,6 +32,9 @@ and the server.
   enabled in production; backups stay plaintext on the host and are encrypted
   off it by restic, as the docs now say.
 - sync-core: the revision DAG and recipe modules the old Restore used.
+- Plugin: two one-time data migrations. The July canonicalization rebase
+  predates the public release; the September mapping compaction now happens
+  on the next ordinary save of the producer state.
 - Plugin: the author overlay and its Show authors toggle. It coloured a whole
   note by an in-memory entry lost on restart; the status-bar label replaces
   it. sync-core's provenance module went with it.

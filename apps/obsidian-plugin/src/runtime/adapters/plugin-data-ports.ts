@@ -9,14 +9,8 @@
  * clobber a sibling subsystem's top-level key.
  */
 
-import type { Plugin, TFile } from 'obsidian';
+import type { Plugin } from 'obsidian';
 
-import { canonicalizeMarkdown, hashPlaintext } from '@havemind/protocol';
-
-import {
-  rebaseCanonicalizedHashes,
-  type RebaseVaultPort,
-} from '../canonicalization-rebase';
 import {
   createSerializedDataPort,
   getPluginDataMutex,
@@ -35,17 +29,14 @@ import {
 } from '../../storage/client-store';
 
 import {
-  CANONICALIZATION_REBASE_MARKER_KEY,
   CLIENT_INSTANCE_KEY,
   PERSIST_BAK_KEY,
   PERSIST_CORRUPT_PREFIX,
   PERSIST_KEY,
   PERSIST_PRODUCER_CORRUPT_PREFIX,
   PERSIST_STAGING_KEY,
-  PUSH_PRODUCER_KEY,
   withCorruptSidecar,
 } from './plugin-data-keys';
-import type { AppWithVault } from './shared';
 
 /**
  * Durable state persistence over `Plugin.saveData`/`loadData`. Only the
@@ -102,36 +93,6 @@ export async function preserveCorruptProducerState(
   await getPluginDataMutex(plugin).update((base) =>
     withCorruptSidecar(base, PERSIST_PRODUCER_CORRUPT_PREFIX, timestamp, raw),
   );
-}
-
-/**
- * Runs the AUD-03 one-time hash rebase (PART 2) over the plugin's own data
- * blob, reading current on-disk bytes through the real Vault. Idempotent via the
- * persisted version marker; safe to call on every connect.
- */
-export async function runCanonicalizationRebase(plugin: Plugin): Promise<void> {
-  const vaultApi = (plugin.app as unknown as AppWithVault).vault;
-  const vault: RebaseVaultPort = {
-    exists: (path) => vaultApi.getAbstractFileByPath(path) !== null,
-    read: async (path) => {
-      const file = vaultApi.getAbstractFileByPath(path);
-      return file === null ? '' : vaultApi.read(file as TFile);
-    },
-  };
-  await rebaseCanonicalizedHashes({
-    data: {
-      load: () => getPluginDataMutex(plugin).load(),
-      save: (data) => getPluginDataMutex(plugin).update(() => data as Record<string, unknown>),
-    },
-    vault,
-    hash: (content) => hashPlaintext(content),
-    canonicalize: canonicalizeMarkdown,
-    keys: {
-      markerKey: CANONICALIZATION_REBASE_MARKER_KEY,
-      persistKey: PERSIST_KEY,
-      producerKey: PUSH_PRODUCER_KEY,
-    },
-  });
 }
 
 /**

@@ -43,7 +43,7 @@ describe('client state investigation', () => {
     } finally { controller.stop(); }
   });
 
-  it('compacts legacy data on an unchanged vault without enqueuing or losing the head', async () => {
+  it('reads a legacy mapping that still carries content without enqueuing or losing the head', async () => {
     vi.useFakeTimers(); vi.stubGlobal('window', globalThis);
     const content = 'unchanged\n';
     const mapping = { fileId: 'file', path: 'note.md', collisionKey: 'note.md', contentHash: await hashPlaintext(content), content };
@@ -59,7 +59,7 @@ describe('client state investigation', () => {
     const handle = startPushProducer(plugin, state, { vaultId: 'vault', memberId: 'member', deviceId: 'device' }, () => {}, ref);
     try {
       await handle.initialize();
-      expect(data.pushProducer).toEqual({ mappings: [{ fileId: 'file', path: 'note.md', collisionKey: 'note.md', contentHash: mapping.contentHash }], heads: { file: 'head' } });
+      expect((data.pushProducer as { heads: unknown }).heads).toEqual({ file: 'head' });
       expect(data.unrelated).toBe('preserve');
       expect(await state.listOutbox()).toEqual([]);
     } finally { handle.dispose(); }

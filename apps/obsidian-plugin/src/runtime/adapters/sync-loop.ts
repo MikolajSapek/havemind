@@ -27,7 +27,6 @@ import type { DurableSyncState } from '../sync-state';
 import type { StoredConnection } from './owner-connection';
 import {
   createClientInstanceRepo,
-  runCanonicalizationRebase,
 } from './plugin-data-ports';
 import { startPushProducer, type PushProducerHandle } from './push-producer';
 import { createRequestUrlFn } from './request-url';
@@ -169,13 +168,6 @@ export async function startSyncLoop(
     async () => { await producer?.initialize(); },
   );
 
-  // AUD-03 PART 2, one-time migration. BEFORE the first sync cycle, rebase any
-  // persisted base hashes / producer-mapping content hashes that were computed
-  // under the OLD canonicalization to the NEW canonical form, so the first pull
-  // does not read stale hashes and mint spurious revisions / conflict artifacts
-  // for files whose bytes differ only by a trailing newline or BOM. A version
-  // marker in plugin data makes this run exactly once.
-  await runCanonicalizationRebase(plugin);
 
 
   // The push producer detects local edits, enumerates pre-existing files and

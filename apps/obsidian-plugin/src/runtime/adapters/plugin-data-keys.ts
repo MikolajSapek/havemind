@@ -38,8 +38,6 @@ export const PERSIST_CORRUPT_PREFIX = 'syncStateCorrupt.';
 export const PERSIST_PRODUCER_CORRUPT_PREFIX = 'pushProducerCorrupt.';
 
 /** Top-level plugin-data key recording the AUD-03 rebase version applied. */
-export const CANONICALIZATION_REBASE_MARKER_KEY =
-  'canonicalizationRebaseVersion';
 
 export const CLIENT_INSTANCE_KEY = 'clientInstanceId';
 
