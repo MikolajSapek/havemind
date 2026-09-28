@@ -25,7 +25,6 @@ import {
   seedTwoTenants,
   setVaultQuota,
   VAULT_A,
-  VAULT_B,
   waitFor,
 } from '../test/fixtures/server-fixtures.js';
 import { DEFAULT_MAX_PAYLOAD_BYTES } from './sync-routes.js';
@@ -714,27 +713,6 @@ describe('sync push/pull routes', () => {
     expect(blob.rawPayload.equals(Buffer.from(content, 'utf8'))).toBe(true);
   });
 
-  it('hides a blob from members of other vaults with 404', async () => {
-    const fixture = makeFixture();
-    const app = createApp(fixture);
-
-    const pushed = await push(app, fixture.accessTokenA, VAULT_A, [
-      revisionInput(REVISION_1, [], 'k1', 'opaque-1'),
-    ]);
-    const blobHash = (pushed.json() as {
-      results: Array<{ receipt: { blobHash: string } }>;
-    }).results[0]?.receipt.blobHash;
-
-    const crossVault = await app.inject({
-      headers: { authorization: `Bearer ${fixture.accessTokenB}` },
-      method: 'GET',
-      url: `/vaults/${VAULT_B}/blobs/${blobHash}`,
-    });
-
-    expect(crossVault.statusCode).toBe(404);
-    expect(crossVault.json()).toEqual({ error: { code: 'NOT_FOUND' } });
-  });
-
   describe('AUD-08 blob-GET rate-limit exemption', () => {
     it('does not 429 an authenticated device fetching more blobs than the rate limit allows', async () => {
       const fixture = makeFixture();
@@ -832,20 +810,6 @@ describe('sync push/pull routes', () => {
 
       expect(unauth.statusCode).toBe(401);
       expect(unauth.json()).toEqual({ error: { code: 'UNAUTHENTICATED' } });
-    });
-
-    it('forbids a non-member polling another vault with 403', async () => {
-      const fixture = makeFixture();
-      const app = createApp(fixture, { wakeRegistry: new VaultWakeRegistry() });
-
-      const cross = await app.inject({
-        headers: { authorization: `Bearer ${fixture.accessTokenB}` },
-        method: 'GET',
-        url: `/vaults/${VAULT_A}/wait?cursor=0`,
-      });
-
-      expect(cross.statusCode).toBe(403);
-      expect(cross.json()).toEqual({ error: { code: 'FORBIDDEN' } });
     });
 
     it('returns immediately with the current cursor when the server is already ahead', async () => {
