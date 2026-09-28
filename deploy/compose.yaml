@@ -67,8 +67,6 @@ services:
       # Docker would otherwise create it root-owned and every backup would fail
       # with EACCES, logged, never fatal.
       - ./backups:/backups
-    secrets:
-      - havemind_db_key
     tmpfs:
       - /tmp
     healthcheck:
@@ -85,8 +83,3 @@ services:
 
 volumes:
   havemind-data:
-
-secrets:
-  havemind_db_key:
-    # Restricted (0600) file on the host; see plan/08 (/srv/secrets).
-    file: /srv/secrets/havemind_db_key

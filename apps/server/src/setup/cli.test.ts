@@ -57,24 +57,6 @@ describe('runCli dispatch', () => {
   });
 });
 
-describe('generate-db-key', () => {
-  it('prints a 256-bit hex key and its fingerprint', () => {
-    const result = runCli(['generate-db-key'], { env: baseEnv() });
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toMatch(/^[0-9a-f]{64}\n/u);
-    expect(result.stdout).toContain('256-bit key');
-    expect(result.stdout).toContain('Fingerprint');
-  });
-
-  it('honours an injected random source', () => {
-    const result = runCli(['generate-db-key'], {
-      env: baseEnv(),
-      randomBytesSource: () => Buffer.alloc(32, 0xcd),
-    });
-    expect(result.stdout.startsWith('cd'.repeat(32))).toBe(true);
-  });
-});
-
 describe('doctor', () => {
   it('returns exit 0 with a text report by default', () => {
     const result = runCli(['doctor'], {

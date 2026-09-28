@@ -56,8 +56,8 @@ Two paths, depending on whether you are the one running the server.
    `cp deploy/.env.example deploy/.env` and set `HAVEMIND_API_BASE_URL` to the
    HTTPS tailnet URL you will use in step 3; it is baked into the server's
    discovery document, so it has to be right before the first start. Before
-   running Compose, complete the [server preparation](docs/self-hosting.md#the-database-key-secret):
-   create `/srv/secrets/havemind_db_key` and give uid 1000 ownership of the
+   running Compose, complete the [server preparation](docs/self-hosting.md#server-preparation):
+   give uid 1000 ownership of the
    data volume and backup directory. Then run
    `docker compose -f deploy/compose.yaml up -d --build`. You need Docker
    Engine with the Compose v2 plugin.

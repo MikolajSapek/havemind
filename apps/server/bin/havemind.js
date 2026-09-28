@@ -6,7 +6,6 @@
 //   havemind rotate-pairing
 //   havemind create-invitation [--role <role>] [--name <name>]
 //   havemind approve [--invitation <id>] [--phrase <phrase>]
-//   havemind generate-db-key
 //   havemind doctor [--json]
 //
 //   havemind backup [--to <dir>] [--keep <n>]

@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -6,11 +6,9 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import type { ServerEnvironment } from '../config.js';
 import {
-  DEFAULT_DB_KEY_FILE,
   formatDoctorReport,
   runDoctor,
   type DoctorReport,
-  type PathStat,
 } from './doctor.js';
 
 const INJECTED_SECRET =
@@ -55,49 +53,6 @@ describe('runDoctor', () => {
     expect(report.status).toBe('fail');
   });
 
-  it('reports the db-key secret as missing when absent', () => {
-    const report = runDoctor({ env: validEnv(), stat: () => null });
-    expect(findCheck(report, 'db-key-secret')).toBe('fail');
-  });
-
-  it('warns when the db-key secret file has permissive permissions', () => {
-    const stat = (): PathStat => ({
-      isDirectory: false,
-      mode: 0o644,
-      size: 64,
-    });
-    const report = runDoctor({ env: validEnv(), stat });
-    expect(findCheck(report, 'db-key-secret')).toBe('warn');
-  });
-
-  it('warns when the db-key secret file is too short', () => {
-    const stat = (): PathStat => ({ isDirectory: false, mode: 0o600, size: 8 });
-    const report = runDoctor({ env: validEnv(), stat });
-    expect(findCheck(report, 'db-key-secret')).toBe('warn');
-  });
-
-  it('passes db-key check for a 0600, 256-bit file', () => {
-    const stat = (): PathStat => ({
-      isDirectory: false,
-      mode: 0o600,
-      size: 64,
-    });
-    const report = runDoctor({ env: validEnv(), stat });
-    expect(findCheck(report, 'db-key-secret')).toBe('ok');
-  });
-
-  it('uses the default /srv/secrets path when unset', () => {
-    let requested = '';
-    runDoctor({
-      env: validEnv(),
-      stat: (path) => {
-        requested = path;
-        return null;
-      },
-    });
-    expect(requested).toContain(DEFAULT_DB_KEY_FILE);
-  });
-
   it('warns when the data directory is not configured', () => {
     const report = runDoctor({ env: validEnv(), stat: () => null });
     expect(findCheck(report, 'data-dir')).toBe('warn');
@@ -129,31 +84,6 @@ describe('runDoctor', () => {
 });
 
 describe('secret non-disclosure (AC: grep output -> 0 hits)', () => {
-  it('never prints the raw /srv/secrets contents in any output mode', () => {
-    const dataDir = makeTempDir();
-    const secretFile = join(dataDir, 'havemind_db_key');
-    writeFileSync(secretFile, INJECTED_SECRET, { mode: 0o600 });
-    chmodSync(secretFile, 0o600);
-
-    const report = runDoctor({
-      env: validEnv({
-        // An operator mistake: a raw secret sitting in the environment.
-        HAVEMIND_DATA_DIR: dataDir,
-        HAVEMIND_DB_KEY_FILE: secretFile,
-      }),
-    });
-
-    const text = formatDoctorReport(report, 'text');
-    const json = formatDoctorReport(report, 'json');
-
-    // The whole point of the AC: grep the output for the secret -> 0 hits.
-    expect(text).not.toContain(INJECTED_SECRET);
-    expect(json).not.toContain(INJECTED_SECRET);
-    // Metadata (path + byte length) is still surfaced.
-    expect(text).toContain(secretFile);
-    expect(text).toContain(String(INJECTED_SECRET.length));
-  });
-
   it('never echoes a raw secret injected via an environment value', () => {
     const report = runDoctor({
       env: validEnv({ HAVEMIND_SERVER_NAME: 'Havemind' }),

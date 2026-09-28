@@ -53,26 +53,10 @@ you will front the server with in step (e) below (it must be set correctly
 HAVEMIND_API_BASE_URL=https://your-server.your-tailnet.ts.net
 ```
 
-### The database key secret
+### Server preparation
 
-`deploy/compose.yaml` mounts `/srv/secrets/havemind_db_key` as a Docker secret,
-so the file has to exist before the first `up`, or Compose refuses to start the
-stack. Generate it and put it there, readable only by you:
-
-```bash
-sudo mkdir -p /srv/secrets
-# The command prints the key on the first line, then a fingerprint and notes as
-# comments. Only the first line belongs in the file.
-node apps/server/bin/havemind.js generate-db-key | head -1 \
-  | sudo tee /srv/secrets/havemind_db_key >/dev/null
-sudo chmod 0600 /srv/secrets/havemind_db_key
-```
-
-Record the fingerprint the command prints; it identifies the key without
-revealing it.
-
-This key seals checkpoint snapshots. It does **not** encrypt the live database,
-which stays plaintext on the volume.
+There is no database key to generate: the live database and blob store are
+plaintext on the volume (see [h. Safety notes](#h-safety-notes)).
 
 Before starting the container, prepare its writable storage. The shipped
 Compose service runs as uid 1000 and cannot repair ownership itself:
@@ -277,8 +261,8 @@ terminal:
   rules: [known limitations](pilot/known-limitations.md#dot-paths-and-the-reserved-folder-aud-07).
 
 - **Data on the server is stored in plaintext.** The live database and blob
-  store are unencrypted on the volume; the `havemind_db_key` secret encrypts
-  only checkpoint snapshots, not the live data. Anyone who controls the server
+  store are unencrypted on the volume; only `havemind checkpoint create`
+  snapshots are encrypted, with their own keypair. Anyone who controls the server
   can read the vault, so security rests on trusting the host and keeping access
   tailnet-only.
 - **Check the project's stated security model** before connecting anything

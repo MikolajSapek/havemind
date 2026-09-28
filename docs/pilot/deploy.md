@@ -87,37 +87,12 @@ All commands in this section run **on sapserver**, in
 [sudo] chmod 700 /srv/secrets
 ```
 
-### 2b. Generate the database key
+### 2b. No database key
 
-The key generator only prints random bytes; run it wherever Node ≥22.20 is
-available. **Trap:** `deploy/compose.yaml`'s runtime image does **not** include
-the `havemind` CLI wrapper (`bin/` is not copied in the Dockerfile, only
-`dist/`, `package.json`, `healthcheck.js` and `node_modules`). So run the CLI
-one of these two ways, not `docker compose run … havemind`:
-
-- **On your Mac** (repo built with `npm ci`):
-
-  ```bash
-  node apps/server/bin/havemind.js generate-db-key
-  ```
-
-- **On sapserver against the build stage** (has full sources + the CLI),
-  after the image is built in step 2d:
-
-  ```bash
-  docker compose -f /srv/compose/havemind/deploy/compose.yaml \
-    run --rm --no-deps --entrypoint "" havemind-server \
-    node apps/server/dist/setup/cli.js generate-db-key
-  ```
-
-The command prints the key plus a safe (non-secret) fingerprint. Write **only
-the key value** (first line) to the secret file `[sudo]`:
-
-```bash
-# paste the printed key value between the quotes (no trailing newline noise)
-printf '%s' 'PASTE_KEY_VALUE_HERE' | [sudo] tee /srv/secrets/havemind_db_key >/dev/null
-[sudo] chmod 600 /srv/secrets/havemind_db_key
-```
+There is no database key. The live database and blob store are plaintext on
+the volume, so protection at rest is the host's job. Older versions of this
+guide generated `/srv/secrets/havemind_db_key`; nothing reads it, and an
+existing file or `HAVEMIND_DB_KEY_FILE` value is ignored and can be deleted.
 
 ### 2c. Fill in the environment file
 
@@ -144,7 +119,7 @@ HAVEMIND_API_BASE_URL=https://sapserver.<tailnet>.ts.net
 Leave the other values at their defaults unless you have a reason to change
 them (`HAVEMIND_PORT=8787`, `HAVEMIND_IMAGE_TAG=0.0.0-private`,
 `HAVEMIND_SERVER_NAME=Havemind`, `HAVEMIND_LOG_LEVEL=info`). `deploy/.env`
-holds no secret, the DB key is the file secret from step 2b.
+holds no secret.
 
 ### 2d. Build and start
 

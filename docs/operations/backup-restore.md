@@ -136,8 +136,7 @@ Record the date of the last passing run in `docs/pilot/known-limitations.md`.
 
 - **Protected:** notes, attachments, revision history, memberships, devices and
   invitations, everything in the database and blob store.
-- **Not protected by this pipeline:** `/srv/secrets/havemind_db_key`, the restic
-  repository password and the SSH key. Those live in the owner recovery kit; a
+- **Not protected by this pipeline:** the restic repository password and the SSH key. Those live in the owner recovery kit; a
   repository whose password is lost is unrecoverable, by design.
 - **Not encrypted at rest on the host:** an artifact is a byte-for-byte copy of
   data the live volume already stores unencrypted, so treat the bind mount

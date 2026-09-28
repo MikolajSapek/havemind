@@ -25,7 +25,6 @@ import {
   runDoctor,
   type DoctorOutputMode,
 } from './doctor.js';
-import { generateDatabaseKey } from './secrets.js';
 
 /**
  * The operator-facing setup/diagnostics CLI (`havemind <command>`).
@@ -54,7 +53,6 @@ export interface InvitationSession {
 
 export interface CliDependencies {
   readonly env: ServerEnvironment;
-  readonly randomBytesSource?: (size: number) => Buffer;
   readonly openSetupSession?: (databaseFile: string) => SetupSession;
   readonly openInvitationSession?: (databaseFile: string) => InvitationSession;
   readonly stat?: (
@@ -79,7 +77,6 @@ const USAGE = [
   '  approve [--invitation <id>]           List devices awaiting approval, or',
   '    [--pin <pin>] [--vault <vaultId>]   approve one with the PIN read from the',
   '                                        joining device. --vault filters the list.',
-  '  generate-db-key                       Print a fresh 256-bit database key.',
   '  cleanup-stale [--dry-run]              Delete expired invitations, finished',
   '    [--pending-older-than-hours <n>]     onboardings, and pending devices older',
   '                                        than the threshold (default 24h).',
@@ -491,21 +488,6 @@ function runApprove(
   }
 }
 
-function runGenerateDbKey(dependencies: CliDependencies): CliResult {
-  const secret =
-    dependencies.randomBytesSource === undefined
-      ? generateDatabaseKey()
-      : generateDatabaseKey(dependencies.randomBytesSource);
-  const stdout = [
-    secret.value,
-    '',
-    `# ${secret.entropyBits}-bit key. Write it to /srv/secrets/havemind_db_key (chmod 0600).`,
-    `# Fingerprint (safe to record): ${secret.fingerprint}`,
-    '',
-  ].join('\n');
-  return { exitCode: 0, stderr: '', stdout };
-}
-
 function runDoctorCommand(
   dependencies: CliDependencies,
   parsed: ParsedFlags,
@@ -737,8 +719,6 @@ export function runCli(
       return runCreateInvitation(dependencies, parsed);
     case 'approve':
       return runApprove(dependencies, parsed);
-    case 'generate-db-key':
-      return runGenerateDbKey(dependencies);
     case 'cleanup-stale':
       return runCleanupStale(dependencies, parsed);
     case 'doctor':

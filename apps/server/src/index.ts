@@ -46,9 +46,9 @@ async function main(): Promise<void> {
   const dataDir = resolveDataDir(process.env);
 
   // Plain WAL SQLite (better-sqlite3): the live database and blob store are
-  // stored UNENCRYPTED on the data volume. The `havemind_db_key` secret does
-  // NOT encrypt this file, it is used only to seal checkpoint snapshots (see
-  // checkpoint.ts). Protecting the live data at rest is the operator's
+  // stored UNENCRYPTED on the data volume. There is no database key; a
+  // HAVEMIND_DB_KEY_FILE left over from an older deployment is ignored.
+  // Protecting the live data at rest is the operator's
   // responsibility: a trusted host with tailnet-only access (see the README
   // security model). The server opens the file exactly as setup created it.
   const database = openDatabase(join(dataDir, DB_FILENAME));

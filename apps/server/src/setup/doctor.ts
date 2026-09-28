@@ -45,9 +45,6 @@ export interface DoctorDependencies {
   readonly stat?: (path: string) => PathStat | null;
 }
 
-export const DEFAULT_DB_KEY_FILE = '/srv/secrets/havemind_db_key';
-const MIN_DB_KEY_BYTES = 32;
-const OWNER_READ_WRITE_MASK = 0o077;
 
 function defaultStat(path: string): PathStat | null {
   try {
@@ -60,10 +57,6 @@ function defaultStat(path: string): PathStat | null {
   } catch {
     return null;
   }
-}
-
-function toOctal(mode: number): string {
-  return `0${mode.toString(8).padStart(3, '0')}`;
 }
 
 function checkConfig(env: ServerEnvironment): DoctorCheck {
@@ -88,40 +81,6 @@ function checkConfig(env: ServerEnvironment): DoctorCheck {
       status: 'fail',
     };
   }
-}
-
-function checkDatabaseKeySecret(
-  env: ServerEnvironment,
-  stat: (path: string) => PathStat | null,
-): DoctorCheck {
-  const path = env.HAVEMIND_DB_KEY_FILE ?? DEFAULT_DB_KEY_FILE;
-  const info = stat(path);
-  if (info === null || info.isDirectory) {
-    return {
-      detail: `Database key secret is missing at ${path}.`,
-      name: 'db-key-secret',
-      status: 'fail',
-    };
-  }
-  if ((info.mode & OWNER_READ_WRITE_MASK) !== 0) {
-    return {
-      detail: `Database key secret at ${path} has permissive mode ${toOctal(info.mode)}; expected 0600.`,
-      name: 'db-key-secret',
-      status: 'warn',
-    };
-  }
-  if (info.size < MIN_DB_KEY_BYTES) {
-    return {
-      detail: `Database key secret at ${path} is ${info.size} bytes; expected at least ${MIN_DB_KEY_BYTES} (256 bits).`,
-      name: 'db-key-secret',
-      status: 'warn',
-    };
-  }
-  return {
-    detail: `Database key secret present at ${path} (${info.size} bytes, mode ${toOctal(info.mode)}).`,
-    name: 'db-key-secret',
-    status: 'ok',
-  };
 }
 
 function checkDataDirectory(
@@ -172,7 +131,6 @@ export function runDoctor(dependencies: DoctorDependencies): DoctorReport {
   const stat = dependencies.stat ?? defaultStat;
   const checks: readonly DoctorCheck[] = [
     checkConfig(dependencies.env),
-    checkDatabaseKeySecret(dependencies.env, stat),
     checkDataDirectory(dependencies.env, stat),
   ];
   return { checks, status: worstStatus(checks) };
