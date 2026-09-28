@@ -1,6 +1,7 @@
 import {
   hashBlob,
   protectedRevisionHeaderSchema,
+  type BlobHash,
   type ProtectedRevisionHeader,
 } from '@havemind/protocol';
 import type Database from 'better-sqlite3';
@@ -221,6 +222,12 @@ interface ParsedRevisionInput {
   readonly payload: Buffer;
 }
 
+/** A parsed revision and the content address of its payload, hashed once. */
+interface HashedRevisionInput {
+  readonly blobHash: BlobHash;
+  readonly revision: ParsedRevisionInput;
+}
+
 /**
  * Detects any batch-internal cycle and returns a parents-before-children
  * ordering. Only edges whose parent is also present in the batch matter;
@@ -337,28 +344,27 @@ function blobBelongsToVault(
 }
 
 /**
- * Optimistic per-vault quota pre-check over the ordered batch. Computes each
- * revision's content-addressed hash and charges its `blob_size` once per new
+ * Optimistic per-vault quota pre-check over the ordered batch. Charges each
+ * revision's `blob_size` once per new
  * DISTINCT blob (already-stored blobs and repeats within the batch cost
  * nothing), returning `true` as soon as the running total would exceed the
  * vault's effective quota. Runs before any `blobStore.put`, so a payload that
  * plainly will not fit never reaches disk. This is advisory only, the
  * authoritative check is inside the commit transaction.
  */
-async function precheckVaultQuota(
+function precheckVaultQuota(
   database: Database.Database,
   vaultId: string,
-  ordered: readonly ParsedRevisionInput[],
+  hashed: readonly HashedRevisionInput[],
   defaultQuotaBytes: number,
-): Promise<boolean> {
+): boolean {
   const quota = resolveEffectiveQuotaBytes(
     readVaultQuotaBytes(database, vaultId),
     defaultQuotaBytes,
   );
   let projected = computeVaultStorageBytes(database, vaultId);
   const chargedInBatch = new Set<string>();
-  for (const revision of ordered) {
-    const hash = await hashBlob(revision.payload);
+  for (const { blobHash: hash, revision } of hashed) {
     if (chargedInBatch.has(hash) || vaultContainsBlob(database, vaultId, hash)) {
       continue;
     }
@@ -467,10 +473,16 @@ export function registerSyncRoutes(
     // authoritative, TOCTOU-safe check still runs inside `commitRevision`'s
     // transaction; this pass only avoids the disk write for pushes that plainly
     // will not fit. Accounting uses only blob_hash/blob_size (opaque boundary).
-    const quotaRejection = await precheckVaultQuota(
+    // Each payload is hashed here, once; the quota pre-check, the feasibility
+    // check and the blob store all reuse that content address.
+    const hashed: HashedRevisionInput[] = [];
+    for (const revision of ordered) {
+      hashed.push({ blobHash: await hashBlob(revision.payload), revision });
+    }
+    const quotaRejection = precheckVaultQuota(
       deps.database,
       params.data.vaultId,
-      ordered,
+      hashed,
       deps.vaultQuotaBytes ?? DEFAULT_VAULT_QUOTA_BYTES,
     );
     if (quotaRejection) {
@@ -496,7 +508,7 @@ export function registerSyncRoutes(
           readonly status: 'rejected';
         }
     > = [];
-    for (const revision of ordered) {
+    for (const { blobHash, revision } of hashed) {
       try {
         const actor = {
           deviceId: session.deviceId,
@@ -510,7 +522,6 @@ export function registerSyncRoutes(
         // with a nonexistent parent can no longer grow the shared data-root
         // without bound. Only when the request is deemed committable do we
         // persist the blob and run the authoritative, TOCTOU-safe commit.
-        const blobHash = await hashBlob(revision.payload);
         await deps.revisions.assertCommittable({
           actor,
           blobHash,
@@ -518,10 +529,11 @@ export function registerSyncRoutes(
           header: revision.header,
           idempotencyKey: revision.idempotencyKey,
         });
-        const stored = await deps.blobStore.put(revision.payload);
+        const stored = await deps.blobStore.put(revision.payload, blobHash);
         const result = await deps.revisions.commitRevision({
           actor,
           blobHash: stored.hash,
+          blobSize: stored.byteLength,
           header: revision.header,
           idempotencyKey: revision.idempotencyKey,
         });

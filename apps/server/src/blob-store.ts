@@ -114,9 +114,8 @@ export class BlobStore {
 
   /**
    * Like `read`, but re-hashes the bytes and rejects any mismatch. Reserved
-   * for the write/commit path (`RevisionRepository`), which double-checks a
-   * freshly-`put` blob before durably committing the revision that references
-   * it. Never call this from the read hot path, see `read`.
+   * for the commit path (`RevisionRepository`) when the caller did not just
+   * `put` the blob itself. Never call this from the read hot path, see `read`.
    */
   public async readVerified(hash: BlobHash): Promise<Buffer> {
     const path = this.pathForHash(hash);
@@ -174,9 +173,17 @@ export class BlobStore {
     return hashes;
   }
 
-  public async put(input: Uint8Array): Promise<BlobWriteResult> {
+  /**
+   * Stores `input` under its content address. A caller that already hashed
+   * these exact bytes with `hashBlob` passes that hash to skip a second pass;
+   * an existing file at the address is still read back and verified.
+   */
+  public async put(
+    input: Uint8Array,
+    knownHash?: BlobHash,
+  ): Promise<BlobWriteResult> {
     const bytes = Buffer.from(input);
-    const hash = await hashBlob(bytes);
+    const hash = knownHash ?? (await hashBlob(bytes));
     const predecessor = this.#writes.get(hash);
     const operation = (predecessor?.catch(() => undefined) ?? Promise.resolve())
       .then(async () => this.#putSerialized(hash, bytes));

@@ -61,6 +61,13 @@ export interface CommitRevisionInput {
   readonly blobHash: BlobHash;
   readonly header: ProtectedRevisionHeader;
   readonly idempotencyKey: string;
+  /**
+   * The blob's byte length when the caller has just stored it with
+   * `BlobStore.put`, which hashed the bytes or verified the existing file.
+   * Omitted, the commit reads the blob back and verifies it before charging
+   * its size.
+   */
+  readonly blobSize?: number;
 }
 
 export interface CommitRevisionResult {
@@ -505,8 +512,10 @@ export class RevisionRepository {
 
   async #prepareCommit(input: CommitRevisionInput): Promise<PreparedCommit> {
     const base = await this.#prepareHeader(input);
-    const blobBytes = await this.#readVerifiedBlob(base.blobHash);
-    return { ...base, blobSize: blobBytes.byteLength };
+    const blobSize =
+      input.blobSize ??
+      (await this.#readVerifiedBlob(base.blobHash)).byteLength;
+    return { ...base, blobSize };
   }
 
   /**
