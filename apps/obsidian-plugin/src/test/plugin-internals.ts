@@ -21,7 +21,6 @@ export interface PluginInternals {
   connectionError: unknown;
   connectionPanel(): unknown;
   connectionStatus: string;
-  deadMembershipIds: string[];
   handleStatus(status: string, view?: unknown, detail?: string): void;
   loadData(): Promise<unknown>;
   loadRoster(): Promise<void>;

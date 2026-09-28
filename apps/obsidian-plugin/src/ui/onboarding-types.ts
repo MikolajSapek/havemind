@@ -170,8 +170,6 @@ export interface OnboardingViewOptions {
   readonly rejoinWaitingProvider?: () => ReadonlySet<string>;
   /** Owner clicked Rejoin on a disconnected contact, issue the rejoin grant. */
   readonly onRejoin?: (membershipId: string) => void;
-  /** Owner marks a connected contact disconnected, arming its Rejoin button. */
-  readonly onMarkDisconnected?: (membershipId: string) => void;
   /** Owner permanently removes a member from the vault (two-step confirm in UI). */
   readonly onRemove?: (membershipId: string) => void;
   /**

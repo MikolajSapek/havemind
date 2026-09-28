@@ -71,9 +71,6 @@ export function buildTabScreens(context: TabScreensContext): TabBodyScreens {
           renderRejoinRoster(rosterTarget, roster, {
             waiting: options.rejoinWaitingProvider?.() ?? new Set<string>(),
             ...(options.onRejoin === undefined ? {} : { onRejoin: options.onRejoin }),
-            ...(options.onMarkDisconnected === undefined
-              ? {}
-              : { onMarkDisconnected: options.onMarkDisconnected }),
             ...(options.onRemove === undefined ? {} : { onRemove: options.onRemove }),
           });
         },

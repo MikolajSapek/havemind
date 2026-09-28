@@ -174,7 +174,6 @@ export default class HavemindPlugin extends Plugin {
    * (pilot heuristic, no server liveness signal yet, see renderRejoinRoster):
    * their roster rows draw as disconnected and offer Rejoin.
    */
-  private deadMembershipIds: string[] = [];
   /** Membership ids the owner has issued a rejoin grant for (awaiting reconnect). */
   private rejoinWaiting = new Set<string>();
   /**
@@ -332,8 +331,6 @@ export default class HavemindPlugin extends Plugin {
         onRejoin: (membershipId) => {
           void this.requestRejoin(membershipId);
         },
-        onMarkDisconnected: (membershipId) =>
-          this.markMemberDisconnected(membershipId),
         onRemove: (membershipId) => {
           void this.removeMember(membershipId);
         },
@@ -1360,19 +1357,7 @@ export default class HavemindPlugin extends Plugin {
 
   /** The rejoin-aware roster projection over the persistent members. */
   private rejoinRosterView(): RejoinRosterView {
-    return buildRejoinRosterView(this.rosterMembers, this.deadMembershipIds);
-  }
-
-  /**
-   * Owner action (pilot heuristic): assert a connected contact has fallen off so
-   * their row offers Rejoin. No server liveness signal reaches the owner yet, so
-   * "disconnected" is owner-driven, see renderRejoinRoster.
-   */
-  private markMemberDisconnected(membershipId: string): void {
-    if (!this.deadMembershipIds.includes(membershipId)) {
-      this.deadMembershipIds = [...this.deadMembershipIds, membershipId];
-    }
-    this.views.refreshOnboarding();
+    return buildRejoinRosterView(this.rosterMembers);
   }
 
   /**
@@ -1421,9 +1406,6 @@ export default class HavemindPlugin extends Plugin {
         return;
       }
       this.rosterMembers = await this.rosterStore().removeMember(membershipId);
-      this.deadMembershipIds = this.deadMembershipIds.filter(
-        (id) => id !== membershipId,
-      );
       this.rejoinWaiting = new Set(
         [...this.rejoinWaiting].filter((id) => id !== membershipId),
       );
@@ -1669,7 +1651,6 @@ export default class HavemindPlugin extends Plugin {
       // No later action may reuse an access token cached for the old pairing.
       forgetSharedAccessProvider(this);
       this.rosterMembers = [];
-      this.deadMembershipIds = [];
       this.rejoinWaiting = new Set<string>();
       this.pendingInvitation = null;
       this.pendingApprovals = [];

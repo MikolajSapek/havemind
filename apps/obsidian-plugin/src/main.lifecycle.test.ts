@@ -1203,35 +1203,28 @@ describe('plugin lifecycle', () => {
     ).toBe(true);
   });
 
-  it('draws a connected member with a green dot and a dead one with Rejoin', async () => {
+  it('names each member by role and offers Rejoin on other members only', async () => {
     const view = new HavemindOnboardingView(new WorkspaceLeaf(), {
       panelProvider: () =>
         buildConnectionPanel({ status: 'synced', serverName: 'sap.ts.net' }),
       rejoinRosterProvider: () =>
-        buildRejoinRosterView(
-          [
-            { membershipId: 'm-owner', displayName: 'You', role: 'owner', self: true },
-            { membershipId: 'm-magda', displayName: 'Magda', role: 'editor', self: false },
-          ],
-          ['m-magda'],
-        ),
+        buildRejoinRosterView([
+          { membershipId: 'm-owner', displayName: 'You', role: 'owner', self: true },
+          { membershipId: 'm-magda', displayName: 'Magda', role: 'editor', self: false },
+        ]),
       rejoinWaitingProvider: () => new Set<string>(),
       onRejoin: () => undefined,
-      onMarkDisconnected: () => undefined,
     });
     await view.onOpen();
     openTab(view, /People/);
 
     const content = (view.containerEl as unknown as MockElement).children[1];
     const all = descendants(content as MockElement);
-    // The owner is connected: name over `role · you` (never colour alone).
-    expect(all.some(({ text }) => text === 'You')).toBe(true);
     expect(all.some(({ text }) => text === 'owner · you')).toBe(true);
-    // The known-dead contact is disconnected and offers a Rejoin button.
-    expect(all.some(({ text }) => text === 'Magda')).toBe(true);
-    expect(all.some(({ text }) => text === 'editor · disconnected')).toBe(true);
-    expect(all.some(({ text }) => text === 'Rejoin')).toBe(true);
-    // A connected member never offers Rejoin.
+    expect(all.some(({ text }) => text === 'editor')).toBe(true);
+    // No invented presence: the server reports none.
+    expect(all.some(({ text }) => /connected/.test(text ?? ''))).toBe(false);
+    expect(all.some(({ text }) => text === 'Mark offline')).toBe(false);
     expect(all.filter(({ text }) => text === 'Rejoin')).toHaveLength(1);
   });
 
@@ -1243,7 +1236,6 @@ describe('plugin lifecycle', () => {
       rejoinRosterProvider: () =>
         buildRejoinRosterView(
           [{ membershipId: 'm-magda', displayName: 'Magda', role: 'editor', self: false }],
-          ['m-magda'],
         ),
       rejoinWaitingProvider: () => new Set<string>(),
       onRejoin: (membershipId) => rejoined.push(membershipId),
@@ -1266,7 +1258,6 @@ describe('plugin lifecycle', () => {
       rejoinRosterProvider: () =>
         buildRejoinRosterView(
           [{ membershipId: 'm-magda', displayName: 'Magda', role: 'editor', self: false }],
-          ['m-magda'],
         ),
       rejoinWaitingProvider: () => new Set<string>(['m-magda']),
       onRejoin: () => undefined,
@@ -1280,31 +1271,6 @@ describe('plugin lifecycle', () => {
       all.some(({ text }) => text === 'Waiting for Magda to reconnect…'),
     ).toBe(true);
     expect(all.some(({ text }) => text === 'Rejoin')).toBe(false);
-  });
-
-  it('offers "Mark offline" on a connected non-self member and forwards its id', async () => {
-    const marked: string[] = [];
-    const view = new HavemindOnboardingView(new WorkspaceLeaf(), {
-      panelProvider: () =>
-        buildConnectionPanel({ status: 'synced', serverName: 'sap.ts.net' }),
-      rejoinRosterProvider: () =>
-        buildRejoinRosterView([
-          { membershipId: 'm-owner', displayName: 'You', role: 'owner', self: true },
-          { membershipId: 'm-magda', displayName: 'Magda', role: 'editor', self: false },
-        ]),
-      rejoinWaitingProvider: () => new Set<string>(),
-      onRejoin: () => undefined,
-      onMarkDisconnected: (membershipId) => marked.push(membershipId),
-    });
-    await view.onOpen();
-    openTab(view, /People/);
-
-    const content = (view.containerEl as unknown as MockElement).children[1];
-    const all = descendants(content as MockElement);
-    // Everyone is connected, so no Rejoin yet, only the owner-assert affordance.
-    expect(all.some(({ text }) => text === 'Rejoin')).toBe(false);
-    all.find(({ text }) => text === 'Mark offline')?.triggerClick();
-    expect(marked).toEqual(['m-magda']);
   });
 
   it('renders a Remove button on non-self members only, in any connection state', async () => {

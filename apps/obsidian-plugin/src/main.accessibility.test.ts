@@ -163,7 +163,6 @@ describe('panel glyph accessibility', () => {
               self: false,
             },
           ],
-          ['m-magda'],
         ),
       rejoinWaitingProvider: () => new Set<string>(),
       onRejoin: () => undefined,
@@ -193,7 +192,7 @@ describe('panel glyph accessibility', () => {
     }
   });
 
-  it('pairs each roster colour dot with a name and a status word', async () => {
+  it('pairs each roster colour dot with a name and a role', async () => {
     const view = new HavemindOnboardingView(new WorkspaceLeaf(), {
       panelProvider: () =>
         buildConnectionPanel({ status: 'synced', serverName: 'server.example' }),
@@ -207,7 +206,6 @@ describe('panel glyph accessibility', () => {
               self: false,
             },
           ],
-          ['m-magda'],
         ),
       rejoinWaitingProvider: () => new Set<string>(),
       onDisconnect: () => undefined,
@@ -223,7 +221,7 @@ describe('panel glyph accessibility', () => {
     );
     expect(dot?.attrs['aria-hidden']).toBe('true');
     expect(all.some(({ text }) => text === 'Magda')).toBe(true);
-    expect(all.some(({ text }) => text === 'editor · disconnected')).toBe(true);
+    expect(all.some(({ text }) => text === 'editor')).toBe(true);
   });
 
   it('keeps the icon-only help toggle labelled and its glyph hidden', async () => {

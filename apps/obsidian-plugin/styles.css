@@ -568,14 +568,6 @@
   background: currentColor;
 }
 
-.havemind-roster-dot.is-disconnected {
-  width: 9px;
-  height: 9px;
-  box-sizing: border-box;
-  border: 1.5px solid var(--text-faint);
-  background: none;
-}
-
 .havemind-roster-copy {
   flex: 1;
   min-width: 0;

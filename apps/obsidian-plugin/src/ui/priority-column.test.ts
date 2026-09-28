@@ -196,7 +196,6 @@ describe('priority column, no duplicated sections', () => {
               self: true,
             },
           ],
-          [],
         ),
       rejoinWaitingProvider: () => new Set<string>(),
       composerProvider: () => ({

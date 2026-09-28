@@ -246,8 +246,6 @@ describe('HavemindOnboardingView per-section render isolation (MAJOR 5)', () => 
           membershipId: 'm1',
           displayName: 'Magda',
           role: 'editor',
-          connected: true,
-          statusLabel: 'connected',
           rejoinable: false,
           removable: false,
           colorToken: '--havemind-author-1',

@@ -557,8 +557,6 @@ describe('F9 rejoin wiring', () => {
       role: 'editor',
       self: false,
     });
-    // The owner had marked Magda disconnected before removing her.
-    internals(plugin).deadMembershipIds = ['m-magda'];
 
     adapterMocks.revokeMembershipForOwner.mockResolvedValue({
       status: 'removed',
@@ -575,8 +573,6 @@ describe('F9 rejoin wiring', () => {
     // Magda disappears from the roster; the owner self row remains.
     const members = internals(plugin).rosterMembers as Array<{ membershipId: string }>;
     expect(members.map((m) => m.membershipId)).toEqual(['m-owner']);
-    // The dead-marker is cleared too, so no stale Rejoin affordance lingers.
-    expect(internals(plugin).deadMembershipIds).not.toContain('m-magda');
     // Removal is a control-plane action, it records nothing in the activity feed.
     expect(internals(plugin).activityLog.snapshot()).toHaveLength(0);
   });

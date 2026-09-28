@@ -17,42 +17,22 @@ const magda: RosterMember = {
 };
 
 describe('buildRejoinRosterView', () => {
-  it('marks every member connected and none rejoinable when nothing is dead', () => {
+  // The server reports no presence, so the roster claims none: a "connected"
+  // label was a constant, and "disconnected" only an owner's manual guess.
+  it('carries no presence claim and offers Rejoin on every other member', () => {
     const view = buildRejoinRosterView([owner, magda]);
     expect(view.empty).toBe(false);
-    expect(view.rows.map((row) => row.rejoinable)).toEqual([false, false]);
-    expect(view.rows.every((row) => row.statusLabel === 'connected')).toBe(true);
+    for (const row of view.rows) {
+      expect(row).not.toHaveProperty('connected');
+      expect(row).not.toHaveProperty('statusLabel');
+    }
+    expect(view.rows.find((row) => row.membershipId === 'm-magda')?.rejoinable).toBe(true);
+    expect(view.rows.find((row) => row.membershipId === 'm-owner')?.rejoinable).toBe(false);
   });
 
-  it('shows a Rejoin affordance only for a disconnected non-self member', () => {
-    const view = buildRejoinRosterView([owner, magda], ['m-magda']);
-    const magdaRow = view.rows.find((row) => row.membershipId === 'm-magda');
-    const ownerRow = view.rows.find((row) => row.membershipId === 'm-owner');
-    expect(magdaRow).toMatchObject({
-      connected: false,
-      statusLabel: 'disconnected',
-      rejoinable: true,
-    });
-    expect(ownerRow).toMatchObject({
-      connected: true,
-      statusLabel: 'connected',
-      rejoinable: false,
-    });
-  });
-
-  it('never marks the owner’s own row rejoinable even if listed as dead', () => {
-    const view = buildRejoinRosterView([owner, magda], ['m-owner', 'm-magda']);
-    const ownerRow = view.rows.find((row) => row.membershipId === 'm-owner');
-    expect(ownerRow?.rejoinable).toBe(false);
-    expect(ownerRow?.connected).toBe(true);
-  });
-
-  it('pairs every row colour with a name and a text status label', () => {
-    const view = buildRejoinRosterView([magda], ['m-magda']);
-    const row = view.rows[0];
+  it('pairs every row colour with a name', () => {
+    const row = buildRejoinRosterView([magda]).rows[0];
     expect(row?.displayName).toBe('Magda');
-    expect(row?.statusLabel).toBe('disconnected');
-    expect(typeof row?.colorToken).toBe('string');
     expect(row?.colorToken.length).toBeGreaterThan(0);
   });
 
@@ -77,21 +57,7 @@ describe('buildRejoinRosterView', () => {
 
   it('marks every non-self member removable and never the owner self row', () => {
     const view = buildRejoinRosterView([owner, magda]);
-    const ownerRow = view.rows.find((row) => row.membershipId === 'm-owner');
-    const magdaRow = view.rows.find((row) => row.membershipId === 'm-magda');
-    expect(ownerRow?.removable).toBe(false);
-    expect(magdaRow?.removable).toBe(true);
-  });
-
-  it('keeps a member removable whether it is connected or disconnected', () => {
-    const connected = buildRejoinRosterView([owner, magda]);
-    const disconnected = buildRejoinRosterView([owner, magda], ['m-magda']);
-    expect(
-      connected.rows.find((row) => row.membershipId === 'm-magda')?.removable,
-    ).toBe(true);
-    expect(
-      disconnected.rows.find((row) => row.membershipId === 'm-magda')
-        ?.removable,
-    ).toBe(true);
+    expect(view.rows.find((row) => row.membershipId === 'm-owner')?.removable).toBe(false);
+    expect(view.rows.find((row) => row.membershipId === 'm-magda')?.removable).toBe(true);
   });
 });
