@@ -19,8 +19,19 @@ export async function reconcileHeads(options: {
 }): Promise<void> {
   const { history, state, producer, files, lock } = options;
   await history.refresh();
+  // P5: only a file with more than one head, or one head and something
+  // queued, can need reconciling. Counting once per cycle spares every other
+  // note the lock, the editor walk and the per-file outbox and log scans.
+  const headCounts = new Map<string, number>();
+  for (const event of await history.allHeads()) {
+    const fileId = event.revision.fileId;
+    headCounts.set(fileId, (headCounts.get(fileId) ?? 0) + 1);
+  }
+  const queued = new Set((await state.listOutbox()).map((entry) => entry.fileId));
   for (const mapping of await producer.listMappings()) {
     if (mapping.contentKind === 'binary') continue;
+    const count = headCounts.get(mapping.fileId) ?? 0;
+    if (count === 0 || (count === 1 && !queued.has(mapping.fileId))) continue;
     await lock.runExclusive(mapping.collisionKey, async () => {
       if ((await files.openBufferStates(mapping.fileId)).some((buffer) => buffer.unsaved)) return;
       const local = await producer.versionFor(mapping.fileId);
