@@ -590,4 +590,38 @@ describe('SessionRepository', () => {
       'INVALID_REFRESH',
     );
   });
+
+  // Each token row keeps the deadline it was issued with while the family
+  // slides ahead, so a stolen early token outlives its own row. Replaying it
+  // must still burn the family, not fail quietly as an expired token.
+  it('burns the family when a consumed token is replayed after its own row expired', () => {
+    const fixture = makeFixture();
+    let current = fixture.initialRefreshToken;
+    for (let day = 0; day < 3; day += 1) {
+      fixture.clock.advance(23 * 60 * 60 * 1_000);
+      const successor = createRefreshSuccessor();
+      fixture.repository.rotateRefresh({
+        currentRefreshToken: current,
+        rotationId: successor.rotationId,
+        successorRefreshToken: successor.refreshToken,
+      });
+      current = successor.refreshToken;
+    }
+
+    const replay = createRefreshSuccessor();
+    expectSessionCode(
+      () =>
+        fixture.repository.rotateRefresh({
+          currentRefreshToken: fixture.initialRefreshToken,
+          rotationId: replay.rotationId,
+          successorRefreshToken: replay.refreshToken,
+        }),
+      'REFRESH_REUSE_DETECTED',
+    );
+    expect(
+      fixture.database
+        .prepare('SELECT status FROM refresh_token_families WHERE id = ?')
+        .get(fixture.familyId),
+    ).toEqual({ status: 'reuse-detected' });
+  });
 });

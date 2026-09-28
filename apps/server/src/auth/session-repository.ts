@@ -620,8 +620,12 @@ export class SessionRepository {
       throw new SessionRepositoryError('INVALID_REFRESH');
     }
     const nowMilliseconds = now.getTime();
+    // A consumed token keeps the deadline it was issued with while the family
+    // slides ahead, so only the family deadline gates it: a replay past the
+    // token's own expiry must still reach reuse detection below.
     if (
-      requireStoredDate(row.refreshExpiresAt) <= nowMilliseconds ||
+      (row.consumedAt === null &&
+        requireStoredDate(row.refreshExpiresAt) <= nowMilliseconds) ||
       requireStoredDate(row.familyExpiresAt) <= nowMilliseconds
     ) {
       throw new SessionRepositoryError('INVALID_REFRESH');
