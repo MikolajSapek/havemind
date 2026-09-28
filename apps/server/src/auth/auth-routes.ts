@@ -14,23 +14,17 @@ import {
   registerOwnerInvitationRoutes,
   registerPreAuthOnboardingRoutes,
 } from './onboarding-routes.js';
+import {
+  authenticateBearer,
+  extractBearerToken,
+  loadActiveMembership,
+  requireAuthSession,
+  sendErrorCode,
+} from './request-auth.js';
 import type { AccessSession, SessionRepository } from './session-repository.js';
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
-
-/**
- * Client-supplied identity headers are never trusted as product identity; a
- * request that tries to assert an actor other than the authenticated session is
- * treated as hostile rather than silently ignored.
- */
-const IDENTITY_HEADERS = [
-  'x-actor-id',
-  'x-havemind-actor-id',
-  'x-havemind-user-id',
-] as const;
-
-const BEARER_PATTERN = /^Bearer (?<token>\S+)$/u;
 
 export const DEFAULT_RATE_LIMIT: AuthRateLimitConfig = {
   maxRequests: 120,
@@ -43,6 +37,12 @@ export type AuthErrorCode =
   | 'INVALID_REQUEST'
   | 'RATE_LIMITED'
   | 'UNAUTHENTICATED';
+
+const sendError: (
+  reply: FastifyReply,
+  status: number,
+  code: AuthErrorCode,
+) => FastifyReply = sendErrorCode;
 
 export interface AuthRateLimitConfig {
   readonly maxRequests: number;
@@ -91,11 +91,6 @@ const vaultParamsSchema = z.object({
   vaultId: z.string().regex(UUID_PATTERN),
 });
 
-interface MembershipRow {
-  readonly membershipId: string;
-  readonly role: string;
-}
-
 interface MemberRow {
   readonly displayName: string;
   // The stable id a client needs to act on a member (remove, rejoin) and to
@@ -104,38 +99,6 @@ interface MemberRow {
   // route that authenticates with the refresh token.
   readonly membershipId: string;
   readonly role: string;
-}
-
-function sendError(
-  reply: FastifyReply,
-  status: number,
-  code: AuthErrorCode,
-): FastifyReply {
-  reply.header('cache-control', 'no-store');
-  reply.code(status).send({ error: { code } });
-  return reply;
-}
-
-function extractBearerToken(header: string | undefined): string | null {
-  if (typeof header !== 'string') {
-    return null;
-  }
-  const match = BEARER_PATTERN.exec(header);
-  return match?.groups?.token ?? null;
-}
-
-function hasImpersonationHeader(
-  request: FastifyRequest,
-  authenticatedUserId: string,
-): boolean {
-  return IDENTITY_HEADERS.some((name) => {
-    const value = request.headers[name];
-    if (value === undefined) {
-      return false;
-    }
-    const single = Array.isArray(value) ? value.join(',') : value;
-    return single !== authenticatedUserId;
-  });
 }
 
 /**
@@ -328,21 +291,6 @@ function refreshClientKey(
   };
 }
 
-function loadActiveMembership(
-  database: Database.Database,
-  userId: string,
-  vaultId: string,
-): MembershipRow | null {
-  const row = database
-    .prepare(
-      `SELECT id AS membershipId, role
-       FROM memberships
-       WHERE user_id = ? AND vault_id = ? AND status = 'active'`,
-    )
-    .get(userId, vaultId) as MembershipRow | undefined;
-  return row ?? null;
-}
-
 function loadVaultMembers(
   database: Database.Database,
   vaultId: string,
@@ -431,23 +379,9 @@ export function registerAuthRoutes(
     });
 
     instance.addHook('preHandler', async (request, reply) => {
-      const token = extractBearerToken(request.headers.authorization);
-      if (token === null) {
-        return sendError(reply, 401, 'UNAUTHENTICATED');
-      }
-      // Reuse the rate limiter's lookup when it already resolved this
-      // request's token (see `resolvedAccessSession`'s doc comment); fall
-      // back to a fresh lookup for a custom `clientKey` that skips the
-      // stash, or for any route the limiter hook didn't run on.
-      const session =
-        request.resolvedAccessSession !== undefined
-          ? request.resolvedAccessSession
-          : deps.sessions.lookupAccess(token);
+      const session = authenticateBearer(request, reply, deps.sessions);
       if (session === null) {
-        return sendError(reply, 401, 'UNAUTHENTICATED');
-      }
-      if (hasImpersonationHeader(request, session.userId)) {
-        return sendError(reply, 403, 'FORBIDDEN');
+        return reply;
       }
       request.authSession = session;
       return undefined;
@@ -458,9 +392,9 @@ export function registerAuthRoutes(
       if (!params.success) {
         return sendError(reply, 400, 'INVALID_REQUEST');
       }
-      const session = request.authSession;
-      if (session === undefined) {
-        return sendError(reply, 401, 'UNAUTHENTICATED');
+      const session = requireAuthSession(request, reply);
+      if (session === null) {
+        return reply;
       }
 
       const membership = loadActiveMembership(

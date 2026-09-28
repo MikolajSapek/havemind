@@ -11,8 +11,13 @@ import {
   type InvitationService,
 } from './invitations.js';
 import { OwnerSetupService } from './setup.js';
+import {
+  loadActiveMembership,
+  requireAuthSession,
+  sendErrorCode,
+  type ActiveMembership,
+} from './request-auth.js';
 import { type SessionRepository } from './session-repository.js';
-import type { AccessSession } from './session-repository.js';
 
 const OWNER_DEVICE_PUBLIC_KEY_LENGTH = 32;
 
@@ -42,6 +47,12 @@ type OnboardingErrorCode =
   | 'PHRASE_MISMATCH'
   | 'REDEEMED'
   | 'UNAUTHENTICATED';
+
+const sendError: (
+  reply: FastifyReply,
+  status: number,
+  code: OnboardingErrorCode,
+) => FastifyReply = sendErrorCode;
 
 const reviewBodySchema = z
   .object({ invitationToken: z.string().min(1).max(200) })
@@ -114,11 +125,6 @@ const bootstrapQuerySchema = z
   })
   .strict();
 
-interface MembershipRow {
-  readonly membershipId: string;
-  readonly role: string;
-}
-
 /**
  * Response contract for `POST /owner/pair`. `membershipId` is the owner's active
  * `memberships.id`, i.e. the exact identifier `POST /revisions` authorises
@@ -128,16 +134,6 @@ interface OwnerPairResponse {
   readonly deviceId: string;
   readonly membershipId: string;
   readonly vaultId: string;
-}
-
-function sendError(
-  reply: FastifyReply,
-  status: number,
-  code: OnboardingErrorCode,
-): FastifyReply {
-  reply.header('cache-control', 'no-store');
-  reply.code(status).send({ error: { code } });
-  return reply;
 }
 
 /**
@@ -180,21 +176,6 @@ function singleHeader(value: string | string[] | undefined): string | null {
     return null;
   }
   return Array.isArray(value) ? (value[0] ?? null) : value;
-}
-
-function loadActiveMembership(
-  database: Database.Database,
-  userId: string,
-  vaultId: string,
-): MembershipRow | null {
-  const row = database
-    .prepare(
-      `SELECT id AS membershipId, role
-       FROM memberships
-       WHERE user_id = ? AND vault_id = ? AND status = 'active'`,
-    )
-    .get(userId, vaultId) as MembershipRow | undefined;
-  return row ?? null;
 }
 
 function loadFirstActiveVault(
@@ -475,7 +456,7 @@ export function registerOwnerInvitationRoutes(
     if (!params.success) {
       return sendError(reply, 400, 'INVALID_REQUEST');
     }
-    const session = requireAuth(request, reply);
+    const session = requireAuthSession(request, reply);
     if (session === null) {
       return reply;
     }
@@ -575,25 +556,13 @@ export function registerOwnerInvitationRoutes(
   );
 }
 
-function requireAuth(
-  request: FastifyRequest,
-  reply: FastifyReply,
-): AccessSession | null {
-  const session = request.authSession;
-  if (session === undefined) {
-    sendError(reply, 401, 'UNAUTHENTICATED');
-    return null;
-  }
-  return session;
-}
-
 function requireOwner(
   request: FastifyRequest,
   reply: FastifyReply,
   deps: OnboardingRoutesDeps,
   vaultId: string,
-): MembershipRow | null {
-  const session = requireAuth(request, reply);
+): ActiveMembership | null {
+  const session = requireAuthSession(request, reply);
   if (session === null) {
     return null;
   }

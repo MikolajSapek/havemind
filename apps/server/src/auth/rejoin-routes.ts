@@ -1,5 +1,5 @@
 import type Database from 'better-sqlite3';
-import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 
 import {
@@ -11,19 +11,16 @@ import {
   RejoinGrantError,
   RejoinGrantService,
 } from './rejoin-grants.js';
+import {
+  authenticateBearer,
+  loadActiveMembership,
+  loadMembershipVault,
+  sendErrorCode,
+} from './request-auth.js';
 import type { SessionRepository } from './session-repository.js';
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
-
-const BEARER_PATTERN = /^Bearer (?<token>\S+)$/u;
-
-/** Client-supplied identity headers are never trusted as product identity. */
-const IDENTITY_HEADERS = [
-  'x-actor-id',
-  'x-havemind-actor-id',
-  'x-havemind-user-id',
-] as const;
 
 type RejoinErrorCode =
   | 'FORBIDDEN'
@@ -31,6 +28,12 @@ type RejoinErrorCode =
   | 'INVALID_REQUEST'
   | 'NOT_FOUND'
   | 'UNAUTHENTICATED';
+
+const sendError: (
+  reply: FastifyReply,
+  status: number,
+  code: RejoinErrorCode,
+) => FastifyReply = sendErrorCode;
 
 export interface RejoinRoutesDeps {
   readonly database: Database.Database;
@@ -54,67 +57,6 @@ const redeemBodySchema = z
     rejoinSecret: z.string().regex(/^hm_rj_[A-Za-z0-9_-]{43}$/u),
   })
   .strict();
-
-interface MembershipRow {
-  readonly membershipId: string;
-  readonly role: string;
-}
-
-function sendError(
-  reply: FastifyReply,
-  status: number,
-  code: RejoinErrorCode,
-): FastifyReply {
-  reply.header('cache-control', 'no-store');
-  reply.code(status).send({ error: { code } });
-  return reply;
-}
-
-function extractBearerToken(header: string | undefined): string | null {
-  if (typeof header !== 'string') {
-    return null;
-  }
-  return BEARER_PATTERN.exec(header)?.groups?.token ?? null;
-}
-
-function hasImpersonationHeader(
-  request: FastifyRequest,
-  authenticatedUserId: string,
-): boolean {
-  return IDENTITY_HEADERS.some((name) => {
-    const value = request.headers[name];
-    if (value === undefined) {
-      return false;
-    }
-    const single = Array.isArray(value) ? value.join(',') : value;
-    return single !== authenticatedUserId;
-  });
-}
-
-function loadActiveMembership(
-  database: Database.Database,
-  userId: string,
-  vaultId: string,
-): MembershipRow | null {
-  const row = database
-    .prepare(
-      `SELECT id AS membershipId, role
-       FROM memberships
-       WHERE user_id = ? AND vault_id = ? AND status = 'active'`,
-    )
-    .get(userId, vaultId) as MembershipRow | undefined;
-  return row ?? null;
-}
-
-function loadTargetVault(
-  database: Database.Database,
-  membershipId: string,
-): string | null {
-  const row = database
-    .prepare('SELECT vault_id AS vaultId FROM memberships WHERE id = ?')
-    .get(membershipId) as { vaultId: string } | undefined;
-  return row?.vaultId ?? null;
-}
 
 /**
  * Registers the F9 rejoin surface as a self-contained encapsulated plugin so it
@@ -167,22 +109,15 @@ export function registerRejoinRoutes(
         },
       },
       async (request, reply) => {
-        const token = extractBearerToken(request.headers.authorization);
-        if (token === null) {
-          return sendError(reply, 401, 'UNAUTHENTICATED');
-        }
-        const session = deps.sessions.lookupAccess(token);
+        const session = authenticateBearer(request, reply, deps.sessions);
         if (session === null) {
-          return sendError(reply, 401, 'UNAUTHENTICATED');
-        }
-        if (hasImpersonationHeader(request, session.userId)) {
-          return sendError(reply, 403, 'FORBIDDEN');
+          return reply;
         }
         const body = createGrantBodySchema.safeParse(request.body);
         if (!body.success) {
           return sendError(reply, 400, 'INVALID_REQUEST');
         }
-        const vaultId = loadTargetVault(deps.database, body.data.membershipId);
+        const vaultId = loadMembershipVault(deps.database, body.data.membershipId);
         // A missing target and a target the caller cannot see are
         // indistinguishable from outside, so enumeration learns nothing.
         if (vaultId === null) {

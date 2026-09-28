@@ -4,7 +4,7 @@ import {
   type ProtectedRevisionHeader,
 } from '@havemind/protocol';
 import type Database from 'better-sqlite3';
-import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 
 import type { BlobStore } from '../blob-store.js';
@@ -21,7 +21,11 @@ import {
   type RevisionRepository,
   type RevisionRepositoryErrorCode,
 } from '../revision-repository.js';
-import type { AccessSession } from '../auth/session-repository.js';
+import {
+  loadActiveMembership,
+  requireAuthSession,
+  sendErrorCode,
+} from '../auth/request-auth.js';
 import { BlobByteRateLimiter, HeldWaitLimiter } from './device-throttles.js';
 import type { VaultWakeRegistry } from './vault-wake-registry.js';
 
@@ -133,11 +137,6 @@ const waitQuerySchema = z
   })
   .strict();
 
-interface MembershipRow {
-  readonly membershipId: string;
-  readonly role: string;
-}
-
 /**
  * The opaque server never inspects payload contents. It accepts arbitrary
  * bytes (base64 on the wire), computes only the content-addressed digest and
@@ -210,47 +209,16 @@ const SYNC_CODE_BY_REPOSITORY_CODE: Readonly<
   REVISION_ID_REUSE: 'REVISION_ID_REUSE',
 };
 
+const sendSyncError: (
+  reply: FastifyReply,
+  status: number,
+  code: SyncErrorCode,
+) => FastifyReply = sendErrorCode;
+
 interface ParsedRevisionInput {
   readonly header: ProtectedRevisionHeader;
   readonly idempotencyKey: string;
   readonly payload: Buffer;
-}
-
-function sendSyncError(
-  reply: FastifyReply,
-  status: number,
-  code: SyncErrorCode,
-): FastifyReply {
-  reply.header('cache-control', 'no-store');
-  reply.code(status).send({ error: { code } });
-  return reply;
-}
-
-function loadActiveMembership(
-  database: Database.Database,
-  userId: string,
-  vaultId: string,
-): MembershipRow | null {
-  const row = database
-    .prepare(
-      `SELECT id AS membershipId, role
-       FROM memberships
-       WHERE user_id = ? AND vault_id = ? AND status = 'active'`,
-    )
-    .get(userId, vaultId) as MembershipRow | undefined;
-  return row ?? null;
-}
-
-function requireSession(
-  request: FastifyRequest,
-  reply: FastifyReply,
-): AccessSession | null {
-  const session = request.authSession;
-  if (session === undefined) {
-    sendSyncError(reply, 401, 'UNAUTHENTICATED');
-    return null;
-  }
-  return session;
 }
 
 /**
@@ -436,7 +404,7 @@ export function registerSyncRoutes(
     if (!params.success) {
       return sendSyncError(reply, 400, 'INVALID_REQUEST');
     }
-    const session = requireSession(request, reply);
+    const session = requireAuthSession(request, reply);
     if (session === null) {
       return reply;
     }
@@ -645,7 +613,7 @@ export function registerSyncRoutes(
     if (!params.success) {
       return sendSyncError(reply, 400, 'INVALID_REQUEST');
     }
-    const session = requireSession(request, reply);
+    const session = requireAuthSession(request, reply);
     if (session === null) {
       return reply;
     }
@@ -740,7 +708,7 @@ export function registerSyncRoutes(
     if (!params.success) {
       return sendSyncError(reply, 400, 'INVALID_REQUEST');
     }
-    const session = requireSession(request, reply);
+    const session = requireAuthSession(request, reply);
     if (session === null) {
       return reply;
     }
@@ -805,7 +773,7 @@ export function registerSyncRoutes(
     if (!params.success) {
       return sendSyncError(reply, 400, 'INVALID_REQUEST');
     }
-    const session = requireSession(request, reply);
+    const session = requireAuthSession(request, reply);
     if (session === null) {
       return reply;
     }
