@@ -30,6 +30,8 @@ import {
 export interface ComposerDraft {
   role: string;
   name: string;
+  /** Approval codes typed but not yet submitted, by invitation id (U3). */
+  codes?: Record<string, string>;
 }
 
 /** Where the caller records the live fields, to re-read them before a repaint. */
@@ -106,8 +108,15 @@ export function renderInviteComposer(
     const divider = content.createEl('hr');
     divider.addClass('havemind-divider');
     content.createEl('h4', { text: 'Waiting for the other device' });
+    const codes = (draft.codes ??= {});
+    // A code for a device that is no longer waiting has nothing to approve.
+    for (const invitationId of Object.keys(codes)) {
+      if (!model.pending.some((entry) => entry.invitationId === invitationId)) {
+        delete codes[invitationId];
+      }
+    }
     for (const entry of model.pending) {
-      renderPendingRow(content, entry, actions);
+      renderPendingRow(content, entry, actions, codes);
     }
   });
 }

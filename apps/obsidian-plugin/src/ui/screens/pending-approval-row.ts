@@ -22,6 +22,8 @@ export function renderPendingRow(
   content: HTMLElement,
   entry: PendingApprovalEntry,
   actions: PendingApprovalActions,
+  /** Typed codes by invitation id, owned by the pane so a repaint keeps them. */
+  codes: Record<string, string> = {},
 ): void {
   // Icon + label + colour (never colour alone), matching the Connect panel
   // indicator convention.
@@ -45,7 +47,13 @@ export function renderPendingRow(
   const phraseInput = row.createEl('input', {
     type: 'text',
     placeholder: '123456',
+    value: codes[entry.invitationId] ?? '',
     attr: { id: phraseId, inputmode: 'numeric', maxlength: '6', pattern: '[0-9]*' },
+  });
+  // Any status change repaints the pane; without this the owner's half-typed
+  // code was emptied while the peer was still reading it out (U3).
+  phraseInput.addEventListener('input', () => {
+    codes[entry.invitationId] = phraseInput.value;
   });
   const status = renderFormStatus(row);
   const approve = row.createEl('button', { text: 'Approve' });

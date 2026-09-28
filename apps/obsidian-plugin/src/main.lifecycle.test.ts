@@ -638,6 +638,38 @@ describe('plugin lifecycle', () => {
     ).toBe(true);
   });
 
+  // U3: a repaint (any status change) rebuilt the row and emptied the code
+  // the owner was typing; the name field survived, the code did not.
+  it('keeps a half-typed approval code across a repaint', async () => {
+    const view = new HavemindOnboardingView(new WorkspaceLeaf(), {
+      composerProvider: () => ({
+        role: 'editor',
+        name: '',
+        invitation: null,
+        pending: [
+          {
+            invitationId: 'id-1',
+            expiresAt: '2026-07-16T10:15:00.000Z',
+            intendedMemberDisplayName: 'Magda',
+          },
+        ],
+      }),
+    });
+    await view.onOpen();
+    const codeInput = (): MockElement | undefined =>
+      flatten((view.containerEl as unknown as MockElement).children[1] as MockElement).find(
+        ({ tag, attrs }) => tag === 'input' && attrs.id === 'havemind-approve-id-1',
+      );
+
+    const typing = codeInput();
+    if (typing === undefined) throw new Error('no code input');
+    typing.value = '123';
+    typing.triggerEvent('input');
+    view.refreshNow();
+
+    expect(codeInput()?.value).toBe('123');
+  });
+
   it('shows the owner a code input and never the code itself in the waiting row', async () => {
     const view = new HavemindOnboardingView(new WorkspaceLeaf(), {
       composerProvider: () => ({

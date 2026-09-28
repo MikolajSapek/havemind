@@ -51,7 +51,8 @@ export class HavemindOnboardingView extends ItemView {
     server: string;
     role: InvitationRole;
     name: string;
-  } = { token: '', server: '', role: 'editor', name: '' };
+    codes: Record<string, string>;
+  } = { token: '', server: '', role: 'editor', name: '', codes: {} };
   /**
    * Whether the collapsed "Getting started" help is expanded in the connected
    * panel. Disconnected users always see the tutorial; once connected it hides
