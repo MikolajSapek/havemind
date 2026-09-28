@@ -687,6 +687,56 @@ describe('SyncRunner stop (reconnect quiescence)', () => {
 });
 
 describe('SyncRunner remote apply', () => {
+  // B9: a large upload that times out on a slow link failed the whole cycle
+  // before the pull, so the device also stopped receiving other devices'
+  // changes for as long as the upload kept failing.
+  it('still pulls and applies remote changes when the push fails transiently', async () => {
+    const state = new FakeState({
+      outbox: [{ contentHash: 'h-a', fileId: 'file-a', revisionId: 'rev-a' }],
+    });
+    const { runner, vault, retries } = makeRunner({
+      state,
+      transport: {
+        push: vi.fn(async () => {
+          throw new Error('request timed out');
+        }),
+        pull: vi.fn(async () => ({
+          cursor: 1,
+          events: [event(1, 'file-b', 'remote-hash')],
+        })),
+      },
+    });
+
+    const result = await runner.trigger();
+
+    expect(vault.applied).toHaveLength(1);
+    expect(state.cursor).toBe(1);
+    expect(result.status).toBe('offline');
+    expect(result.error).toBe('request timed out');
+    expect([...state.outbox.keys()]).toEqual(['rev-a']);
+    expect(retries).toHaveLength(1);
+  });
+
+  it('never pulls after a push refused as unauthenticated', async () => {
+    const pull = vi.fn(async () => ({ cursor: 1, events: [] }));
+    const { runner } = makeRunner({
+      state: new FakeState({
+        outbox: [{ contentHash: 'h-a', fileId: 'file-a', revisionId: 'rev-a' }],
+      }),
+      transport: {
+        push: vi.fn(async () => {
+          throw Object.assign(new Error('HTTP 401'), { authDenied: true });
+        }),
+        pull,
+      },
+    });
+
+    const result = await runner.trigger();
+
+    expect(result.status).toBe('unauthenticated');
+    expect(pull).not.toHaveBeenCalled();
+  });
+
   it('applies a remote revision when no editor buffer is open', async () => {
     const { runner, vault, state } = makeRunner({
       transport: {

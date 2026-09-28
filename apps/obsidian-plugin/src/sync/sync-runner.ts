@@ -443,10 +443,22 @@ export class SyncRunner {
     let result: SyncCycleResult;
     try {
       await this.options.beforeCycle?.();
-      const push = await this.runPush();
+      // A transient push failure (a large upload timing out on a slow link)
+      // must not also stop this device receiving other devices' changes: pull
+      // anyway, then fail the cycle so it backs off and retries the push. A
+      // refused session stops everything at once.
+      let push = { pushed: 0, quarantined: 0 };
+      let pushFailure: { readonly error: unknown } | null = null;
+      try {
+        push = await this.runPush();
+      } catch (error) {
+        if (isAuthDenied(error)) throw error;
+        pushFailure = { error };
+      }
       await this.options.beforePull?.();
       const apply = await this.runPull();
       await this.options.afterPull?.();
+      if (pushFailure !== null) throw pushFailure.error;
       this.failureCount = 0;
       result = {
         applied: apply.applied,
