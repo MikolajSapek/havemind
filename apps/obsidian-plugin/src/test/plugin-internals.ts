@@ -17,7 +17,6 @@ import type HavemindPlugin from '../main';
 /** The private surface the lifecycle tests drive. Widen as tests need it. */
 export interface PluginInternals {
   activityLog: { record(entry: unknown): void; snapshot(): unknown[] };
-  activityOptions: Record<string, unknown>;
   connection: unknown;
   connectionError: unknown;
   connectionPanel(): unknown;

@@ -5,7 +5,7 @@
  * ribbon icon toggling the author overlay, and the command palette to the
  * connect panel). Stages 0 and 1 already collapsed the ribbon to one icon and
  * pointed every command at the single pane; what survived was the SECOND
- * REGISTERED VIEW TYPE. `HAVEMIND_ACTIVITY_VIEW` stayed registered with nothing
+ * REGISTERED VIEW TYPE. The Activity view type stayed registered with nothing
  * left to open it, so a workspace layout saved while the old Activity leaf was
  * open could still restore a second, orphaned Havemind surface that no command
  * reaches and that drifts from the pane's own Activity tab.
@@ -16,7 +16,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import HavemindPlugin from './main';
-import { HAVEMIND_ACTIVITY_VIEW, HAVEMIND_ONBOARDING_VIEW } from './ui/view-types';
+import { HAVEMIND_ONBOARDING_VIEW } from './ui/view-types';
 import {
   App,
   registrationState,
@@ -53,12 +53,11 @@ describe('one hexagon, one pane (UI-00)', () => {
     const plugin = new HavemindPlugin(new App(), manifest);
     await plugin.onload();
 
+    // The old Activity type must not merely be unused: while it stays
+    // registered, a restored workspace layout can still rebuild that leaf.
     expect([...registrationState.views.keys()]).toEqual([
       HAVEMIND_ONBOARDING_VIEW,
     ]);
-    // The old Activity type must not merely be unused: while it stays
-    // registered, a restored workspace layout can still rebuild that leaf.
-    expect(registrationState.views.has(HAVEMIND_ACTIVITY_VIEW)).toBe(false);
   });
 
   it('AT0-4: every command still resolves after the icon count drops', async () => {

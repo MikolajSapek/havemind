@@ -87,7 +87,6 @@ import {
   copyTextToClipboard,
 } from './runtime/clipboard';
 
-import type { ActivityViewOptions } from './ui/activity-view';
 import { ConfirmModal } from './ui/confirm-modal';
 import {
   ConflictResolveModal,
@@ -125,7 +124,6 @@ const CONFLICT_SWEEP_DEBOUNCE_MS = 2000;
 const SHOW_AUTHORS_KEY = 'showAuthors';
 
 export default class HavemindPlugin extends Plugin {
-  private activityOptions: ActivityViewOptions = {};
   private statusItem: HTMLElement | null = null;
   private connection: ConnectionHandle | null = null;
   /**
@@ -268,14 +266,6 @@ export default class HavemindPlugin extends Plugin {
   private authorOverlayChosen = false;
 
   override onload(): void {
-    // Wire the Activity view to the live feed: the log snapshot is mapped through
-    // the roster so each row shows the author's display name + colour. Without
-    // this the view was orphaned and always rendered the empty placeholder.
-    this.activityOptions = {
-      feedProvider: () =>
-        activityEntriesToRecords(this.activityLog.snapshot(), this.rosterMembers),
-      onRestore: (revisionId) => this.handleRestore(revisionId),
-    };
     // The pane carries the activity feed as a tab (plans/007 Stage 0) and is the
     // only registered surface, so one repaint covers it.
     this.activityLogUnsubscribe = this.activityLog.subscribe(() => {
@@ -295,10 +285,11 @@ export default class HavemindPlugin extends Plugin {
         // terminal and a machine that stays awake. The entry chooser drops the
         // host branch there rather than walking the user to a dead end.
         canHost: !Platform.isMobileApp,
-        // The activity feed is a section of this pane now, not a separate
-        // destination (plans/007 Stage 0), same providers the standalone
-        // Activity view reads, so the two can never disagree.
-        activityFeedProvider: () => this.activityOptions.feedProvider?.() ?? [],
+        // The activity feed is a tab of this pane (plans/007 Stage 0): the log
+        // snapshot mapped through the roster, so each row shows the author's
+        // display name and colour.
+        activityFeedProvider: () =>
+          activityEntriesToRecords(this.activityLog.snapshot(), this.rosterMembers),
         onRestore: (revisionId) => this.handleRestore(revisionId),
         // The overlay toggle lost its ribbon icon in Stage 0 and lives in the
         // pane footer now, beside the vault it annotates.
@@ -1943,11 +1934,6 @@ export default class HavemindPlugin extends Plugin {
     // anyone who cannot see the colour. The pane is where words are optional;
     // here they are the whole accessible signal.
     item.createEl('span', { text: view.text });
-  }
-
-  /** Supplies the Activity view with a live feed and a restore action. */
-  setActivityOptions(options: ActivityViewOptions): void {
-    this.activityOptions = options;
   }
 
   /**

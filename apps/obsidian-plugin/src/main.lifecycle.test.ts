@@ -2,10 +2,9 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import HavemindPlugin from './main';
 import { HavemindOnboardingView } from './ui/onboarding-view';
-import { HAVEMIND_ACTIVITY_VIEW, HAVEMIND_ONBOARDING_VIEW } from './ui/view-types';
+import { HAVEMIND_ONBOARDING_VIEW } from './ui/view-types';
 import { buildConnectionPanel } from './runtime/status';
 import { buildRejoinRosterView } from './runtime/rejoin-roster';
-import { HavemindActivityView } from './ui/activity-view';
 import {
   App,
   type MockElement,
@@ -64,26 +63,17 @@ function openTab(view: { containerEl: unknown }, label: RegExp): void {
 }
 
 /**
- * Builds the standalone Activity view directly.
- *
- * UI-00 stopped registering its view type (one pane, one door), so it can no
- * longer be obtained from `registrationState.views`. The class is still built
- * and still shipped; these tests exercise its own rendering, which is a
- * different question from which types the plugin registers. What the pane's
- * Activity TAB renders is covered by `activity-in-pane.test.ts`.
+ * Opens the Activity tab of the plugin's registered pane, marked connected so
+ * the tabs render. The feed and the Restore action are the plugin's own
+ * onload wiring, so these tests prove that wiring, not a stand-in.
  */
-function buildActivityView(plugin?: HavemindPlugin): HavemindActivityView {
-  // When a plugin is supplied, the view is built on ITS live options, which is
-  // what the removed registration used to do: `setActivityOptions` and the
-  // onload-wired feed both land there. Reading the private field keeps the test
-  // honest about the wiring rather than re-declaring it.
-  const options =
-    plugin === undefined
-      ? {}
-      :        (internals(plugin).activityOptions as ConstructorParameters<
-          typeof HavemindActivityView
-        >[1]);
-  return new HavemindActivityView(new WorkspaceLeaf(), options ?? {});
+async function openActivityTab(plugin: HavemindPlugin): Promise<MockElement> {
+  internals(plugin).connectionStatus = 'synced';
+  const view = registrationState.views.get(HAVEMIND_ONBOARDING_VIEW)?.(new WorkspaceLeaf());
+  if (view === undefined) throw new Error('onboarding view not registered');
+  await view.onOpen();
+  openTab(view, /Activity/);
+  return view.containerEl as unknown as MockElement;
 }
 
 describe('plugin lifecycle', () => {
@@ -105,8 +95,7 @@ describe('plugin lifecycle', () => {
     expect(registrationState.statusItems).toHaveLength(1);
     // UI-00: one registered view type. The Activity feed is a tab of that pane
     // now, so its old standalone type is no longer registered.
-    expect(registrationState.views.has(HAVEMIND_ACTIVITY_VIEW)).toBe(false);
-    expect(registrationState.views.has(HAVEMIND_ONBOARDING_VIEW)).toBe(true);
+    expect([...registrationState.views.keys()]).toEqual([HAVEMIND_ONBOARDING_VIEW]);
     // Audit #3 finding 10 removed an EMPTY editor extension and a no-op markdown
     // post-processor that stood in for the author overlay. FINDING 1 replaced
     // both with the real thing: the Live Preview decoration extension and the
@@ -216,17 +205,11 @@ describe('plugin lifecycle', () => {
     await registrationState.ribbons[0]?.triggerClick();
     expect(app.workspace.revealedLeaves).toEqual([app.workspace.rightLeaf]);
 
-    const view = buildActivityView(plugin);
-    expect(view?.getViewType()).toBe(HAVEMIND_ACTIVITY_VIEW);
-    expect(view?.getDisplayText()).toBe('Havemind activity');
-    expect(view?.getIcon()).toBe('hexagon');
-
-    await view?.onOpen();
-    const container = view?.containerEl as unknown as MockElement;
-    expect(container.children[1]?.children.map(({ text }) => text)).toEqual([
-      'Havemind activity',
-      'No activity yet. Connect to a vault to see changes as they happen.',
-    ]);
+    const container = await openActivityTab(plugin);
+    expect(
+      flatten(container).some(({ text }) =>
+        text === 'No activity yet. Connect to a vault to see changes as they happen.'),
+    ).toBe(true);
 
     registrationState.settingsTabs[0]?.display();
     expect(registrationState.settingsRows.map(({ names }) => names)).toEqual([
@@ -252,18 +235,6 @@ describe('plugin lifecycle', () => {
     registrationState.protocolHandlers.get('havemind-join')?.({
       action: 'havemind-join',
     });
-  });
-
-  it('does not assume that an Activity content element is available', async () => {
-    const app = new App();
-    const plugin = new HavemindPlugin(app, manifest);
-    await plugin.onload();
-
-    const view = buildActivityView(plugin);
-    const container = view?.containerEl as unknown as MockElement;
-    container.children.splice(0);
-
-    expect(view?.onOpen()).toBeUndefined();
   });
 
   it('opens only the local paste wizard from a parameter-free passive URI', async () => {
@@ -801,13 +772,10 @@ describe('plugin lifecycle', () => {
   });
 
   it('renders the activity feed with a restore action when data is supplied', async () => {
-    const app = new App();
-    const plugin = new HavemindPlugin(app, manifest);
-    await plugin.onload();
-
     const restored: string[] = [];
-    plugin.setActivityOptions({
-      feedProvider: () => [
+    const view = new HavemindOnboardingView(new WorkspaceLeaf(), {
+      panelProvider: () => buildConnectionPanel({ status: 'synced' }),
+      activityFeedProvider: () => [
         {
           revisionId: 'rev-1',
           vaultId: 'vault-1',
@@ -826,18 +794,17 @@ describe('plugin lifecycle', () => {
       ],
       onRestore: (revisionId) => restored.push(revisionId),
     });
-
-    const view = buildActivityView(plugin);
-    await view?.onOpen();
-    const container = view?.containerEl as unknown as MockElement;
-    const rows = container.children[1]?.children ?? [];
-    expect(rows[0]?.text).toBe('Havemind activity');
+    await view.onOpen();
+    openTab(view, /Activity/);
+    const row = flatten(view.containerEl as unknown as MockElement).find(({ classes }) =>
+      classes.includes('havemind-activity-row'),
+    );
     // Two-line row: `author verb` headline over the vault path (in a text block).
-    const textBlock = rows[1]?.children[0];
+    const textBlock = row?.children[0];
     expect(textBlock?.children[0]?.text).toBe('Alice edit');
     expect(textBlock?.children[1]?.text).toBe('Notes/a.md');
 
-    const restoreButton = flatten(rows[1] as MockElement).find(({ classes }) =>
+    const restoreButton = flatten(row as MockElement).find(({ classes }) =>
       classes.includes('havemind-activity-action'),
     );
     restoreButton?.triggerClick();
@@ -847,8 +814,8 @@ describe('plugin lifecycle', () => {
   it('wires a default Restore action during onload that appends a new activity entry', async () => {
     // Regression: onload's activityOptions never set onRestore, so the Restore
     // button never rendered at all (F9 bug #2). This exercises the DEFAULT
-    // wiring, not a caller-supplied override via setActivityOptions, so it
-    // actually proves the onload path, not just the ActivityView's rendering.
+    // wiring through the registered pane, so it proves the onload path, not
+    // just the Activity tab's rendering.
     const app = new App();
     const plugin = new HavemindPlugin(app, manifest);
     await plugin.onload();
@@ -869,9 +836,7 @@ describe('plugin lifecycle', () => {
       hasContent: true,
     });
 
-    const view = buildActivityView(plugin);
-    await view?.onOpen();
-    const container = view?.containerEl as unknown as MockElement;
+    const container = await openActivityTab(plugin);
     const restoreButton = flatten(container).find(({ classes }) =>
       classes.includes('havemind-activity-action'),
     );
@@ -902,10 +867,11 @@ describe('plugin lifecycle', () => {
       hasContent: true,
     });
 
-    const view = buildActivityView(plugin);
-    await view?.onOpen();
-    const container = view?.containerEl as unknown as MockElement;
-    const restoreButton = container.children[1]?.children[1]?.children[1];
+    const container = await openActivityTab(plugin);
+    const restoreButton = flatten(container).find(({ classes }) =>
+      classes.includes('havemind-activity-action'),
+    );
+    expect(restoreButton).toBeDefined();
 
     expect(() => restoreButton?.triggerClick()).not.toThrow();
     expect(internals(plugin).activityLog.snapshot()).toHaveLength(1);

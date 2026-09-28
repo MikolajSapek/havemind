@@ -2,7 +2,6 @@
 # Refresh: node scripts/list-plugin-classes.mjs
 # A class here but not in styles.css is fine (unstyled); the reverse is a dead rule.
 havemind-action-row
-havemind-activity
 havemind-activity-action
 havemind-activity-copy
 havemind-activity-main

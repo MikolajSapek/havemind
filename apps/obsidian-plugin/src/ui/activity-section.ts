@@ -1,10 +1,6 @@
 /**
- * The revision feed, rendered as rows.
- *
- * Extracted from `activity-view.ts` when the feed became a section of the main
- * pane as well as its own view (plans/007 Stage 0). Both surfaces call this, so
- * a change to row wording, ordering, restore or author colour lands in exactly
- * one place, two copies would drift on the first edit.
+ * The revision feed, rendered as rows in the pane's Activity tab
+ * (plans/007 Stage 0).
  */
 
 import type { RevisionRecord } from '../activity/activity';
