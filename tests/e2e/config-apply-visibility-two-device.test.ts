@@ -66,8 +66,11 @@ import {
   type ConfigApplyReloader,
 } from '../../apps/obsidian-plugin/src/runtime/obsidian-adapters.js';
 
-import { HarnessClient } from './harness/client.js';
-import { cleanupHarnessDirectories, ServerHarness } from './harness/server.js';
+import {
+  startTwoDevices,
+  stopHarnesses,
+  type TwoDevices as HarnessDevices,
+} from './harness/two-devices.js';
 
 const SNIPPET_PATH = '.obsidian/snippets/test.css';
 const THEME_CSS_PATH = '.obsidian/themes/Minimal/theme.css';
@@ -118,38 +121,22 @@ function configApplyProbe(): ConfigApplyProbe {
   };
 }
 
-interface TwoDevices {
-  readonly server: ServerHarness;
-  readonly alice: HarnessClient;
-  readonly bob: HarnessClient;
+interface TwoDevices extends HarnessDevices {
   readonly aliceEffects: ConfigApplyProbe;
   readonly bobEffects: ConfigApplyProbe;
 }
 
-const harnesses: ServerHarness[] = [];
-
 async function makeHarness(): Promise<TwoDevices> {
-  const server = await ServerHarness.create();
-  harnesses.push(server);
   const aliceEffects = configApplyProbe();
   const bobEffects = configApplyProbe();
-  return {
-    alice: new HarnessClient(server, server.alice, {
-      configApply: aliceEffects.reloader,
-    }),
-    aliceEffects,
-    bob: new HarnessClient(server, server.bob, {
-      configApply: bobEffects.reloader,
-    }),
-    bobEffects,
-    server,
-  };
+  const devices = await startTwoDevices({
+    alice: { configApply: aliceEffects.reloader },
+    bob: { configApply: bobEffects.reloader },
+  });
+  return { ...devices, aliceEffects, bobEffects };
 }
 
-afterEach(async () => {
-  await Promise.all(harnesses.splice(0).map(async (server) => server.close()));
-  cleanupHarnessDirectories();
-});
+afterEach(stopHarnesses);
 
 describe('F-config-apply, a received `.obsidian/` change becomes visible on the peer', () => {
   it('row 1: a snippet written on device A lands byte-identical on B and refreshes the custom CSS exactly once, with no toast', async () => {

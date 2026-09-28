@@ -20,29 +20,12 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { createRefreshSuccessor } from '../../apps/server/src/auth/tokens.js';
 
-import { HarnessClient } from './harness/client.js';
-import {
-  cleanupHarnessDirectories,
-  ServerHarness,
-  type ServerHarnessOptions,
-} from './harness/server.js';
+import type { HarnessClient } from './harness/client.js';
+import type { ServerHarness, ServerHarnessOptions } from './harness/server.js';
+import { startTwoDevices, stopHarnesses } from './harness/two-devices.js';
 
-const harnesses: ServerHarness[] = [];
-
-async function makeHarness(
-  options: ServerHarnessOptions = {},
-): Promise<{
-  server: ServerHarness;
-  alice: HarnessClient;
-  bob: HarnessClient;
-}> {
-  const server = await ServerHarness.create(options);
-  harnesses.push(server);
-  return {
-    alice: new HarnessClient(server, server.alice),
-    bob: new HarnessClient(server, server.bob),
-    server,
-  };
+function makeHarness(options: ServerHarnessOptions = {}) {
+  return startTwoDevices({ server: options });
 }
 
 /** The non-conflict working file a client currently holds. */
@@ -54,10 +37,7 @@ function workingPath(client: HarnessClient): string {
   return path;
 }
 
-afterEach(async () => {
-  await Promise.all(harnesses.splice(0).map(async (server) => server.close()));
-  cleanupHarnessDirectories();
-});
+afterEach(stopHarnesses);
 
 describe('F8-01 fault matrix, two clients against a real opaque server', () => {
   it('row 1: server restart mid-push does not duplicate the revision', async () => {

@@ -32,8 +32,10 @@
  */
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { HarnessClient } from './harness/client.js';
-import { cleanupHarnessDirectories, ServerHarness } from './harness/server.js';
+import {
+  startTwoDevices as makeHarness,
+  stopHarnesses,
+} from './harness/two-devices.js';
 
 const APPEARANCE_PATH = '.obsidian/appearance.json';
 const PLUGIN_SECRET_PATH = '.obsidian/plugins/dataview/data.json';
@@ -43,26 +45,7 @@ const PLUGIN_CODE_PATH = '.obsidian/plugins/dataview/main.js';
 const PLUGIN_MANIFEST_PATH = '.obsidian/plugins/dataview/manifest.json';
 const THEME_CSS_PATH = '.obsidian/themes/Minimal/theme.css';
 
-const harnesses: ServerHarness[] = [];
-
-async function makeHarness(): Promise<{
-  server: ServerHarness;
-  alice: HarnessClient;
-  bob: HarnessClient;
-}> {
-  const server = await ServerHarness.create();
-  harnesses.push(server);
-  return {
-    alice: new HarnessClient(server, server.alice),
-    bob: new HarnessClient(server, server.bob),
-    server,
-  };
-}
-
-afterEach(async () => {
-  await Promise.all(harnesses.splice(0).map(async (server) => server.close()));
-  cleanupHarnessDirectories();
-});
+afterEach(stopHarnesses);
 
 describe('F-config `.obsidian/` mirror, two clients against a real opaque server', () => {
   it('row 1: a config file only the poller can see reaches the peer at the same hidden path, byte-identical, and settles', async () => {

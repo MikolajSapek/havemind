@@ -50,8 +50,11 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { isSyncableConfigPath } from '@havemind/protocol';
 
-import { HarnessClient } from './harness/client.js';
-import { cleanupHarnessDirectories, ServerHarness } from './harness/server.js';
+import type { HarnessClient } from './harness/client.js';
+import {
+  startTwoDevices as makeHarness,
+  stopHarnesses,
+} from './harness/two-devices.js';
 
 const GRAPH_PATH = '.obsidian/graph.json';
 
@@ -80,28 +83,7 @@ function readGraph(client: HarnessClient): Record<string, unknown> {
   return JSON.parse(raw) as Record<string, unknown>;
 }
 
-interface TwoDevices {
-  readonly server: ServerHarness;
-  readonly alice: HarnessClient;
-  readonly bob: HarnessClient;
-}
-
-const harnesses: ServerHarness[] = [];
-
-async function makeHarness(): Promise<TwoDevices> {
-  const server = await ServerHarness.create();
-  harnesses.push(server);
-  return {
-    alice: new HarnessClient(server, server.alice),
-    bob: new HarnessClient(server, server.bob),
-    server,
-  };
-}
-
-afterEach(async () => {
-  await Promise.all(harnesses.splice(0).map(async (server) => server.close()));
-  cleanupHarnessDirectories();
-});
+afterEach(stopHarnesses);
 
 describe('F-config-semantic, graph.json syncs its settings, never the view state', () => {
   it('row 1: a zoom-only rewrite on device A reaches neither the server nor device B', async () => {

@@ -49,18 +49,17 @@ import {
 import { authorColorToken } from '../../apps/obsidian-plugin/src/runtime/author-colors.js';
 import type { RosterMember } from '../../apps/obsidian-plugin/src/runtime/roster.js';
 
-import { HarnessClient } from './harness/client.js';
-import { cleanupHarnessDirectories, ServerHarness } from './harness/server.js';
+import type { HarnessClient } from './harness/client.js';
+import {
+  startTwoDevices,
+  stopHarnesses,
+  type TwoDevices as HarnessDevices,
+} from './harness/two-devices.js';
 
 const NOTE_PATH = 'Notes/Plan.md';
 const OTHER_NOTE_PATH = 'Notes/Retro.md';
 
-const harnesses: ServerHarness[] = [];
-
-interface TwoDevices {
-  readonly server: ServerHarness;
-  readonly alice: HarnessClient;
-  readonly bob: HarnessClient;
+interface TwoDevices extends HarnessDevices {
   /** Alice's roster: herself plus Bob. */
   readonly aliceRoster: readonly RosterMember[];
   /** Bob's roster: himself plus Alice. */
@@ -68,8 +67,8 @@ interface TwoDevices {
 }
 
 async function makeHarness(): Promise<TwoDevices> {
-  const server = await ServerHarness.create();
-  harnesses.push(server);
+  const devices = await startTwoDevices();
+  const { server } = devices;
   const aliceMember: RosterMember = {
     displayName: 'Alice',
     membershipId: server.alice.membershipId,
@@ -83,18 +82,13 @@ async function makeHarness(): Promise<TwoDevices> {
     self: true,
   };
   return {
-    alice: new HarnessClient(server, server.alice),
+    ...devices,
     aliceRoster: [aliceMember, { ...bobMember, self: false }],
-    bob: new HarnessClient(server, server.bob),
     bobRoster: [bobMember, { ...aliceMember, self: false }],
-    server,
   };
 }
 
-afterEach(async () => {
-  await Promise.all(harnesses.splice(0).map(async (server) => server.close()));
-  cleanupHarnessDirectories();
-});
+afterEach(stopHarnesses);
 
 /**
  * Feeds everything this device has applied from the peer into a real
