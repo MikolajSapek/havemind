@@ -179,7 +179,7 @@ may bind to a laptop the member is not currently holding, and there is no way to
 choose. Deliberately unchanged for now; it must be revisited before multi-device
 support ships, when the grant will need to name its target device explicitly.
 
-## Keychain entries accumulate: SecretStorage has no delete
+## Keychain entries are blanked, not removed: SecretStorage has no delete
 
 Obsidian's `SecretStorage` API (minimum app version 1.11.4, see
 `apps/obsidian-plugin/manifest.json`) exposes exactly three operations:
@@ -187,21 +187,15 @@ Obsidian's `SecretStorage` API (minimum app version 1.11.4, see
 delete or remove operation (`apps/obsidian-plugin/src/obsidian.d.ts`).
 
 Havemind therefore retires a credential entry by **blanking** it rather than
-removing it: `apps/obsidian-plugin/src/storage/secret-store.ts` writes `''`
-over the superseded id on refresh-token rotation and on disconnect, and the
-read path treats an empty value as absent. Every rotation mints a fresh id of
-the form `havemind-<client_instance_id>-refresh-<randomUUID>`, checked for
-collisions against `listSecrets()` before use.
+removing it: `apps/obsidian-plugin/src/runtime/onboarding-secrets.ts` writes
+`''` over the entry, and the read path treats an empty value as absent. Every
+entry uses a fixed id per purpose, `havemind-<client_instance_id>-onb-<suffix>`,
+so a rotation overwrites the same id instead of minting a new one.
 
-The consequence: the number of Havemind ids in the OS keychain grows by one per
-rotation and never shrinks over the lifetime of a device pairing. The retired
-entries hold an empty string, no credential material remains in them, and
-their ids are unique, so a stale entry can never be mistaken for the active
-one. They do, however, remain visible to `listSecrets()` and in the operating
-system's keychain UI.
+The consequence: a device keeps at most one entry per purpose in the OS
+keychain, and a blanked entry stays visible to `listSecrets()` and in the
+operating system's keychain UI after disconnect. It holds no credential
+material.
 
-**Recommendation:** none for the pilot, the accumulated entries are empty and
-harmless. Should the count become inconvenient, the entries can be deleted
-manually in the OS keychain; Havemind reads only the ids recorded in its own
-reference state, so removing a blanked entry has no effect on an active
-connection.
+**Recommendation:** none for the pilot. The entries can be deleted manually in
+the OS keychain after a disconnect.

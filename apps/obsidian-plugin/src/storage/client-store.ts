@@ -1,3 +1,5 @@
+// Only `payloads` and `history` have accessors; the other stores stay so every
+// database opens with the schema it was created with.
 export const CLIENT_STORE_NAMES = [
   'activity',
   'connection',
@@ -57,12 +59,6 @@ export class ClientStoreError extends Error {
 export interface ClientInstanceIdRepository {
   readClientInstanceId(): Promise<string | null>;
   writeClientInstanceId(value: string): Promise<void>;
-}
-
-export interface DurableOutboxEntry {
-  createdAt: number;
-  operationId: string;
-  payload: unknown;
 }
 
 export interface IndexedDbClientStoreOptions {
@@ -218,38 +214,6 @@ export class IndexedDbClientStore {
     this.database?.close();
     this.database = null;
     this.storeState = 'closed';
-  }
-
-  async setConnectionValue(key: string, value: unknown): Promise<void> {
-    assertStorageKey(key);
-    await this.runTransaction(
-      'connection',
-      'readwrite',
-      (store) => store.put(value, key),
-    );
-  }
-
-  async getConnectionValue(key: string): Promise<unknown> {
-    assertStorageKey(key);
-    return this.runTransaction('connection', 'readonly', (store) =>
-      store.get(key),
-    );
-  }
-
-  async enqueueOutbox(entry: DurableOutboxEntry): Promise<void> {
-    assertOutboxEntry(entry);
-    await this.runTransaction('outbox', 'readwrite', (store) =>
-      store.put(entry, entry.operationId),
-    );
-  }
-
-  async listOutbox(): Promise<DurableOutboxEntry[]> {
-    const entries = await this.runTransaction<unknown[]>(
-      'outbox',
-      'readonly',
-      (store) => store.getAll(),
-    );
-    return entries.map(parseOutboxEntry);
   }
 
   /**
@@ -411,46 +375,6 @@ function assertStorageKey(value: string): void {
       'IndexedDB keys must contain between 1 and 256 characters.',
     );
   }
-}
-
-function assertOutboxEntry(entry: DurableOutboxEntry): void {
-  assertStorageKey(entry.operationId);
-  if (!Number.isFinite(entry.createdAt) || entry.createdAt < 0) {
-    throw new ClientStoreError(
-      'transaction-failed',
-      'Outbox createdAt must be a non-negative finite timestamp.',
-    );
-  }
-}
-
-function parseOutboxEntry(value: unknown): DurableOutboxEntry {
-  if (!isRecord(value)) {
-    throw new ClientStoreError(
-      'transaction-failed',
-      'IndexedDB contains a malformed outbox entry.',
-    );
-  }
-
-  const entry: DurableOutboxEntry = {
-    createdAt: value.createdAt as number,
-    operationId: value.operationId as string,
-    payload: value.payload,
-  };
-  if (
-    typeof entry.operationId !== 'string' ||
-    typeof entry.createdAt !== 'number'
-  ) {
-    throw new ClientStoreError(
-      'transaction-failed',
-      'IndexedDB contains a malformed outbox entry.',
-    );
-  }
-  assertOutboxEntry(entry);
-  return entry;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function generateClientInstanceId(): string {

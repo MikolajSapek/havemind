@@ -101,7 +101,6 @@ havemind-roster-dot
 havemind-roster-meta
 havemind-roster-name
 havemind-roster-row
-havemind-secret-without-active
 havemind-section-error
 havemind-send-action
 havemind-send-failed

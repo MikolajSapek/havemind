@@ -211,7 +211,7 @@ coverage 83.33%). Three scope decisions, none hit the 3-attempt limit:
    non-secret JSON blob (cursor/outbox/deferred/locally-authored) is simpler and
    fully unit-testable, and avoids extending the tested `IndexedDbClientStore`.
    Secrets never touch data.json, refresh tokens stay in SecretStorage
-   (`storage/secret-store.ts`), honouring rule 6 and plan/05.
+   (`runtime/onboarding-secrets.ts`), honouring rule 6 and plan/05.
 
 2. **`src/runtime/obsidian-adapters.ts` excluded from the coverage gate.** It is
    the only module that binds live Obsidian APIs (`requestUrl`, Vault, workspace

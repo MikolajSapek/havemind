@@ -80,34 +80,6 @@ describe('IndexedDbClientStore storage', () => {
     );
   });
 
-  it('persists non-secret connection data and outbox entries across reopen', async () => {
-    const indexedDb = new FakeIndexedDbFactory();
-    const first = createStore(indexedDb);
-    await first.open();
-
-    await first.setConnectionValue('server-origin', 'https://sync.example.test');
-    await first.enqueueOutbox({
-      createdAt: 1_721_000_000_000,
-      operationId: 'revision-01',
-      payload: { path: 'shared/note.md' },
-    });
-    first.close();
-
-    const reopened = createStore(indexedDb);
-    await reopened.open();
-
-    await expect(reopened.getConnectionValue('server-origin')).resolves.toBe(
-      'https://sync.example.test',
-    );
-    await expect(reopened.listOutbox()).resolves.toEqual([
-      {
-        createdAt: 1_721_000_000_000,
-        operationId: 'revision-01',
-        payload: { path: 'shared/note.md' },
-      },
-    ]);
-  });
-
   it('stores, reads, and deletes out-of-band outbox payloads across reopen (arch P1)', async () => {
     const indexedDb = new FakeIndexedDbFactory();
     const first = createStore(indexedDb);
@@ -169,7 +141,7 @@ describe('IndexedDbClientStore storage', () => {
     indexedDb.triggerVersionChange(store.databaseName);
 
     expect(store.state).toBe('versionchange');
-    await expect(store.listOutbox()).rejects.toMatchObject({
+    await expect(store.getPayload('rev-1')).rejects.toMatchObject({
       code: 'version-changed',
     });
 
@@ -181,34 +153,23 @@ describe('IndexedDbClientStore storage', () => {
     const indexedDb = new FakeIndexedDbFactory();
     const store = createStore(indexedDb);
     await store.open();
-    const entry = {
-      createdAt: 1_721_000_000_000,
-      operationId: 'revision-quota',
-      payload: { contentHash: 'sha256:example' },
-    };
-    let uploadAllowed = false;
 
     indexedDb.failNextWrite(
       new DOMException('The local storage quota is exhausted.', 'QuotaExceededError'),
     );
-    try {
-      await store.enqueueOutbox(entry);
-      uploadAllowed = true;
-    } catch (error) {
-      expect(error).toBeInstanceOf(ClientStoreError);
-      expect(error).toMatchObject({ code: 'quota-exceeded' });
-    }
+    await expect(store.putPayload('rev-quota', 'BYTES')).rejects.toSatisfy(
+      (error) => error instanceof ClientStoreError && error.code === 'quota-exceeded',
+    );
 
-    expect(uploadAllowed).toBe(false);
     expect(store.state).toBe('write-failed');
-    await expect(store.listOutbox()).resolves.toEqual([]);
+    await expect(store.getPayload('rev-quota')).resolves.toBeUndefined();
 
-    await store.enqueueOutbox(entry);
+    await store.putPayload('rev-quota', 'BYTES');
     expect(store.state).toBe('ready');
-    await expect(store.listOutbox()).resolves.toEqual([entry]);
+    await expect(store.getPayload('rev-quota')).resolves.toBe('BYTES');
   });
 
-  it('does not expose an outbox entry when quota aborts the transaction after request success', async () => {
+  it('does not expose a write when quota aborts the transaction after request success', async () => {
     const indexedDb = new FakeIndexedDbFactory();
     const store = createStore(indexedDb);
     await store.open();
@@ -216,16 +177,12 @@ describe('IndexedDbClientStore storage', () => {
       new DOMException('Commit quota failure.', 'QuotaExceededError'),
     );
 
-    await expect(
-      store.enqueueOutbox({
-        createdAt: 1_721_000_000_000,
-        operationId: 'revision-commit-quota',
-        payload: { path: 'shared/commit.md' },
-      }),
-    ).rejects.toMatchObject({ code: 'quota-exceeded' });
+    await expect(store.putPayload('rev-commit-quota', 'BYTES')).rejects.toMatchObject({
+      code: 'quota-exceeded',
+    });
 
     expect(store.state).toBe('write-failed');
-    await expect(store.listOutbox()).resolves.toEqual([]);
+    await expect(store.getPayload('rev-commit-quota')).resolves.toBeUndefined();
   });
 
   it('is idempotent when already open and refuses use after close', async () => {
@@ -236,37 +193,26 @@ describe('IndexedDbClientStore storage', () => {
     await expect(store.open()).resolves.toBeUndefined();
     store.close();
 
-    await expect(store.listOutbox()).rejects.toMatchObject({ code: 'closed' });
-    await expect(
-      store.enqueueOutbox({
-        createdAt: 1,
-        operationId: 'closed-write',
-        payload: null,
-      }),
-    ).rejects.toMatchObject({ code: 'closed' });
+    await expect(store.getPayload('rev-1')).rejects.toMatchObject({ code: 'closed' });
+    await expect(store.putPayload('closed-write', 'BYTES')).rejects.toMatchObject({
+      code: 'closed',
+    });
     expect(store.state).toBe('closed');
 
     await expect(store.open()).resolves.toBeUndefined();
     expect(store.state).toBe('ready');
   });
 
-  it('rejects unavailable IndexedDB, unsafe keys, and invalid timestamps', async () => {
+  it('rejects unavailable IndexedDB and unsafe keys', async () => {
     expect(
       () => new IndexedDbClientStore({ clientInstanceId: CLIENT_ID }),
     ).toThrow(expect.objectContaining({ code: 'storage-unavailable' }));
 
     const store = createStore(new FakeIndexedDbFactory());
     await store.open();
-    await expect(store.setConnectionValue('', 'value')).rejects.toMatchObject({
+    await expect(store.putPayload('', 'value')).rejects.toMatchObject({
       code: 'transaction-failed',
     });
-    await expect(
-      store.enqueueOutbox({
-        createdAt: Number.NaN,
-        operationId: 'invalid-time',
-        payload: null,
-      }),
-    ).rejects.toMatchObject({ code: 'transaction-failed' });
   });
 });
 

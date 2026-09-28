@@ -8,8 +8,14 @@
 
 import type { PendingRotation } from './access-token';
 import type { OnboardingSecretsPort } from '../onboarding/controller';
-import type { SecretStoragePort } from '../storage/secret-store';
+import type { SecretStorage } from 'obsidian';
+
 import { isValidClientInstanceId } from '../storage/client-store';
+
+type SecretStoragePort = Pick<
+  SecretStorage,
+  'getSecret' | 'listSecrets' | 'setSecret'
+>;
 
 export interface ObsidianOnboardingSecretsOptions {
   readonly clientInstanceId: string;
