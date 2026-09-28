@@ -125,6 +125,13 @@ export interface SyncTransport {
 export interface SyncStatePort {
   /** Retire an unaccepted merge only when an applied remote merge proves it redundant. */
   retireEquivalentMerges?(event: RemoteEvent): Promise<void>;
+  /**
+   * Set aside an incoming change this device keeps failing to apply, so the
+   * rest of the vault keeps syncing; it stays listed until retried (B2).
+   */
+  parkRemote?(event: RemoteEvent, reason: string): Promise<void>;
+  unparkRemote?(revisionId: string): Promise<void>;
+  listParkedRemote?(): Promise<readonly RemoteEvent[]>;
 
   /** The highest server sequence already materialized locally. */
   loadCursor(): Promise<number>;
@@ -310,6 +317,8 @@ function buildLineageIndex(outbox: readonly PushRevision[]): LineageIndex {
   };
 }
 
+/** Failed applies of one incoming change before it is parked (B2). */
+const MAX_APPLY_ATTEMPTS = 3;
 const DEFAULT_BASE_BACKOFF_MS = 5000;
 const DEFAULT_MAX_BACKOFF_MS = 60_000;
 /** Mirrors the server's per-payload ceiling so a sub-batch never overflows it. */
@@ -377,6 +386,8 @@ export class SyncRunner {
    * `cursor` (not a page end), so it is a stable boundary even when the catch-up
    * spans several paged cycles.
    */
+  /** Consecutive failed applies per incoming revision, reset on success. */
+  private readonly applyFailures = new Map<string, number>();
   private bootstrapTarget: number | null = null;
 
   public constructor(options: SyncRunnerOptions) {
@@ -684,6 +695,21 @@ export class SyncRunner {
     return batches;
   }
 
+  /**
+   * Applies a parked incoming change again. True when it no longer needs to be
+   * listed (applied, a conflict copy written, or already superseded); false
+   * while an unsaved editor still holds the file. A failure is thrown.
+   */
+  async retryParked(revisionId: string): Promise<boolean> {
+    const parked = await this.options.state.listParkedRemote?.();
+    const event = parked?.find((item) => item.revision.revisionId === revisionId);
+    if (event === undefined) return true;
+    const outcome = await this.options.vault.applyRemote(event, { bootstrap: false });
+    if (outcome === 'deferred') return false;
+    await this.options.state.unparkRemote?.(revisionId);
+    return true;
+  }
+
   private async runPull(): Promise<
     Omit<SyncCycleResult, 'pushed' | 'quarantined'>
   > {
@@ -753,13 +779,39 @@ export class SyncRunner {
         // diverted to a conflict artifact rather than silently overwritten
         // (rule 3), and the runner counts it as a conflict so the status
         // surfaces it.
-        const outcome = await this.options.vault.applyRemote(remoteEvent, {
-          // At or below the connect-time head → part of the initial catch-up, so
-          // its Activity entry is suppressed (baseline). Beyond it → a live edit.
-          bootstrap:
-            bootstrapTarget !== null &&
-            remoteEvent.serverSequence <= bootstrapTarget,
-        });
+        let outcome: RemoteApplyOutcome;
+        try {
+          outcome = await this.options.vault.applyRemote(remoteEvent, {
+            // At or below the connect-time head → part of the initial catch-up, so
+            // its Activity entry is suppressed (baseline). Beyond it → a live edit.
+            bootstrap:
+              bootstrapTarget !== null &&
+              remoteEvent.serverSequence <= bootstrapTarget,
+          });
+        } catch (error) {
+          // One change this device cannot apply (e.g. iOS refusing to read a
+          // PDF) must not stop the whole vault forever: after a few tries it is
+          // parked, listed in the panel, and the cursor moves on (B2).
+          const id = remoteEvent.revision.revisionId;
+          const attempts = (this.applyFailures.get(id) ?? 0) + 1;
+          if (
+            isAuthDenied(error) ||
+            this.options.state.parkRemote === undefined ||
+            attempts < MAX_APPLY_ATTEMPTS
+          ) {
+            this.applyFailures.set(id, attempts);
+            throw error;
+          }
+          this.applyFailures.delete(id);
+          await this.options.state.parkRemote(
+            remoteEvent,
+            error instanceof Error ? error.message : String(error),
+          );
+          cursor = remoteEvent.serverSequence;
+          await this.options.state.saveCursor(cursor);
+          continue;
+        }
+        this.applyFailures.delete(remoteEvent.revision.revisionId);
         if (outcome === 'deferred') {
           deferred += 1;
           break;

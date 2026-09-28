@@ -232,12 +232,18 @@ describe('DurableSyncState', () => {
     expect(await reopened.isLocallyAuthored('rev-1')).toBe(true);
   });
 
-  it('stores and reloads deferred remote events', async () => {
-    await state.saveDeferred([remoteEvent(3, 'rev-x')]);
-    expect(await state.listDeferred()).toEqual([remoteEvent(3, 'rev-x')]);
+  it('keeps a parked incoming change across a reload until it is unparked (B2)', async () => {
+    await state.parkRemote(remoteEvent(3, 'rev-x'), 'The file has an invalid format.');
+    await state.parkRemote(remoteEvent(3, 'rev-x'), 'again');
+    expect(await state.listParkedRemote()).toEqual([remoteEvent(3, 'rev-x')]);
+    expect(state.parkedSnapshot()).toEqual([
+      { revisionId: 'rev-x', fileId: 'file-1', reason: 'again' },
+    ]);
 
     const reopened = new DurableSyncState({ persist });
-    expect(await reopened.listDeferred()).toEqual([remoteEvent(3, 'rev-x')]);
+    expect(await reopened.listParkedRemote()).toEqual([remoteEvent(3, 'rev-x')]);
+    await reopened.unparkRemote('rev-x');
+    expect(await reopened.listParkedRemote()).toEqual([]);
   });
 
   it('never trusts a malformed persisted blob and falls back to empty', async () => {
@@ -257,7 +263,7 @@ describe('DurableSyncState', () => {
     const recovered = new DurableSyncState({ persist: new MemoryPersist(blob) });
     expect(await recovered.loadCursor()).toBe(0);
     expect(await recovered.listOutbox()).toEqual([]);
-    expect(await recovered.listDeferred()).toEqual([]);
+    expect(await recovered.listParkedRemote()).toEqual([]);
   });
 
   it('degrades a malformed optional sub-field to its default while preserving core fields (MINOR 8)', async () => {
@@ -283,12 +289,12 @@ describe('DurableSyncState', () => {
 
   it('rehydrates a full valid blob including outbox and deferred', async () => {
     await state.enqueue(envelope());
-    await state.saveDeferred([remoteEvent(2, 'r')]);
+    await state.parkRemote(remoteEvent(2, 'r'), 'x');
     const reopened = new DurableSyncState({ persist });
     expect((await reopened.listOutbox())[0]?.revisionId).toBe('rev-1');
     expect(await reopened.getEnvelope('rev-1')).not.toBeUndefined();
     expect(await reopened.getEnvelope('missing')).toBeUndefined();
-    expect((await reopened.listDeferred()).length).toBe(1);
+    expect((await reopened.listParkedRemote()).length).toBe(1);
   });
 
   it('records, reads and forgets path ownership durably', async () => {

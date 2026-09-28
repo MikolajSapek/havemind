@@ -1145,3 +1145,66 @@ describe('SyncRunner auth denial', () => {
     expect(retries).toHaveLength(1);
   });
 });
+
+describe('SyncRunner parks an incoming change it cannot apply (B2)', () => {
+  function setup() {
+    const parked: Array<{ revisionId: string; reason: string }> = [];
+    const state = Object.assign(new FakeState(), {
+      parkRemote: async (event: RemoteEvent, reason: string) => {
+        parked.push({ revisionId: event.revision.revisionId, reason });
+      },
+      unparkRemote: async (revisionId: string) => {
+        const index = parked.findIndex((item) => item.revisionId === revisionId);
+        if (index >= 0) parked.splice(index, 1);
+      },
+      listParkedRemote: async () =>
+        parked.map((item) => event(1, 'file-pdf', 'h-pdf', item.revisionId)),
+    });
+    const vault = new FakeVault();
+    let pdfFails = true;
+    vault.applyRemote = async (remoteEvent: RemoteEvent) => {
+      if (remoteEvent.revision.fileId === 'file-pdf' && pdfFails) {
+        throw new Error('The file has an invalid format.');
+      }
+      vault.applied.push(remoteEvent);
+      return 'applied';
+    };
+    const { runner } = makeRunner({
+      state,
+      vault,
+      transport: {
+        push: vi.fn(async () => []),
+        pull: vi.fn(async () => ({
+          cursor: 2,
+          events: [event(1, 'file-pdf', 'h-pdf'), event(2, 'file-note', 'h-note')],
+        })),
+      },
+    });
+    return { runner, state, vault, parked, heal: () => { pdfFails = false; } };
+  }
+
+  it('retries a few times, then parks it and keeps receiving the rest', async () => {
+    const { runner, state, vault, parked } = setup();
+
+    expect((await runner.trigger()).status).toBe('offline');
+    expect((await runner.trigger()).status).toBe('offline');
+    expect(state.cursor).toBe(0);
+
+    await runner.trigger();
+
+    expect(parked).toEqual([{ revisionId: 'rev-1', reason: 'The file has an invalid format.' }]);
+    expect(state.cursor).toBe(2);
+    expect(vault.applied.map((e) => e.revision.fileId)).toEqual(['file-note']);
+  });
+
+  it('applies a parked change on retry and drops it from the list', async () => {
+    const { runner, parked, vault, heal } = setup();
+    for (let attempt = 0; attempt < 3; attempt += 1) await runner.trigger();
+    heal();
+
+    expect(await runner.retryParked('rev-1')).toBe(true);
+
+    expect(parked).toEqual([]);
+    expect(vault.applied.map((e) => e.revision.fileId)).toContain('file-pdf');
+  });
+});

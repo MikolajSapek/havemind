@@ -82,6 +82,8 @@ export interface ConnectionHandle {
   readonly revisionContent?: (revisionId: string) => Promise<RevisionContent | null>;
   /** The membership that wrote a file's newest revision. Absent on the no-op handle. */
   readonly lastAuthor?: (fileId: string) => Promise<string | null>;
+  /** Applies a parked incoming change again (B2). Absent on the no-op handle. */
+  readonly retryParked?: (revisionId: string) => Promise<boolean>;
 }
 
 export const NOOP_HANDLE: ConnectionHandle = {
@@ -141,7 +143,7 @@ export async function startSyncLoop(
   // (rule 3 TOCTOU close). Distinct files still sync in parallel.
   const fileApplyLock = new KeyedMutex();
   let producer: PushProducerHandle | null = null;
-  const { controller, state, initializeProducer, conflictAncestor, revisionContent, lastAuthor } = buildSyncController(
+  const { controller, state, initializeProducer, conflictAncestor, revisionContent, lastAuthor, retryParked } = buildSyncController(
     plugin,
     {
       apiBaseUrl: resolvers.apiBaseUrl,
@@ -237,6 +239,7 @@ export async function startSyncLoop(
     conflictAncestor,
     revisionContent,
     lastAuthor,
+    retryParked,
     readRoster: (selfMembershipId) =>
       fetchVaultMembers({
         apiBaseUrl: connection.apiBaseUrl,

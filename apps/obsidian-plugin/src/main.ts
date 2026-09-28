@@ -110,6 +110,8 @@ import type {
 import { HAVEMIND_ONBOARDING_VIEW } from './ui/view-types';
 
 /** Debounce window for the MRG-05 auto-repair sweep, a burst becomes one pass. */
+/** Send-queue row id prefix for a parked incoming change (B2). */
+const PARKED_ROW_PREFIX = 'received:';
 const CONFLICT_SWEEP_DEBOUNCE_MS = 2000;
 
 /** `data.json` key holding the F6 "Show authors" toggle. */
@@ -1163,7 +1165,15 @@ export default class HavemindPlugin extends Plugin {
     if (state === null) return null;
     return buildSendQueueStatus({
       outbox: state.outboxAges(),
-      quarantine: state.quarantineSnapshot().map((item) => {
+      quarantine: [
+        ...state.quarantineSnapshot(),
+        // Incoming changes this device could not apply (B2) share the same rows.
+        ...state.parkedSnapshot().map((item) => ({
+          ...item,
+          revisionId: `${PARKED_ROW_PREFIX}${item.revisionId}`,
+          reason: `Could not be received: ${item.reason}`,
+        })),
+      ].map((item) => {
         const path = state.pathForFileId(item.fileId);
         return {
           revisionId: item.revisionId,
@@ -1185,6 +1195,10 @@ export default class HavemindPlugin extends Plugin {
    * pushing a phantom empty create for a vanished file.
    */
   private async retrySend(revisionId: string): Promise<void> {
+    if (revisionId.startsWith(PARKED_ROW_PREFIX)) {
+      await this.retryParked(revisionId.slice(PARKED_ROW_PREFIX.length));
+      return;
+    }
     // Failed-to-queue synthetic row (SND-02): never had an envelope. Leave the
     // row in place on a successful re-trigger, onCommitSuccess (MAJOR 1) clears
     // it once the commit actually goes through.
@@ -1251,7 +1265,27 @@ export default class HavemindPlugin extends Plugin {
   }
 
   /** Permanently discard a quarantined send (SND-01). */
+  /** Applies a parked incoming change again (B2). */
+  private async retryParked(revisionId: string): Promise<void> {
+    try {
+      const done = (await this.connection?.retryParked?.(revisionId)) ?? false;
+      if (!done) {
+        new Notice('Havemind: the note is open with unsaved changes, or you are not connected. Try again later.');
+      }
+    } catch (error) {
+      new Notice(
+        `Havemind: still cannot apply this change, ${error instanceof Error ? error.message : 'unexpected error'}`,
+      );
+    }
+    this.views.refreshOnboardingNow();
+  }
+
   private async discardSend(revisionId: string): Promise<void> {
+    if (revisionId.startsWith(PARKED_ROW_PREFIX)) {
+      await this.syncState?.unparkRemote(revisionId.slice(PARKED_ROW_PREFIX.length));
+      this.views.refreshOnboardingNow();
+      return;
+    }
     await this.syncState?.discardQuarantined(revisionId);
     this.views.refreshOnboardingNow();
   }

@@ -772,3 +772,41 @@ describe('disconnect() tears down the rejoin poll (NIT)', () => {
     expect(internals.rejoinPollTimer).toBeNull();
   });
 });
+
+describe('parked incoming changes in the send queue (B2)', () => {
+  it('lists a parked change and routes Retry and Discard to it', async () => {
+    const plugin = newPlugin();
+    const unparked: string[] = [];
+    internals(plugin).syncState = {
+      outboxAges: () => [],
+      quarantineSnapshot: () => [],
+      parkedSnapshot: () => [
+        { revisionId: 'rev-9', fileId: 'file-pdf', reason: 'The file has an invalid format.' },
+      ],
+      pathForFileId: () => 'Docs/scan.pdf',
+      unparkRemote: async (id: string) => {
+        unparked.push(id);
+      },
+    };
+    const retryParked = vi.fn(async () => true);
+    internals(plugin).connection = { ...fakeHandle('live'), retryParked };
+
+    const view = internals(plugin).sendQueueView() as {
+      failed: Array<{ revisionId: string; label: string; reason: string }>;
+    };
+    expect(view.failed).toEqual([
+      {
+        revisionId: 'received:rev-9',
+        label: 'Docs/scan.pdf',
+        reason: 'Could not be received: The file has an invalid format.',
+      },
+    ]);
+
+    await internals(plugin).retrySend('received:rev-9');
+    expect(retryParked).toHaveBeenCalledWith('rev-9');
+
+    await internals(plugin).discardSend('received:rev-9');
+    expect(unparked).toEqual(['rev-9']);
+    plugin.unload();
+  });
+});

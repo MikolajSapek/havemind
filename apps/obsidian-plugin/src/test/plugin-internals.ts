@@ -37,6 +37,9 @@ export interface PluginInternals {
   saveData(data: unknown): Promise<void>;
   startConnection(): Promise<void>;
   syncState: unknown;
+  sendQueueView(): unknown;
+  retrySend(revisionId: string): Promise<void>;
+  discardSend(revisionId: string): Promise<void>;
   refreshLastEdited(): Promise<void>;
 }
 

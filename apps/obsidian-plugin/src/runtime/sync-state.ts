@@ -315,6 +315,7 @@ export class DurableSyncState implements SyncStatePort {
    * bytes are mirrored here and stripped from the on-disk blob; every access is
    * wrapped in a fallible guard so an unavailable store degrades to inline.
    */
+  private readonly parkReasons = new Map<string, string>();
   private readonly payloadStore: OutboxPayloadStore | undefined;
   private readonly keepBaseContents: boolean;
   /**
@@ -1009,15 +1010,46 @@ export class DurableSyncState implements SyncStatePort {
     };
   }
 
-  async listDeferred(): Promise<readonly RemoteEvent[]> {
+  /**
+   * Incoming changes this device could not apply, set aside so the rest of the
+   * vault keeps syncing (B2). Persisted in the `deferred` field; the failure
+   * reason is kept for this session only.
+   */
+  async listParkedRemote(): Promise<readonly RemoteEvent[]> {
     return (await this.ensureLoaded()).deferred;
   }
 
-  async saveDeferred(events: readonly RemoteEvent[]): Promise<void> {
+  async parkRemote(event: RemoteEvent, reason: string): Promise<void> {
+    this.parkReasons.set(event.revision.revisionId, reason);
     return this.runExclusive(async () => {
       const state = await this.ensureLoaded();
-      await this.mutate({ ...state, deferred: [...events] });
+      const others = state.deferred.filter(
+        (item) => item.revision.revisionId !== event.revision.revisionId,
+      );
+      await this.mutate({ ...state, deferred: [...others, event] });
     });
+  }
+
+  async unparkRemote(revisionId: string): Promise<void> {
+    this.parkReasons.delete(revisionId);
+    return this.runExclusive(async () => {
+      const state = await this.ensureLoaded();
+      await this.mutate({
+        ...state,
+        deferred: state.deferred.filter((item) => item.revision.revisionId !== revisionId),
+      });
+    });
+  }
+
+  /** Parked incoming changes for the panel, from the in-memory cache. */
+  parkedSnapshot(): readonly { revisionId: string; fileId: string; reason: string }[] {
+    return (this.cache?.deferred ?? []).map((event) => ({
+      revisionId: event.revision.revisionId,
+      fileId: event.revision.fileId,
+      reason:
+        this.parkReasons.get(event.revision.revisionId) ??
+        'This device could not apply this change.',
+    }));
   }
 
   private rememberAuthored(

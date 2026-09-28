@@ -50,8 +50,8 @@ export function renderSendQueueSection(
   const header = block.createDiv({
     text:
       view.failed.length === 1
-        ? "1 change couldn't be sent"
-        : `${view.failed.length} changes couldn't be sent`,
+        ? "1 change couldn't be synced"
+        : `${view.failed.length} changes couldn't be synced`,
   });
   header.addClass('havemind-send-failed');
 

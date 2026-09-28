@@ -7,6 +7,13 @@ and the server.
 
 ## [Unreleased]
 
+### Fixed
+
+- Plugin: an incoming change this device cannot apply (like the PDF iOS
+  refused to read on 26 September) no longer stops the whole vault. After
+  three tries it is set aside, listed in the pane with its reason and Retry
+  and Discard, and everything else keeps syncing.
+
 ### Changed
 
 - Plugin: Restore in the Activity feed now really restores. It fetches the

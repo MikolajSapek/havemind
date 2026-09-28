@@ -45,7 +45,7 @@ describe('renderSendQueueSection', () => {
     const header = all.find((e) => e.classes.includes('havemind-send-failed'));
     // "change(s)" was placeholder grammar nobody speaks; the design writes the
     // sentence out and picks the right form from the count.
-    expect(header?.text).toBe("2 changes couldn't be sent");
+    expect(header?.text).toBe("2 changes couldn't be synced");
     const rows = all.filter((e) =>
       e.classes.includes('havemind-send-failed-row'),
     );

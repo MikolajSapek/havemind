@@ -82,6 +82,8 @@ export interface BuiltSyncController {
   readonly revisionContent: (revisionId: string) => Promise<RevisionContent | null>;
   /** The membership that wrote a file's newest revision, or null. */
   readonly lastAuthor: (fileId: string) => Promise<string | null>;
+  /** Applies a parked incoming change again (B2); false while it must wait. */
+  readonly retryParked: (revisionId: string) => Promise<boolean>;
 }
 
 /**
@@ -269,6 +271,7 @@ export function buildSyncController(
     state,
     initializeProducer: (producer, vault) => bootstrapIdentities({ history, state, producer, vault }),
     lastAuthor: async (fileId: string) => newestAuthor(await history.heads(fileId)),
+    retryParked: (revisionId: string) => runner.retryParked(revisionId),
     // The Activity feed's Restore reads a revision's text from the history.
     revisionContent: async (revisionId: string) => {
       const event = await history.event(revisionId);
