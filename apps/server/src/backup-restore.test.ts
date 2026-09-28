@@ -1,5 +1,6 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { readdir, readFile, truncate, writeFile } from 'node:fs/promises';
+import type * as FsPromises from 'node:fs/promises';
+import { readdir, readFile, rm, stat, truncate, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -9,7 +10,22 @@ import {
   type ProtectedRevisionHeader,
 } from '@havemind/protocol';
 import type Database from 'better-sqlite3';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+// Lets a test make `link` fail the way it does across filesystems (EXDEV).
+const linkFailure = vi.hoisted(() => ({ code: null as string | null }));
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof FsPromises>();
+  return {
+    ...actual,
+    link: async (...args: Parameters<typeof actual.link>): Promise<void> => {
+      if (linkFailure.code !== null) {
+        throw Object.assign(new Error('link failed'), { code: linkFailure.code });
+      }
+      return actual.link(...args);
+    },
+  };
+});
 
 import { buildApp } from './app.js';
 import {
@@ -201,6 +217,7 @@ async function seedInstance(): Promise<SeededInstance> {
 }
 
 afterEach(async () => {
+  linkFailure.code = null;
   await Promise.all(applications.splice(0).map(async (app) => app.close()));
   for (const database of databases.splice(0)) {
     try {
@@ -256,6 +273,45 @@ describe('createBackup', () => {
       await readFile(join(backupDir, 'manifest.json'), 'utf8'),
     ) as { blobs: unknown[] };
     expect(persisted.blobs).toHaveLength(1);
+  });
+
+  it('hard-links a blob unchanged since the previous backup, each artifact restoring alone', async () => {
+    const seed = await seedInstance();
+    const previousBackupDir = join(makeDataDir(), 'previous');
+    const backupDir = join(makeDataDir(), 'backup');
+    await createBackup({ backupDir: previousBackupDir, database: seed.database, dataDir: seed.dataDir });
+    await createBackup({ backupDir, database: seed.database, dataDir: seed.dataDir, previousBackupDir });
+
+    const blob = join('blobs', seed.blobHash.slice(0, 2), seed.blobHash);
+    const [linked, original] = await Promise.all([
+      stat(join(backupDir, blob)),
+      stat(join(previousBackupDir, blob)),
+    ]);
+    expect(linked.ino).toBe(original.ino);
+
+    await rm(previousBackupDir, { force: true, recursive: true });
+    const targetDir = join(makeDataDir(), 'restored');
+    await restoreInstance({ backupDir, randomUuid: () => NEW_EPOCH, targetDir });
+    expect(await readFile(join(targetDir, blob), 'utf8')).toBe('opaque-payload');
+  });
+
+  it('copies the blob when linking fails, e.g. across filesystems', async () => {
+    const seed = await seedInstance();
+    const previousBackupDir = join(makeDataDir(), 'previous');
+    const backupDir = join(makeDataDir(), 'backup');
+    await createBackup({ backupDir: previousBackupDir, database: seed.database, dataDir: seed.dataDir });
+    linkFailure.code = 'EXDEV';
+    await createBackup({ backupDir, database: seed.database, dataDir: seed.dataDir, previousBackupDir });
+
+    const blob = join('blobs', seed.blobHash.slice(0, 2), seed.blobHash);
+    const [copied, original] = await Promise.all([
+      stat(join(backupDir, blob)),
+      stat(join(previousBackupDir, blob)),
+    ]);
+    expect(copied.ino).not.toBe(original.ino);
+    await expect(verifyBackupStructure(backupDir)).resolves.toMatchObject({
+      blobs: [{ hash: seed.blobHash }],
+    });
   });
 
   it('refuses to back up an uninitialized instance', async () => {

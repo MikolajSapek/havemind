@@ -111,6 +111,7 @@ export async function runScheduledBackup(
   const backupDir = join(options.backupsRoot, backupId);
   const stagingDir = join(options.backupsRoot, `.${backupId}.tmp`);
   await rm(stagingDir, { force: true, recursive: true });
+  const [previous] = await listBackups(options.backupsRoot);
 
   let manifest: BackupManifest;
   try {
@@ -119,6 +120,7 @@ export async function runScheduledBackup(
       database: options.database,
       dataDir: options.dataDir,
       now,
+      previousBackupDir: previous?.backupDir,
     });
     await rename(stagingDir, backupDir);
   } catch (error) {

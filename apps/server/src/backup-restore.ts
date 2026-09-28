@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import {
   cp,
+  link,
+  lstat,
   mkdir,
   readdir,
   readFile,
@@ -90,6 +92,11 @@ export interface CreateBackupOptions {
   readonly database: Database.Database;
   readonly dataDir: string;
   readonly backupDir: string;
+  /**
+   * The newest published artifact, if any. A blob it already holds byte for
+   * byte is hard-linked from there instead of written again.
+   */
+  readonly previousBackupDir?: string | undefined;
   readonly now?: () => Date;
 }
 
@@ -180,6 +187,37 @@ async function listFiles(directory: string): Promise<string[]> {
 }
 
 /**
+ * Hard-links `destination` to the same blob in the previous artifact when that
+ * file holds exactly `bytes`, so an unchanged blob costs no new disk space and
+ * every artifact still holds a full set of names. Returns false, and the caller
+ * writes a copy, when there is no previous artifact, the blob is absent or
+ * differs there, or the link fails (for example across filesystems).
+ */
+async function linkUnchangedBlob(
+  previousBackupDir: string | undefined,
+  hash: string,
+  bytes: Buffer,
+  destination: string,
+): Promise<boolean> {
+  if (previousBackupDir === undefined) {
+    return false;
+  }
+  const source = join(previousBackupDir, blobRelativePath(hash));
+  try {
+    if (!(await lstat(source)).isFile()) {
+      return false;
+    }
+    if (!(await readFile(source)).equals(bytes)) {
+      return false;
+    }
+    await link(source, destination);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Snapshots the SQLite database and every content-addressed blob into
  * `backupDir`, writing a manifest that pins each blob's hash and size. The
  * manifest is what a later restore verifies before it starts serving.
@@ -212,7 +250,11 @@ export async function createBackup(
       mode: 0o700,
       recursive: true,
     });
-    await writeFile(destination, bytes, { mode: 0o600 });
+    if (
+      !(await linkUnchangedBlob(options.previousBackupDir, hash, bytes, destination))
+    ) {
+      await writeFile(destination, bytes, { mode: 0o600 });
+    }
     blobs.push({ hash, size: bytes.byteLength });
   }
 

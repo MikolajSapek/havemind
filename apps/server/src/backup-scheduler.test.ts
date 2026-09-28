@@ -1,5 +1,5 @@
 import { mkdtempSync, rmSync } from 'node:fs';
-import { mkdir, readdir, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -308,6 +308,15 @@ describe('runScheduledBackup', () => {
       'backup-0004',
       'backup-0003',
     ]);
+
+    // An unchanged blob is hard-linked to the previous artifact, not copied.
+    const blobPath = (backupId: string): string =>
+      join(backupsRoot, backupId, 'blobs', seed.blobHash.slice(0, 2), seed.blobHash);
+    const [newest, previous] = await Promise.all([
+      stat(blobPath('backup-0004')),
+      stat(blobPath('backup-0003')),
+    ]);
+    expect(newest.ino).toBe(previous.ino);
   });
 });
 
