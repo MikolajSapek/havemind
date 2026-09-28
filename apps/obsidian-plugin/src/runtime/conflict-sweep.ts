@@ -2,16 +2,16 @@
  * MRG-05, auto-repair sweep for existing conflict copies.
  *
  * A conflict copy is a divergent revision the apply path could not converge in
- * place (see vault-apply.ts). Once the merge ancestor for the target note is
- * durably known (MRG-01 `baseContents`), many of those copies CAN be merged
+ * place (see vault-apply.ts). Once the revision history gives the common
+ * ancestor of the note and the copy, many of those copies CAN be merged
  * automatically after the fact: the ancestor + the live note + the copy is a
  * clean three-way merge input. This sweep re-attempts that merge for every
  * parseable copy and, on success, writes the merged text back into the note and
  * deletes the copy, collapsing conflicts that only ever needed a later apply.
  *
  * Hard laws honoured here:
- *  - NEVER guess an ancestor. A copy whose target has no hash-verified base
- *    content is left untouched for the manual modal.
+ *  - NEVER guess an ancestor. A copy with no common ancestor in the revision
+ *    history is left untouched for the manual modal.
  *  - NEVER delete a copy unless its content was FULLY merged into the note
  *    (zero content loss). A merge conflict/overlap, binary copy, legacy UUID
  *    name or unpairable target is skipped, never deleted.
@@ -48,12 +48,15 @@ export interface ConflictSweepDeps {
   readonly fileIdAtPath: (path: string) => string | null;
   /** The fileId whose revision a conflict copy holds, or null when not recorded. */
   readonly fileIdForCopy: (copyPath: string) => string | null;
-  /** The durably persisted merge ancestor (base content) for a fileId, or null. */
-  readonly baseContentFor: (fileId: string) => string | null;
-  /** The persisted base content HASH for a fileId, used to verify the ancestor. */
-  readonly baseHashFor: (fileId: string) => string | null;
-  /** Content-addressed hash (same helper the apply path records the base with). */
-  readonly hashContent: (content: string) => Promise<string>;
+  /**
+   * The common ancestor of the note's local head and the copy's revision, read
+   * from the server's revision history, or null when there is none to trust.
+   */
+  readonly ancestorFor: (
+    copyPath: string,
+    fileId: string,
+    targetPath: string,
+  ) => Promise<string | null>;
   /** Emit a single summarising message when at least one copy was auto-resolved. */
   readonly notify: (message: string) => void;
   /** Three-way merge; injectable for tests, defaults to sync-core `mergeText`. */
@@ -90,14 +93,9 @@ export async function sweepConflictCopies(
       // different file now at the path, would be overwritten with its content.
       if (deps.fileIdForCopy(copy.copyPath) !== fileId) continue;
 
-      // NEVER guess an ancestor: skip unless a base content is recorded AND it
-      // still matches the recorded base hash (inconsistent state fails safe).
-      const ancestor = deps.baseContentFor(fileId);
+      // NEVER guess an ancestor: skip unless the revision history has one.
+      const ancestor = await deps.ancestorFor(copy.copyPath, fileId, targetPath);
       if (ancestor === null) continue;
-      const baseHash = deps.baseHashFor(fileId);
-      if (baseHash === null || (await deps.hashContent(ancestor)) !== baseHash) {
-        continue;
-      }
 
       const [mine, theirs] = await Promise.all([
         deps.port.readText(targetPath),

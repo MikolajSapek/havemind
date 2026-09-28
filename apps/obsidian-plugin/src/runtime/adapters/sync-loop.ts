@@ -63,6 +63,15 @@ export interface ConnectionHandle {
   /** Runs one sync cycle now. Absent on the no-op handle. */
   readonly syncNow?: () => Promise<void>;
   /**
+   * The common ancestor, from the revision history, of a conflict copy and
+   * the note it belongs to; null when there is none. Absent on the no-op handle.
+   */
+  readonly conflictAncestor?: (
+    copyPath: string,
+    fileId: string,
+    targetPath: string,
+  ) => Promise<string | null>;
+  /**
    * Reads the vault roster with this connection's own access token (B4), so
    * no second refresh rotation races the sync loop's. Absent on the no-op
    * handle.
@@ -127,7 +136,7 @@ export async function startSyncLoop(
   // (rule 3 TOCTOU close). Distinct files still sync in parallel.
   const fileApplyLock = new KeyedMutex();
   let producer: PushProducerHandle | null = null;
-  const { controller, state, initializeProducer } = buildSyncController(
+  const { controller, state, initializeProducer, conflictAncestor } = buildSyncController(
     plugin,
     {
       apiBaseUrl: resolvers.apiBaseUrl,
@@ -220,6 +229,7 @@ export async function startSyncLoop(
       : { retryFailedCommit: producer.retryFailedCommit }),
     serverName: serverNameFromUrl(connection.apiBaseUrl),
     syncNow: () => controller.syncNow(),
+    conflictAncestor,
     readRoster: (selfMembershipId) =>
       fetchVaultMembers({
         apiBaseUrl: connection.apiBaseUrl,

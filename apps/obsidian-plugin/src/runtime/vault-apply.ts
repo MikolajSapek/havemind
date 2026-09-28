@@ -767,6 +767,27 @@ export class VaultApplyAdapter implements VaultApplyPort {
    * accepted remote revision: publish it explicitly, with its resolved parents,
    * before changing the disk. The observer then deduplicates the reflected write.
    */
+  /**
+   * The common ancestor text of this device's head for `fileId` and
+   * `revisionId`, from the revision history, when it is a markdown note at
+   * `path`; null when there is none to trust. Also used by the conflict sweep.
+   */
+  async mergeAncestor(
+    fileId: string,
+    revisionId: string,
+    path: string,
+  ): Promise<string | null> {
+    if (this.history === undefined) return null;
+    const head = await this.producerSync?.localHeadFor?.(fileId);
+    if (head == null) return null;
+    const graph = await this.history.graph(fileId);
+    const shared = commonAncestor(graph, head, revisionId);
+    if (shared === null) return null;
+    const payload = await this.history.payload(shared);
+    if (payload.kind === 'binary' || payload.operation === 'delete' || payload.path !== path) return null;
+    return payload.content;
+  }
+
   private async tryMergeApply(
     event: RemoteEvent,
     decoded: DecodedRevisionPayload,
@@ -778,14 +799,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
   ): Promise<RemoteApplyOutcome | null> {
     let ancestor: string | null;
     if (this.history !== undefined) {
-      const head = await this.producerSync?.localHeadFor?.(fileId);
-      if (head == null) return null;
-      const graph = await this.history.graph(fileId);
-      const shared = commonAncestor(graph, head, event.revision.revisionId);
-      if (shared === null) return null;
-      const payload = await this.history.payload(shared);
-      if (payload.kind === 'binary' || payload.operation === 'delete' || payload.path !== decoded.path) return null;
-      ancestor = payload.content;
+      ancestor = await this.mergeAncestor(fileId, event.revision.revisionId, decoded.path);
     } else {
       if (base === null) return null;
       ancestor = this.files.baseContentFor(fileId);

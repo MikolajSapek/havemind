@@ -91,18 +91,16 @@ const COPY = `${CONFLICT_FOLDER}/Notatka (conflict Magda 2026-07-16 1542).md`;
 const ANCESTOR = 'A\nB\nC\n';
 
 /**
- * Base deps: the target note is owned by `file-1`, whose hash-verified base
- * content is the common ancestor. `hashContent` is the identity function so a
- * base whose "hash" equals the ancestor text verifies cleanly.
+ * Base deps: the target note is owned by `file-1`, and the revision history
+ * gives ANCESTOR as the common ancestor of the note and the copy.
  */
 function baseDeps(vault: FakeConflictVault, overrides: Partial<Parameters<typeof sweepConflictCopies>[0]> = {}) {
   return {
     port: vault,
     fileIdAtPath: (path: string) => (path === NOTE ? 'file-1' : null),
     fileIdForCopy: (path: string) => (path === COPY ? 'file-1' : null),
-    baseContentFor: (fileId: string) => (fileId === 'file-1' ? ANCESTOR : null),
-    baseHashFor: (fileId: string) => (fileId === 'file-1' ? ANCESTOR : null),
-    hashContent: async (content: string) => content,
+    ancestorFor: async (_copyPath: string, fileId: string) =>
+      fileId === 'file-1' ? ANCESTOR : null,
     notify: vi.fn(),
     ...overrides,
   };
@@ -233,21 +231,10 @@ describe('sweepConflictCopies', () => {
     expect(deps.notify).not.toHaveBeenCalled();
   });
 
-  it('skips when no ancestor is recorded (never guesses)', async () => {
+  it('skips when the history gives no common ancestor (never guesses)', async () => {
     vault.put(NOTE, 'top\nA\nB\nC\n');
     vault.put(COPY, 'A\nB\nC\nbottom\n');
-    const deps = baseDeps(vault, { baseContentFor: () => null });
-
-    const resolved = await sweepConflictCopies(deps);
-
-    expect(resolved).toBe(0);
-    expect(vault.has(COPY)).toBe(true);
-  });
-
-  it('skips when the stored ancestor no longer matches the base hash', async () => {
-    vault.put(NOTE, 'top\nA\nB\nC\n');
-    vault.put(COPY, 'A\nB\nC\nbottom\n');
-    const deps = baseDeps(vault, { baseHashFor: () => 'a-different-hash' });
+    const deps = baseDeps(vault, { ancestorFor: async () => null });
 
     const resolved = await sweepConflictCopies(deps);
 

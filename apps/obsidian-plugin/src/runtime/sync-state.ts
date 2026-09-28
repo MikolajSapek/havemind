@@ -864,6 +864,14 @@ export class DurableSyncState implements SyncStatePort {
     });
   }
 
+  /** The remote revision a conflict copy holds, or null when not recorded. */
+  revisionForConflictCopy(path: string): string | null {
+    for (const [revisionId, copyPath] of Object.entries(this.cache?.conflictArtifacts ?? {})) {
+      if (copyPath === path) return revisionId;
+    }
+    return null;
+  }
+
   /** The fileId a conflict copy was written for, or null when not recorded. */
   fileIdForConflictCopy(path: string): string | null {
     return this.cache?.conflictCopyFileIds?.[path] ?? null;

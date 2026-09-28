@@ -6,7 +6,6 @@ import {
   type WorkspaceLeaf,
 } from 'obsidian';
 
-import { hashPlaintext } from '@havemind/protocol';
 
 import {
   buildLivePreviewOverlay,
@@ -1339,9 +1338,9 @@ export default class HavemindPlugin extends Plugin {
   }
 
   /**
-   * Runs one auto-repair pass (MRG-05). Reuses the persisted merge ancestor +
-   * base hash from the sync state; a copy with no hash-verified ancestor is left
-   * untouched for the manual modal. A guard prevents overlapping runs. Refreshes
+   * Runs one auto-repair pass (MRG-05). The merge ancestor comes from the
+   * connection's revision history; a copy with none is left untouched for the
+   * manual modal. A guard prevents overlapping runs. Refreshes
    * the panel afterwards so a resolved conflict's row drops out.
    */
   private async runConflictSweep(): Promise<void> {
@@ -1359,9 +1358,8 @@ export default class HavemindPlugin extends Plugin {
       port: this.conflictPort(),
       fileIdAtPath: (path) => state.fileIdAtPath(path),
       fileIdForCopy: (path) => state.fileIdForConflictCopy(path),
-      baseContentFor: (fileId) => state.baseContentFor(fileId),
-      baseHashFor: (fileId) => state.baseHashFor(fileId),
-      hashContent: (content) => hashPlaintext(content),
+      ancestorFor: async (copyPath, fileId, targetPath) =>
+        (await this.connection?.conflictAncestor?.(copyPath, fileId, targetPath)) ?? null,
       notify: (message) => {
         new Notice(`Havemind: ${message}`);
       },

@@ -374,6 +374,9 @@ describe('DurableSyncState', () => {
       reopened.fileIdForConflictCopy('Havemind Conflicts/N (conflict A 2026-09-28 1200).md'),
     ).toBe('file-7');
     expect(reopened.fileIdForConflictCopy('Havemind Conflicts/other.md')).toBeNull();
+    expect(
+      reopened.revisionForConflictCopy('Havemind Conflicts/N (conflict A 2026-09-28 1200).md'),
+    ).toBe('rev-9');
   });
 
   it('quarantines an outbox item durably, removing it from the outbox', async () => {

@@ -74,6 +74,8 @@ export interface BuiltSyncController {
   readonly controller: HavemindSyncController;
   readonly state: DurableSyncState;
   readonly initializeProducer: (producer: OutboxLocalChangeRepository, vault: VaultSnapshotPort) => Promise<ReadonlySet<string>>;
+  /** The history ancestor of a conflict copy and its note, or null. */
+  readonly conflictAncestor: (copyPath: string, fileId: string, targetPath: string) => Promise<string | null>;
 }
 
 /**
@@ -253,5 +255,14 @@ export function buildSyncController(
   });
   controllerRef.current = controller;
 
-  return { controller, state, initializeProducer: (producer, vault) => bootstrapIdentities({ history, state, producer, vault }) };
+  return {
+    controller,
+    state,
+    initializeProducer: (producer, vault) => bootstrapIdentities({ history, state, producer, vault }),
+    // The conflict sweep merges a copy over the ancestor the history gives.
+    conflictAncestor: async (copyPath, fileId, targetPath) => {
+      const revisionId = state.revisionForConflictCopy(copyPath);
+      return revisionId === null ? null : vault.mergeAncestor(fileId, revisionId, targetPath);
+    },
+  };
 }
