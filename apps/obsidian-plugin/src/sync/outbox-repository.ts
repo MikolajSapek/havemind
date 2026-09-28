@@ -106,6 +106,12 @@ export interface OutboxLocalChangeRepositoryOptions {
   readonly cancelUnsentMerge?: (revisionId: string) => Promise<void>;
   readonly hasAuthoredRevision?: (revisionId: string) => Promise<boolean>;
   /**
+   * Parents of a quarantined revision, undefined when it is not quarantined.
+   * A head the server never received is walked back through these, so the
+   * next edit does not name a dead parent and get refused as missing-parent.
+   */
+  readonly quarantinedParents?: (revisionId: string) => Promise<readonly string[] | undefined>;
+  /**
    * Effective per-payload byte ceiling. A change whose payload would exceed it
    * is rejected here, before enqueue, with a surfaced
    * `RevisionPayloadTooLargeError`, so an oversized note can never silently wedge
@@ -365,19 +371,44 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
     await recovery.completeProducerRecovery(record.id);
   }
 
+  /**
+   * The parents a new revision of a file may name: its head, or, when the head
+   * was quarantined and so never reached the server, the head's own parents,
+   * walked back until none of them is quarantined. A head whose parents were
+   * never recorded is kept as it is.
+   */
+  private async liveParents(head: string | undefined): Promise<readonly string[]> {
+    if (head === undefined) return [];
+    const lookup = this.options.quarantinedParents;
+    if (lookup === undefined) return [head];
+    const live: string[] = [];
+    const seen = new Set<string>();
+    const pending = [head];
+    while (pending.length > 0) {
+      const id = pending.shift() as string;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const parents = await lookup(id);
+      if (parents === undefined) live.push(id);
+      else pending.push(...parents);
+    }
+    return live;
+  }
+
   async commitLocalChange(commit: LocalChangeCommit): Promise<string | null> {
     return this.mutations.runExclusive('state', async () => {
       await this.recoverLocked();
       const state = await this.options.store.load();
       const { operation } = commit;
-      const head = state.heads[operation.fileId];
+      const liveParents = await this.liveParents(state.heads[operation.fileId]);
+      const head = liveParents.length === 0 ? undefined : liveParents[0];
       const kind = operation.kind;
       const envelopeOperation = resolveOperation(kind, head);
 
       // A delete with no server-side head has nothing to tombstone remotely.
       if (!(kind === 'delete' && head === undefined)) {
         const parentRevisionIds =
-          envelopeOperation === 'create' || head === undefined ? [] : [head];
+          envelopeOperation === 'create' || head === undefined ? [] : liveParents;
         const revisionId = this.options.generateRevisionId();
         // buildRevisionEnvelope throws RevisionPayloadTooLargeError for an
         // oversized change. It propagates out of commitLocalChange BEFORE the

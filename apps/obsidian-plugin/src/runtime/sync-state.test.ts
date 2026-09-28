@@ -358,14 +358,24 @@ describe('DurableSyncState', () => {
 
     expect(await state.listOutbox()).toEqual([]);
     expect(await state.listQuarantine()).toEqual([
-      { revisionId: 'rev-1', fileId: 'file-1', reason: 'server-rejected' },
+      {
+        revisionId: 'rev-1',
+        fileId: 'file-1',
+        reason: 'server-rejected',
+        parentRevisionIds: [],
+      },
     ]);
 
     // The dead-letter record and the emptied outbox both survive a restart.
     const reopened = new DurableSyncState({ persist });
     expect(await reopened.listOutbox()).toEqual([]);
     expect(await reopened.listQuarantine()).toEqual([
-      { revisionId: 'rev-1', fileId: 'file-1', reason: 'server-rejected' },
+      {
+        revisionId: 'rev-1',
+        fileId: 'file-1',
+        reason: 'server-rejected',
+        parentRevisionIds: [],
+      },
     ]);
   });
 
@@ -735,8 +745,14 @@ describe('DurableSyncState', () => {
     it('keeps listQuarantine shape unchanged (no envelope leak into the row)', async () => {
       await state.enqueue(envelope());
       await state.quarantineOutboxItem('rev-1', 'server-rejected');
+      // The row carries the revision's parents, never its payload.
       expect(await state.listQuarantine()).toEqual([
-        { revisionId: 'rev-1', fileId: 'file-1', reason: 'server-rejected' },
+        {
+          revisionId: 'rev-1',
+          fileId: 'file-1',
+          reason: 'server-rejected',
+          parentRevisionIds: [],
+        },
       ]);
     });
 

@@ -100,6 +100,12 @@ export interface QuarantinedRevision {
   readonly revisionId: string;
   readonly fileId: string;
   readonly reason: string;
+  /**
+   * The dead revision's own parents. A later edit of the file is parented on
+   * these instead, since the server never saw the quarantined revision.
+   * Absent on rows written before it was recorded.
+   */
+  readonly parentRevisionIds?: readonly string[];
 }
 
 export interface PersistedSyncState {
@@ -582,6 +588,9 @@ export class DurableSyncState implements SyncStatePort {
         revisionId,
         fileId: failed?.fileId ?? '',
         reason,
+        ...(failed === undefined
+          ? {}
+          : { parentRevisionIds: parentIdsFromHeader(failed.header) }),
       };
       const quarantine = [
         ...state.quarantine.filter((item) => item.revisionId !== revisionId),
@@ -677,6 +686,20 @@ export class DurableSyncState implements SyncStatePort {
 
   async listQuarantine(): Promise<readonly QuarantinedRevision[]> {
     return (await this.ensureLoaded()).quarantine;
+  }
+
+  /**
+   * The parents of a quarantined revision, or undefined when `revisionId` is
+   * not quarantined or its parents were never recorded (a legacy row whose
+   * stash was evicted). The producer walks past a quarantined head with this.
+   */
+  async quarantinedParents(revisionId: string): Promise<readonly string[] | undefined> {
+    const state = await this.ensureLoaded();
+    const row = state.quarantine.find((item) => item.revisionId === revisionId);
+    if (row === undefined) return undefined;
+    if (row.parentRevisionIds !== undefined) return row.parentRevisionIds;
+    const stashed = state.quarantinedEnvelopes[revisionId];
+    return stashed === undefined ? undefined : parentIdsFromHeader(stashed.header);
   }
 
   /** Includes unsent authored revisions; used to distinguish local work from history replay. */
@@ -1570,10 +1593,14 @@ function parseQuarantine(value: unknown): QuarantinedRevision[] | null {
     ) {
       return null;
     }
+    const parents = entry.parentRevisionIds;
     result.push({
       revisionId: entry.revisionId,
       fileId: entry.fileId,
       reason: entry.reason,
+      ...(Array.isArray(parents) && parents.every((id) => typeof id === 'string')
+        ? { parentRevisionIds: parents as string[] }
+        : {}),
     });
   }
   return result;
