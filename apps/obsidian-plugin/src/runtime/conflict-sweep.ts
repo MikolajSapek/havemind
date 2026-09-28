@@ -106,8 +106,10 @@ export async function sweepConflictCopies(
 
       // Zero content loss: the copy's content is now fully represented by the
       // merged note, so writing the note THEN deleting the copy is safe. Order
-      // matters, the delete only runs after a successful write.
-      await deps.port.writeText(targetPath, result.text);
+      // matters, the delete only runs after a successful write. The write is
+      // conditional: an edit saved or applied since the read, or unsaved
+      // typing, is never overwritten by a merge computed without it.
+      if (!(await deps.port.replaceText(targetPath, mine, result.text))) continue;
       await deps.port.deleteFile(copy.copyPath);
       resolved += 1;
     } catch {

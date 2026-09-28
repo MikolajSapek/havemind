@@ -865,8 +865,11 @@ export default class HavemindPlugin extends Plugin {
    * shared interface (the port degrades to "no conflicts" for a stub vault).
    */
   private conflictPort(): ConflictVaultPort {
-    const app = this.app as unknown as { vault: Parameters<typeof createObsidianConflictPort>[0] };
-    return createObsidianConflictPort(app.vault);
+    const app = this.app as unknown as {
+      vault: Parameters<typeof createObsidianConflictPort>[0];
+      workspace?: Parameters<typeof createObsidianConflictPort>[1];
+    };
+    return createObsidianConflictPort(app.vault, app.workspace);
   }
 
   /**

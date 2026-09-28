@@ -12,7 +12,10 @@
  * Obsidian. `main.ts` supplies an Obsidian-backed port at runtime.
  */
 
-import type { TFile, Vault } from 'obsidian';
+import type { TFile, Vault, Workspace } from 'obsidian';
+import { canonicalizeMarkdown } from '@havemind/protocol';
+
+import { editorTexts } from './adapters/editor-buffers';
 
 /**
  * Reserved, sync-excluded folder holding conflict copies, the SINGLE definition
@@ -122,6 +125,12 @@ export interface ConflictVaultPort {
    */
   readText(path: string): Promise<string | null>;
   writeText(path: string, content: string): Promise<void>;
+  /**
+   * Writes `content` only while the note still holds `expected`, on disk and in
+   * every open editor. False when the note changed, vanished or has unsaved
+   * typing; nothing is written then.
+   */
+  replaceText(path: string, expected: string, content: string): Promise<boolean>;
   deleteFile(path: string): Promise<void>;
 }
 
@@ -330,7 +339,10 @@ async function resolveOnce(
  * is a normal local edit. Defensive about a vault stub lacking `getFiles` so it
  * degrades to "no conflicts" rather than throwing in headless contexts.
  */
-export function createObsidianConflictPort(vault: Vault): ConflictVaultPort {
+export function createObsidianConflictPort(
+  vault: Vault,
+  workspace?: Pick<Workspace, 'iterateAllLeaves'>,
+): ConflictVaultPort {
   const inReservedFolder = (path: string): boolean =>
     path === CONFLICT_FOLDER || path.startsWith(`${CONFLICT_FOLDER}/`);
 
@@ -358,6 +370,30 @@ export function createObsidianConflictPort(vault: Vault): ConflictVaultPort {
       // no-op here would lose both versions.
       if (file === null) throw new Error(`${path} no longer exists.`);
       await vault.modify(file as TFile, content);
+    },
+    replaceText: async (path, expected, content) => {
+      const file = vault.getAbstractFileByPath(path);
+      if (file === null) return false;
+      // Compared inside Obsidian's atomic read/modify callback, like the remote
+      // apply: an earlier read is no lock on editor saves or remote writes.
+      // Throwing aborts the callback without touching the file.
+      const changed = new Error('changed since read');
+      try {
+        await vault.process(file as TFile, (current) => {
+          const canonical = canonicalizeMarkdown(current);
+          if (
+            current !== expected ||
+            editorTexts(workspace, path).some((text) => text !== canonical)
+          ) {
+            throw changed;
+          }
+          return content;
+        });
+      } catch (error) {
+        if (error === changed) return false;
+        throw error;
+      }
+      return true;
     },
     deleteFile: async (path) => {
       const file = vault.getAbstractFileByPath(path);

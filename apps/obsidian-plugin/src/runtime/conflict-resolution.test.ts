@@ -51,6 +51,10 @@ function fakePort(
     writeText: async (path: string, content: string) => {
       writes.push({ path, content });
     },
+    replaceText: async (path: string, _expected: string, content: string) => {
+      writes.push({ path, content });
+      return true;
+    },
     deleteFile: async (path: string) => {
       deletes.push(path);
     },
@@ -360,6 +364,11 @@ describe('createObsidianConflictPort', () => {
       modify: async (file: FakeFile, content: string) => {
         modified.push({ path: file.path, content });
       },
+      process: async (file: FakeFile, run: (current: string) => string) => {
+        const content = run(`body of ${file.path}`);
+        modified.push({ path: file.path, content });
+        return content;
+      },
       delete: async (file: FakeFile) => {
         deleted.push(file.path);
       },
@@ -399,6 +408,35 @@ describe('createObsidianConflictPort', () => {
     const port = createObsidianConflictPort(vault);
     await expect(port.writeText('Gone.md', 'body')).rejects.toThrow();
     expect(modified).toEqual([]);
+  });
+
+  it('replaces a note only while disk and open editors still hold the expected text', async () => {
+    const { vault, modified } = fakeVault([{ path: 'N.md', name: 'N.md' }]);
+    const editors: string[] = [];
+    const workspace = {
+      iterateAllLeaves: (visit: (leaf: unknown) => void) => {
+        for (const text of editors) {
+          visit({
+            view: {
+              getViewType: () => 'markdown',
+              getMode: () => 'source',
+              file: { path: 'N.md' },
+              editor: { getValue: () => text },
+            },
+          });
+        }
+      },
+    } as unknown as Parameters<typeof createObsidianConflictPort>[1];
+    const port = createObsidianConflictPort(vault, workspace);
+
+    await expect(port.replaceText('N.md', 'stale', 'merged')).resolves.toBe(false);
+    editors.push('body of N.md with unsaved typing');
+    await expect(port.replaceText('N.md', 'body of N.md', 'merged')).resolves.toBe(false);
+    expect(modified).toEqual([]);
+    editors.length = 0;
+    await expect(port.replaceText('N.md', 'body of N.md', 'merged')).resolves.toBe(true);
+    await expect(port.replaceText('Gone.md', 'x', 'merged')).resolves.toBe(false);
+    expect(modified).toEqual([{ path: 'N.md', content: 'merged' }]);
   });
 
   it('degrades to no conflicts when the vault lacks getFiles', () => {

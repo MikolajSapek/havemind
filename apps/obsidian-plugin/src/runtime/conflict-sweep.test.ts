@@ -16,6 +16,10 @@ import {
 class FakeConflictVault implements ConflictVaultPort {
   private readonly files = new Map<string, string>();
   readonly deleted: string[] = [];
+  /** Runs once after the next read of `path`, modelling an edit landing mid-sweep. */
+  afterRead: { path: string; run: () => void } | null = null;
+  /** Mirrors the editor buffers the Obsidian port checks; path → unsaved text. */
+  readonly unsaved = new Map<string, string>();
 
   put(path: string, content: string): void {
     this.files.set(path, content);
@@ -46,7 +50,21 @@ class FakeConflictVault implements ConflictVaultPort {
   }
 
   async readText(path: string): Promise<string> {
-    return this.files.get(path) ?? '';
+    const content = this.files.get(path) ?? '';
+    if (this.afterRead?.path === path) {
+      const { run } = this.afterRead;
+      this.afterRead = null;
+      run();
+    }
+    return content;
+  }
+
+  async replaceText(path: string, expected: string, content: string): Promise<boolean> {
+    if (this.files.get(path) !== expected) return false;
+    const buffer = this.unsaved.get(path);
+    if (buffer !== undefined && buffer !== expected) return false;
+    this.files.set(path, content);
+    return true;
   }
 
   async writeText(path: string, content: string): Promise<void> {
@@ -113,6 +131,38 @@ describe('sweepConflictCopies', () => {
     expect(vault.deleted).toEqual([COPY]);
     expect(deps.notify).toHaveBeenCalledTimes(1);
     expect(deps.notify).toHaveBeenCalledWith('Auto-resolved 1 conflict(s)');
+  });
+
+  // The merge is computed from a read; an edit saved (or a remote change
+  // applied) before the write lands must not be overwritten by it.
+  it('never overwrites a note that changed after the sweep read it', async () => {
+    vault.put(NOTE, 'top\nA\nB\nC\n');
+    vault.put(COPY, 'A\nB\nC\nbottom\n');
+    vault.afterRead = {
+      path: NOTE,
+      run: () => vault.put(NOTE, 'top\nA\nB\nC\ntyped just now\n'),
+    };
+    const deps = baseDeps(vault);
+
+    const resolved = await sweepConflictCopies(deps);
+
+    expect(resolved).toBe(0);
+    expect(vault.read(NOTE)).toBe('top\nA\nB\nC\ntyped just now\n');
+    expect(vault.has(COPY)).toBe(true);
+    expect(deps.notify).not.toHaveBeenCalled();
+  });
+
+  it('leaves a note with unsaved editor text alone', async () => {
+    vault.put(NOTE, 'top\nA\nB\nC\n');
+    vault.put(COPY, 'A\nB\nC\nbottom\n');
+    vault.unsaved.set(NOTE, 'top\nA\nB\nC\nstill typing');
+    const deps = baseDeps(vault);
+
+    const resolved = await sweepConflictCopies(deps);
+
+    expect(resolved).toBe(0);
+    expect(vault.read(NOTE)).toBe('top\nA\nB\nC\n');
+    expect(vault.has(COPY)).toBe(true);
   });
 
   it('skips an overlapping merge: note untouched, copy kept, no Notice', async () => {
