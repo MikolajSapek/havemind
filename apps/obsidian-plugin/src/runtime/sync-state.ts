@@ -152,6 +152,13 @@ export interface PersistedSyncState {
    */
   readonly conflictArtifacts: Readonly<Record<string, string>>;
   /**
+   * Conflict-copy path → the fileId whose revision it holds. A copy's name
+   * carries only the note's file name, so without this the auto-sweep could
+   * take a same-named note in another folder for its target. Absent for copies
+   * written before it was recorded; the sweep leaves those to the modal.
+   */
+  readonly conflictCopyFileIds?: Readonly<Record<string, string>>;
+  /**
    * Durable revisionId→full-envelope map for quarantined sends (SND-01). When a
    * push is dead-lettered its envelope is removed from the outbox; stashing it
    * here lets the "Retry" affordance re-enqueue the exact same bytes through the
@@ -814,14 +821,28 @@ export class DurableSyncState implements SyncStatePort {
   async recordConflictArtifactPath(
     revisionId: string,
     path: string,
+    fileId?: string,
   ): Promise<void> {
     return this.runExclusive(async () => {
       const state = await this.ensureLoaded();
       await this.mutate({
         ...state,
         conflictArtifacts: { ...state.conflictArtifacts, [revisionId]: path },
+        ...(fileId === undefined
+          ? {}
+          : {
+              conflictCopyFileIds: {
+                ...state.conflictCopyFileIds,
+                [path]: fileId,
+              },
+            }),
       });
     });
+  }
+
+  /** The fileId a conflict copy was written for, or null when not recorded. */
+  fileIdForConflictCopy(path: string): string | null {
+    return this.cache?.conflictCopyFileIds?.[path] ?? null;
   }
 
   async enqueue(envelope: OutboxEnvelope): Promise<void> {
@@ -1441,8 +1462,18 @@ function strictParse(raw: unknown): PersistedSyncState | null {
     baseHashes,
     baseContents,
     conflictArtifacts,
+    ...optionalConflictCopyFileIds(raw.conflictCopyFileIds),
     quarantinedEnvelopes,
   };
+}
+
+/** Parses the optional copy→fileId map; unreadable degrades to absent. */
+function optionalConflictCopyFileIds(
+  value: unknown,
+): { conflictCopyFileIds?: Record<string, string> } {
+  if (value === undefined) return {};
+  const parsed = parseStringMap(value);
+  return parsed === null ? {} : { conflictCopyFileIds: parsed };
 }
 
 /**
@@ -1480,6 +1511,7 @@ function salvageState(raw: unknown): PersistedSyncState | null {
     baseHashes: parseStringMap(raw.baseHashes) ?? {},
     baseContents: parseStringMap(raw.baseContents) ?? {},
     conflictArtifacts: parseStringMap(raw.conflictArtifacts) ?? {},
+    ...optionalConflictCopyFileIds(raw.conflictCopyFileIds),
     quarantinedEnvelopes: parseEnvelopeMap(raw.quarantinedEnvelopes) ?? {},
   };
 }

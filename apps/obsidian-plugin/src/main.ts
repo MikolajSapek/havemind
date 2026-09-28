@@ -1361,6 +1361,7 @@ export default class HavemindPlugin extends Plugin {
     await sweepConflictCopies({
       port: this.conflictPort(),
       fileIdAtPath: (path) => state.fileIdAtPath(path),
+      fileIdForCopy: (path) => state.fileIdForConflictCopy(path),
       baseContentFor: (fileId) => state.baseContentFor(fileId),
       baseHashFor: (fileId) => state.baseHashFor(fileId),
       hashContent: (content) => hashPlaintext(content),

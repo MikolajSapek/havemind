@@ -46,6 +46,8 @@ export interface ConflictSweepDeps {
   readonly port: ConflictVaultPort;
   /** The fileId owning a target note path, or null when Havemind never synced it. */
   readonly fileIdAtPath: (path: string) => string | null;
+  /** The fileId whose revision a conflict copy holds, or null when not recorded. */
+  readonly fileIdForCopy: (copyPath: string) => string | null;
   /** The durably persisted merge ancestor (base content) for a fileId, or null. */
   readonly baseContentFor: (fileId: string) => string | null;
   /** The persisted base content HASH for a fileId, used to verify the ancestor. */
@@ -83,6 +85,10 @@ export async function sweepConflictCopies(
     try {
       const fileId = deps.fileIdAtPath(targetPath);
       if (fileId === null) continue;
+      // The copy is paired with its note by file name alone. Merge only into
+      // the very file the copy came from; a same-named note elsewhere, or a
+      // different file now at the path, would be overwritten with its content.
+      if (deps.fileIdForCopy(copy.copyPath) !== fileId) continue;
 
       // NEVER guess an ancestor: skip unless a base content is recorded AND it
       // still matches the recorded base hash (inconsistent state fails safe).

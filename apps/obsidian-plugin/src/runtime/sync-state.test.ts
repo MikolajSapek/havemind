@@ -352,6 +352,16 @@ describe('DurableSyncState', () => {
     expect(recovered.baseHashFor('file-1')).toBeNull();
   });
 
+  it('remembers durably which file a conflict copy belongs to', async () => {
+    await state.recordConflictArtifactPath('rev-9', 'Havemind Conflicts/N (conflict A 2026-09-28 1200).md', 'file-7');
+    const reopened = new DurableSyncState({ persist });
+    await reopened.loadCursor();
+    expect(
+      reopened.fileIdForConflictCopy('Havemind Conflicts/N (conflict A 2026-09-28 1200).md'),
+    ).toBe('file-7');
+    expect(reopened.fileIdForConflictCopy('Havemind Conflicts/other.md')).toBeNull();
+  });
+
   it('quarantines an outbox item durably, removing it from the outbox', async () => {
     await state.enqueue(envelope());
     await state.quarantineOutboxItem('rev-1', 'server-rejected');

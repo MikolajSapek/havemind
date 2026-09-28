@@ -105,8 +105,15 @@ export interface VaultFilePort {
    * timestamped duplicate (MRG-02 cascade guard).
    */
   conflictArtifactPathFor(revisionId: string): string | null;
-  /** Durably record the conflict-artifact path chosen for `revisionId`. */
-  recordConflictArtifactPath(revisionId: string, path: string): Promise<void>;
+  /**
+   * Durably record the conflict-artifact path chosen for `revisionId`, and the
+   * file it belongs to so the auto-sweep never guesses the target by name.
+   */
+  recordConflictArtifactPath(
+    revisionId: string,
+    path: string,
+    fileId?: string,
+  ): Promise<void>;
 }
 
 /**
@@ -1091,6 +1098,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
       await this.files.recordConflictArtifactPath(
         event.revision.revisionId,
         target,
+        event.revision.fileId,
       );
       // A genuinely new copy landed: signal the auto-repair sweep (MRG-05). A
       // re-delivered revision reuses `existing` and never reaches here, so the

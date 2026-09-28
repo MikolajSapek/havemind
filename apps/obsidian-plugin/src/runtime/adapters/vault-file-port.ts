@@ -240,8 +240,8 @@ export function createVaultFilePort(options: VaultFilePortOptions): VaultFilePor
     },
     conflictArtifactPathFor: (revisionId) =>
       state.conflictArtifactPathFor(revisionId),
-    recordConflictArtifactPath: (revisionId, path) =>
-      state.recordConflictArtifactPath(revisionId, path),
+    recordConflictArtifactPath: (revisionId, path, fileId) =>
+      state.recordConflictArtifactPath(revisionId, path, fileId),
     async writeByPath(path, content, expectedContent) {
       // A `.obsidian/` config write goes through the DataAdapter (create-or-
       // overwrite), materialising parent dirs, the Vault file API cannot touch

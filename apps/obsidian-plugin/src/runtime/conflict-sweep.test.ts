@@ -99,6 +99,7 @@ function baseDeps(vault: FakeConflictVault, overrides: Partial<Parameters<typeof
   return {
     port: vault,
     fileIdAtPath: (path: string) => (path === NOTE ? 'file-1' : null),
+    fileIdForCopy: (path: string) => (path === COPY ? 'file-1' : null),
     baseContentFor: (fileId: string) => (fileId === 'file-1' ? ANCESTOR : null),
     baseHashFor: (fileId: string) => (fileId === 'file-1' ? ANCESTOR : null),
     hashContent: async (content: string) => content,
@@ -162,6 +163,30 @@ describe('sweepConflictCopies', () => {
 
     expect(resolved).toBe(0);
     expect(vault.read(NOTE)).toBe('top\nA\nB\nC\n');
+    expect(vault.has(COPY)).toBe(true);
+  });
+
+  // A copy's name carries only the note's file name, not its folder. When the
+  // note it came from is gone, a same-named note elsewhere must not be taken
+  // for it and overwritten with the other file's content.
+  it('never merges a copy into a same-named note of a different file', async () => {
+    vault.put(NOTE, ANCESTOR);
+    vault.put(COPY, 'work agenda from Anna\n');
+    const deps = baseDeps(vault, { fileIdForCopy: () => 'file-other' });
+
+    const resolved = await sweepConflictCopies(deps);
+
+    expect(resolved).toBe(0);
+    expect(vault.read(NOTE)).toBe(ANCESTOR);
+    expect(vault.has(COPY)).toBe(true);
+  });
+
+  it('leaves a copy whose file is not recorded for the manual modal', async () => {
+    vault.put(NOTE, 'top\nA\nB\nC\n');
+    vault.put(COPY, 'A\nB\nC\nbottom\n');
+    const deps = baseDeps(vault, { fileIdForCopy: () => null });
+
+    expect(await sweepConflictCopies(deps)).toBe(0);
     expect(vault.has(COPY)).toBe(true);
   });
 
@@ -253,6 +278,8 @@ describe('sweepConflictCopies', () => {
     const deps = baseDeps(vault, {
       fileIdAtPath: (path: string) =>
         path === 'Alpha.md' || path === 'Beta.md' ? 'file-1' : null,
+      fileIdForCopy: (path: string) =>
+        path === copyA || path === copyB ? 'file-1' : null,
     });
     const realDelete = vault.deleteFile.bind(vault);
     vi.spyOn(vault, 'deleteFile').mockImplementation(async (path: string) => {
@@ -293,6 +320,8 @@ describe('sweepConflictCopies', () => {
     const deps = baseDeps(vault, {
       fileIdAtPath: (path: string) =>
         path === 'Alpha.md' || path === 'Beta.md' ? 'file-1' : null,
+      fileIdForCopy: (path: string) =>
+        path === copyA || path === copyB ? 'file-1' : null,
     });
 
     const resolved = await sweepConflictCopies(deps);
