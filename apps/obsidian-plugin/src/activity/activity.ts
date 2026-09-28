@@ -75,17 +75,6 @@ export interface ActivityEntry {
   readonly canRestore: boolean;
 }
 
-export type DiffRowType = 'context' | 'added' | 'removed';
-
-export interface DiffRow {
-  readonly type: DiffRowType;
-  readonly text: string;
-}
-
-export interface RevisionDiff {
-  readonly rows: readonly DiffRow[];
-}
-
 export interface RestoreRevisionOptions {
   readonly history: readonly RevisionRecord[];
   readonly targetRevisionId: string;
@@ -147,73 +136,6 @@ export function buildActivityFeed(
       }
       return left.revisionId < right.revisionId ? 1 : -1;
     });
-}
-
-function splitLines(content: string): string[] {
-  if (content.length === 0) {
-    return [];
-  }
-  const withoutTrailingNewline = content.endsWith('\n')
-    ? content.slice(0, -1)
-    : content;
-  return withoutTrailingNewline.split('\n');
-}
-
-/**
- * A line-level diff for the Activity diff modal. A `null` side means the file
- * did not exist (create) or ceases to exist (delete). Uses a classic
- * longest-common-subsequence walk so unchanged lines stay as context.
- */
-export function computeRevisionDiff(
-  before: string | null,
-  after: string | null,
-): RevisionDiff {
-  const beforeLines = before === null ? [] : splitLines(before);
-  const afterLines = after === null ? [] : splitLines(after);
-
-  const lcs: number[][] = Array.from({ length: beforeLines.length + 1 }, () =>
-    new Array<number>(afterLines.length + 1).fill(0),
-  );
-
-  for (let i = beforeLines.length - 1; i >= 0; i -= 1) {
-    for (let j = afterLines.length - 1; j >= 0; j -= 1) {
-      const nextRow = lcs[i + 1];
-      const currentRow = lcs[i];
-      if (nextRow === undefined || currentRow === undefined) {
-        continue;
-      }
-      if (beforeLines[i] === afterLines[j]) {
-        currentRow[j] = (nextRow[j + 1] ?? 0) + 1;
-      } else {
-        currentRow[j] = Math.max(nextRow[j] ?? 0, currentRow[j + 1] ?? 0);
-      }
-    }
-  }
-
-  const rows: DiffRow[] = [];
-  let i = 0;
-  let j = 0;
-  while (i < beforeLines.length && j < afterLines.length) {
-    if (beforeLines[i] === afterLines[j]) {
-      rows.push({ type: 'context', text: beforeLines[i] ?? '' });
-      i += 1;
-      j += 1;
-    } else if ((lcs[i + 1]?.[j] ?? 0) >= (lcs[i]?.[j + 1] ?? 0)) {
-      rows.push({ type: 'removed', text: beforeLines[i] ?? '' });
-      i += 1;
-    } else {
-      rows.push({ type: 'added', text: afterLines[j] ?? '' });
-      j += 1;
-    }
-  }
-  for (; i < beforeLines.length; i += 1) {
-    rows.push({ type: 'removed', text: beforeLines[i] ?? '' });
-  }
-  for (; j < afterLines.length; j += 1) {
-    rows.push({ type: 'added', text: afterLines[j] ?? '' });
-  }
-
-  return { rows };
 }
 
 function buildHistoryDag(history: readonly RevisionRecord[]): RevisionDag {

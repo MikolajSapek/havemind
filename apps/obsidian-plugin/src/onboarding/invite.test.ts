@@ -1,14 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  PASSIVE_OBSIDIAN_JOIN_URL,
   InviteFormatError,
   buildInviteEnvelope,
-  buildLandingInviteUrl,
   isSafePassiveJoinProtocolData,
   parseInviteEnvelope,
-  parseLandingInviteUrl,
-  parsePassiveObsidianJoinUrl,
 } from './invite';
 
 const INVITATION_TOKEN =
@@ -27,25 +23,6 @@ describe('onboarding canonical invitation envelope', () => {
     expect(envelope).toMatch(/^v1\.[A-Za-z0-9_-]+$/);
     expect(envelope).not.toContain('=');
     expect(parseInviteEnvelope(envelope)).toEqual({
-      invitationToken: INVITATION_TOKEN,
-      serverOrigin: 'https://sync.example.test',
-      version: 1,
-    });
-  });
-
-  it('places the complete secret envelope only in the HTTPS landing fragment', () => {
-    const landingUrl = buildLandingInviteUrl(CANONICAL_ENVELOPE);
-    const parsedUrl = new URL(landingUrl);
-
-    expect(landingUrl).toBe(
-      `https://sync.example.test/join#${CANONICAL_ENVELOPE}`,
-    );
-    expect(parsedUrl.search).toBe('');
-    expect(parsedUrl.pathname).toBe('/join');
-    expect(parsedUrl.href.slice(0, parsedUrl.href.indexOf('#'))).not.toContain(
-      INVITATION_TOKEN,
-    );
-    expect(parseLandingInviteUrl(landingUrl)).toEqual({
       invitationToken: INVITATION_TOKEN,
       serverOrigin: 'https://sync.example.test',
       version: 1,
@@ -121,36 +98,6 @@ describe('onboarding canonical invitation envelope', () => {
         serverOrigin: 'https://sync.example.test',
       }),
     ).toThrow(InviteFormatError);
-  });
-
-  it.each([
-    `https://sync.example.test/join?envelope=${CANONICAL_ENVELOPE}`,
-    `https://sync.example.test/join/${CANONICAL_ENVELOPE}`,
-    `https://sync.example.test/other#${CANONICAL_ENVELOPE}`,
-    `http://sync.example.test/join#${CANONICAL_ENVELOPE}`,
-    `https://other.example.test/join#${CANONICAL_ENVELOPE}`,
-  ])('rejects a landing link that moves or rebinds the capability', (url) => {
-    expect(() => parseLandingInviteUrl(url)).toThrow(InviteFormatError);
-  });
-
-  it('uses a capability-free passive Obsidian URI and rejects every parameter', () => {
-    expect(PASSIVE_OBSIDIAN_JOIN_URL).toBe('obsidian://havemind-join');
-    expect(parsePassiveObsidianJoinUrl(PASSIVE_OBSIDIAN_JOIN_URL)).toEqual({
-      action: 'havemind-join',
-    });
-
-    for (const unsafeUrl of [
-      'obsidian://havemind-join/',
-      'obsidian://havemind-join?token=value',
-      'obsidian://havemind-join?envelope=value',
-      'obsidian://havemind-join#value',
-      'obsidian://HAVEMIND-JOIN',
-      'obsidian://havemind-join/path',
-    ]) {
-      expect(() => parsePassiveObsidianJoinUrl(unsafeUrl)).toThrow(
-        InviteFormatError,
-      );
-    }
   });
 
   it('accepts only the parameter-free protocol callback shape', () => {

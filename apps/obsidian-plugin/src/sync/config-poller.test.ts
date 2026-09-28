@@ -17,7 +17,7 @@ import {
   type ConfigAdapterListing,
   type ConfigAdapterPort,
 } from './config-adapter';
-import { createConfigVaultSnapshot, pollConfigOnce } from './config-poller';
+import { pollConfigOnce } from './config-poller';
 import { memoryRecovery } from '../test/memory-recovery';
 
 const IDENTITY = {
@@ -117,7 +117,14 @@ function makeHarness(adapter: ConfigAdapterPort) {
     generateFileId: () => `ffffffff-0000-4000-8000-${String(++file).padStart(12, '0')}`,
     generateOperationId: () => `op-${++op}`,
     repository,
-    vault: createConfigVaultSnapshot(adapter),
+    // The config tree read through the DataAdapter, which `vault.read()` cannot resolve.
+    vault: {
+      listSyncablePaths: () => listSyncableConfigPaths(adapter),
+      listAllPaths: () => listSyncableConfigPaths(adapter),
+      readText: (path) => adapter.read(path),
+      readBinary: async (path) => new Uint8Array(await adapter.readBinary(path)),
+      exists: (path) => adapter.exists(path),
+    },
   });
   const poll = () =>
     pollConfigOnce({

@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { authorColorToken } from './author-colors';
 import {
-  buildRosterView,
   parseRoster,
   removeRosterMember,
   RosterStore,
@@ -28,59 +26,6 @@ function magda(): RosterMember {
     self: false,
   };
 }
-
-describe('buildRosterView', () => {
-  it('renders each member as persistently connected with name, role and colour', () => {
-    const view = buildRosterView([owner(), magda()]);
-    expect(view.empty).toBe(false);
-    const magdaRow = view.rows.find((row) => row.membershipId === 'm-magda');
-    expect(magdaRow).toMatchObject({
-      displayName: 'Magda',
-      role: 'editor',
-      connected: true,
-      statusLabel: 'connected',
-      self: false,
-    });
-    // Colour is the shared stable token, always paired with the name/label.
-    expect(magdaRow?.colorToken).toBe(authorColorToken('m-magda'));
-  });
-
-  it('is a persistent connection state, never derived from activity, no timeout', () => {
-    // The only input is the stored membership list; there is no activity or
-    // timestamp parameter. Every rendered member reads as connected.
-    const view = buildRosterView([owner(), magda()]);
-    expect(view.rows.every((row) => row.connected === true)).toBe(true);
-    expect(view.rows.every((row) => row.statusLabel === 'connected')).toBe(true);
-  });
-
-  it('includes the owner and lists them first', () => {
-    const view = buildRosterView([magda(), owner()]);
-    expect(view.rows[0]?.self).toBe(true);
-    expect(view.rows[0]?.role).toBe('owner');
-  });
-
-  it('scales to N members (a growing list, not hard-coded for two)', () => {
-    const members: RosterMember[] = [
-      owner(),
-      magda(),
-      { membershipId: 'm-3', displayName: 'Carla', role: 'editor', self: false },
-      { membershipId: 'm-4', displayName: 'Dan', role: 'editor', self: false },
-    ];
-    const view = buildRosterView(members);
-    expect(view.rows).toHaveLength(4);
-    // Owner first, then editors alphabetically.
-    expect(view.rows.map((row) => row.displayName)).toEqual([
-      'You',
-      'Carla',
-      'Dan',
-      'Magda',
-    ]);
-  });
-
-  it('reports an empty roster before any member is known', () => {
-    expect(buildRosterView([]).empty).toBe(true);
-  });
-});
 
 describe('upsertRosterMember', () => {
   it('replaces an existing member by membershipId without mutating the input', () => {

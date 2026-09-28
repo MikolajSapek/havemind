@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
 
-import { isSyncableConfigPath } from './appearance-scope';
+import { isSyncableConfigPath } from '@havemind/protocol';
 
 describe('isSyncableConfigPath, explicit appearance allowlist', () => {
   it.each([

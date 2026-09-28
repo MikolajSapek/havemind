@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 
 import {
   buildGuestHandshake,
-  buildOwnerHandshake,
   buildSpentInvitation,
   formatExpiry,
   groupCode,
@@ -61,20 +60,6 @@ describe('guest handshake', () => {
     const view = buildGuestHandshake({ code: '482917' });
     expect(view.mismatchWarning).toMatch(/don't match/i);
     expect(view.mismatchWarning).toMatch(/stop/i);
-  });
-});
-
-describe('owner handshake', () => {
-  it('states the precondition in the button, not just the action', () => {
-    // "Approve" invites approving without checking, which is the one mistake
-    // this whole ceremony exists to prevent.
-    const view = buildOwnerHandshake({ code: '482917' });
-    expect(view.approveLabel).toMatch(/match/i);
-  });
-
-  it('says what approval grants before it is granted', () => {
-    const view = buildOwnerHandshake({ code: '482917' });
-    expect(view.consequence).toMatch(/read and write/i);
   });
 });
 

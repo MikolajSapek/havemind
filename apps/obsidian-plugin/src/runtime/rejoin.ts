@@ -141,10 +141,6 @@ export class RejoinController {
     this.options = options;
   }
 
-  getState(): RejoinState {
-    return this.state;
-  }
-
   /**
    * Attempts a single redemption. Idempotent while in-flight: a concurrent call
    * during `rejoining`, or a call after success, is a no-op that returns the

@@ -1,5 +1,4 @@
 export const INVITE_ENVELOPE_VERSION = 1 as const;
-export const PASSIVE_OBSIDIAN_JOIN_URL = 'obsidian://havemind-join' as const;
 
 const ENVELOPE_PREFIX = 'v1.';
 const ENVELOPE_PATTERN = /^v1\.([A-Za-z0-9_-]+)$/u;
@@ -61,41 +60,6 @@ export function parseInviteEnvelope(value: string): InviteEnvelope {
   const envelope = parseEnvelopeRecord(parsed);
   if (encodeEnvelope(envelope) !== value) throw new InviteFormatError();
   return envelope;
-}
-
-export function buildLandingInviteUrl(envelope: string): string {
-  const parsed = parseInviteEnvelope(envelope);
-  return `${parsed.serverOrigin}/join#${envelope}`;
-}
-
-export function parseLandingInviteUrl(value: string): InviteEnvelope {
-  if (value.length > MAX_ENVELOPE_LENGTH + 256) {
-    throw new InviteFormatError();
-  }
-  const fragmentIndex = value.indexOf('#');
-  if (fragmentIndex < 0 || value.indexOf('#', fragmentIndex + 1) >= 0) {
-    throw new InviteFormatError();
-  }
-
-  const envelope = value.slice(fragmentIndex + 1);
-  const parsed = parseInviteEnvelope(envelope);
-  if (buildLandingInviteUrl(envelope) !== value) {
-    throw new InviteFormatError();
-  }
-  return parsed;
-}
-
-/**
- * Obsidian's public protocol callback exposes query parameters but not URL
- * fragments. The URI therefore opens only the local paste/import wizard; a
- * capability must never be added to this URI until a public fragment handoff
- * exists.
- */
-export function parsePassiveObsidianJoinUrl(
-  value: string,
-): Readonly<{ action: 'havemind-join' }> {
-  if (value !== PASSIVE_OBSIDIAN_JOIN_URL) throw new InviteFormatError();
-  return { action: 'havemind-join' };
 }
 
 export function isSafePassiveJoinProtocolData(

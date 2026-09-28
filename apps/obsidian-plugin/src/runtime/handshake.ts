@@ -87,37 +87,6 @@ export function buildGuestHandshake(
   };
 }
 
-export interface OwnerHandshakeView {
-  readonly heading: string;
-  readonly instruction: string;
-  readonly code: readonly string[];
-  readonly expiryLabel: string | null;
-  /** States the precondition, not the bare action. */
-  readonly approveLabel: string;
-  readonly rejectLabel: string;
-  /** What approval actually grants, said before the click, not after. */
-  readonly consequence: string;
-}
-
-export function buildOwnerHandshake(
-  input: GuestHandshakeInput,
-): OwnerHandshakeView {
-  return {
-    heading: 'A device wants to join',
-    instruction:
-      'Ask them to read out the six digits on their screen. They must match:',
-    code: groupCode(input.code),
-    expiryLabel:
-      input.expiresAt !== undefined && input.now !== undefined
-        ? formatExpiry(input.expiresAt, input.now)
-        : null,
-    approveLabel: 'They match, approve',
-    rejectLabel: 'Reject',
-    consequence:
-      'Approving gives this device full read and write access to the vault.',
-  };
-}
-
 export interface SpentInvitationView {
   readonly heading: string;
   readonly explanation: string;

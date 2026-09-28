@@ -85,11 +85,6 @@ describe('RejoinController (invitee)', () => {
     return { calls, controller, saveRefreshToken };
   }
 
-  it('starts in the terminal-auth state', () => {
-    const { controller } = makeController([]);
-    expect(controller.getState()).toBe('terminal-auth');
-  });
-
   it('transitions terminal-auth → syncing on a successful redemption and stores the token', async () => {
     const { calls, controller, saveRefreshToken } = makeController([
       {
@@ -99,7 +94,6 @@ describe('RejoinController (invitee)', () => {
     ]);
     const result = await controller.attempt();
     expect(result).toEqual({ status: 'syncing', membershipId: MEMBERSHIP, vaultId: VAULT });
-    expect(controller.getState()).toBe('syncing');
     expect(saveRefreshToken).toHaveBeenCalledWith('hm_rt_fresh');
     // Presents the persisted binding; only the hash of the refresh token is sent.
     expect(calls[0]?.url).toBe(`${API}/auth/rejoin`);
@@ -115,7 +109,6 @@ describe('RejoinController (invitee)', () => {
     const { controller, saveRefreshToken } = makeController([{ status: 401, json: null }]);
     const result = await controller.attempt();
     expect(result).toBe('terminal-auth');
-    expect(controller.getState()).toBe('terminal-auth');
     expect(saveRefreshToken).not.toHaveBeenCalled();
   });
 
@@ -151,7 +144,6 @@ describe('RejoinController (invitee)', () => {
     );
     const result = await controller.attempt();
     expect(result).toBe('rejoin-failed');
-    expect(controller.getState()).toBe('rejoin-failed');
     expect(saveRefreshToken).toHaveBeenCalledTimes(1);
   });
 
@@ -159,7 +151,6 @@ describe('RejoinController (invitee)', () => {
     const { controller, saveRefreshToken } = makeController([{ status: 200, json: { status: 'rejoined' } }]);
     const result = await controller.attempt();
     expect(result).toBe('rejoin-failed');
-    expect(controller.getState()).toBe('rejoin-failed');
     expect(saveRefreshToken).not.toHaveBeenCalled();
   });
 

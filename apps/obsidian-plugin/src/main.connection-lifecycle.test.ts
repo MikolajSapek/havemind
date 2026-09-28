@@ -422,7 +422,7 @@ describe('Retry now (user-initiated reconnect)', () => {
 
   it('restarts on a terminal reconnect-required state and DISARMS the rejoin poll (FINDING 1)', async () => {
     const plugin = newPlugin();
-    const controller = { attempt: vi.fn(), getState: () => 'terminal-auth' };
+    const controller = { attempt: vi.fn() };
     adapterMocks.buildRejoinControllerForInvitee.mockResolvedValue(controller);
     adapterMocks.startHavemindConnection.mockResolvedValue(fakeHandle('resumed'));
 
@@ -450,7 +450,7 @@ describe('Retry now (user-initiated reconnect)', () => {
     const attempt = vi
       .fn()
       .mockResolvedValue({ status: 'syncing', membershipId: 'm', vaultId: 'v' });
-    const controller = { attempt, getState: () => 'terminal-auth' };
+    const controller = { attempt };
     adapterMocks.buildRejoinControllerForInvitee.mockResolvedValue(controller);
     const resumed = fakeHandle('resumed');
     adapterMocks.startHavemindConnection.mockResolvedValue(resumed);
@@ -479,7 +479,7 @@ describe('Retry now (user-initiated reconnect)', () => {
     const attempt = vi
       .fn()
       .mockResolvedValue({ status: 'syncing', membershipId: 'm', vaultId: 'v' });
-    const controller = { attempt, getState: () => 'terminal-auth' };
+    const controller = { attempt };
     adapterMocks.buildRejoinControllerForInvitee.mockResolvedValue(controller);
     const resumed = fakeHandle('resumed');
     adapterMocks.startHavemindConnection.mockResolvedValue(resumed);
@@ -619,7 +619,7 @@ describe('F9 rejoin wiring', () => {
       .fn()
       .mockResolvedValueOnce('terminal-auth')
       .mockResolvedValueOnce({ status: 'syncing', membershipId: 'm', vaultId: 'v' });
-    const controller = { attempt, getState: () => 'terminal-auth' };
+    const controller = { attempt };
     adapterMocks.buildRejoinControllerForInvitee.mockResolvedValue(controller);
     adapterMocks.startHavemindConnection.mockResolvedValue(fakeHandle('resumed'));
 
@@ -657,7 +657,7 @@ describe('F9 rejoin wiring', () => {
     // user via status + Notice, leaving a manual reconnect as the retry path.
     const plugin = newPlugin();
     const attempt = vi.fn().mockResolvedValue('rejoin-failed');
-    const controller = { attempt, getState: () => 'terminal-auth' };
+    const controller = { attempt };
     adapterMocks.buildRejoinControllerForInvitee.mockResolvedValue(controller);
 
     internals(plugin).handleStatus('reconnect-required', STATUS_VIEW);
@@ -683,7 +683,7 @@ describe('F9 rejoin wiring', () => {
     const attempt = vi
       .fn()
       .mockRejectedValue(new Error('saveRefreshToken failed'));
-    const controller = { attempt, getState: () => 'terminal-auth' };
+    const controller = { attempt };
     adapterMocks.buildRejoinControllerForInvitee.mockResolvedValue(controller);
 
     internals(plugin).handleStatus('reconnect-required', STATUS_VIEW);
@@ -749,7 +749,7 @@ describe('F9 rejoin wiring', () => {
         resolveAttempt = resolve;
       }),
     );
-    const controller = { attempt, getState: () => 'terminal-auth' };
+    const controller = { attempt };
     adapterMocks.buildRejoinControllerForInvitee.mockResolvedValue(controller);
     adapterMocks.startHavemindConnection.mockResolvedValue(fakeHandle('resumed'));
 

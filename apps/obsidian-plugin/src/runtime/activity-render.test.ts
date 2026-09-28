@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 
 import {
   buildActivityViewModel,
-  formatDiffRows,
 } from './activity-render';
 import {
   authorColorToken,
@@ -79,15 +78,5 @@ describe('buildActivityViewModel', () => {
     ]);
     expect(model.rows[0]?.canRestore).toBe(false);
     expect(buildActivityViewModel([]).empty).toBe(true);
-  });
-});
-
-describe('formatDiffRows', () => {
-  it('renders unified line prefixes for the diff modal', () => {
-    expect(formatDiffRows('A\nB\n', 'A\nC\n')).toEqual([
-      '  A',
-      '- B',
-      '+ C',
-    ]);
   });
 });

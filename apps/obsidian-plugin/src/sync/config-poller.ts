@@ -3,7 +3,7 @@
  * events for hidden files, so a watcher can never see a theme change or a foreign
  * plugin update, the mirror is driven by POLLING instead.
  *
- * Each tick re-walks the config tree (via {@link listSyncableConfigPaths}), reads
+ * Each tick re-walks the config tree (via `listSyncableConfigPaths`), reads
  * every syncable file, and hands each path to the SAME {@link VaultChangeObserver}
  * that drives `.md` sync. The observer hashes the content and compares it to the
  * durable producer mapping (the last-known base): unchanged → no-op, changed →
@@ -21,33 +21,7 @@ import {
   type LocalChangeOperation,
   type LocalFileMapping,
   type VaultChangeObserver,
-  type VaultSnapshotPort,
 } from '../obsidian/vault-adapter';
-import {
-  CONFIG_DIR,
-  listSyncableConfigPaths,
-  type ConfigAdapterPort,
-} from './config-adapter';
-
-/**
- * A {@link VaultSnapshotPort} that reads the config tree through the
- * DataAdapter. This is what lets the standard observer read a `.obsidian/` file
- * that `vault.getFiles()`/`vault.read()` cannot resolve.
- */
-export function createConfigVaultSnapshot(
-  adapter: ConfigAdapterPort,
-  root: string = CONFIG_DIR,
-): VaultSnapshotPort {
-  return {
-    listSyncablePaths: () => listSyncableConfigPaths(adapter, root),
-    // Only syncable config is ever enumerated; there is no separate "excluded
-    // attachment" notion for the config mirror, so listAllPaths mirrors it.
-    listAllPaths: () => listSyncableConfigPaths(adapter, root),
-    readText: (path) => adapter.read(path),
-    readBinary: async (path) => new Uint8Array(await adapter.readBinary(path)),
-    exists: (path) => adapter.exists(path),
-  };
-}
 
 export interface ConfigPollerDeps {
   /** The SAME observer that drives `.md`, so config shares its mappings and cycle guard. */

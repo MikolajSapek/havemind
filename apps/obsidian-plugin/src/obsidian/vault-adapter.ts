@@ -1,7 +1,6 @@
-import { canonicalizeMarkdown, hashBlob } from '@havemind/protocol';
+import { canonicalizeMarkdown, hashBlob, isSyncableConfigPath } from '@havemind/protocol';
 
 import { CONFLICT_FOLDER } from '../runtime/conflict-resolution';
-import { isSyncableConfigPath } from '../sync/appearance-scope';
 import { normalizeConfigContent } from '../sync/config-normalize';
 
 /**

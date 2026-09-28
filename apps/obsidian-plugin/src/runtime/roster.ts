@@ -15,13 +15,8 @@
  * members, a growing list, never hard-coded for two.
  *
  * This module is pure (no Obsidian/DOM/network) except for the persistence
- * boundary, which is injected. Colour comes from the shared `author-colors`
- * module so a member is drawn the same colour in the roster, the Activity log
- * and the F6 author overlay; colour is ALWAYS paired with a name + text label
- * (never colour alone) per the project accessibility rule.
+ * boundary, which is injected. The rendered rows come from `rejoin-roster.ts`.
  */
-
-import { authorColorToken } from './author-colors';
 
 export type MemberRole = 'owner' | 'editor';
 
@@ -34,25 +29,6 @@ export interface RosterMember {
   readonly role: MemberRole;
   /** True for the local user's own membership (rendered as "You"). */
   readonly self: boolean;
-}
-
-/** One rendered roster row: name + role + persistent connected dot. */
-export interface RosterRowView {
-  readonly membershipId: string;
-  readonly displayName: string;
-  readonly role: MemberRole;
-  /** Persistent connection state, always true here (green until teardown). */
-  readonly connected: true;
-  /** Text/aria label paired with the colour dot, never colour alone. */
-  readonly statusLabel: 'connected';
-  /** Deterministic, stable colour token for this member. */
-  readonly colorToken: string;
-  readonly self: boolean;
-}
-
-export interface RosterView {
-  readonly empty: boolean;
-  readonly rows: readonly RosterRowView[];
 }
 
 /**
@@ -78,35 +54,6 @@ export function removeRosterMember(
   membershipId: string,
 ): RosterMember[] {
   return roster.filter((entry) => entry.membershipId !== membershipId);
-}
-
-/**
- * Builds the "Connected" roster view. Rows are ordered owner-first, then by
- * display name, so the list is stable as it grows. Every row carries the
- * connected state + label + colour token together.
- */
-export function buildRosterView(
-  members: readonly RosterMember[],
-): RosterView {
-  const rows = [...members]
-    .sort((left, right) => {
-      if (left.role !== right.role) {
-        return left.role === 'owner' ? -1 : 1;
-      }
-      return left.displayName.localeCompare(right.displayName);
-    })
-    .map(
-      (member): RosterRowView => ({
-        membershipId: member.membershipId,
-        displayName: member.displayName,
-        role: member.role,
-        connected: true,
-        statusLabel: 'connected',
-        colorToken: authorColorToken(member.membershipId),
-        self: member.self,
-      }),
-    );
-  return { empty: rows.length === 0, rows };
 }
 
 // ---------------------------------------------------------------------------

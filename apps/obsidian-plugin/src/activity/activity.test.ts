@@ -5,7 +5,6 @@ import { createInitialProvenance, RevisionDag } from '@havemind/sync-core';
 import {
   ActivityError,
   buildActivityFeed,
-  computeRevisionDiff,
   restoreRevision,
   type RevisionRecord,
 } from './activity';
@@ -90,29 +89,6 @@ describe('buildActivityFeed', () => {
     expect(feed.map((entry) => entry.revisionId)).toEqual(['rd', 'rb', 'ra']);
     expect(feed[0]?.canRestore).toBe(false);
     expect(feed[1]?.canRestore).toBe(true);
-  });
-});
-
-describe('computeRevisionDiff', () => {
-  it('reports added, removed and context lines against the parent', () => {
-    const diff = computeRevisionDiff('alpha\nbeta\ngamma\n', 'alpha\ndelta\ngamma\n');
-    expect(diff.rows).toEqual([
-      { type: 'context', text: 'alpha' },
-      { type: 'removed', text: 'beta' },
-      { type: 'added', text: 'delta' },
-      { type: 'context', text: 'gamma' },
-    ]);
-  });
-
-  it('treats a create as fully added and a delete as fully removed', () => {
-    expect(computeRevisionDiff(null, 'one\ntwo\n').rows).toEqual([
-      { type: 'added', text: 'one' },
-      { type: 'added', text: 'two' },
-    ]);
-    expect(computeRevisionDiff('gone\n', null).rows).toEqual([
-      { type: 'removed', text: 'gone' },
-    ]);
-    expect(computeRevisionDiff(null, null).rows).toEqual([]);
   });
 });
 

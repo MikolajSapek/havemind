@@ -1,6 +1,5 @@
-import { canonicalizeMarkdown, hashBlob, hashPlaintext } from '@havemind/protocol';
+import { canonicalizeMarkdown, hashBlob, hashPlaintext, isSyncableConfigPath } from '@havemind/protocol';
 
-import { isSyncableConfigPath } from './appearance-scope';
 import { normalizeConfigContent } from './config-normalize';
 import {
   classifyVaultPath,
