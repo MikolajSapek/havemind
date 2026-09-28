@@ -119,7 +119,3 @@ export function canonicalizeVaultPath(path: string): string {
 
   return normalized;
 }
-
-export function pathCollisionKey(path: string): string {
-  return canonicalizeVaultPath(path).toLowerCase();
-}

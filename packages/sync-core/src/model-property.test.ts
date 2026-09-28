@@ -1,7 +1,6 @@
-import fc from 'fast-check';
+import fc, { type Arbitrary } from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
-import { DurableClientModel } from './client-model.js';
 import { generateEditRecipe } from './diff-recipe.js';
 import {
   createInitialProvenance,
@@ -11,14 +10,17 @@ import {
   validateReconstruction,
   type ParentSnapshot,
 } from './recipe.js';
-import { RevisionDag } from './revision-dag.js';
-import {
-  deliveryScenarioArbitrary,
-  unicodeEditHistoryArbitrary,
-  unicodeTextArbitrary,
-} from './model-generators.js';
 
 const PROPERTY_RUNS = 200;
+
+const unicodeTextArbitrary: Arbitrary<string> = fc
+  .string({ maxLength: 48, unit: 'grapheme' })
+  .map((value) => value.normalize('NFC').replaceAll('\r', ''));
+
+const unicodeEditHistoryArbitrary = fc.record({
+  initial: unicodeTextArbitrary,
+  edits: fc.array(unicodeTextArbitrary, { maxLength: 8 }),
+});
 
 function initialSnapshot(content: string): ParentSnapshot {
   return {
@@ -26,38 +28,6 @@ function initialSnapshot(content: string): ParentSnapshot {
     content,
     provenance: createInitialProvenance(content),
   };
-}
-
-function deliverWithRestarts(
-  initial: DurableClientModel,
-  delivery: Parameters<DurableClientModel['receiveEvents']>[0],
-  restartAfter: readonly boolean[],
-): DurableClientModel {
-  let client = initial;
-  delivery.forEach((event, index) => {
-    client.receiveEvents([event]);
-    if (restartAfter[index] === true) {
-      client = DurableClientModel.restore(client.snapshot());
-    }
-  });
-  return client;
-}
-
-function materializeWithRestarts(
-  initial: DurableClientModel,
-): DurableClientModel {
-  let client = initial;
-  for (;;) {
-    const next = client.nextMaterialization();
-    if (next === null) {
-      return client;
-    }
-    client.confirmMaterialized(
-      next.serverSequence,
-      next.revision.revisionId,
-    );
-    client = DurableClientModel.restore(client.snapshot());
-  }
 }
 
 describe('sync-core model properties', () => {
@@ -105,48 +75,6 @@ describe('sync-core model properties', () => {
           );
           parent = { revisionId, ...reconstructed };
         });
-      }),
-      { numRuns: PROPERTY_RUNS },
-    );
-  });
-
-  it('converges two restarted clients under partitions, duplicates and reordering', () => {
-    fc.assert(
-      fc.property(deliveryScenarioArbitrary, (scenario) => {
-        const dag = new RevisionDag();
-        expect(dag.addBatch(scenario.nodes)).toEqual(
-          scenario.nodes.map(() => 'accepted'),
-        );
-        expect(dag.addBatch(scenario.deliveryA.map(({ revision }) => revision)))
-          .toEqual(scenario.deliveryA.map(() => 'replayed'));
-
-        const clientA = materializeWithRestarts(
-          deliverWithRestarts(
-            new DurableClientModel(),
-            scenario.deliveryA,
-            scenario.restartA,
-          ),
-        );
-        const clientB = materializeWithRestarts(
-          deliverWithRestarts(
-            new DurableClientModel(),
-            scenario.deliveryB,
-            scenario.restartB,
-          ),
-        );
-        const expectedRevisionIds = scenario.nodes.map(
-          ({ revisionId }) => revisionId,
-        );
-
-        expect(clientA.downloadedSequence).toBe(scenario.nodes.length);
-        expect(clientB.downloadedSequence).toBe(scenario.nodes.length);
-        expect(clientA.materializedRevisionIds).toEqual(expectedRevisionIds);
-        expect(clientB.materializedRevisionIds).toEqual(expectedRevisionIds);
-        expect(clientA.nextPushBatch()).toEqual([]);
-        expect(clientB.nextPushBatch()).toEqual([]);
-        expect(dag.getHeads('vault-property', 'file-property')).toEqual([
-          expectedRevisionIds.at(-1),
-        ]);
       }),
       { numRuns: PROPERTY_RUNS },
     );

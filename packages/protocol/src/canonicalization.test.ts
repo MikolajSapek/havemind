@@ -4,7 +4,6 @@ import {
   canonicalizeMarkdown,
   canonicalizeVaultPath,
   isReservedVaultPath,
-  pathCollisionKey,
   utf16Length,
 } from './canonicalization.js';
 
@@ -83,11 +82,5 @@ describe('canonicalization', () => {
   ])('recognizes reserved paths case-insensitively: %s', (path) => {
     expect(isReservedVaultPath(path)).toBe(true);
     expect(() => canonicalizeVaultPath(path)).toThrow(/reserved/i);
-  });
-
-  it('creates the same lowercase NFC collision key for unsafe aliases', () => {
-    expect(pathCollisionKey('Notes/CAFÉ.md')).toBe(
-      pathCollisionKey('notes/Cafe\u0301.md'),
-    );
   });
 });
