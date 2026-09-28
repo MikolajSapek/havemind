@@ -319,8 +319,16 @@ export class VaultChangeObserver {
     return this.enqueue(() => this.handleCreate(path));
   }
 
-  async observeModify(path: string): Promise<LocalChangeOperation | null> {
-    return this.enqueue(() => this.handleModify(path));
+  /**
+   * `force` commits the file even when its content matches the mapping: a
+   * Retry of a send whose queued copy is gone must send it again, and the
+   * mapping hash already advanced when the lost revision was committed.
+   */
+  async observeModify(
+    path: string,
+    options: { readonly force?: boolean } = {},
+  ): Promise<LocalChangeOperation | null> {
+    return this.enqueue(() => this.handleModify(path, options.force === true));
   }
 
   async observeRename(
@@ -485,6 +493,7 @@ export class VaultChangeObserver {
 
   private async handleModify(
     path: string,
+    force: boolean,
   ): Promise<LocalChangeOperation | null> {
     const classified = classifyVaultPath(path);
     if (!classified.eligible) return null;
@@ -503,13 +512,14 @@ export class VaultChangeObserver {
       return this.commitCreate(path, classified);
     }
 
-    return this.commitModify(path, classified, mapping);
+    return this.commitModify(path, classified, mapping, force);
   }
 
   private async commitModify(
     readPath: string,
     classified: EligibleClassification,
     mapping: LocalFileMapping,
+    force = false,
   ): Promise<LocalChangeOperation | null> {
     const read = await this.readContentForKind(
       classified.canonicalPath,
@@ -518,7 +528,7 @@ export class VaultChangeObserver {
     );
     if (read === null) return null;
     const { content, contentHash } = read;
-    if (contentHash === mapping.contentHash) return null;
+    if (!force && contentHash === mapping.contentHash) return null;
 
     const operation = this.buildOperation({
       content,

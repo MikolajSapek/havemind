@@ -400,8 +400,12 @@ export function startPushProducer(
       );
     },
   });
+  // Paths a user Retry re-commits even when disk matches the mapping (the
+  // queued copy was lost, and the mapping advanced when it was committed).
+  const forcedRetries = new Set<string>();
   const observeSettledModify = (path: string): void => {
-    void lockedObserve(path, () => observer.observeModify(path)).then(
+    const force = forcedRetries.delete(path);
+    void lockedObserve(path, () => observer.observeModify(path, { force })).then(
       (op) => {
         recordActivity(op);
         commitPathRecovery.onCommitSuccess(path);
@@ -519,7 +523,11 @@ export function startPushProducer(
       retryFailedCommit(path, {
         exists: (candidate) =>
           vault.getAbstractFileByPath(candidate) !== null,
-        retrigger: (candidate) => modifyDebouncer.trigger(candidate),
+        retrigger: (candidate) => {
+          const scheduled = modifyDebouncer.trigger(candidate);
+          if (scheduled) forcedRetries.add(candidate);
+          return scheduled;
+        },
       }),
   };
 }
