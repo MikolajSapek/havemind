@@ -38,7 +38,7 @@ const event: RemoteEvent = {
 describe('isConnectedOnboardingState', () => {
   it('is true only for the connected phase', () => {
     expect(isConnectedOnboardingState({ phase: 'connected' })).toBe(true);
-    expect(isConnectedOnboardingState({ phase: 'bootstrapping' })).toBe(false);
+    expect(isConnectedOnboardingState({ phase: 'pending-approval' })).toBe(false);
     expect(isConnectedOnboardingState(null)).toBe(false);
     expect(isConnectedOnboardingState({})).toBe(false);
   });

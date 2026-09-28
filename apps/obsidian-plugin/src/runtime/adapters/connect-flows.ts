@@ -131,7 +131,7 @@ export interface ConnectFromInputOptions {
 /**
  * Runs the Connect flow for a pasted input: an owner pairing token (`hm_pt_…`)
  * redeems at `POST /owner/pair`; an invitation envelope (`v1.…`) runs the invitee
- * review → redeem → approval → bootstrap flow. Returns a started sync handle on
+ * review → redeem → approval flow. Returns a started sync handle on
  * success, or null (with a reported message) otherwise. Secrets are never logged.
  */
 export async function connectFromInput(

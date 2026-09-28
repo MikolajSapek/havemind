@@ -38,7 +38,6 @@ const ENVELOPE = buildInviteEnvelope({
 const NOW = Date.parse('2026-07-15T04:00:00.000Z');
 
 type RemoteMethod =
-  | 'bootstrap'
   | 'discover'
   | 'poll'
   | 'redeem'
@@ -86,12 +85,6 @@ class FakeRemoteApi implements RemoteApiPort {
     return this.respond('poll', request);
   }
 
-  async fetchBootstrapPage(
-    request: Parameters<RemoteApiPort['fetchBootstrapPage']>[0],
-  ): Promise<RemoteResponse> {
-    return this.respond('bootstrap', request);
-  }
-
   private async respond(
     method: RemoteMethod,
     request: object,
@@ -108,7 +101,6 @@ class FakeRemoteApi implements RemoteApiPort {
 }
 
 class MemoryOnboardingStore implements OnboardingStorePort {
-  readonly bootstrapPages: unknown[][] = [];
   readonly savedStates: DurableOnboardingState[] = [];
   state: unknown = null;
   failNextSave = false;
@@ -124,14 +116,6 @@ class MemoryOnboardingStore implements OnboardingStorePort {
     }
     this.state = structuredClone(state);
     this.savedStates.push(structuredClone(state));
-  }
-
-  async commitBootstrapPage(
-    items: readonly unknown[],
-    state: DurableOnboardingState,
-  ): Promise<void> {
-    this.bootstrapPages.push(structuredClone([...items]));
-    await this.saveState(state);
   }
 
   async clearState(): Promise<void> {
@@ -373,7 +357,7 @@ describe('onboarding controller', () => {
     await expect(restarted.resume()).resolves.toEqual({ phase: 'idle' });
   });
 
-  it('resumes pending approval and a paged bootstrap across controller restarts', async () => {
+  it('resumes pending approval and connects on approval across controller restarts', async () => {
     const fixture = createFixture();
     await createPendingConnection(fixture);
 
@@ -405,91 +389,62 @@ describe('onboarding controller', () => {
       // overrides the review's memberId (the invitee's user id) so the push
       // header carries the exact id POST /revisions authorises against.
       memberId: MEMBERSHIP_ID,
-      phase: 'approval-received',
+      phase: 'connected',
     });
     expect(fixture.secrets.refreshToken).toBe(REFRESH_TOKEN);
     expect(JSON.stringify(fixture.store.state)).not.toContain(REFRESH_TOKEN);
 
-    const transitionController = createController({
-      remoteApi: new FakeRemoteApi(),
-      secrets: fixture.secrets,
-      store: fixture.store,
-    });
-    await expect(transitionController.resume()).resolves.toMatchObject({
-      bootstrapCursor: null,
+    // The approval connects directly: the server's bootstrapCursor is
+    // accepted and ignored, and no bootstrap page is fetched (D10, R11).
+    expect(approvedRemote.calls.map((call) => call.method)).toEqual(['poll']);
+    expect(fixture.store.state).toMatchObject({
+      deviceId: DEVICE_ID,
       downloadedItems: 0,
-      phase: 'bootstrapping',
-    });
-    expect(fixture.secrets.pendingCredential).toBeNull();
-
-    const firstPageRemote = new FakeRemoteApi();
-    firstPageRemote.enqueue('bootstrap', {
-      body: {
-        complete: false,
-        items: [{ eventId: 'event-01' }],
-        nextCursor: 'cursor-01',
-        version: 1,
-      },
-      finalUrl: `${API_BASE_URL}/bootstrap`,
-      status: 200,
-    });
-    await expect(
-      createController({
-        remoteApi: firstPageRemote,
-        secrets: fixture.secrets,
-        store: fixture.store,
-      }).resume(),
-    ).resolves.toMatchObject({
-      bootstrapCursor: 'cursor-01',
-      downloadedItems: 1,
-      phase: 'bootstrapping',
-    });
-
-    const finalPageRemote = new FakeRemoteApi();
-    finalPageRemote.enqueue('bootstrap', {
-      body: {
-        complete: true,
-        items: [{ eventId: 'event-02' }],
-        nextCursor: null,
-        version: 1,
-      },
-      finalUrl: `${API_BASE_URL}/bootstrap`,
-      status: 200,
-    });
-    const connected = await createController({
-      remoteApi: finalPageRemote,
-      secrets: fixture.secrets,
-      store: fixture.store,
-    }).resume();
-
-    expect(connected).toMatchObject({
-      downloadedItems: 2,
-      // The connected state carries the active membership id as its push member
-      // id, the value startSyncLoop threads into pushIdentity so the invitee's
-      // POST /revisions stamps expectedMemberId with an id the server accepts.
       memberId: MEMBERSHIP_ID,
       phase: 'connected',
     });
-    expect(fixture.store.bootstrapPages).toEqual([
-      [{ eventId: 'event-01' }],
-      [{ eventId: 'event-02' }],
-    ]);
-    expect(JSON.stringify(fixture.store.state)).not.toContain(REFRESH_TOKEN);
-    expect(firstPageRemote.calls[0]?.request).toMatchObject({
-      cursor: null,
-      redirect: 'error',
-      refreshToken: REFRESH_TOKEN,
-      url: `${API_BASE_URL}/bootstrap`,
-      // The stored connection knows its vault (set at invitation review, well
-      // before this phase), so every bootstrap page request, including
-      // continuation pages, carries it for the server's ?vault= selection
-      // (multi-vault 9b).
-      vaultId: VAULT_ID,
-    });
-    expect(String(firstPageRemote.calls[0]?.request.url)).not.toContain(
-      REFRESH_TOKEN,
-    );
+    expect(fixture.secrets.pendingCredential).toBeNull();
   });
+
+  it.each(['approval-received', 'bootstrapping'] as const)(
+    'migrates a device persisted in the retired %s phase forward to connected',
+    async (legacyPhase) => {
+      const fixture = createFixture();
+      await createPendingConnection(fixture);
+      const { pendingDeviceId, verificationPhrase, ...metadata } =
+        fixture.store.state as Record<string, unknown>;
+      void verificationPhrase;
+      fixture.store.state = {
+        ...metadata,
+        memberId: MEMBERSHIP_ID,
+        bootstrapCursor: legacyPhase === 'bootstrapping' ? 'cursor-01' : null,
+        deviceId: DEVICE_ID,
+        downloadedItems: 3,
+        ...(legacyPhase === 'approval-received' ? { pendingDeviceId } : {}),
+        phase: legacyPhase,
+      };
+      const remote = new FakeRemoteApi();
+
+      const resumed = await createController({
+        remoteApi: remote,
+        secrets: fixture.secrets,
+        store: fixture.store,
+      }).resume();
+
+      const expected = {
+        ...metadata,
+        memberId: MEMBERSHIP_ID,
+        deviceId: DEVICE_ID,
+        downloadedItems: 3,
+        phase: 'connected',
+        version: 1,
+      };
+      expect(resumed).toEqual(expected);
+      expect(fixture.store.state).toEqual(expected);
+      expect(remote.calls).toEqual([]);
+      expect(fixture.secrets.pendingCredential).toBeNull();
+    },
+  );
 
   it('rejects an approved poll response that omits the membershipId', async () => {
     const fixture = createFixture();

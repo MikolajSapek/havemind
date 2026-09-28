@@ -1,12 +1,11 @@
 /**
  * `RemoteApiPort` implemented over Obsidian's `requestUrl`, targeting the
  * F8-02c onboarding HTTP surface (`apps/server/src/auth/onboarding-routes.ts`):
- * discovery, invitation review/redeem, device approval polling and bootstrap.
+ * discovery, invitation review/redeem and device approval polling.
  *
  * Pre-auth onboarding secrets travel in headers, never in the query string:
- * the pending credential goes in `x-havemind-pending-credential` and the refresh
- * token in `x-havemind-refresh-token`, mirroring the server contract and the
- * anti-spec in `plan/05-plugin-connection-and-sync.md`.
+ * the pending credential goes in `x-havemind-pending-credential`, mirroring
+ * the server contract and the anti-spec in `plan/05-plugin-connection-and-sync.md`.
  *
  * `finalUrl` echoes the URL the onboarding controller asked for. Obsidian's
  * `requestUrl` follows redirects transparently and does not surface the resolved
@@ -17,7 +16,6 @@
 
 import type {
   ApprovalPollRequest,
-  BootstrapPageRequest,
   DiscoveryRequest,
   InvitationRedemptionRequest,
   InvitationReviewRequest,
@@ -27,7 +25,6 @@ import type {
 import type { RequestUrlFn } from './sync-transport';
 
 const PENDING_CREDENTIAL_HEADER = 'x-havemind-pending-credential';
-const REFRESH_TOKEN_HEADER = 'x-havemind-refresh-token';
 
 export interface RequestUrlOnboardingApiOptions {
   readonly requestUrl: RequestUrlFn;
@@ -75,36 +72,12 @@ export class RequestUrlOnboardingApi implements RemoteApiPort {
     });
   }
 
-  async fetchBootstrapPage(
-    request: BootstrapPageRequest,
-  ): Promise<RemoteResponse> {
-    const params: string[] = [];
-    if (request.vaultId !== null) {
-      params.push(`vault=${encodeURIComponent(request.vaultId)}`);
-    }
-    if (request.cursor !== null) {
-      params.push(`cursor=${encodeURIComponent(request.cursor)}`);
-    }
-    const url =
-      params.length === 0
-        ? request.url
-        : `${request.url}?${params.join('&')}`;
-    // finalUrl echoes the controller's expected URL (without the vault/cursor
-    // query), which is what `parseSuccessfulResponse` compares against.
-    return this.send(request.url, {
-      method: 'GET',
-      requestUrl: url,
-      headers: { [REFRESH_TOKEN_HEADER]: request.refreshToken },
-    });
-  }
-
   private async send(
     finalUrl: string,
     init: {
       method: string;
       body?: string;
       headers?: Record<string, string>;
-      requestUrl?: string;
     },
   ): Promise<RemoteResponse> {
     const headers: Record<string, string> = { ...init.headers };
@@ -112,7 +85,7 @@ export class RequestUrlOnboardingApi implements RemoteApiPort {
       headers['Content-Type'] = 'application/json';
     }
     const response = await this.requestUrl({
-      url: init.requestUrl ?? finalUrl,
+      url: finalUrl,
       method: init.method,
       throw: false,
       ...(Object.keys(headers).length === 0 ? {} : { headers }),

@@ -1,12 +1,7 @@
 /**
  * `OnboardingStorePort` over a plugin-data persistence boundary. The durable
- * onboarding state and the set of fileIds seen during bootstrap are non-secret
- * bookkeeping, so they live in `data.json` under a dedicated key. Committing a
- * bootstrap page persists the advanced state and the page's fileIds atomically
- * (a single save), so a restart resumes bootstrap without losing progress.
- *
- * Bootstrap items are untrusted server output: any malformed item is skipped
- * rather than throwing, so one bad row cannot wedge the connect flow.
+ * onboarding state is non-secret bookkeeping, so it lives in `data.json` under
+ * a dedicated key.
  */
 
 import type {
@@ -23,7 +18,6 @@ export interface OnboardingPersistPort {
 
 interface PersistedOnboarding {
   readonly state: DurableOnboardingState | null;
-  readonly fileIds: readonly string[];
 }
 
 export interface PluginDataOnboardingStoreOptions {
@@ -43,30 +37,11 @@ export class PluginDataOnboardingStore implements OnboardingStorePort {
   }
 
   async saveState(state: DurableOnboardingState): Promise<void> {
-    const current = await this.ensureLoaded();
-    await this.mutate({ ...current, state });
-  }
-
-  async commitBootstrapPage(
-    items: readonly unknown[],
-    state: DurableOnboardingState,
-  ): Promise<void> {
-    const current = await this.ensureLoaded();
-    const pageFileIds = items
-      .map(extractFileId)
-      .filter((id): id is string => id !== null);
-    const fileIds = [...new Set([...current.fileIds, ...pageFileIds])];
-    await this.mutate({ fileIds, state });
+    await this.mutate({ state });
   }
 
   async clearState(): Promise<void> {
-    const current = await this.ensureLoaded();
-    await this.mutate({ ...current, state: null });
-  }
-
-  /** FileIds observed during bootstrap, for the path-mapping resolver. */
-  knownFileIds(): readonly string[] {
-    return this.cache?.fileIds ?? [];
+    await this.mutate({ state: null });
   }
 
   private async ensureLoaded(): Promise<PersistedOnboarding> {
@@ -87,22 +62,12 @@ export class PluginDataOnboardingStore implements OnboardingStorePort {
 function parsePersisted(raw: unknown): PersistedOnboarding {
   const container = isRecord(raw) ? raw[ONBOARDING_KEY] : null;
   if (!isRecord(container)) {
-    return { state: null, fileIds: [] };
+    return { state: null };
   }
-  const fileIds = Array.isArray(container.fileIds)
-    ? container.fileIds.filter((id): id is string => typeof id === 'string')
-    : [];
   const state = isRecord(container.state)
     ? (container.state as unknown as DurableOnboardingState)
     : null;
-  return { state, fileIds };
-}
-
-function extractFileId(item: unknown): string | null {
-  if (isRecord(item) && typeof item.fileId === 'string') {
-    return item.fileId;
-  }
-  return null;
+  return { state };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

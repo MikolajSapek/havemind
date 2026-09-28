@@ -52,7 +52,7 @@ describe('driveToConnected', () => {
   });
 
   it('advances non-approval phases without polling delay', async () => {
-    const controller = scripted(['bootstrapping', 'bootstrapping', 'connected']);
+    const controller = scripted(['redeeming', 'redeeming', 'connected']);
     const sleeps: number[] = [];
     await driveToConnected({
       controller,

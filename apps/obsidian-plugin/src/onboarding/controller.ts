@@ -15,7 +15,6 @@ const UUID_PATTERN =
 const SAFE_IDENTIFIER_PATTERN = /^[A-Za-z0-9_-]{1,256}$/u;
 const CAPABILITY_PATTERN =
   /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*-v[1-9][0-9]*$/u;
-const MAX_BOOTSTRAP_PAGE_ITEMS = 1_000;
 
 /** The verification value is a 6-digit numeric PIN (see server verification-pin). */
 const VERIFICATION_PIN_PATTERN = /^[0-9]{6}$/u;
@@ -54,21 +53,6 @@ export interface ApprovalPollRequest extends RedirectSafeRequest {
   pendingCredential: string;
 }
 
-export interface BootstrapPageRequest extends RedirectSafeRequest {
-  cursor: string | null;
-  refreshToken: string;
-  /**
-   * The connection's known vault id, sent as `?vault=` so the server serves
-   * that membership's bootstrap instead of its first-active-vault fallback
-   * (multi-vault 9b, server-side contract added in 3c91a3d). `null` before a
-   * connection record exists (the server's first-active-vault fallback
-   * covers that case), unreachable once a connection record exists, since
-   * `ConnectionMetadata.vaultId` is set at invitation review, well before any
-   * bootstrap request is made.
-   */
-  vaultId: string | null;
-}
-
 export interface RemoteApiPort {
   discover(request: DiscoveryRequest): Promise<RemoteResponse>;
   reviewInvitation(request: InvitationReviewRequest): Promise<RemoteResponse>;
@@ -76,7 +60,6 @@ export interface RemoteApiPort {
     request: InvitationRedemptionRequest,
   ): Promise<RemoteResponse>;
   pollApproval(request: ApprovalPollRequest): Promise<RemoteResponse>;
-  fetchBootstrapPage(request: BootstrapPageRequest): Promise<RemoteResponse>;
 }
 
 export interface OnboardingSecretsPort {
@@ -95,10 +78,6 @@ export interface OnboardingSecretsPort {
 export interface OnboardingStorePort {
   loadState(): Promise<unknown>;
   saveState(state: DurableOnboardingState): Promise<void>;
-  commitBootstrapPage(
-    items: readonly unknown[],
-    state: DurableOnboardingState,
-  ): Promise<void>;
   /** Forgets the durable onboarding, so the next start begins afresh. */
   clearState(): Promise<void>;
 }
@@ -139,23 +118,6 @@ export interface PendingApprovalState extends ConnectionMetadata {
   version: 1;
 }
 
-export interface ApprovalReceivedState extends ConnectionMetadata {
-  bootstrapCursor: string | null;
-  deviceId: string;
-  downloadedItems: number;
-  pendingDeviceId: string;
-  phase: 'approval-received';
-  version: 1;
-}
-
-export interface BootstrappingState extends ConnectionMetadata {
-  bootstrapCursor: string | null;
-  deviceId: string;
-  downloadedItems: number;
-  phase: 'bootstrapping';
-  version: 1;
-}
-
 export interface ConnectedState extends ConnectionMetadata {
   deviceId: string;
   downloadedItems: number;
@@ -166,8 +128,6 @@ export interface ConnectedState extends ConnectionMetadata {
 export type DurableOnboardingState =
   | RedeemingState
   | PendingApprovalState
-  | ApprovalReceivedState
-  | BootstrappingState
   | ConnectedState;
 
 export type OnboardingViewState =
@@ -385,16 +345,18 @@ export class OnboardingController {
     }
 
     const durable = parseDurableState(stored);
+    if (isRecord(stored) && stored.phase !== durable.phase) {
+      // A device persisted in a retired bootstrap phase by an older version
+      // (D10): it was already approved, so record it as connected.
+      await this.connect(durable as ConnectedState);
+      return this.state;
+    }
     this.currentState = durable;
     switch (durable.phase) {
       case 'redeeming':
         return this.resumeRedemption(durable);
       case 'pending-approval':
         return this.pollApproval(durable);
-      case 'approval-received':
-        return this.beginBootstrap(durable);
-      case 'bootstrapping':
-        return this.fetchBootstrapPage(durable);
       case 'connected':
         await this.requireRefreshToken();
         return this.state;
@@ -498,90 +460,29 @@ export class OnboardingController {
       return this.state;
     }
 
-    const approved: ApprovalReceivedState = {
+    await this.connect({
       ...connectionMetadata(state),
       // Replace the review's memberId (the invitee's user id) with the active
       // membership id the server minted at approval. This is the id POST
       // /revisions authorises `expectedMemberId` against, so once it lands in the
       // connection's push identity the invitee's revisions are accepted instead
-      // of 403'd. Every later phase copies it forward via connectionMetadata.
+      // of 403'd.
       memberId: approval.membershipId,
-      bootstrapCursor: approval.bootstrapCursor,
       deviceId: approval.deviceId,
       downloadedItems: 0,
-      pendingDeviceId: state.pendingDeviceId,
-      phase: 'approval-received',
+      phase: 'connected',
       version: 1,
-    };
-    await this.saveState(approved);
-    this.currentState = approved;
+    });
     return this.state;
   }
 
-  private async beginBootstrap(
-    state: ApprovalReceivedState,
-  ): Promise<OnboardingViewState> {
+  private async connect(connected: ConnectedState): Promise<void> {
     await this.requireRefreshToken();
-    const bootstrapping: BootstrappingState = {
-      ...connectionMetadata(state),
-      bootstrapCursor: state.bootstrapCursor,
-      deviceId: state.deviceId,
-      downloadedItems: state.downloadedItems,
-      phase: 'bootstrapping',
-      version: 1,
-    };
-    await this.saveState(bootstrapping);
-    this.currentState = bootstrapping;
+    await this.saveState(connected);
+    this.currentState = connected;
     await this.clearSecretBestEffort(() =>
       this.secrets.clearPendingCredential(),
     );
-    return this.state;
-  }
-
-  private async fetchBootstrapPage(
-    state: BootstrappingState,
-  ): Promise<OnboardingViewState> {
-    const refreshToken = await this.requireRefreshToken();
-    const url = `${state.apiBaseUrl}/bootstrap`;
-    const response = await this.callRemote(() =>
-      this.remoteApi.fetchBootstrapPage({
-        cursor: state.bootstrapCursor,
-        redirect: 'error',
-        refreshToken,
-        url,
-        vaultId: state.vaultId,
-      }),
-    );
-    const page = parseBootstrapResponse(response, url);
-    if (!page.complete && page.nextCursor === state.bootstrapCursor) {
-      throw new OnboardingError('invalid-response');
-    }
-
-    const downloadedItems = state.downloadedItems + page.items.length;
-    const nextState: DurableOnboardingState = page.complete
-      ? {
-          ...connectionMetadata(state),
-          deviceId: state.deviceId,
-          downloadedItems,
-          phase: 'connected',
-          version: 1,
-        }
-      : {
-          ...connectionMetadata(state),
-          bootstrapCursor: page.nextCursor,
-          deviceId: state.deviceId,
-          downloadedItems,
-          phase: 'bootstrapping',
-          version: 1,
-        };
-
-    try {
-      await this.store.commitBootstrapPage(page.items, nextState);
-    } catch {
-      throw new OnboardingError('storage-failed');
-    }
-    this.currentState = nextState;
-    return this.state;
   }
 
   private async requireRefreshToken(): Promise<string> {
@@ -806,7 +707,6 @@ type ApprovalResponse =
   | Readonly<{ status: 'pending' }>
   | Readonly<{ status: 'rejected' }>
   | Readonly<{
-      bootstrapCursor: string | null;
       deviceId: string;
       // The invitee's active membership id (the server's memberships.id), which
       // POST /revisions authorises push against. It becomes the connection's
@@ -835,46 +735,12 @@ function parseApprovalResponse(
   ) {
     throw new OnboardingError('invalid-response');
   }
+  // The server still sends `bootstrapCursor: null` (R11); it is validated and
+  // ignored, since the retired bootstrap phase was its only reader.
   return {
-    bootstrapCursor: body.bootstrapCursor,
     deviceId: body.deviceId,
     membershipId: body.membershipId,
     status: 'approved',
-  };
-}
-
-type BootstrapResponse = Readonly<{
-  complete: boolean;
-  items: readonly unknown[];
-  nextCursor: string | null;
-}>;
-
-function parseBootstrapResponse(
-  response: RemoteResponse,
-  expectedUrl: string,
-): BootstrapResponse {
-  const body = parseSuccessfulResponse(response, expectedUrl);
-  if (
-    !hasExactKeys(body, [
-      'complete',
-      'items',
-      'nextCursor',
-      'version',
-    ]) ||
-    body.version !== 1 ||
-    typeof body.complete !== 'boolean' ||
-    !Array.isArray(body.items) ||
-    body.items.length > MAX_BOOTSTRAP_PAGE_ITEMS ||
-    !isCursor(body.nextCursor) ||
-    (body.complete && body.nextCursor !== null) ||
-    (!body.complete && body.nextCursor === null)
-  ) {
-    throw new OnboardingError('invalid-response');
-  }
-  return {
-    complete: body.complete,
-    items: body.items,
-    nextCursor: body.nextCursor,
   };
 }
 
@@ -940,7 +806,9 @@ function parseDurableState(value: unknown): DurableOnboardingState {
     throw new OnboardingError('invalid-state');
   }
   const phase = value.phase;
-  const phaseKeys: Record<DurableOnboardingState['phase'], readonly string[]> = {
+  // 'approval-received' and 'bootstrapping' are retired phases (D10) that an
+  // older version may have persisted; they parse into the connected state.
+  const phaseKeys: Readonly<Record<string, readonly string[]>> = {
     'approval-received': [
       'bootstrapCursor',
       'deviceId',
@@ -959,7 +827,8 @@ function parseDurableState(value: unknown): DurableOnboardingState {
     ],
     redeeming: ['deviceLabel', 'redemptionId'],
   };
-  if (!Object.hasOwn(phaseKeys, phase)) {
+  const keys = Object.hasOwn(phaseKeys, phase) ? phaseKeys[phase] : undefined;
+  if (keys === undefined) {
     throw new OnboardingError('invalid-state');
   }
   const expectedKeys = [
@@ -975,7 +844,7 @@ function parseDurableState(value: unknown): DurableOnboardingState {
     'vaultId',
     'vaultName',
     'version',
-    ...phaseKeys[phase as DurableOnboardingState['phase']],
+    ...keys,
   ];
   if (!hasExactKeys(value, expectedKeys) || value.version !== 1) {
     throw new OnboardingError('invalid-state');
@@ -999,35 +868,24 @@ function parseDurableState(value: unknown): DurableOnboardingState {
         throw new OnboardingError('invalid-state');
       }
       break;
-    case 'approval-received':
+    default: {
       if (
-        !isCanonicalUuid(value.pendingDeviceId) ||
         !isCanonicalUuid(value.deviceId) ||
-        !isCursor(value.bootstrapCursor) ||
-        !isNonnegativeInteger(value.downloadedItems)
+        !isNonnegativeInteger(value.downloadedItems) ||
+        (phase !== 'connected' && !isCursor(value.bootstrapCursor)) ||
+        (phase === 'approval-received' && !isCanonicalUuid(value.pendingDeviceId))
       ) {
         throw new OnboardingError('invalid-state');
       }
-      break;
-    case 'bootstrapping':
-      if (
-        !isCanonicalUuid(value.deviceId) ||
-        !isCursor(value.bootstrapCursor) ||
-        !isNonnegativeInteger(value.downloadedItems)
-      ) {
-        throw new OnboardingError('invalid-state');
-      }
-      break;
-    case 'connected':
-      if (
-        !isCanonicalUuid(value.deviceId) ||
-        !isNonnegativeInteger(value.downloadedItems)
-      ) {
-        throw new OnboardingError('invalid-state');
-      }
-      break;
-    default:
-      throw new OnboardingError('invalid-state');
+      const connected: ConnectedState = {
+        ...connectionMetadata(value as unknown as ConnectionMetadata),
+        deviceId: value.deviceId,
+        downloadedItems: value.downloadedItems,
+        phase: 'connected',
+        version: 1,
+      };
+      return connected;
+    }
   }
   return structuredClone(value) as unknown as DurableOnboardingState;
 }

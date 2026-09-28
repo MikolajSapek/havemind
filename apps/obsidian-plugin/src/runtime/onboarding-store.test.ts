@@ -56,26 +56,4 @@ describe('PluginDataOnboardingStore', () => {
       'connected',
     );
   });
-
-  it('commits a bootstrap page: records fileIds and advances the state', async () => {
-    const persist = new MemoryPersist();
-    const store = new PluginDataOnboardingStore({ persist });
-    await store.commitBootstrapPage(
-      [
-        { fileId: 'file-1', revisionId: 'rev-1' },
-        { fileId: 'file-2', revisionId: 'rev-2' },
-      ],
-      connectedState(),
-    );
-    expect(store.knownFileIds()).toEqual(['file-1', 'file-2']);
-    expect((await store.loadState() as DurableOnboardingState).phase).toBe(
-      'connected',
-    );
-  });
-
-  it('ignores malformed bootstrap items without throwing', async () => {
-    const store = new PluginDataOnboardingStore({ persist: new MemoryPersist() });
-    await store.commitBootstrapPage([{ nope: true }, 42], connectedState());
-    expect(store.knownFileIds()).toEqual([]);
-  });
 });
