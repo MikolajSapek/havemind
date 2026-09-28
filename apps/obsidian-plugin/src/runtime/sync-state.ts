@@ -213,6 +213,13 @@ export interface DurableSyncStateOptions {
    * eviction path cheaply.
    */
   readonly quarantinedEnvelopeBudgetBytes?: number;
+  /**
+   * False in production (A2): merges take their ancestor from the server's
+   * revision history, so the full text of every note (`baseContents`) is
+   * neither kept in memory nor written to data.json. Defaults to true for the
+   * harnesses that apply without a revision history.
+   */
+  readonly keepBaseContents?: boolean;
 }
 
 const DEFAULT_MAX_LOCALLY_AUTHORED = 10_000;
@@ -309,6 +316,7 @@ export class DurableSyncState implements SyncStatePort {
    * wrapped in a fallible guard so an unavailable store degrades to inline.
    */
   private readonly payloadStore: OutboxPayloadStore | undefined;
+  private readonly keepBaseContents: boolean;
   /**
    * The set of outbox/stash `revisionId`s whose payload currently lives in the
    * payload store (so the on-disk form strips their inline bytes). Populated on
@@ -368,6 +376,14 @@ export class DurableSyncState implements SyncStatePort {
       options.quarantinedEnvelopeBudgetBytes ??
       QUARANTINED_ENVELOPE_BUDGET_BYTES;
     this.payloadStore = options.payloadStore;
+    this.keepBaseContents = options.keepBaseContents ?? true;
+  }
+
+  /** `state` without base contents when they are not kept (A2). */
+  private trimmed(state: PersistedSyncState): PersistedSyncState {
+    return this.keepBaseContents || Object.keys(state.baseContents).length === 0
+      ? state
+      : { ...state, baseContents: {} };
   }
 
   /**
@@ -1079,7 +1095,7 @@ export class DurableSyncState implements SyncStatePort {
     }
     const outcome = parsePersistedState(raw);
     if (outcome.status !== 'corrupt') {
-      if (this.cache === null) this.cache = outcome.state;
+      if (this.cache === null) this.cache = this.trimmed(outcome.state);
       return;
     }
 
@@ -1095,7 +1111,7 @@ export class DurableSyncState implements SyncStatePort {
       // the corrupt primary for forensics/manual recovery.
       await this.persist.preserveCorrupt(raw, this.now());
       if (this.cache === null) {
-        this.cache = backupOutcome.state;
+        this.cache = this.trimmed(backupOutcome.state);
         // `.bak` is exactly one generation behind the primary (save() rotates
         // the prior primary into .bak). If the corrupt primary was damaged in a
         // NON-outbox field while its own outbox was intact and held revisions
@@ -1122,7 +1138,7 @@ export class DurableSyncState implements SyncStatePort {
       // SALVAGE: the outbox was readable. Keep it (plus locallyAuthored); the
       // unrecoverable fields were already reset to safe defaults during parse.
       // Nothing is at risk (the queue was saved), so recovery is NOT flagged.
-      this.cache = outcome.salvage;
+      this.cache = this.trimmed(outcome.salvage);
     } else {
       // UNRECOVERABLE queue: resume from a clean, writable empty state and set the
       // observable recovery signal so the UI can tell the user their local queue
@@ -1147,8 +1163,9 @@ export class DurableSyncState implements SyncStatePort {
     // Arch P1: persist the DISK form, outbox/stash payloads whose bytes live in
     // the payload store are stripped to a reference so `data.json` stays small.
     // The in-memory `cache` keeps the full payloads (peekEnvelope drains them).
-    await this.persist.save(this.toDiskForm(next));
-    this.cache = next;
+    const kept = this.trimmed(next);
+    await this.persist.save(this.toDiskForm(kept));
+    this.cache = kept;
   }
 
   /**

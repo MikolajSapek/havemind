@@ -366,6 +366,29 @@ describe('DurableSyncState', () => {
     expect(state.baseContentFor('file-9')).toBe('body');
   });
 
+  // A2: every note's full text sat in data.json (twice, with the backup),
+  // though production merges over the revision history's ancestor.
+  it('keeps no note text when base contents are not kept', async () => {
+    const legacy = new MemoryPersist({
+      version: 1,
+      cursor: 0,
+      outbox: [],
+      locallyAuthored: [],
+      deferred: [],
+      pathOwners: {},
+      baseHashes: {},
+      baseContents: { 'file-0': 'old note text' },
+    });
+    const lean = new DurableSyncState({ persist: legacy, keepBaseContents: false });
+
+    await lean.recordApplied('file-9', 'Notes/n.md', 'hash-9', 'body');
+
+    expect(lean.baseContentFor('file-0')).toBeNull();
+    expect(lean.baseContentFor('file-9')).toBeNull();
+    expect((legacy.saved as PersistedSyncState).baseContents).toEqual({});
+    expect(lean.baseHashFor('file-9')).toBe('hash-9');
+  });
+
   it('remembers durably which file a conflict copy belongs to', async () => {
     await state.recordConflictArtifactPath('rev-9', 'Havemind Conflicts/N (conflict A 2026-09-28 1200).md', 'file-7');
     const reopened = new DurableSyncState({ persist });

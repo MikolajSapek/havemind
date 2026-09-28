@@ -97,6 +97,9 @@ export function buildSyncController(
     // Arch P1: keep large outbox payload bytes out of `data.json`. Best-effort,
     // degrades to inline when IndexedDB is unavailable (see the factory).
     payloadStore: createOutboxPayloadStore(plugin),
+    // A2: merges and the conflict sweep take the ancestor from the revision
+    // history, so no note text is kept in data.json.
+    keepBaseContents: false,
   });
 
   const transport = new RequestUrlTransport({
