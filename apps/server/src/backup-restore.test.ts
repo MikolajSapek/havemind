@@ -1,14 +1,8 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { rmSync, writeFileSync } from 'node:fs';
 import type * as FsPromises from 'node:fs/promises';
 import { readdir, readFile, rm, stat, truncate, writeFile } from 'node:fs/promises';
-import { randomUUID } from 'node:crypto';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import {
-  PROTOCOL_VERSION,
-  type ProtectedRevisionHeader,
-} from '@havemind/protocol';
 import type Database from 'better-sqlite3';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -27,7 +21,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   };
 });
 
-import { buildApp } from './app.js';
+import type { buildApp } from './app.js';
 import {
   createBackup,
   listBackups,
@@ -38,64 +32,26 @@ import {
   verifyBackupStructure,
 } from './backup-restore.js';
 import { BlobStore } from './blob-store.js';
-import { parseServerConfig } from './config.js';
-import { DB_FILENAME, openDatabase } from './db.js';
+import { DB_FILENAME } from './db.js';
 import { runMigrations } from './migrations.js';
 import { RevisionRepository } from './revision-repository.js';
 import { SessionRepository } from './auth/session-repository.js';
 import {
-  createLocalOwnerSetupContext,
-  OwnerSetupService,
-} from './auth/setup.js';
-import { generateRefreshToken } from './auth/tokens.js';
-
-const TEST_ENV = {
-  HAVEMIND_API_BASE_URL: 'https://sync.example.test/api/v1',
-  HAVEMIND_SERVER_NAME: 'Test Havemind',
-} as const;
+  type PushedInstance as SeededInstance,
+  SEEDED_REVISION_ID as REVISION_ID,
+  seedPushedInstance,
+} from './test/fixtures/instance-fixtures.js';
+import {
+  createTestApp,
+  makeTempDir,
+  openTrackedDatabase as openTracked,
+  releaseTestResources,
+} from './test/fixtures/server-fixtures.js';
 
 const START_TIME = '2026-07-16T03:00:00.000Z';
 const NEW_EPOCH = '99999999-0000-4000-8000-0000000000ff';
-const FILE_ID = '70000000-0000-4000-8000-0000000000f5';
-const REVISION_ID = '70000000-0000-4000-8000-000000000f01';
 
-const SEMANTICS = Object.freeze({
-  pathNormalization: 'nfc-lowercase-v1',
-  payloadFormat: 'revision-payload-v1',
-  provenanceRecipe: 'source-range-v1',
-  syncSemantics: 'dag-cas-v1',
-} as const);
-
-interface SeededInstance {
-  readonly dataDir: string;
-  readonly database: Database.Database;
-  readonly blobStore: BlobStore;
-  readonly revisions: RevisionRepository;
-  readonly sessions: SessionRepository;
-  readonly accessToken: string;
-  readonly serverEpoch: string;
-  readonly instanceId: string;
-  readonly vaultId: string;
-  readonly membershipId: string;
-  readonly deviceId: string;
-  readonly blobHash: string;
-}
-
-const databases: Database.Database[] = [];
-const temporaryDirectories: string[] = [];
-const applications: Array<ReturnType<typeof buildApp>> = [];
-
-function makeDataDir(): string {
-  const directory = mkdtempSync(join(tmpdir(), 'havemind-backup-'));
-  temporaryDirectories.push(directory);
-  return directory;
-}
-
-function openTracked(filename: string): Database.Database {
-  const database = openDatabase(filename);
-  databases.push(database);
-  return database;
-}
+const makeDataDir = (): string => makeTempDir('havemind-backup-');
 
 function buildAppFor(
   database: Database.Database,
@@ -103,18 +59,7 @@ function buildAppFor(
   revisions: RevisionRepository,
   sessions: SessionRepository,
 ) {
-  const config = parseServerConfig(TEST_ENV);
-  const app = buildApp({
-    auth: {
-      clientKey: () => 'fixed-test-client',
-      database,
-      sessions,
-      sync: { blobStore, database, revisions },
-    },
-    config,
-  });
-  applications.push(app);
-  return app;
+  return createTestApp({ database, sessions, sync: { blobStore, database, revisions } });
 }
 
 function pull(
@@ -131,104 +76,13 @@ function pull(
   });
 }
 
-function header(
-  vaultId: string,
-  membershipId: string,
-  deviceId: string,
-): ProtectedRevisionHeader {
-  return {
-    expectedDeviceId: deviceId,
-    expectedMemberId: membershipId,
-    fileId: FILE_ID,
-    parentRevisionIds: [],
-    payloadEncoding: 'plaintext-json-v1',
-    protocol: PROTOCOL_VERSION,
-    revisionId: REVISION_ID,
-    semantics: SEMANTICS,
-    vaultId,
-  };
-}
-
-async function seedInstance(): Promise<SeededInstance> {
-  const dataDir = makeDataDir();
-  const database = openTracked(join(dataDir, 'havemind.sqlite'));
-  runMigrations(database);
-
-  const now = (): Date => new Date(START_TIME);
-  const setup = new OwnerSetupService(database, { now });
-  const init = setup.initializeOwner(createLocalOwnerSetupContext(), {
-    ownerDisplayName: 'Owner',
-    vaultDisplayName: 'Vault',
-  });
-
-  const deviceId = randomUUID();
-  const pair = setup.pairOwnerDevice({
-    deviceDisplayName: 'Owner Laptop',
-    deviceId,
-    initialRefreshToken: generateRefreshToken(),
-    pairingToken: init.pairingToken,
-    publicKey: Buffer.alloc(32, 0x11),
-  });
-
-  const vaultRow = database
-    .prepare('SELECT id AS id FROM vaults LIMIT 1')
-    .get() as { id: string };
-
-  const sessions = new SessionRepository(database, { now });
-  const blobStore = new BlobStore(join(dataDir, 'blobs'));
-  const revisions = new RevisionRepository(database, blobStore, { now });
-
-  const app = buildAppFor(database, blobStore, revisions, sessions);
-  const pushed = await app.inject({
-    headers: { authorization: `Bearer ${pair.accessToken}` },
-    method: 'POST',
-    payload: {
-      revisions: [
-        {
-          header: header(vaultRow.id, init.membershipId, deviceId),
-          idempotencyKey: 'k1',
-          payload: Buffer.from('opaque-payload', 'utf8').toString('base64'),
-        },
-      ],
-    },
-    url: `/vaults/${vaultRow.id}/revisions`,
-  });
-  expect(pushed.statusCode).toBe(200);
-  const blobHash = (
-    pushed.json() as {
-      results: Array<{ receipt: { blobHash: string } }>;
-    }
-  ).results[0]?.receipt.blobHash as string;
-
-  return {
-    accessToken: pair.accessToken,
-    blobHash,
-    blobStore,
-    database,
-    dataDir,
-    deviceId,
-    instanceId: init.instanceId,
-    membershipId: init.membershipId,
-    revisions,
-    serverEpoch: init.serverEpoch,
-    sessions,
-    vaultId: vaultRow.id,
-  };
+function seedInstance(): Promise<SeededInstance> {
+  return seedPushedInstance(makeDataDir(), 'havemind.sqlite', START_TIME, 'opaque-payload');
 }
 
 afterEach(async () => {
   linkFailure.code = null;
-  await Promise.all(applications.splice(0).map(async (app) => app.close()));
-  for (const database of databases.splice(0)) {
-    try {
-      database.close();
-    } catch {
-      // already closed
-    }
-  }
-  for (const directory of temporaryDirectories.splice(0)) {
-    rmSync(directory, { force: true, recursive: true });
-  }
+  await releaseTestResources();
 });
 
 describe('readInstanceEpoch', () => {

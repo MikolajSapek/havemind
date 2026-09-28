@@ -1,10 +1,6 @@
-import { mkdtempSync, rmSync } from 'node:fs';
-import { mkdir, readdir, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { hashBlob } from '@havemind/protocol';
-import type Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { runBackupCli } from './backup-cli.js';
@@ -12,76 +8,30 @@ import { listBackups, readInstanceEpoch } from './backup-restore.js';
 import { DB_FILENAME, openDatabase } from './db.js';
 import { runMigrations } from './migrations.js';
 import {
-  createLocalOwnerSetupContext,
-  OwnerSetupService,
-} from './auth/setup.js';
+  type MinimalInstance,
+  seedMinimalInstance,
+} from './test/fixtures/instance-fixtures.js';
+import {
+  makeTempDir,
+  openTrackedDatabase as openTracked,
+  releaseTestResources,
+} from './test/fixtures/server-fixtures.js';
 
 const START_TIME = '2026-08-07T03:00:00.000Z';
 
-const databases: Database.Database[] = [];
-const temporaryDirectories: string[] = [];
-
-function makeDir(): string {
-  const directory = mkdtempSync(join(tmpdir(), 'havemind-bcli-'));
-  temporaryDirectories.push(directory);
-  return directory;
-}
-
-function openTracked(filename: string): Database.Database {
-  const database = openDatabase(filename);
-  databases.push(database);
-  return database;
-}
-
-interface SeededInstance {
-  readonly dataDir: string;
-  readonly blobHash: string;
-  readonly instanceId: string;
-  readonly serverEpoch: string;
-}
+const makeDir = (): string => makeTempDir('havemind-bcli-');
 
 /**
  * Seeds an initialised instance and CLOSES the database, because the CLI opens
  * the data directory itself, exactly as the operator invocation does.
  */
-async function seedInstance(): Promise<SeededInstance> {
-  const dataDir = makeDir();
-  const database = openDatabase(join(dataDir, DB_FILENAME));
-  runMigrations(database);
-  const setup = new OwnerSetupService(database, {
-    now: () => new Date(START_TIME),
-  });
-  const init = setup.initializeOwner(createLocalOwnerSetupContext(), {
-    ownerDisplayName: 'Owner',
-    vaultDisplayName: 'Vault',
-  });
-  const bytes = Buffer.from('opaque-blob-bytes', 'utf8');
-  const blobHash = await hashBlob(bytes);
-  const shard = join(dataDir, 'blobs', blobHash.slice(0, 2));
-  await mkdir(shard, { recursive: true });
-  await writeFile(join(shard, blobHash), bytes);
-  database.close();
-
-  return {
-    blobHash,
-    dataDir,
-    instanceId: init.instanceId,
-    serverEpoch: init.serverEpoch,
-  };
+async function seedInstance(): Promise<MinimalInstance> {
+  const seed = await seedMinimalInstance(makeDir(), DB_FILENAME, START_TIME);
+  seed.database.close();
+  return seed;
 }
 
-afterEach(() => {
-  for (const database of databases.splice(0)) {
-    try {
-      database.close();
-    } catch {
-      // already closed
-    }
-  }
-  for (const directory of temporaryDirectories.splice(0)) {
-    rmSync(directory, { force: true, recursive: true });
-  }
-});
+afterEach(releaseTestResources);
 
 describe('havemind backup', () => {
   it('writes one artifact into --to and reports the manifest', async () => {

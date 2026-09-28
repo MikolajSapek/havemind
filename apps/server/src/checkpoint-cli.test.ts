@@ -1,44 +1,20 @@
-import { mkdtempSync, rmSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
-import { randomUUID } from 'node:crypto';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { loadSodium, type Sodium } from '@havemind/crypto';
-import type Database from 'better-sqlite3';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 
-import { buildApp } from './app.js';
-import { BlobStore } from './blob-store.js';
 import { runCheckpointCli } from './checkpoint-cli.js';
-import { parseServerConfig } from './config.js';
-import { DB_FILENAME, openDatabase } from './db.js';
-import { runMigrations } from './migrations.js';
-import { RevisionRepository } from './revision-repository.js';
-import { SessionRepository } from './auth/session-repository.js';
+import { DB_FILENAME } from './db.js';
+import { seedPushedInstance } from './test/fixtures/instance-fixtures.js';
 import {
-  createLocalOwnerSetupContext,
-  OwnerSetupService,
-} from './auth/setup.js';
-import { generateRefreshToken } from './auth/tokens.js';
-import {
-  PROTOCOL_VERSION,
-  type ProtectedRevisionHeader,
-} from '@havemind/protocol';
+  makeTempDir,
+  openTrackedDatabase,
+  releaseTestResources,
+  TEST_ENV,
+} from './test/fixtures/server-fixtures.js';
 
-const TEST_ENV = {
-  HAVEMIND_API_BASE_URL: 'https://sync.example.test/api/v1',
-  HAVEMIND_SERVER_NAME: 'Test Havemind',
-} as const;
 const START_TIME = '2026-07-24T03:00:00.000Z';
-const FILE_ID = '70000000-0000-4000-8000-0000000000f5';
-const REVISION_ID = '70000000-0000-4000-8000-000000000f01';
-const SEMANTICS = Object.freeze({
-  pathNormalization: 'nfc-lowercase-v1',
-  payloadFormat: 'revision-payload-v1',
-  provenanceRecipe: 'source-range-v1',
-  syncSemantics: 'dag-cas-v1',
-} as const);
 
 let sodium: Sodium;
 
@@ -46,15 +22,7 @@ beforeAll(async () => {
   sodium = await loadSodium();
 });
 
-const databases: Database.Database[] = [];
-const temporaryDirectories: string[] = [];
-const applications: Array<ReturnType<typeof buildApp>> = [];
-
-function makeDir(): string {
-  const directory = mkdtempSync(join(tmpdir(), 'havemind-cpcli-'));
-  temporaryDirectories.push(directory);
-  return directory;
-}
+const makeDir = (): string => makeTempDir('havemind-cpcli-');
 
 function deps(env: Record<string, string | undefined>) {
   return {
@@ -65,82 +33,11 @@ function deps(env: Record<string, string | undefined>) {
 }
 
 async function seedDataDir(): Promise<string> {
-  const dataDir = makeDir();
-  const database = openDatabase(join(dataDir, DB_FILENAME));
-  databases.push(database);
-  runMigrations(database);
-  const now = (): Date => new Date(START_TIME);
-  const setup = new OwnerSetupService(database, { now });
-  const init = setup.initializeOwner(createLocalOwnerSetupContext(), {
-    ownerDisplayName: 'Owner',
-    vaultDisplayName: 'Vault',
-  });
-  const deviceId = randomUUID();
-  const pair = setup.pairOwnerDevice({
-    deviceDisplayName: 'Owner Laptop',
-    deviceId,
-    initialRefreshToken: generateRefreshToken(),
-    pairingToken: init.pairingToken,
-    publicKey: Buffer.alloc(32, 0x11),
-  });
-  const vaultRow = database
-    .prepare('SELECT id AS id FROM vaults LIMIT 1')
-    .get() as { id: string };
-  const sessions = new SessionRepository(database, { now });
-  const blobStore = new BlobStore(join(dataDir, 'blobs'));
-  const revisions = new RevisionRepository(database, blobStore, { now });
-  const app = buildApp({
-    auth: {
-      clientKey: () => 'fixed-test-client',
-      database,
-      sessions,
-      sync: { blobStore, database, revisions },
-    },
-    config: parseServerConfig(TEST_ENV),
-  });
-  applications.push(app);
-  const headerValue: ProtectedRevisionHeader = {
-    expectedDeviceId: deviceId,
-    expectedMemberId: init.membershipId,
-    fileId: FILE_ID,
-    parentRevisionIds: [],
-    payloadEncoding: 'plaintext-json-v1',
-    protocol: PROTOCOL_VERSION,
-    revisionId: REVISION_ID,
-    semantics: SEMANTICS,
-    vaultId: vaultRow.id,
-  };
-  const pushed = await app.inject({
-    headers: { authorization: `Bearer ${pair.accessToken}` },
-    method: 'POST',
-    payload: {
-      revisions: [
-        {
-          header: headerValue,
-          idempotencyKey: 'k1',
-          payload: Buffer.from('opaque-payload', 'utf8').toString('base64'),
-        },
-      ],
-    },
-    url: `/vaults/${vaultRow.id}/revisions`,
-  });
-  expect(pushed.statusCode).toBe(200);
-  return dataDir;
+  return (await seedPushedInstance(makeDir(), DB_FILENAME, START_TIME, 'opaque-payload'))
+    .dataDir;
 }
 
-afterEach(async () => {
-  await Promise.all(applications.splice(0).map(async (app) => app.close()));
-  for (const database of databases.splice(0)) {
-    try {
-      database.close();
-    } catch {
-      // already closed
-    }
-  }
-  for (const directory of temporaryDirectories.splice(0)) {
-    rmSync(directory, { force: true, recursive: true });
-  }
-});
+afterEach(releaseTestResources);
 
 const HEX32 = /^[0-9a-f]{64}$/u;
 
@@ -201,8 +98,7 @@ describe('havemind checkpoint CLI', () => {
     expect(restored.exitCode).toBe(0);
     expect(restored.stdout).toContain('Checkpoint restored and verified.');
 
-    const restoredDb = openDatabase(join(targetDir, DB_FILENAME));
-    databases.push(restoredDb);
+    const restoredDb = openTrackedDatabase(join(targetDir, DB_FILENAME));
     expect(restoredDb.pragma('integrity_check', { simple: true })).toBe('ok');
   });
 

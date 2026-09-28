@@ -1,10 +1,6 @@
-import { mkdtempSync, rmSync } from 'node:fs';
 import { mkdir, readdir, stat, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { hashBlob } from '@havemind/protocol';
-import type Database from 'better-sqlite3';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -24,37 +20,21 @@ import {
   DEFAULT_BACKUP_KEEP,
   parseScheduledBackupConfig,
 } from './config.js';
-import { DB_FILENAME, openDatabase } from './db.js';
+import { DB_FILENAME } from './db.js';
 import { runMigrations } from './migrations.js';
 import {
-  createLocalOwnerSetupContext,
-  OwnerSetupService,
-} from './auth/setup.js';
+  type MinimalInstance,
+  seedMinimalInstance,
+} from './test/fixtures/instance-fixtures.js';
+import {
+  makeTempDir,
+  openTrackedDatabase as openTracked,
+  releaseTestResources,
+} from './test/fixtures/server-fixtures.js';
 
 const START_TIME = '2026-08-07T03:00:00.000Z';
 
-const databases: Database.Database[] = [];
-const temporaryDirectories: string[] = [];
-
-function makeDir(): string {
-  const directory = mkdtempSync(join(tmpdir(), 'havemind-bsched-'));
-  temporaryDirectories.push(directory);
-  return directory;
-}
-
-function openTracked(filename: string): Database.Database {
-  const database = openDatabase(filename);
-  databases.push(database);
-  return database;
-}
-
-interface SeededInstance {
-  readonly dataDir: string;
-  readonly database: Database.Database;
-  readonly blobHash: string;
-  readonly instanceId: string;
-  readonly serverEpoch: string;
-}
+const makeDir = (): string => makeTempDir('havemind-bsched-');
 
 /**
  * Minimal initialised instance: a migrated database with an `instance_state`
@@ -62,31 +42,8 @@ interface SeededInstance {
  * surface `createBackup` snapshots, so the scheduler can be exercised without
  * standing up the HTTP app.
  */
-async function seedInstance(): Promise<SeededInstance> {
-  const dataDir = makeDir();
-  const database = openTracked(join(dataDir, DB_FILENAME));
-  runMigrations(database);
-  const setup = new OwnerSetupService(database, {
-    now: () => new Date(START_TIME),
-  });
-  const init = setup.initializeOwner(createLocalOwnerSetupContext(), {
-    ownerDisplayName: 'Owner',
-    vaultDisplayName: 'Vault',
-  });
-
-  const bytes = Buffer.from('opaque-blob-bytes', 'utf8');
-  const blobHash = await hashBlob(bytes);
-  const shard = join(dataDir, 'blobs', blobHash.slice(0, 2));
-  await mkdir(shard, { recursive: true });
-  await writeFile(join(shard, blobHash), bytes);
-
-  return {
-    blobHash,
-    database,
-    dataDir,
-    instanceId: init.instanceId,
-    serverEpoch: init.serverEpoch,
-  };
+function seedInstance(): Promise<MinimalInstance> {
+  return seedMinimalInstance(makeDir(), DB_FILENAME, START_TIME);
 }
 
 interface CapturedTimer {
@@ -145,18 +102,7 @@ function captureTimer(): CapturedTimer {
   return { state, timer };
 }
 
-afterEach(() => {
-  for (const database of databases.splice(0)) {
-    try {
-      database.close();
-    } catch {
-      // already closed
-    }
-  }
-  for (const directory of temporaryDirectories.splice(0)) {
-    rmSync(directory, { force: true, recursive: true });
-  }
-});
+afterEach(releaseTestResources);
 
 /** Runs `execute` and returns whatever it threw (or null when it did not). */
 function captureError(execute: () => void): unknown {
