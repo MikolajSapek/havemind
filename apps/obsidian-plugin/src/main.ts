@@ -795,7 +795,11 @@ export default class HavemindPlugin extends Plugin {
     // witnessed. Runs on every connect AND reconnect (retryConnection routes
     // through startConnection), so a guest sees the whole vault.
     void this.refreshRoster();
-    void this.restorePendingApprovals();
+    // B8: only the owner has pending approvals; asking from a guest device is
+    // a 403 at every start and a wasted token rotation.
+    if (handle.selfMembership?.role === 'owner') {
+      void this.restorePendingApprovals();
+    }
     // MRG-05: on start (after the canonicalization rebase inside the handle
     // build), sweep any pre-existing conflict copies that a persisted ancestor
     // can now auto-merge. Scheduled (debounced) so it runs alongside, not

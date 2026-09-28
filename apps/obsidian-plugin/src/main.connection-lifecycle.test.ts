@@ -172,9 +172,28 @@ describe('startConnection lifecycle safety', () => {
     expect(internals(plugin).connection).toBe(handle);
   });
 
+  // B8: a guest device asked for the owner's pending approvals at every start,
+  // got 403, and spent a token rotation on it.
+  it('never asks for pending approvals on a device that is not the owner', async () => {
+    const plugin = newPlugin();
+    adapterMocks.startHavemindConnection.mockResolvedValue({
+      ...fakeHandle('sapserver'),
+      selfMembership: { membershipId: 'm-guest', role: 'editor' },
+    });
+
+    await internals(plugin).startConnection();
+    await Promise.resolve();
+
+    expect(adapterMocks.listPendingApprovalsForOwner).not.toHaveBeenCalled();
+    plugin.unload();
+  });
+
   it('hydrates server-authoritative pending approvals after an owner restart', async () => {
     const plugin = newPlugin();
-    adapterMocks.startHavemindConnection.mockResolvedValue(fakeHandle('sapserver'));
+    adapterMocks.startHavemindConnection.mockResolvedValue({
+      ...fakeHandle('sapserver'),
+      selfMembership: { membershipId: 'm-owner', role: 'owner' },
+    });
     adapterMocks.listPendingApprovalsForOwner.mockResolvedValue([
       {
         expiresAt: '2026-08-24T12:00:00.000Z',
