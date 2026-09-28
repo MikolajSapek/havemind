@@ -18,6 +18,7 @@ import {
   OWNER_CONNECTION_CORRUPT_PREFIX,
   OWNER_CONNECTION_KEY,
   isCorruptSidecarKey,
+  withCorruptSidecar,
 } from './plugin-data-keys';
 import { createClientInstanceRepo } from './plugin-data-ports';
 import { isRecord } from './shared';
@@ -202,11 +203,9 @@ export async function preserveCorruptOwnerConnection(
   raw: unknown,
   timestamp: number,
 ): Promise<void> {
-  await getPluginDataMutex(plugin).update((base) => {
-    const key = `${OWNER_CONNECTION_CORRUPT_PREFIX}${timestamp}`;
-    if (key in base) return base;
-    return { ...base, [key]: raw };
-  });
+  await getPluginDataMutex(plugin).update((base) =>
+    withCorruptSidecar(base, OWNER_CONNECTION_CORRUPT_PREFIX, timestamp, raw),
+  );
 }
 
 /**
@@ -215,8 +214,8 @@ export async function preserveCorruptOwnerConnection(
  * field incident required.
  *
  * Order matters:
- *   1. Preserve the current `ownerConnection` bytes to a timestamped sidecar, so
- *      nothing is destroyed before anything is cleared.
+ *   1. Preserve a corrupt `ownerConnection` record to a timestamped sidecar, so
+ *      nothing damaged is destroyed before anything is cleared.
  *   2. Clear the secrets, while the `clientInstanceId` that namespaces them is
  *      still on disk (best-effort, a SecretStorage failure must not abort the
  *      reset, or the user is stuck in the broken state they asked to leave).
@@ -229,8 +228,10 @@ export async function resetHavemindConnectionState(
   plugin: Plugin,
   now: () => number = () => Date.now(),
 ): Promise<void> {
+  // Only a damaged record is worth keeping; a healthy one the user chose to
+  // reset is not "corrupt", and copying it only grew data.json (S1).
   const result = await readOwnerConnectionResult(plugin);
-  if (result.status !== 'absent') {
+  if (result.status === 'corrupt') {
     await preserveCorruptOwnerConnection(plugin, result.raw, now());
   }
 

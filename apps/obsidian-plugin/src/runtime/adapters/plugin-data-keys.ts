@@ -65,3 +65,30 @@ const CORRUPT_SIDECAR_PREFIXES: readonly string[] = [
 export function isCorruptSidecarKey(key: string): boolean {
   return CORRUPT_SIDECAR_PREFIXES.some((prefix) => key.startsWith(prefix));
 }
+
+/** Sidecars of one kind kept for recovery; older ones are dropped (S1). */
+export const MAX_CORRUPT_SIDECARS = 3;
+
+/**
+ * `base` with `raw` preserved under `${prefix}${timestamp}`, never clobbering
+ * an existing sidecar at that key, and keeping only the newest
+ * {@link MAX_CORRUPT_SIDECARS} of that prefix. Without the bound, every start
+ * with a damaged record added one more copy to data.json, forever.
+ */
+export function withCorruptSidecar(
+  base: Record<string, unknown>,
+  prefix: string,
+  timestamp: number,
+  raw: unknown,
+): Record<string, unknown> {
+  const key = `${prefix}${timestamp}`;
+  const next = key in base ? { ...base } : { ...base, [key]: raw };
+  const stamps = Object.keys(next)
+    .filter((candidate) => candidate.startsWith(prefix))
+    .map((candidate) => ({ candidate, stamp: Number(candidate.slice(prefix.length)) }))
+    .sort((a, b) => b.stamp - a.stamp);
+  for (const { candidate } of stamps.slice(MAX_CORRUPT_SIDECARS)) {
+    delete next[candidate];
+  }
+  return next;
+}

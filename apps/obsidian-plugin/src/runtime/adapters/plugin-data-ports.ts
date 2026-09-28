@@ -41,6 +41,7 @@ import {
   PERSIST_PRODUCER_CORRUPT_PREFIX,
   PERSIST_STAGING_KEY,
   PUSH_PRODUCER_KEY,
+  withCorruptSidecar,
 } from './plugin-data-keys';
 import { isRecord, type AppWithVault } from './shared';
 
@@ -88,11 +89,9 @@ export function createPersistPort(plugin: Plugin): SyncStatePersistPort {
     async preserveCorrupt(raw, timestamp) {
       // Keep the corrupt bytes under a timestamped sidecar; never clobber a
       // pre-existing corrupt sidecar at the same key.
-      await mutex.update((base) => {
-        const key = `${PERSIST_CORRUPT_PREFIX}${timestamp}`;
-        if (key in base) return base;
-        return { ...base, [key]: raw };
-      });
+      await mutex.update((base) =>
+        withCorruptSidecar(base, PERSIST_CORRUPT_PREFIX, timestamp, raw),
+      );
     },
   };
 }
@@ -110,11 +109,9 @@ export async function preserveCorruptProducerState(
   raw: unknown,
   timestamp: number,
 ): Promise<void> {
-  await getPluginDataMutex(plugin).update((base) => {
-    const key = `${PERSIST_PRODUCER_CORRUPT_PREFIX}${timestamp}`;
-    if (key in base) return base;
-    return { ...base, [key]: raw };
-  });
+  await getPluginDataMutex(plugin).update((base) =>
+    withCorruptSidecar(base, PERSIST_PRODUCER_CORRUPT_PREFIX, timestamp, raw),
+  );
 }
 
 /**

@@ -18,6 +18,7 @@ import {
   parseOwnerConnection,
   startHavemindConnection,
 } from './runtime/obsidian-adapters';
+import { preserveCorruptOwnerConnection } from './runtime/adapters/owner-connection';
 import { ObsidianOnboardingSecrets } from './runtime/onboarding-secrets';
 import { buildConnectionPanel, type ConnectionStatus } from './runtime/status';
 import {
@@ -222,6 +223,36 @@ describe('connect-time corruption gate (P1 #5)', () => {
 describe('Reset connection action (P1 #5)', () => {
   beforeEach(() => {
     resetObsidianMock();
+  });
+
+  // S1: reset kept the bytes of a perfectly healthy connection as "corrupt".
+  it('keeps no corrupt sidecar when the connection it resets was healthy', async () => {
+    const disk: Disk = {
+      value: { clientInstanceId: CLIENT_INSTANCE_ID, ownerConnection: INTACT_RECORD },
+    };
+    const plugin = newPlugin(disk);
+
+    await internals(plugin).resetConnection();
+
+    expect(Object.keys(disk.value).some((key) => key.includes('Corrupt.'))).toBe(false);
+  });
+
+  // S1: every start with a damaged record added another timestamped sidecar,
+  // and nothing ever removed one.
+  it('keeps only the newest few sidecars of a kind', async () => {
+    const disk: Disk = { value: { clientInstanceId: CLIENT_INSTANCE_ID } };
+    const plugin = fakePlugin(disk);
+    for (let timestamp = 1; timestamp <= 6; timestamp += 1) {
+      await preserveCorruptOwnerConnection(plugin, { attempt: timestamp }, timestamp);
+    }
+
+    expect(
+      Object.keys(disk.value).filter((key) => key.startsWith('ownerConnectionCorrupt.')).sort(),
+    ).toEqual([
+      'ownerConnectionCorrupt.4',
+      'ownerConnectionCorrupt.5',
+      'ownerConnectionCorrupt.6',
+    ]);
   });
 
   it('clears the Havemind data.json keys and the stored secrets, preserving every corrupt-* sidecar', async () => {
