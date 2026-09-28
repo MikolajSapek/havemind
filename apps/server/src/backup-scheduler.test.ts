@@ -5,12 +5,13 @@ import { join } from 'node:path';
 
 import { hashBlob } from '@havemind/protocol';
 import type Database from 'better-sqlite3';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   assertValidBackupId,
   runScheduledBackup,
   startBackupScheduler,
+  SYSTEM_BACKUP_TIMER,
   type BackupTimer,
 } from './backup-scheduler.js';
 import {
@@ -488,6 +489,53 @@ describe('startBackupScheduler', () => {
     expect(errors).toHaveLength(1);
     expect(errors[0]).toContain('Scheduled backup failed');
     scheduler.stop();
+  });
+});
+
+describe('SYSTEM_BACKUP_TIMER', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  // Node clamps any delay above 2^31-1 ms (about 596.5 h) to 1 ms, so a
+  // documented 720 h interval handed straight to setInterval ran backups back
+  // to back. The timer must wait the whole interval however long it is.
+  it('waits the full interval when it exceeds the largest delay Node accepts', async () => {
+    vi.useFakeTimers();
+    const hour = 60 * 60 * 1_000;
+    let runs = 0;
+    const handle = SYSTEM_BACKUP_TIMER.set(() => {
+      runs += 1;
+      return Promise.resolve();
+    }, 720 * hour);
+
+    await vi.advanceTimersByTimeAsync(hour);
+    expect(runs).toBe(0);
+    await vi.advanceTimersByTimeAsync(719 * hour - 1);
+    expect(runs).toBe(0);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(runs).toBe(1);
+    await vi.advanceTimersByTimeAsync(720 * hour);
+    expect(runs).toBe(2);
+
+    SYSTEM_BACKUP_TIMER.clear(handle);
+    await vi.advanceTimersByTimeAsync(720 * hour);
+    expect(runs).toBe(2);
+  });
+
+  it('still fires on a short interval and stops once cleared', async () => {
+    vi.useFakeTimers();
+    let runs = 0;
+    const handle = SYSTEM_BACKUP_TIMER.set(() => {
+      runs += 1;
+      return Promise.resolve();
+    }, 1_000);
+
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(runs).toBe(3);
+    SYSTEM_BACKUP_TIMER.clear(handle);
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(runs).toBe(3);
   });
 });
 

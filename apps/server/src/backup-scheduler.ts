@@ -149,7 +149,7 @@ export interface BackupSchedulerLogger {
 export type BackupTimerHandle = unknown;
 
 /**
- * The timer seam. Production uses `setInterval`; tests inject a fake that
+ * The timer seam. Production chains `setTimeout`s; tests inject a fake that
  * captures the handler and drives every tick explicitly, so scheduling is
  * verified without any wall-clock waiting.
  */
@@ -178,14 +178,48 @@ export interface BackupScheduler {
   readonly started: Promise<void>;
 }
 
-const SYSTEM_TIMER: BackupTimer = {
+/**
+ * The largest delay Node's timers honour. Anything above it is clamped to 1 ms
+ * with only a process warning, so a 720 hour interval passed straight to
+ * `setInterval` (about 2.6e9 ms) would run backups back to back.
+ */
+const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
+
+interface ChainedTimerHandle {
+  timeout: NodeJS.Timeout | undefined;
+  cleared: boolean;
+}
+
+/**
+ * Production timer. Each interval is waited out as a chain of timeouts no
+ * longer than MAX_TIMER_DELAY_MS, so every interval the config accepts is
+ * honoured in full, however long.
+ */
+export const SYSTEM_BACKUP_TIMER: BackupTimer = {
   clear: (handle) => {
-    clearInterval(handle as NodeJS.Timeout);
+    const chained = handle as ChainedTimerHandle;
+    chained.cleared = true;
+    clearTimeout(chained.timeout);
   },
-  set: (handler, intervalMs) =>
-    setInterval(() => {
-      void handler();
-    }, intervalMs),
+  set: (handler, intervalMs) => {
+    const chained: ChainedTimerHandle = { cleared: false, timeout: undefined };
+    const wait = (remainingMs: number): void => {
+      if (chained.cleared) {
+        return;
+      }
+      const stepMs = Math.min(remainingMs, MAX_TIMER_DELAY_MS);
+      chained.timeout = setTimeout(() => {
+        if (remainingMs > stepMs) {
+          wait(remainingMs - stepMs);
+          return;
+        }
+        wait(intervalMs);
+        void handler();
+      }, stepMs);
+    };
+    wait(intervalMs);
+    return chained;
+  },
 };
 
 const SILENT_LOGGER: BackupSchedulerLogger = {
@@ -206,7 +240,7 @@ const SILENT_LOGGER: BackupSchedulerLogger = {
 export function startBackupScheduler(
   options: BackupSchedulerOptions,
 ): BackupScheduler {
-  const timer = options.timer ?? SYSTEM_TIMER;
+  const timer = options.timer ?? SYSTEM_BACKUP_TIMER;
   const logger = options.logger ?? SILENT_LOGGER;
   let running = false;
   let stopped = false;
