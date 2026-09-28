@@ -18,6 +18,7 @@ import {
   AUTHOR_MARK_CLASS,
   buildAuthorDecorations,
   createAuthorOverlayExtension,
+  OverlayDecorationState,
 } from './editor-extension';
 
 interface FlatMark {
@@ -146,5 +147,54 @@ describe('createAuthorOverlayExtension', () => {
     });
 
     expect(extension).toBeDefined();
+  });
+});
+
+// P14: every keystroke, cursor move and scroll copied the whole document into
+// a string, even with the overlay switched off.
+describe('OverlayDecorationState', () => {
+  function doc(text: string): { reads: number; toString(): string; length: number } {
+    return {
+      reads: 0,
+      length: text.length,
+      toString() {
+        this.reads += 1;
+        return text;
+      },
+    };
+  }
+
+  it('never reads the document while the overlay is off', () => {
+    const state = new OverlayDecorationState({
+      overlayFor: () => null,
+      enabled: () => false,
+      revision: () => [0],
+    });
+    const text = doc('hello');
+    state.next({ docChanged: true, path: 'a.md', doc: text });
+    state.next({ docChanged: false, path: 'a.md', doc: text });
+    expect(text.reads).toBe(0);
+  });
+
+  it('rebuilds only when the text, the file or the overlay inputs change', () => {
+    let revision = 0;
+    let builds = 0;
+    const state = new OverlayDecorationState({
+      overlayFor: () => {
+        builds += 1;
+        return null;
+      },
+      enabled: () => true,
+      revision: () => [revision],
+    });
+    const text = doc('hello');
+    state.next({ docChanged: false, path: 'a.md', doc: text });
+    state.next({ docChanged: false, path: 'a.md', doc: text });
+    expect(builds).toBe(1);
+    state.next({ docChanged: true, path: 'a.md', doc: text });
+    state.next({ docChanged: false, path: 'b.md', doc: text });
+    revision = 1;
+    state.next({ docChanged: false, path: 'b.md', doc: text });
+    expect(builds).toBe(4);
   });
 });

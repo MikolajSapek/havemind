@@ -41,6 +41,15 @@ export interface LivePreviewOverlaySource {
    * nothing can be attributed honestly.
    */
   overlayFor(path: string | null, content: string): LivePreviewOverlay | null;
+  /** False while the overlay is off: nothing is read or drawn then (P14). */
+  enabled?(): boolean;
+  /**
+   * Everything besides the text that the overlay depends on (the toggle, the
+   * Activity feed, the roster). Decorations are rebuilt only when one of these
+   * values changes (compared with Object.is), the text changes, or the file
+   * does; without it they are rebuilt on every update.
+   */
+  revision?(): readonly unknown[];
 }
 
 /**
@@ -94,11 +103,57 @@ export function buildAuthorDecorations(
   return builder.finish();
 }
 
+/** What one editor update tells the overlay. */
+export interface OverlayUpdate {
+  readonly docChanged: boolean;
+  readonly path: string | null;
+  readonly doc: { toString(): string; readonly length: number };
+}
+
 /**
- * The extension handed to `registerEditorExtension()`. Decorations are rebuilt
- * on every view update: the source reads the live toggle and the live Activity
- * feed, both of which can change without the document changing, and the rebuild
- * is a walk over at most a couple of hundred feed entries.
+ * Decides when an editor's author marks must be rebuilt. Building copies the
+ * whole document into a string, and CodeMirror updates on every keystroke,
+ * cursor move and scroll: with the overlay off that cost bought nothing, and
+ * with it on most updates change nothing the overlay reads (P14).
+ */
+export class OverlayDecorationState {
+  decorations: DecorationSet = Decoration.none;
+  private built = false;
+  private path: string | null = null;
+  private inputs: readonly unknown[] = [];
+
+  constructor(private readonly source: LivePreviewOverlaySource) {}
+
+  next(update: OverlayUpdate): DecorationSet {
+    if (this.source.enabled?.() === false) {
+      this.built = false;
+      this.decorations = Decoration.none;
+      return this.decorations;
+    }
+    const inputs = this.source.revision?.();
+    const unchanged =
+      inputs !== undefined &&
+      this.built &&
+      !update.docChanged &&
+      update.path === this.path &&
+      inputs.length === this.inputs.length &&
+      inputs.every((value, index) => Object.is(value, this.inputs[index]));
+    if (unchanged) return this.decorations;
+    this.built = true;
+    this.path = update.path;
+    this.inputs = inputs ?? [];
+    this.decorations = buildAuthorDecorations(
+      this.source.overlayFor(update.path, update.doc.toString()),
+      update.doc.length,
+    );
+    return this.decorations;
+  }
+}
+
+/**
+ * The extension handed to `registerEditorExtension()`. The source reads the
+ * live toggle and the live Activity feed, both of which can change without the
+ * document changing, so its `revision()` tells the state when to rebuild.
  */
 export function createAuthorOverlayExtension(
   source: LivePreviewOverlaySource,
@@ -106,23 +161,22 @@ export function createAuthorOverlayExtension(
   return ViewPlugin.fromClass(
     class {
       decorations: DecorationSet;
+      private readonly state = new OverlayDecorationState(source);
 
       constructor(view: EditorView) {
-        this.decorations = this.build(view);
+        this.decorations = this.state.next({
+          docChanged: true,
+          path: pathForEditorView(view),
+          doc: view.state.doc,
+        });
       }
 
       update(update: ViewUpdate): void {
-        this.decorations = this.build(update.view);
-      }
-
-      private build(view: EditorView): DecorationSet {
-        return buildAuthorDecorations(
-          source.overlayFor(
-            pathForEditorView(view),
-            view.state.doc.toString(),
-          ),
-          view.state.doc.length,
-        );
+        this.decorations = this.state.next({
+          docChanged: update.docChanged,
+          path: pathForEditorView(update.view),
+          doc: update.view.state.doc,
+        });
       }
     },
     { decorations: (value) => value.decorations },

@@ -162,6 +162,8 @@ export default class HavemindPlugin extends Plugin {
   private readonly views = new PluginViewRegistry();
   /** Live feed behind the Activity view (previously orphaned, now wired). */
   private readonly activityLog = new ActivityLog();
+  /** Bumped on every Activity feed change, so the editor overlay can rebuild. */
+  private activityRevision = 0;
   /** Disposer for the activityLog subscription set up in onload(); torn down in onunload(). */
   private activityLogUnsubscribe: (() => void) | null = null;
   /**
@@ -278,6 +280,7 @@ export default class HavemindPlugin extends Plugin {
     // The pane carries the activity feed as a tab (plans/007 Stage 0) and is the
     // only registered surface, so one repaint covers it.
     this.activityLogUnsubscribe = this.activityLog.subscribe(() => {
+      this.activityRevision += 1;
       this.views.refreshOnboarding();
     });
 
@@ -455,6 +458,10 @@ export default class HavemindPlugin extends Plugin {
           const input = this.overlayInputFor(path, content);
           return input === null ? null : buildLivePreviewOverlay(input);
         },
+        // P14: nothing is read while the overlay is off, and marks are rebuilt
+        // only when the feed, the roster or the text actually change.
+        enabled: () => this.showAuthors,
+        revision: () => [this.activityRevision, this.rosterMembers],
       }),
     );
     this.registerMarkdownPostProcessor(
