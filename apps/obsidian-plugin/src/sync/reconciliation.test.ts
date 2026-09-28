@@ -416,17 +416,27 @@ describe('startup reconciliation', () => {
     expect(repository.commits).toHaveLength(0);
   });
 
-  it('rejects case-insensitive live path collisions without reporting Synced', async () => {
+  // B5: two files differing only by letter case used to abort the whole scan,
+  // so nothing in the vault synced until the user found and renamed one.
+  it('skips a case-only path collision and syncs the rest of the vault', async () => {
     const vault = new ReconciliationVault();
     vault.contents.set('Notes/Plan.md', 'one');
     vault.contents.set('notes/PLAN.md', 'two');
+    vault.contents.set('Other.md', 'three');
     const repository = new ReconciliationRepository();
     const observer = createObserver(vault, repository);
 
-    await expect(
-      reconcileVaultState({ observer, repository, vault }),
-    ).rejects.toMatchObject({ code: 'path-collision' });
-    expect(repository.commits).toHaveLength(0);
+    const result = await reconcileVaultState({ observer, repository, vault });
+
+    expect(result.completed).toBe(true);
+    expect(result.created).toBe(1);
+    expect(result.skipped).toBe(2);
+    expect(result.skippedPaths.map((detail) => detail.path).sort()).toEqual([
+      'Notes/Plan.md',
+      'notes/PLAN.md',
+    ]);
+    expect(result.skippedPaths[0]?.reason).toContain('letter case');
+    expect(repository.commits).toHaveLength(1);
   });
 });
 

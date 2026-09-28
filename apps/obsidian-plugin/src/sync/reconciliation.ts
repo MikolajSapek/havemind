@@ -169,6 +169,7 @@ export async function reconcileVaultState(
 
   const paths = await vault.listSyncablePaths();
   const eligible = new Map<string, { readPath: string; kind: SyncContentKind }>();
+  const collisions = new Map<string, string[]>();
   let ignored = 0;
 
   for (const rawPath of paths) {
@@ -177,11 +178,14 @@ export async function reconcileVaultState(
       ignored += 1;
       continue;
     }
-    if (eligible.has(classified.collisionKey)) {
-      throw new LocalVaultError(
-        'path-collision',
-        `Two live vault files map to ${classified.collisionKey}.`,
-      );
+    const earlier = eligible.get(classified.collisionKey);
+    if (earlier !== undefined || collisions.has(classified.collisionKey)) {
+      const group = collisions.get(classified.collisionKey) ?? [];
+      if (earlier !== undefined) group.push(earlier.readPath);
+      group.push(rawPath);
+      collisions.set(classified.collisionKey, group);
+      eligible.delete(classified.collisionKey);
+      continue;
     }
     eligible.set(classified.collisionKey, {
       readPath: rawPath,
@@ -204,6 +208,21 @@ export async function reconcileVaultState(
     // detail list stays a fixed-size diagnostic sample (see MAX_SKIPPED_DETAILS).
     if (skippedPaths.length < MAX_SKIPPED_DETAILS) skippedPaths.push(detail);
   };
+
+  // B5: files whose paths differ only by letter case cannot both be synced
+  // (they are one file on a case-insensitive disk). They are skipped with a
+  // reason, and their mapping is neither updated nor taken for a deletion,
+  // while the rest of the vault syncs; this used to abort the whole scan.
+  for (const [collisionKey, group] of collisions) {
+    mappingsByCollision.delete(collisionKey);
+    for (const path of group) {
+      skipped += 1;
+      recordSkip({
+        path,
+        reason: `differs from ${group.find((other) => other !== path) ?? path} only by letter case; rename one to sync it`,
+      });
+    }
+  }
   const unmatchedVault: EligibleVaultFile[] = [];
 
   for (const [collisionKey, { readPath, kind }] of eligible) {
