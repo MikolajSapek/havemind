@@ -177,6 +177,26 @@ describe('listConflictCopies', () => {
 });
 
 describe('computeLineDiff', () => {
+  // P12: the LCS table is lines(mine) x lines(theirs). Two 10 000-line notes
+  // took about 400 MB, enough to kill Obsidian on a phone.
+  it('gives up on a difference too large to diff instead of exhausting memory', () => {
+    const mine = Array.from({ length: 10_000 }, (_, i) => `mine ${i}`).join('\n');
+    const theirs = Array.from({ length: 10_000 }, (_, i) => `theirs ${i}`).join('\n');
+    expect(computeLineDiff(mine, theirs)).toBeNull();
+  });
+
+  it('still diffs a long note whose change is small', () => {
+    const shared = Array.from({ length: 10_000 }, (_, i) => `line ${i}`);
+    const mine = [...shared.slice(0, 5_000), 'mine', ...shared.slice(5_000)].join('\n');
+    const theirs = [...shared.slice(0, 5_000), 'theirs', ...shared.slice(5_000)].join('\n');
+    const diff = computeLineDiff(mine, theirs);
+    expect(diff?.filter((line) => line.type !== 'context')).toEqual([
+      { type: 'removed', text: 'mine' },
+      { type: 'added', text: 'theirs' },
+    ]);
+    expect(diff).toHaveLength(10_002);
+  });
+
   it('marks added, removed and context lines with a stable shape', () => {
     const diff = computeLineDiff('a\nb\nc', 'a\nx\nc');
     expect(diff).toEqual([
@@ -189,7 +209,7 @@ describe('computeLineDiff', () => {
 
   it('normalises CRLF so Windows copies do not diff as fully changed', () => {
     const diff = computeLineDiff('a\r\nb', 'a\nb');
-    expect(diff.every((line) => line.type === 'context')).toBe(true);
+    expect(diff?.every((line) => line.type === 'context')).toBe(true);
   });
 });
 

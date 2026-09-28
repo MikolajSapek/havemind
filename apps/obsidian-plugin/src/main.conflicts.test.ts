@@ -161,6 +161,18 @@ describe('renderConflictModalBody', () => {
     expect(calls).toEqual(['mine']);
   });
 
+  it('says so when the difference is too large to show', () => {
+    const container = createContent();
+    renderConflictModalBody(
+      asEl(container),
+      buildConflictModalModel(newCopy(), null, { diffTooLarge: true }),
+      { onKeepBoth: () => undefined },
+    );
+    expect(
+      flatten(container).some((e) => e.text.startsWith('The difference is too large')),
+    ).toBe(true);
+  });
+
   it('omits Keep theirs when the target is unknown', () => {
     const container = createContent();
     renderConflictModalBody(

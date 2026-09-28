@@ -217,17 +217,44 @@ function toLines(text: string): string[] {
 }
 
 /**
+ * Most LCS cells a diff may allocate (16 MB as an Int32Array), the same bound
+ * sync-core's diff3 uses. Past it the modal says the difference is too large
+ * instead of diffing: two unrelated 10 000-line notes took about 400 MB.
+ */
+const MAX_DIFF_CELLS = 4_000_000;
+
+/**
  * Computes a line-level diff between the live note (`mine`) and the conflict
  * copy (`theirs`) using a longest-common-subsequence backtrace. Removed lines
- * are present in `mine` only; added lines are present in `theirs` only. Kept
- * intentionally small, no dependency, self-contained.
+ * are present in `mine` only; added lines are present in `theirs` only. The
+ * shared first and last lines are matched directly, so a long note with a
+ * small change stays cheap; null when the rest is too large to diff (P12).
  */
-export function computeLineDiff(mine: string, theirs: string): DiffLine[] {
-  const a = toLines(mine);
-  const b = toLines(theirs);
+export function computeLineDiff(mine: string, theirs: string): DiffLine[] | null {
+  const allA = toLines(mine);
+  const allB = toLines(theirs);
+  let prefix = 0;
+  while (
+    prefix < allA.length &&
+    prefix < allB.length &&
+    allA[prefix] === allB[prefix]
+  ) {
+    prefix++;
+  }
+  let suffix = 0;
+  while (
+    suffix < allA.length - prefix &&
+    suffix < allB.length - prefix &&
+    allA[allA.length - 1 - suffix] === allB[allB.length - 1 - suffix]
+  ) {
+    suffix++;
+  }
+  const a = allA.slice(prefix, allA.length - suffix);
+  const b = allB.slice(prefix, allB.length - suffix);
   const n = a.length;
   const m = b.length;
   const width = m + 1;
+  if ((n + 1) * width > MAX_DIFF_CELLS) return null;
 
   // lcs[i * width + j] = LCS length of a[i..] and b[j..]. A flat Int32Array
   // keeps every access typed as `number` (no index-undefined assertions).
@@ -242,7 +269,9 @@ export function computeLineDiff(mine: string, theirs: string): DiffLine[] {
     }
   }
 
-  const diff: DiffLine[] = [];
+  const diff: DiffLine[] = allA
+    .slice(0, prefix)
+    .map((text) => ({ type: 'context' as const, text }));
   let i = 0;
   let j = 0;
   while (i < n && j < m) {
@@ -262,6 +291,9 @@ export function computeLineDiff(mine: string, theirs: string): DiffLine[] {
   }
   while (i < n) diff.push({ type: 'removed', text: a[i++] ?? '' });
   while (j < m) diff.push({ type: 'added', text: b[j++] ?? '' });
+  for (const text of allA.slice(allA.length - suffix)) {
+    diff.push({ type: 'context', text });
+  }
   return diff;
 }
 

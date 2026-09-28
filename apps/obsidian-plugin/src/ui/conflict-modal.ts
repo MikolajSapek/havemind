@@ -22,6 +22,8 @@ export interface ConflictModalModel {
   readonly targetKnown: boolean;
   /** Line diff (note vs copy), or null for binary/unknown-target copies. */
   readonly diff: readonly DiffLine[] | null;
+  /** True when both sides were read but were too large to diff (P12). */
+  readonly diffTooLarge: boolean;
   readonly manualHint: string | null;
 }
 
@@ -29,6 +31,7 @@ export interface ConflictModalModel {
 export function buildConflictModalModel(
   copy: ConflictCopy,
   diff: readonly DiffLine[] | null,
+  options: { readonly diffTooLarge?: boolean } = {},
 ): ConflictModalModel {
   return {
     title: copy.noteName ?? copy.copyName,
@@ -37,6 +40,7 @@ export function buildConflictModalModel(
     isBinary: copy.isBinary,
     targetKnown: copy.targetKnown,
     diff,
+    diffTooLarge: options.diffTooLarge === true,
     manualHint: copy.manualHint,
   };
 }
@@ -76,6 +80,13 @@ export function renderConflictModalBody(
   if (model.manualHint !== null) {
     const hint = container.createDiv({ text: model.manualHint });
     hint.addClass('havemind-conflict-hint');
+  }
+
+  if (model.diffTooLarge) {
+    const tooLarge = container.createDiv({
+      text: 'The difference is too large to show here. Open the note and the copy to compare them.',
+    });
+    tooLarge.addClass('havemind-conflict-hint');
   }
 
   if (model.diff !== null) {

@@ -908,6 +908,7 @@ export default class HavemindPlugin extends Plugin {
     if (copy === undefined) return null;
 
     let diff: DiffLine[] | null = null;
+    let diffTooLarge = false;
     if (copy.targetKnown && !copy.isBinary && copy.targetPath !== null) {
       const [mine, theirs] = await Promise.all([
         port.readText(copy.targetPath),
@@ -917,6 +918,7 @@ export default class HavemindPlugin extends Plugin {
       // diffing against a phantom empty string.
       if (mine !== null && theirs !== null) {
         diff = computeLineDiff(mine, theirs);
+        diffTooLarge = diff === null;
       }
     }
 
@@ -948,7 +950,7 @@ export default class HavemindPlugin extends Plugin {
 
     const modal: ConflictResolveModal = new ConflictResolveModal(
       this.app,
-      buildConflictModalModel(copy, diff),
+      buildConflictModalModel(copy, diff, { diffTooLarge }),
       {
         onKeepMine: () => run('keepMine', modal),
         ...(copy.targetKnown && !copy.isBinary
