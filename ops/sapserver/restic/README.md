@@ -25,10 +25,7 @@ a restore can prove byte-exactness before it starts an instance.
 Confidentiality: an artifact is a byte-for-byte copy of data the live volume
 already stores unencrypted, so on sapserver it deserves exactly the same
 treatment as the data directory (0700, uid 1000, tailnet-only host). Off the box
-it is protected by restic's own repository encryption. For artifacts that are
-encrypted **at rest on the host as well**, `havemind checkpoint create` seals
-every part to an off-server public key, at the cost of needing the owner's
-secret key for every restore, including every drill.
+it is protected by restic's own repository encryption.
 
 ## Static binaries (no sudo)
 

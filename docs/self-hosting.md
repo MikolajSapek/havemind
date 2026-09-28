@@ -261,8 +261,8 @@ terminal:
   rules: [known limitations](pilot/known-limitations.md#dot-paths-and-the-reserved-folder-aud-07).
 
 - **Data on the server is stored in plaintext.** The live database and blob
-  store are unencrypted on the volume; only `havemind checkpoint create`
-  snapshots are encrypted, with their own keypair. Anyone who controls the server
+  store are unencrypted on the volume, and so are the backups the server
+  writes; encrypt copies you move off the server. Anyone who controls the server
   can read the vault, so security rests on trusting the host and keeping access
   tailnet-only.
 - **Check the project's stated security model** before connecting anything

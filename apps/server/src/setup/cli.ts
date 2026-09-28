@@ -84,8 +84,6 @@ const USAGE = [
   '  backup [--to <dir>] [--keep <n>]      Write one backup artifact and apply',
   '                                        keep-N retention. See `havemind backup',
   '                                        help` for verify/restore.',
-  '  checkpoint <subcommand>               Encrypted checkpoints. See',
-  '                                        `havemind checkpoint help`.',
 ].join('\n');
 
 interface ParsedFlags {

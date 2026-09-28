@@ -17,7 +17,6 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@havemind/crypto": "*",
     "@havemind/protocol": "*",
     "better-sqlite3": "12.11.1",
     "fastify": "5.12.3",

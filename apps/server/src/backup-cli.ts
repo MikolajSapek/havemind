@@ -26,10 +26,7 @@ import type { CliResult } from './setup/cli.js';
  *
  * Confidentiality note: an artifact is a byte-for-byte copy of data the live
  * volume already stores unencrypted, so it must be treated exactly like the data
- * directory. For an artifact that is encrypted AT REST on the host, use
- * `havemind checkpoint create` instead, that path seals every part to an
- * off-server public key, at the cost of needing the owner's secret key to
- * restore (and therefore to drill).
+ * directory. Encryption at rest happens off the host, in the restic repository.
  */
 export interface BackupCliDependencies {
   readonly env: ServerEnvironment;

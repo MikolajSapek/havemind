@@ -1,7 +1,9 @@
 # Havemind, follow-up plan: encrypted checkpoints (F9)
 
-- Status: **Shipped.** `apps/server/src/checkpoint.ts`, sealed with
-  `crypto_box_seal`. Kept for the key-management reasoning, not as pending work.
+- Status: **Withdrawn 2026-09-29, code removed.** It shipped but was never enabled
+  in production: the live database is plaintext on the host anyway, and off-host
+  copies are encrypted by restic. Kept for the key-management reasoning; the code
+  is in git history before the removal commit.
 - Date: 2026-07-24
 - Extends: `plans/001-technical-plan.md` §7 (offline delivery, "Real-vault compaction
   requires an encrypted checkpoint"), §8 (backup/restore), §10 (E2EE); fulfils the gate

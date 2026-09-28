@@ -125,7 +125,7 @@ The long version, including backups and multiple vaults, is in
 | Crash safety | The outbox survives a crash. A torn state file is kept as a sidecar and flagged, never dropped. |
 | Members | The owner sees who is in the vault and can remove them. A device whose session died reconnects with Rejoin, no new code. |
 | Several vaults | One server, independent vaults. Two teams share a box without seeing each other's data. |
-| Backups | Off unless you set `HAVEMIND_BACKUP_DIR`; the shipped compose file sets it. Then a snapshot every 24 h, last 7 kept. Checkpoints are sealed to a public key, so the server that writes one cannot open it. |
+| Backups | Off unless you set `HAVEMIND_BACKUP_DIR`; the shipped compose file sets it. Then a snapshot every 24 h, last 7 kept, in plaintext like the live data; encrypt copies off the server (the ops scripts use restic). |
 | Limits | Storage quota per vault, throttling per device. |
 
 </details>
@@ -175,11 +175,6 @@ by content hash, and the long-poll that wakes your other devices. It rotates
 refresh tokens and spots reuse, rate-limits per device, holds each vault to its
 quota, and sweeps orphaned blobs at startup. Non-root, read-only, capabilities
 dropped.
-
-Checkpoints are sealed with libsodium `crypto_box_seal` (X25519). The server
-holds only the public half, so it can write an encrypted snapshot and never
-open one. The secret key lives in your recovery kit, off the server. Live data
-on the volume stays plaintext.
 
 ## Security model
 

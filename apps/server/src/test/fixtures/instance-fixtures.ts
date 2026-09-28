@@ -1,5 +1,5 @@
 /**
- * Initialised instances on disk, for the backup and checkpoint suites.
+ * Initialised instances on disk, for the backup suites.
  *
  * Both shapes open their database through `openTrackedDatabase`, so
  * `releaseTestResources` closes whatever a suite leaves open.

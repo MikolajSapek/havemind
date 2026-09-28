@@ -140,10 +140,8 @@ Record the date of the last passing run in `docs/pilot/known-limitations.md`.
   repository whose password is lost is unrecoverable, by design.
 - **Not encrypted at rest on the host:** an artifact is a byte-for-byte copy of
   data the live volume already stores unencrypted, so treat the bind mount
-  exactly like the data directory (0700, uid 1000, tailnet-only host). If
-  host-side encryption at rest is required, use `havemind checkpoint create`
-  instead, it seals every part to an off-server public key, and every restore
-  (including every drill) then needs the owner's secret key.
+  exactly like the data directory (0700, uid 1000, tailnet-only host).
+  Encryption happens off the host, in the restic repository.
 
 ## Related
 

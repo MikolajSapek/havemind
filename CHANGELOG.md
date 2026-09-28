@@ -5,6 +5,15 @@ All notable changes to this project are documented here. The format is based on
 follows independent [Semantic Versioning](https://semver.org) for the plugin
 and the server.
 
+## [Unreleased]
+
+### Removed
+
+- Server: encrypted checkpoints (`havemind checkpoint`, plans/006) and the
+  `@havemind/crypto` package with its libsodium dependency. They were never
+  enabled in production; backups stay plaintext on the host and are encrypted
+  off it by restic, as the docs now say.
+
 ## [1.5.6], 2026-09-29
 
 ### Fixed

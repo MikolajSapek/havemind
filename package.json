@@ -15,7 +15,7 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build --if-present -w @havemind/protocol && npm run build --if-present -w @havemind/crypto -w @havemind/sync-core && npm run build --if-present -w @havemind/server -w @havemind/obsidian-plugin",
+    "build": "npm run build --if-present -w @havemind/protocol && npm run build --if-present -w @havemind/sync-core && npm run build --if-present -w @havemind/server -w @havemind/obsidian-plugin",
     "check:plugin-release": "node scripts/check-plugin-release.mjs",
     "check:workspace": "node scripts/check-workspace.mjs",
     "compose:smoke": "node scripts/compose-smoke.mjs",
