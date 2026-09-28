@@ -484,12 +484,20 @@ export function startPushProducer(
   // finding 5), every failure warns to the console and a throttled Notice fires
   // on the first failure of a streak and every Nth after it. Per-file commit
   // failures are already surfaced by the observe path's own handling.
+  // P8: files whose size and mtime are unchanged since they were last observed
+  // are not read again.
+  const seenConfig = new Map<string, string>();
   const runConfigPollTick = createConfigPollTick({
     poll: () =>
       pollConfigOnce({
         observer: configObserver,
         listConfigPaths: () => listSyncableConfigPaths(vault.adapter, CONFIG_DIR),
         listMappings: () => repository.listMappings(),
+        stat: async (path) => {
+          const stat = await vault.adapter.stat(path);
+          return stat === null ? null : { mtime: stat.mtime, size: stat.size };
+        },
+        seen: seenConfig,
       }),
     recordActivity,
     triggerSync,
@@ -498,6 +506,8 @@ export function startPushProducer(
   // registerInterval clears it on plugin UNLOAD; the explicit clear in dispose()
   // below covers a stop/RE-PAIR (which tears the producer down without unloading).
   const configPollId = window.setInterval(() => {
+    // Nothing edits config while Obsidian is in the background (P8).
+    if (typeof document !== 'undefined' && document.hidden) return;
     void runConfigPollTick();
   }, CONFIG_POLL_INTERVAL_MS);
   plugin.registerInterval(configPollId);

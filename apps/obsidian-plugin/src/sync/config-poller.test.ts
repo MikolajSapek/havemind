@@ -242,3 +242,36 @@ describe('config poller, create/update/delete lifecycle', () => {
     expect(enqueued).toHaveLength(2);
   });
 });
+
+// P8: every tick read and hashed every config file, every 5 s. A file whose
+// size and modification time are unchanged since it was last observed is
+// skipped.
+describe('config poller, unchanged files are not read again', () => {
+  it('observes a config file again only when its size or mtime change', async () => {
+    const observed: string[] = [];
+    let stat = { mtime: 1, size: 10 };
+    const seen = new Map<string, string>();
+    const poll = () =>
+      pollConfigOnce({
+        observer: {
+          observeModify: async (path: string) => {
+            observed.push(path);
+            return null;
+          },
+          observeDelete: async () => null,
+        },
+        listConfigPaths: async () => ['.obsidian/app.json'],
+        listMappings: async () => [],
+        stat: async () => stat,
+        seen,
+      });
+
+    await poll();
+    await poll();
+    expect(observed).toEqual(['.obsidian/app.json']);
+
+    stat = { mtime: 2, size: 10 };
+    await poll();
+    expect(observed).toHaveLength(2);
+  });
+});

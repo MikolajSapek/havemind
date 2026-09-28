@@ -59,6 +59,13 @@ export interface ConfigPollerDeps {
   readonly listConfigPaths: () => Promise<readonly string[]>;
   /** The durable producer mappings, the last-known base to diff deletes against. */
   readonly listMappings: () => Promise<readonly LocalFileMapping[]>;
+  /**
+   * Size and modification time of a config file, or null when unknown (P8).
+   * With `seen`, a file unchanged since it was last observed is not read.
+   */
+  readonly stat?: (path: string) => Promise<{ readonly mtime: number; readonly size: number } | null>;
+  /** Path to the stat key it was last observed at; owned by the caller across ticks. */
+  readonly seen?: Map<string, string>;
 }
 
 /**
@@ -79,8 +86,16 @@ export async function pollConfigOnce(
   const onDisk = new Set<string>();
   for (const path of configPaths) {
     onDisk.add(normalizeWirePath(path).toLowerCase());
+    const stat = deps.seen === undefined ? null : await deps.stat?.(path);
+    const key = stat == null ? null : `${stat.mtime}:${stat.size}`;
+    if (key !== null && deps.seen?.get(path) === key) continue;
     const op = await deps.observer.observeModify(path);
     if (op !== null) ops.push(op);
+    if (key !== null) deps.seen?.set(path, key);
+  }
+  // Forget files that are gone, so a recreated one is read again.
+  for (const path of deps.seen?.keys() ?? []) {
+    if (!configPaths.includes(path)) deps.seen?.delete(path);
   }
 
   for (const mapping of await deps.listMappings()) {

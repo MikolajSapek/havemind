@@ -11,18 +11,19 @@
 import type { LocalChangeOperation } from '../../obsidian/vault-adapter';
 
 /**
- * How often the `.obsidian/` config mirror is re-walked (ms). Config is a
- * handful of tiny JSON/CSS files, and Obsidian emits no events for them, so a
- * modest poll is both cheap and responsive enough for a theme/hotkey change.
+ * How often the `.obsidian/` config mirror is re-walked (ms). Obsidian emits no
+ * events for config files, and a theme or hotkey change can wait half a minute;
+ * every 5 s cost a read and hash of every config file (P8). Ticks are skipped
+ * while Obsidian is in the background.
  */
-export const CONFIG_POLL_INTERVAL_MS = 5_000;
+export const CONFIG_POLL_INTERVAL_MS = 30_000;
 
 /**
  * How many CONSECUTIVE failed config-poll ticks pass between user-facing
  * notices. The first failure of a streak always notifies; after that only every
  * Nth does. A persistently broken config mirror therefore stays visible without
- * a Notice every {@link CONFIG_POLL_INTERVAL_MS} (which at a 5 s interval would
- * be twelve toasts a minute for as long as the fault lasts).
+ * a Notice every {@link CONFIG_POLL_INTERVAL_MS} for as long as the fault
+ * lasts.
  */
 export const CONFIG_POLL_FAILURE_NOTICE_EVERY = 10;
 
