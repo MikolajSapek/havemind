@@ -10,9 +10,7 @@
  * - ASYMMETRIC by design. The Havemind server holds ONLY the recipient PUBLIC
  *   key, so it can SEAL a new checkpoint but can NEVER open any existing one,
  *   only the owner's SECRET key (kept off-server in a recovery kit) decrypts
- *   (plans/006 "Key management"; T1; AC9). This is the counterpart to the
- *   symmetric vault-key crypto in `vault-crypto.ts`, which protects a different
- *   trust boundary (note contents vs. server metadata) with a different key.
+ *   (plans/006 "Key management"; T1; AC9).
  * - Pure functions: no file I/O. The caller injects a ready `Sodium` instance so
  *   tests are deterministic. The at-rest checkpoint file layout, manifest and
  *   integrity verification live in the server (`apps/server/src/checkpoint.ts`);
