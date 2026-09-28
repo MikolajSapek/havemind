@@ -20,6 +20,7 @@ import {
 } from './config.js';
 import { DB_FILENAME, openDatabase } from './db.js';
 import { runMigrations } from './migrations.js';
+import { startExpiredRecordPruning } from './prune-expired.js';
 import { BlobStore } from './blob-store.js';
 import { RevisionRepository } from './revision-repository.js';
 import { InvitationService } from './auth/invitations.js';
@@ -125,6 +126,21 @@ async function main(): Promise<void> {
           },
         });
 
+  // Nothing else ever deletes expired access tokens, refresh rows of ended
+  // sessions or expired idempotency records, so they are pruned at startup and
+  // hourly after that (see prune-expired.ts). Failures are logged, not thrown.
+  const pruning = startExpiredRecordPruning({
+    database,
+    logger: {
+      error: (message) => {
+        app.log.error(message);
+      },
+      info: (message) => {
+        app.log.info(message);
+      },
+    },
+  });
+
   let closing = false;
   const close = (): void => {
     if (closing) {
@@ -132,6 +148,7 @@ async function main(): Promise<void> {
     }
     closing = true;
     backups?.stop();
+    pruning.stop();
     void app.close().finally(() => {
       try {
         database.close();
