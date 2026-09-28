@@ -5,6 +5,31 @@ All notable changes to this project are documented here. The format is based on
 follows independent [Semantic Versioning](https://semver.org) for the plugin
 and the server.
 
+## [Unreleased]
+
+### Fixed
+
+- Plugin: a device that keeps syncing stays signed in; the session deadline
+  slides on every refresh instead of ending 30 days after pairing.
+- Plugin: conflict resolution never loses both versions or locks a copy, and
+  the automatic sweep never overwrites a note edited mid-merge or a
+  same-named note of a different file.
+- Plugin: the panel says why a sync failed; Sync now and Retry run one cycle
+  instead of rebuilding the connection, and never show Synced over a refused
+  session.
+- Plugin: one quarantined change no longer blocks every later edit of that
+  file, a full vault quota no longer quarantines the whole queue, and Retry
+  never silently drops a change whose queued copy was lost.
+- Plugin: Disconnect and Reset are not undone by a connection still being
+  built, and instant updates keep arriving while an apply waits on an
+  unsaved editor.
+- Server: attachments up to the advertised 25 MiB are accepted (the body
+  limit is 48 MiB).
+- Server: a replayed old refresh token still burns its session, sessions
+  slide by their own configured window, junk pre-auth traffic can no longer
+  starve token refresh, `cleanup-stale` keeps onboardings in progress, and
+  backup intervals above 596 hours no longer run back to back.
+
 ## [1.5.5], 2026-09-26
 
 ### Fixed
