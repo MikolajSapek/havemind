@@ -133,6 +133,10 @@ class MemoryOnboardingStore implements OnboardingStorePort {
     this.bootstrapPages.push(structuredClone([...items]));
     await this.saveState(state);
   }
+
+  async clearState(): Promise<void> {
+    this.state = null;
+  }
 }
 
 class MemoryOnboardingSecrets implements OnboardingSecretsPort {
@@ -339,6 +343,34 @@ describe('onboarding controller', () => {
     });
     expect(String(redeemCall?.request.url)).not.toContain(INVITATION_TOKEN);
     expect(consoleSpies.every((spy) => spy.mock.calls.length === 0)).toBe(true);
+  });
+
+  // B13: a rejection cleared the pending credential but left the durable
+  // pending-approval state, so every later start failed with a missing
+  // credential and Retry could not get the guest out of it.
+  it('forgets a rejected onboarding, so the next start is a fresh one', async () => {
+    const fixture = createFixture();
+    await createPendingConnection(fixture);
+
+    const rejectingRemote = new FakeRemoteApi();
+    rejectingRemote.enqueue('poll', {
+      body: { status: 'rejected' },
+      finalUrl: `${API_BASE_URL}/devices/${PENDING_DEVICE_ID}/approval`,
+      status: 200,
+    });
+    const rejecting = createController({
+      remoteApi: rejectingRemote,
+      secrets: fixture.secrets,
+      store: fixture.store,
+    });
+    await expect(rejecting.resume()).resolves.toMatchObject({ phase: 'rejected' });
+
+    const restarted = createController({
+      remoteApi: new FakeRemoteApi(),
+      secrets: fixture.secrets,
+      store: fixture.store,
+    });
+    await expect(restarted.resume()).resolves.toEqual({ phase: 'idle' });
   });
 
   it('resumes pending approval and a paged bootstrap across controller restarts', async () => {

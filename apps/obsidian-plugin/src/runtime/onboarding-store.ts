@@ -59,6 +59,11 @@ export class PluginDataOnboardingStore implements OnboardingStorePort {
     await this.mutate({ fileIds, state });
   }
 
+  async clearState(): Promise<void> {
+    const current = await this.ensureLoaded();
+    await this.mutate({ ...current, state: null });
+  }
+
   /** FileIds observed during bootstrap, for the path-mapping resolver. */
   knownFileIds(): readonly string[] {
     return this.cache?.fileIds ?? [];

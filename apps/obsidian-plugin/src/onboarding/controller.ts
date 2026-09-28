@@ -99,6 +99,8 @@ export interface OnboardingStorePort {
     items: readonly unknown[],
     state: DurableOnboardingState,
   ): Promise<void>;
+  /** Forgets the durable onboarding, so the next start begins afresh. */
+  clearState(): Promise<void>;
 }
 
 export interface ClockPort {
@@ -485,6 +487,13 @@ export class OnboardingController {
       await this.clearSecretBestEffort(() =>
         this.secrets.clearPendingCredential(),
       );
+      // The durable pending state must go with the credential: left behind,
+      // every later start resumes it and fails on the missing credential.
+      try {
+        await this.store.clearState();
+      } catch {
+        throw new OnboardingError('storage-failed');
+      }
       this.currentState = { phase: 'rejected' };
       return this.state;
     }

@@ -38,6 +38,15 @@ describe('PluginDataOnboardingStore', () => {
     expect(await store.loadState()).toBeNull();
   });
 
+  it('forgets the stored state durably on clearState', async () => {
+    const persist = new MemoryPersist();
+    const store = new PluginDataOnboardingStore({ persist });
+    await store.saveState(connectedState());
+    await store.clearState();
+    const reopened = new PluginDataOnboardingStore({ persist });
+    expect(await reopened.loadState()).toBeNull();
+  });
+
   it('persists and reloads the onboarding state', async () => {
     const persist = new MemoryPersist();
     const store = new PluginDataOnboardingStore({ persist });
