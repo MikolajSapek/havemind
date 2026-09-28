@@ -1,7 +1,3 @@
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-
 import type Database from 'better-sqlite3';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -14,13 +10,17 @@ import {
   SessionRepositoryError,
 } from './auth/session-repository.js';
 import { createRefreshSuccessor, generateRefreshToken } from './auth/tokens.js';
-import { openDatabase } from './db.js';
-import { runMigrations } from './migrations.js';
 import {
   PRUNE_GRACE_MS,
   pruneExpiredRecords,
   startExpiredRecordPruning,
 } from './prune-expired.js';
+import {
+  createClock,
+  makeTempDir,
+  openMigratedDatabase,
+  releaseTestResources,
+} from './test/fixtures/server-fixtures.js';
 
 const START_TIME = '2026-07-15T03:00:00.000Z';
 const DEVICE_ID = '70000000-0000-4000-8000-000000000001';
@@ -37,29 +37,14 @@ interface Fixture {
   readonly repository: SessionRepository;
 }
 
-const databases: Database.Database[] = [];
-const directories: string[] = [];
-
-afterEach(() => {
+afterEach(async () => {
   vi.useRealTimers();
-  for (const database of databases.splice(0)) {
-    if (database.open) {
-      database.close();
-    }
-  }
-  for (const directory of directories.splice(0)) {
-    rmSync(directory, { force: true, recursive: true });
-  }
+  await releaseTestResources();
 });
 
 function makeFixture(): Fixture {
-  const directory = mkdtempSync(join(tmpdir(), 'havemind-prune-'));
-  directories.push(directory);
-  const database = openDatabase(join(directory, 'havemind.sqlite'));
-  databases.push(database);
-  runMigrations(database);
-  let milliseconds = Date.parse(START_TIME);
-  const now = (): Date => new Date(milliseconds);
+  const database = openMigratedDatabase(makeTempDir('havemind-prune-'));
+  const { advance, now } = createClock(START_TIME);
   const setup = new OwnerSetupService(database, {
     accessTokenTtlSeconds: 600,
     now,
@@ -78,9 +63,7 @@ function makeFixture(): Fixture {
     publicKey: Buffer.alloc(32, 0x7a),
   });
   return {
-    advance: (value) => {
-      milliseconds += value;
-    },
+    advance,
     database,
     familyId: paired.familyId,
     initialRefreshToken,

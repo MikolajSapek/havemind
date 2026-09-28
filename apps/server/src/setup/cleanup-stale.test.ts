@@ -1,6 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type Database from 'better-sqlite3';
@@ -10,26 +8,16 @@ import { InvitationService } from '../auth/invitations.js';
 import { generateRefreshToken } from '../auth/tokens.js';
 import { openDatabase } from '../db.js';
 import { runMigrations } from '../migrations.js';
+import { makeTempDir, releaseTestResources } from '../test/fixtures/server-fixtures.js';
 import { runStaleCleanup } from './cleanup-stale.js';
 
-const temporaryDirectories: string[] = [];
-
 function makeDatabase(): Database.Database {
-  const directory = mkdtempSync(join(tmpdir(), 'havemind-cleanup-'));
-  temporaryDirectories.push(directory);
-  const database = openDatabase(join(directory, 'havemind.db'));
+  const database = openDatabase(join(makeTempDir('havemind-cleanup-'), 'havemind.db'));
   runMigrations(database);
   return database;
 }
 
-afterEach(() => {
-  while (temporaryDirectories.length > 0) {
-    const directory = temporaryDirectories.pop();
-    if (directory !== undefined) {
-      rmSync(directory, { force: true, recursive: true });
-    }
-  }
-});
+afterEach(releaseTestResources);
 
 const NOW = new Date('2026-07-21T12:00:00.000Z');
 const HOUR_MS = 60 * 60 * 1000;

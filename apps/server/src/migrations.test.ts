@@ -1,5 +1,3 @@
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
@@ -18,6 +16,11 @@ import {
   NewerSchemaVersionError,
   runMigrations,
 } from './migrations.js';
+import {
+  makeTempDir,
+  releaseTestResources,
+  trackDatabase,
+} from './test/fixtures/server-fixtures.js';
 
 const REQUIRED_TABLES = [
   'access_tokens',
@@ -39,33 +42,11 @@ const REQUIRED_TABLES = [
   'vaults',
 ] as const;
 
-const temporaryDirectories: string[] = [];
-const openDatabases: Array<ReturnType<typeof openDatabase>> = [];
-
 function temporaryDatabasePath(): string {
-  const directory = mkdtempSync(join(tmpdir(), 'havemind-migrations-'));
-  temporaryDirectories.push(directory);
-  return join(directory, 'havemind.sqlite');
+  return join(makeTempDir('havemind-migrations-'), 'havemind.sqlite');
 }
 
-function trackDatabase(
-  database: ReturnType<typeof openDatabase>,
-): ReturnType<typeof openDatabase> {
-  openDatabases.push(database);
-  return database;
-}
-
-afterEach(() => {
-  for (const database of openDatabases.splice(0)) {
-    if (database.open) {
-      database.close();
-    }
-  }
-
-  for (const directory of temporaryDirectories.splice(0)) {
-    rmSync(directory, { force: true, recursive: true });
-  }
-});
+afterEach(releaseTestResources);
 
 describe('SQLite database configuration', () => {
   it('enforces WAL, FULL synchronization, foreign keys, and bounded waiting', () => {

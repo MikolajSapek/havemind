@@ -1,7 +1,3 @@
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-
 import { afterEach, describe, expect, it } from 'vitest';
 
 import type { ServerEnvironment } from '../config.js';
@@ -10,17 +6,15 @@ import {
   runDoctor,
   type DoctorReport,
 } from './doctor.js';
+import {
+  makeTempDir as makeTempDirWithPrefix,
+  releaseTestResources,
+} from '../test/fixtures/server-fixtures.js';
 
 const INJECTED_SECRET =
   'SUPER-SECRET-DB-KEY-4a7f2c9e8b1d6f3a0e5c7b9d2f4a6c8e0b1d3f5a';
 
-const temporaryDirectories: string[] = [];
-
-function makeTempDir(): string {
-  const directory = mkdtempSync(join(tmpdir(), 'havemind-doctor-'));
-  temporaryDirectories.push(directory);
-  return directory;
-}
+const makeTempDir = (): string => makeTempDirWithPrefix('havemind-doctor-');
 
 function validEnv(overrides: ServerEnvironment = {}): ServerEnvironment {
   return {
@@ -37,14 +31,7 @@ function findCheck(report: DoctorReport, name: string): string {
   return check.status;
 }
 
-afterEach(() => {
-  while (temporaryDirectories.length > 0) {
-    const directory = temporaryDirectories.pop();
-    if (directory !== undefined) {
-      rmSync(directory, { force: true, recursive: true });
-    }
-  }
-});
+afterEach(releaseTestResources);
 
 describe('runDoctor', () => {
   it('fails when the configuration is invalid', () => {

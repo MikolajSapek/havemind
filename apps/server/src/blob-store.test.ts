@@ -1,13 +1,4 @@
-import {
-  mkdir,
-  mkdtemp,
-  readFile,
-  rm,
-  stat,
-  symlink,
-  writeFile,
-} from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
@@ -22,14 +13,12 @@ import {
   failOnceAt,
   type BlobStoreFaultPoint,
 } from './faults.js';
-
-const temporaryDirectories: string[] = [];
+import { makeTempDir, releaseTestResources } from './test/fixtures/server-fixtures.js';
 
 async function makeStore(
   faultPoint?: BlobStoreFaultPoint,
 ): Promise<{ directory: string; store: BlobStore }> {
-  const directory = await mkdtemp(join(tmpdir(), 'havemind-blobs-'));
-  temporaryDirectories.push(directory);
+  const directory = makeTempDir('havemind-blobs-');
   return {
     directory,
     store: new BlobStore(
@@ -39,13 +28,7 @@ async function makeStore(
   };
 }
 
-afterEach(async () => {
-  await Promise.all(
-    temporaryDirectories.splice(0).map((directory) =>
-      rm(directory, { force: true, recursive: true }),
-    ),
-  );
-});
+afterEach(releaseTestResources);
 
 describe('BlobStore', () => {
   it('hashes server-side and durably stores the exact bytes', async () => {

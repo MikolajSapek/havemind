@@ -1,12 +1,10 @@
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { DEFAULT_VAULT_QUOTA_BYTES } from './config.js';
-import { DB_FILENAME, openDatabase } from './db.js';
+import { DB_FILENAME } from './db.js';
 import { runMigrations } from './migrations.js';
 import {
   computeVaultStorageBytes,
@@ -14,6 +12,12 @@ import {
   resolveEffectiveQuotaBytes,
   vaultContainsBlob,
 } from './quota.js';
+import {
+  makeTempDir,
+  openTrackedDatabase,
+  releaseTestResources,
+  rowSeeder,
+} from './test/fixtures/server-fixtures.js';
 
 /**
  * Direct unit coverage for the per-vault storage accounting of plans/005.
@@ -39,17 +43,7 @@ const FILE_A2 = '80000000-0000-4000-8000-0000000000a6';
 const FILE_B1 = '80000000-0000-4000-8000-0000000000b5';
 const UNKNOWN_VAULT = '80000000-0000-4000-8000-00000000dead';
 
-const databases: Database.Database[] = [];
-const temporaryDirectories: string[] = [];
-
-afterEach(() => {
-  for (const database of databases.splice(0)) {
-    database.close();
-  }
-  for (const directory of temporaryDirectories.splice(0)) {
-    rmSync(directory, { force: true, recursive: true });
-  }
-});
+afterEach(releaseTestResources);
 
 /** A syntactically valid 64-character blob hash derived from a readable label. */
 function blobHash(label: string): string {
@@ -69,41 +63,23 @@ interface Fixture {
 }
 
 function makeFixture(): Fixture {
-  const directory = mkdtempSync(join(tmpdir(), 'havemind-quota-'));
-  temporaryDirectories.push(directory);
-  const database = openDatabase(join(directory, DB_FILENAME));
-  databases.push(database);
+  const database = openTrackedDatabase(join(makeTempDir('havemind-quota-'), DB_FILENAME));
   runMigrations(database);
 
-  database
-    .prepare(
-      `INSERT INTO users (id, display_name, is_instance_owner, status, created_at, revoked_at)
-       VALUES (?, ?, 1, 'active', ?, NULL)`,
-    )
-    .run(USER_A, 'Owner', START_TIME);
-  database
-    .prepare(
-      `INSERT INTO devices (id, user_id, display_name, public_key, status, created_at, approved_at, revoked_at)
-       VALUES (?, ?, ?, ?, 'approved', ?, ?, NULL)`,
-    )
-    .run(DEVICE_A, USER_A, 'Owner Laptop', Buffer.alloc(32, 0x22), START_TIME, START_TIME);
-
-  const insertVault = database.prepare(
-    `INSERT INTO vaults (id, display_name, write_epoch, next_server_sequence, created_at, deleted_at)
-     VALUES (?, ?, 0, 1, ?, NULL)`,
+  const { insertDevice, insertMembership, insertUser, insertVault } = rowSeeder(
+    START_TIME,
+    Buffer.alloc(32, 0x22),
   );
-  const insertMembership = database.prepare(
-    `INSERT INTO memberships (id, vault_id, user_id, role, status, created_at, revoked_at)
-     VALUES (?, ?, ?, 'owner', 'active', ?, NULL)`,
-  );
+  insertUser(database, USER_A, 'Owner', 1);
+  insertDevice(database, DEVICE_A, USER_A, 'Owner Laptop');
   const insertFile = database.prepare(
     `INSERT INTO files (id, vault_id, created_at) VALUES (?, ?, ?)`,
   );
 
-  insertVault.run(VAULT_A, 'Vault A', START_TIME);
-  insertVault.run(VAULT_B, 'Vault B', START_TIME);
-  insertMembership.run(MEMBERSHIP_A, VAULT_A, USER_A, START_TIME);
-  insertMembership.run(MEMBERSHIP_B, VAULT_B, USER_A, START_TIME);
+  insertVault(database, VAULT_A, 'Vault A');
+  insertVault(database, VAULT_B, 'Vault B');
+  insertMembership(database, MEMBERSHIP_A, VAULT_A, USER_A);
+  insertMembership(database, MEMBERSHIP_B, VAULT_B, USER_A);
   insertFile.run(FILE_A1, VAULT_A, START_TIME);
   insertFile.run(FILE_A2, VAULT_A, START_TIME);
   insertFile.run(FILE_B1, VAULT_B, START_TIME);

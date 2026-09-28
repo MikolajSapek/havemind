@@ -1,44 +1,31 @@
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { PROTOCOL_VERSION, type ProtectedRevisionHeader } from '@havemind/protocol';
+import type { ProtectedRevisionHeader } from '@havemind/protocol';
 import type Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { sweepOrphanedBlobs } from './blob-gc.js';
 import { BlobStore } from './blob-store.js';
-import { openDatabase } from './db.js';
-import { runMigrations } from './migrations.js';
 import { RevisionRepository } from './revision-repository.js';
+import {
+  DEVICE_A,
+  makeTempDir,
+  MEMBERSHIP_A,
+  openMigratedDatabase,
+  releaseTestResources,
+  revisionHeader,
+  rowSeeder,
+  USER_A,
+  VAULT_A,
+} from './test/fixtures/server-fixtures.js';
 
 const START_TIME = '2026-07-18T03:00:00.000Z';
 
-const USER_A = '70000000-0000-4000-8000-0000000000a1';
-const DEVICE_A = '70000000-0000-4000-8000-0000000000a2';
-const VAULT_A = '70000000-0000-4000-8000-0000000000a3';
-const MEMBERSHIP_A = '70000000-0000-4000-8000-0000000000a4';
 const FILE_A = '70000000-0000-4000-8000-0000000000a5';
 const REVISION_1 = '70000000-0000-4000-8000-000000000001';
 
-const SEMANTICS = Object.freeze({
-  pathNormalization: 'nfc-lowercase-v1',
-  payloadFormat: 'revision-payload-v1',
-  provenanceRecipe: 'source-range-v1',
-  syncSemantics: 'dag-cas-v1',
-} as const);
-
-const databases: Database.Database[] = [];
-const temporaryDirectories: string[] = [];
-
-afterEach(() => {
-  for (const database of databases.splice(0)) {
-    database.close();
-  }
-  for (const directory of temporaryDirectories.splice(0)) {
-    rmSync(directory, { force: true, recursive: true });
-  }
-});
+afterEach(releaseTestResources);
 
 interface Fixture {
   readonly database: Database.Database;
@@ -47,56 +34,25 @@ interface Fixture {
 }
 
 function makeFixture(): Fixture {
-  const directory = mkdtempSync(join(tmpdir(), 'havemind-blob-gc-'));
-  temporaryDirectories.push(directory);
-  const database = openDatabase(join(directory, 'havemind.sqlite'));
-  databases.push(database);
-  runMigrations(database);
+  const directory = makeTempDir('havemind-blob-gc-');
+  const database = openMigratedDatabase(directory);
 
   const now = (): Date => new Date(START_TIME);
   const blobStore = new BlobStore(join(directory, 'blobs'));
   const revisions = new RevisionRepository(database, blobStore, { now });
 
-  database
-    .prepare(
-      `INSERT INTO users (id, display_name, is_instance_owner, status, created_at, revoked_at)
-       VALUES (?, ?, 0, 'active', ?, NULL)`,
-    )
-    .run(USER_A, 'Alice', START_TIME);
-  database
-    .prepare(
-      `INSERT INTO devices (id, user_id, display_name, public_key, status, created_at, approved_at, revoked_at)
-       VALUES (?, ?, ?, ?, 'approved', ?, ?, NULL)`,
-    )
-    .run(DEVICE_A, USER_A, 'Alice Laptop', Buffer.alloc(32, 0x11), START_TIME, START_TIME);
-  database
-    .prepare(
-      `INSERT INTO vaults (id, display_name, write_epoch, next_server_sequence, created_at, deleted_at)
-       VALUES (?, ?, 0, 1, ?, NULL)`,
-    )
-    .run(VAULT_A, 'Vault A', START_TIME);
-  database
-    .prepare(
-      `INSERT INTO memberships (id, vault_id, user_id, role, status, created_at, revoked_at)
-       VALUES (?, ?, ?, 'owner', 'active', ?, NULL)`,
-    )
-    .run(MEMBERSHIP_A, VAULT_A, USER_A, START_TIME);
+  const { insertDevice, insertMembership, insertUser, insertVault } = rowSeeder(START_TIME);
+  insertUser(database, USER_A, 'Alice');
+  insertDevice(database, DEVICE_A, USER_A, 'Alice Laptop');
+  insertVault(database, VAULT_A, 'Vault A');
+  insertMembership(database, MEMBERSHIP_A, VAULT_A, USER_A);
 
   return { blobStore, database, revisions };
 }
 
 function header(): ProtectedRevisionHeader {
-  return {
-    expectedDeviceId: DEVICE_A,
-    expectedMemberId: MEMBERSHIP_A,
-    fileId: FILE_A,
-    parentRevisionIds: [],
-    payloadEncoding: 'plaintext-json-v1',
-    protocol: PROTOCOL_VERSION,
-    revisionId: REVISION_1,
-    semantics: SEMANTICS,
-    vaultId: VAULT_A,
-  };
+  const author = { deviceId: DEVICE_A, membershipId: MEMBERSHIP_A };
+  return revisionHeader(VAULT_A, author, REVISION_1, FILE_A);
 }
 
 describe('sweepOrphanedBlobs', () => {

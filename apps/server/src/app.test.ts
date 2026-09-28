@@ -1,4 +1,4 @@
-import { Writable } from 'node:stream';
+import type { Writable } from 'node:stream';
 
 import { discoveryDocumentSchema } from '@havemind/protocol';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -9,11 +9,7 @@ import {
   DEFAULT_BODY_LIMIT_BYTES,
   parseServerConfig,
 } from './config.js';
-
-const TEST_ENV = {
-  HAVEMIND_API_BASE_URL: 'https://sync.example.test/api/v1',
-  HAVEMIND_SERVER_NAME: 'Test Havemind',
-} as const;
+import { collectLogs, TEST_ENV } from './test/fixtures/server-fixtures.js';
 
 describe('server configuration', () => {
   it('uses bounded defaults and a loopback listener', () => {
@@ -294,18 +290,3 @@ describe('Fastify application', () => {
     expect(rejected.statusCode).toBe(413);
   });
 });
-
-function collectLogs(): { writer: Writable; read: () => string } {
-  const chunks: string[] = [];
-  const writer = new Writable({
-    write(chunk, _encoding, callback) {
-      chunks.push(String(chunk));
-      callback();
-    },
-  });
-
-  return {
-    read: () => chunks.join(''),
-    writer,
-  };
-}

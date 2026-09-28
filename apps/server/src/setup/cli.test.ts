@@ -1,6 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
@@ -12,14 +10,9 @@ import { OwnerSetupService } from '../auth/setup.js';
 import { generateRefreshToken, parsePairingToken } from '../auth/tokens.js';
 import { openDatabase } from '../db.js';
 import { runMigrations } from '../migrations.js';
+import { makeTempDir, releaseTestResources } from '../test/fixtures/server-fixtures.js';
 
-const temporaryDirectories: string[] = [];
-
-function makeDataDir(): string {
-  const directory = mkdtempSync(join(tmpdir(), 'havemind-cli-'));
-  temporaryDirectories.push(directory);
-  return directory;
-}
+const makeDataDir = (): string => makeTempDir('havemind-cli-');
 
 function baseEnv(overrides: ServerEnvironment = {}): ServerEnvironment {
   return {
@@ -28,14 +21,7 @@ function baseEnv(overrides: ServerEnvironment = {}): ServerEnvironment {
   };
 }
 
-afterEach(() => {
-  while (temporaryDirectories.length > 0) {
-    const directory = temporaryDirectories.pop();
-    if (directory !== undefined) {
-      rmSync(directory, { force: true, recursive: true });
-    }
-  }
-});
+afterEach(releaseTestResources);
 
 describe('runCli dispatch', () => {
   it('prints usage when no command is given', () => {

@@ -1,5 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import {
@@ -19,6 +18,13 @@ import {
   type CommitRevisionInput,
   type RevisionRepositoryErrorCode,
 } from './revision-repository.js';
+import {
+  makeTempDir,
+  openMigratedDatabase,
+  releaseTestResources,
+  rowSeeder,
+  trackDatabase,
+} from './test/fixtures/server-fixtures.js';
 
 const USER_A = '10000000-0000-4000-8000-000000000001';
 const USER_B = '10000000-0000-4000-8000-000000000002';
@@ -52,69 +58,28 @@ interface TestFixture {
   repository: RevisionRepository;
 }
 
-const temporaryDirectories: string[] = [];
-const openDatabases: Database.Database[] = [];
-
-function trackDatabase(database: Database.Database): Database.Database {
-  openDatabases.push(database);
-  return database;
-}
-
 function seedIdentityAndVaults(database: Database.Database): void {
-  const now = SERVER_TIME;
-  const insertUser = database.prepare(
-    `INSERT INTO users
-       (id, display_name, is_instance_owner, status, created_at)
-     VALUES (?, ?, ?, 'active', ?)`,
-  );
-  insertUser.run(USER_A, 'User A', 1, now);
-  insertUser.run(USER_B, 'User B', 0, now);
+  const { insertMembership, insertUser, insertVault } = rowSeeder(SERVER_TIME);
+  insertUser(database, USER_A, 'User A', 1);
+  insertUser(database, USER_B, 'User B', 0);
 
-  const insertDevice = database.prepare(
-    `INSERT INTO devices
-       (id, user_id, display_name, public_key, status, created_at, approved_at)
-     VALUES (?, ?, ?, ?, 'approved', ?, ?)`,
-  );
-  insertDevice.run(
-    DEVICE_A,
-    USER_A,
-    'Device A',
-    Buffer.from('device-a-public-key'),
-    now,
-    now,
-  );
-  insertDevice.run(
-    DEVICE_B,
-    USER_B,
-    'Device B',
-    Buffer.from('device-b-public-key'),
-    now,
-    now,
-  );
+  rowSeeder(SERVER_TIME, Buffer.from('device-a-public-key'))
+    .insertDevice(database, DEVICE_A, USER_A, 'Device A');
+  rowSeeder(SERVER_TIME, Buffer.from('device-b-public-key'))
+    .insertDevice(database, DEVICE_B, USER_B, 'Device B');
 
-  const insertVault = database.prepare(
-    `INSERT INTO vaults (id, display_name, created_at)
-     VALUES (?, ?, ?)`,
-  );
-  insertVault.run(VAULT_A, 'Vault A', now);
-  insertVault.run(VAULT_B, 'Vault B', now);
+  insertVault(database, VAULT_A, 'Vault A');
+  insertVault(database, VAULT_B, 'Vault B');
 
-  const insertMembership = database.prepare(
-    `INSERT INTO memberships
-       (id, vault_id, user_id, role, status, created_at)
-     VALUES (?, ?, ?, 'owner', 'active', ?)`,
-  );
-  insertMembership.run(MEMBER_A, VAULT_A, USER_A, now);
-  insertMembership.run(MEMBER_B, VAULT_A, USER_B, now);
-  insertMembership.run(MEMBER_A_VAULT_B, VAULT_B, USER_A, now);
+  insertMembership(database, MEMBER_A, VAULT_A, USER_A);
+  insertMembership(database, MEMBER_B, VAULT_A, USER_B);
+  insertMembership(database, MEMBER_A_VAULT_B, VAULT_B, USER_A);
 }
 
 async function makeFixture(): Promise<TestFixture> {
-  const directory = await mkdtemp(join(tmpdir(), 'havemind-repository-'));
-  temporaryDirectories.push(directory);
+  const directory = makeTempDir('havemind-repository-');
   const databasePath = join(directory, 'havemind.sqlite');
-  const database = trackDatabase(openDatabase(databasePath));
-  runMigrations(database);
+  const database = openMigratedDatabase(directory);
   seedIdentityAndVaults(database);
   const blobStore = new BlobStore(join(directory, 'blobs'));
   const repository = new RevisionRepository(database, blobStore, {
@@ -124,19 +89,7 @@ async function makeFixture(): Promise<TestFixture> {
   return { blobStore, database, databasePath, repository };
 }
 
-afterEach(async () => {
-  for (const database of openDatabases.splice(0)) {
-    if (database.open) {
-      database.close();
-    }
-  }
-
-  await Promise.all(
-    temporaryDirectories.splice(0).map(async (directory) =>
-      rm(directory, { force: true, recursive: true }),
-    ),
-  );
-});
+afterEach(releaseTestResources);
 
 function revisionHeader(
   revisionId: string,

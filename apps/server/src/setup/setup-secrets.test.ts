@@ -1,6 +1,4 @@
 import { createHash } from 'node:crypto';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type Database from 'better-sqlite3';
@@ -11,18 +9,17 @@ import {
   createLocalOwnerSetupContext,
 } from '../auth/setup.js';
 import { parsePairingToken } from '../auth/tokens.js';
-import { openDatabase } from '../db.js';
 import { runMigrations } from '../migrations.js';
-
-const temporaryDirectories: string[] = [];
-const databases: Database.Database[] = [];
+import {
+  makeTempDir,
+  openTrackedDatabase,
+  releaseTestResources,
+} from '../test/fixtures/server-fixtures.js';
 
 function openTempDatabase(): Database.Database {
-  const directory = mkdtempSync(join(tmpdir(), 'havemind-setup-secrets-'));
-  temporaryDirectories.push(directory);
-  const database = openDatabase(join(directory, 'havemind.db'));
+  const directory = makeTempDir('havemind-setup-secrets-');
+  const database = openTrackedDatabase(join(directory, 'havemind.db'));
   runMigrations(database);
-  databases.push(database);
   return database;
 }
 
@@ -39,17 +36,7 @@ function dumpAllTables(database: Database.Database): string {
   return JSON.stringify(rows);
 }
 
-afterEach(() => {
-  while (databases.length > 0) {
-    databases.pop()?.close();
-  }
-  while (temporaryDirectories.length > 0) {
-    const directory = temporaryDirectories.pop();
-    if (directory !== undefined) {
-      rmSync(directory, { force: true, recursive: true });
-    }
-  }
-});
+afterEach(releaseTestResources);
 
 describe('owner setup secret storage (AC: >=256-bit, hash-only)', () => {
   it('issues a pairing token with at least 256 bits of entropy', () => {
