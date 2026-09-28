@@ -656,7 +656,7 @@ describe('plugin lifecycle', () => {
     await view.onOpen();
     const codeInput = (): MockElement | undefined =>
       flatten((view.containerEl as unknown as MockElement).children[1] as MockElement).find(
-        ({ tag, attrs }) => tag === 'input' && attrs.id === 'havemind-approve-id-1',
+        ({ tag, attrs }) => tag === 'input' && attrs.id?.endsWith('-id-1') === true,
       );
 
     const typing = codeInput();
