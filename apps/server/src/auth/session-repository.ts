@@ -436,6 +436,26 @@ export class SessionRepository {
     };
   }
 
+  /**
+   * The family a stored refresh token belongs to, whatever its state
+   * (consumed, expired, or burned tokens included), or null for a malformed
+   * or unknown token. `/auth/refresh` rate limiting keys on this so each
+   * device's refresh draws from its own bucket without the raw secret ever
+   * becoming a map key.
+   */
+  public lookupRefreshFamilyId(rawRefreshToken: string): string | null {
+    let tokenHash: string;
+    try {
+      tokenHash = hashRefreshToken(parseRefreshToken(rawRefreshToken));
+    } catch {
+      return null;
+    }
+    const row = this.#database
+      .prepare('SELECT family_id AS familyId FROM refresh_tokens WHERE token_hash = ?')
+      .get(tokenHash) as { familyId: string } | undefined;
+    return row?.familyId ?? null;
+  }
+
   public rotateRefresh(input: RotateRefreshInput): RotateRefreshResult {
     const prepared = prepareRotation(input);
     const now = readClock(this.#now);

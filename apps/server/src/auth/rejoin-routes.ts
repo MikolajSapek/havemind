@@ -140,8 +140,8 @@ export function registerRejoinRoutes(
     new RejoinGrantService(deps.database, { now });
   // Pre-auth traffic: no session exists yet, so per-device keying (as used by
   // the authenticated auth-routes surface) doesn't apply, key by IP, same as
-  // /auth/refresh and /owner/pair. Reuses the auth-routes limiter factory
-  // rather than a bespoke one.
+  // /owner/pair (/auth/refresh keys by refresh family instead). Reuses the
+  // auth-routes limiter factory rather than a bespoke one.
   const rejoinRateLimit = createRateLimiter(
     deps.rateLimit ?? DEFAULT_RATE_LIMIT,
     now,

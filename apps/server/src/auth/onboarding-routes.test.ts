@@ -12,6 +12,7 @@ import { parseServerConfig } from '../config.js';
 import { openDatabase } from '../db.js';
 import { runMigrations } from '../migrations.js';
 import type { StoredRevisionEvent } from '../revision-repository.js';
+import { DEFAULT_RATE_LIMIT } from './auth-routes.js';
 import { InvitationService } from './invitations.js';
 import { registerPreAuthOnboardingRoutes } from './onboarding-routes.js';
 import { SessionRepository } from './session-repository.js';
@@ -184,6 +185,21 @@ function mintAccessToken(
     }),
   );
   return issue.immediate().accessToken;
+}
+
+function issueRefreshToken(fixture: Fixture): string {
+  const refreshToken = generateRefreshToken();
+  fixture.database
+    .transaction(() =>
+      fixture.sessions.createInitialSessionInCurrentTransaction({
+        deviceId: OWNER_DEVICE,
+        initialRefreshToken: refreshToken,
+        refreshTokenTtlSeconds: REFRESH_TTL_SECONDS,
+        userId: OWNER_USER,
+      }),
+    )
+    .immediate();
+  return refreshToken;
 }
 
 function makeFixture(): Fixture {
@@ -881,6 +897,76 @@ describe('onboarding HTTP surface', () => {
     expect(second.statusCode).toBe(429);
     expect(second.json()).toEqual({ error: { code: 'RATE_LIMITED' } });
     expect(first.statusCode).not.toBe(429);
+  });
+
+  // Behind Tailscale serve every pre-auth request arrives from loopback, so a
+  // shared bucket let anyone's junk invitation traffic 429 every device's
+  // refresh, and sync stopped as access tokens expired.
+  it('keeps /auth/refresh out of the bucket other pre-auth routes exhaust', async () => {
+    const fixture = makeFixture();
+    const refreshToken = issueRefreshToken(fixture);
+    const app = createApp(fixture);
+
+    for (let attempt = 0; attempt <= DEFAULT_RATE_LIMIT.maxRequests; attempt += 1) {
+      await app.inject({
+        body: { invitationToken: 'junk' },
+        method: 'POST',
+        url: '/invitations/review',
+      });
+    }
+    const flooded = await app.inject({
+      body: { invitationToken: 'junk' },
+      method: 'POST',
+      url: '/invitations/review',
+    });
+    expect(flooded.statusCode).toBe(429);
+
+    const successor = createRefreshSuccessor();
+    const refreshed = await app.inject({
+      body: {
+        refreshToken,
+        rotationId: successor.rotationId,
+        successorRefreshToken: successor.refreshToken,
+      },
+      method: 'POST',
+      url: '/auth/refresh',
+    });
+    expect(refreshed.statusCode).toBe(200);
+  });
+
+  it('still limits guessed refresh tokens without starving a known family', async () => {
+    const fixture = makeFixture();
+    const refreshToken = issueRefreshToken(fixture);
+    const app = createApp(fixture, {
+      rateLimit: { maxRequests: 1, windowMs: 60_000 },
+    });
+
+    const guess = async () => {
+      const successor = createRefreshSuccessor();
+      return app.inject({
+        body: {
+          refreshToken: generateRefreshToken(),
+          rotationId: successor.rotationId,
+          successorRefreshToken: successor.refreshToken,
+        },
+        method: 'POST',
+        url: '/auth/refresh',
+      });
+    };
+    expect((await guess()).statusCode).toBe(401);
+    expect((await guess()).statusCode).toBe(429);
+
+    const successor = createRefreshSuccessor();
+    const refreshed = await app.inject({
+      body: {
+        refreshToken,
+        rotationId: successor.rotationId,
+        successorRefreshToken: successor.refreshToken,
+      },
+      method: 'POST',
+      url: '/auth/refresh',
+    });
+    expect(refreshed.statusCode).toBe(200);
   });
 
   it('lets the owner reject a redeemed device, discarding it without a token', async () => {

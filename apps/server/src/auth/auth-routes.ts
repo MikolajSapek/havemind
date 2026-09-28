@@ -287,6 +287,42 @@ export function defaultClientKey(
   };
 }
 
+/** The refresh-rotation route, as Fastify reports it via `request.routeOptions.url`. */
+const REFRESH_ROUTE_PATTERN = '/auth/refresh';
+
+function isRefreshRoute(request: FastifyRequest): boolean {
+  return (
+    request.method === 'POST' &&
+    request.routeOptions?.url === REFRESH_ROUTE_PATTERN
+  );
+}
+
+/**
+ * Keys `/auth/refresh` by the refresh family the presented token belongs to.
+ * Behind Tailscale serve every pre-auth request arrives from loopback, so an
+ * IP key would let anyone's junk invitation or refresh traffic 429 every
+ * device's refresh, and sync would stop as access tokens expired. The family
+ * id is not a secret, and a family's own bucket still caps a replay flood
+ * against it. A malformed or unknown token (a guess) falls into an IP bucket
+ * that only other unknown refresh tokens share, so guessing stays limited
+ * without touching any known family.
+ */
+function refreshClientKey(
+  sessions: SessionRepository,
+): (request: FastifyRequest) => string {
+  return (request) => {
+    const body = request.body as { refreshToken?: unknown } | null | undefined;
+    const presented = body?.refreshToken;
+    const familyId =
+      typeof presented === 'string'
+        ? sessions.lookupRefreshFamilyId(presented)
+        : null;
+    return familyId === null
+      ? `refresh-unknown:${request.ip}`
+      : `refresh-family:${familyId}`;
+  };
+}
+
 function loadActiveMembership(
   database: Database.Database,
   userId: string,
@@ -348,13 +384,35 @@ export function registerAuthRoutes(
             : { revisions: deps.sync.revisions }),
         };
 
+  // `/auth/refresh` draws from its own limiter (see `refreshClientKey`), so
+  // junk on the invitation/bootstrap routes, which all share one loopback
+  // bucket behind Tailscale serve, can never starve a device's refresh.
+  const refreshRateLimit = createRateLimiter(
+    deps.rateLimit ?? DEFAULT_RATE_LIMIT,
+    now,
+    refreshClientKey(deps.sessions),
+  );
+
   if (onboardingDeps !== undefined) {
     // Pre-authentication scope: rate limited so a flood is rejected before any
     // invitation lookup, but no bearer session is required, the joining device
     // has no session yet.
     void app.register(async (instance) => {
       instance.addHook('onRequest', async (request, reply) => {
-        rateLimit(request, reply);
+        if (!isRefreshRoute(request)) {
+          rateLimit(request, reply);
+        }
+      });
+      // The refresh key comes from the body, which is parsed only after
+      // `onRequest`, so its limiter runs as the first preHandler instead.
+      instance.addHook('preHandler', async (request, reply) => {
+        if (isRefreshRoute(request)) {
+          refreshRateLimit(request, reply);
+          if (reply.sent) {
+            return reply;
+          }
+        }
+        return undefined;
       });
       registerPreAuthOnboardingRoutes(instance, onboardingDeps);
     });
