@@ -26,6 +26,7 @@ import {
   setVaultQuota,
   VAULT_A,
   VAULT_B,
+  waitFor,
 } from '../test/fixtures/server-fixtures.js';
 import { DEFAULT_MAX_PAYLOAD_BYTES } from './sync-routes.js';
 import { VaultWakeRegistry } from './vault-wake-registry.js';
@@ -820,21 +821,6 @@ describe('sync push/pull routes', () => {
   });
 
   describe('real-time push wake (GET /vaults/:vaultId/wait)', () => {
-    async function waitFor(
-      predicate: () => boolean,
-      timeoutMs = 1_000,
-    ): Promise<void> {
-      const start = Date.now();
-      while (!predicate()) {
-        if (Date.now() - start > timeoutMs) {
-          throw new Error('waitFor condition timed out');
-        }
-        await new Promise((resolve) => {
-          setTimeout(resolve, 5);
-        });
-      }
-    }
-
     it('requires authentication (no bearer -> 401)', async () => {
       const fixture = makeFixture();
       const app = createApp(fixture, { wakeRegistry: new VaultWakeRegistry() });

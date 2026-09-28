@@ -26,6 +26,7 @@ import {
   type RevisionInput,
   rowSeeder,
   setVaultQuota,
+  waitFor,
 } from '../test/fixtures/server-fixtures.js';
 import { VaultWakeRegistry } from './vault-wake-registry.js';
 
@@ -220,18 +221,6 @@ function revisionInput(
     idempotencyKey,
     content,
   );
-}
-
-async function waitFor(predicate: () => boolean, timeoutMs = 1_000): Promise<void> {
-  const start = Date.now();
-  while (!predicate()) {
-    if (Date.now() - start > timeoutMs) {
-      throw new Error('waitFor condition timed out');
-    }
-    await new Promise((resolve) => {
-      setTimeout(resolve, 5);
-    });
-  }
 }
 
 afterEach(async () => {

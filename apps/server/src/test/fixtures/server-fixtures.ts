@@ -97,6 +97,19 @@ export async function releaseTestResources(): Promise<void> {
   }
 }
 
+/** Polls `predicate` every 5 ms, failing once `timeoutMs` has passed. */
+export async function waitFor(predicate: () => boolean, timeoutMs = 1_000): Promise<void> {
+  const start = Date.now();
+  while (!predicate()) {
+    if (Date.now() - start > timeoutMs) {
+      throw new Error('waitFor condition timed out');
+    }
+    await new Promise((resolve) => {
+      setTimeout(resolve, 5);
+    });
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Clock
 // ---------------------------------------------------------------------------
