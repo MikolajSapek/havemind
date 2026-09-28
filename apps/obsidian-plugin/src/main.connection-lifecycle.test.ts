@@ -100,6 +100,38 @@ describe('startConnection lifecycle safety', () => {
     expect(internals(plugin).connection).toBeNull();
   });
 
+  // A build already in flight must not undo Disconnect or Reset: the handle it
+  // resolves with would run a live sync loop after the user stopped syncing,
+  // and after a reset it writes sync state back into the wiped plugin data.
+  it.each([
+    ['disconnect', (plugin: HavemindPlugin) => {
+      internals(plugin).disconnect();
+    }],
+    ['reset', async (plugin: HavemindPlugin) => {
+      await internals(plugin).resetConnection();
+    }],
+  ] as const)('stops a handle that resolves after %s', async (_name, stopSyncing) => {
+    const plugin = newPlugin();
+    const late = fakeHandle('late');
+    let resolveConnect!: (h: FakeHandle) => void;
+    adapterMocks.startHavemindConnection.mockReturnValue(
+      new Promise<FakeHandle>((resolve) => {
+        resolveConnect = resolve;
+      }),
+    );
+
+    const pending = internals(plugin).startConnection() as Promise<void>;
+    await flushMicrotasks();
+    await stopSyncing(plugin);
+
+    resolveConnect(late);
+    await pending;
+
+    expect(late.stop).toHaveBeenCalledTimes(1);
+    expect(internals(plugin).connection).toBeNull();
+    plugin.unload();
+  });
+
   it('does not orphan a connection established by connectFromInput while startConnection is in flight', async () => {
     // FIX 2: a user-initiated connectFromInput (e.g. invitee approval polling)
     // completes and assigns a live handle while the layout-ready startConnection is

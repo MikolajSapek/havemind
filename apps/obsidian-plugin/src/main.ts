@@ -773,9 +773,12 @@ export default class HavemindPlugin extends Plugin {
     //    while this passive layout-ready connect was still building. Assigning
     //    here would clobber and orphan that handle (its producer/timers never
     //    stopped). The user connection wins; this late handle yields.
+    //  - Disconnect or Reset ran while it was in flight (they abort the
+    //    attempt). Assigning would restart syncing the user just stopped, and
+    //    after a reset write sync state back into the wiped plugin data.
     // Either way, stop THIS handle and do not assign, never orphan an existing
     // connection, never leak past unload.
-    if (this.unloaded || this.connection !== null) {
+    if (this.unloaded || this.connection !== null || attempt.signal.aborted) {
       handle.stop();
       return;
     }
@@ -1657,6 +1660,7 @@ export default class HavemindPlugin extends Plugin {
     if (this.resetInFlight) return;
     this.resetInFlight = true;
     try {
+      this.abortConnectionAttempts();
       this.disarmRejoin();
       this.connection?.stop();
       this.connection = null;

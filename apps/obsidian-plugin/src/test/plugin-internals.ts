@@ -33,6 +33,7 @@ export interface PluginInternals {
   rejoinPollTimer: unknown;
   rejoinWaiting: Set<string>;
   resetConnection(): unknown;
+  disconnect(): void;
   retryConnection(): Promise<void>;
   rosterMembers: unknown[];
   saveData(data: unknown): Promise<void>;
