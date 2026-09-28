@@ -718,9 +718,9 @@ describe('createPersistPort atomic write + backup (GAP-1)', () => {
     const { createPersistPort } = await import('./obsidian-adapters');
     const goodPrimary = { version: 1, cursor: 1, outbox: [], locallyAuthored: [], deferred: [] };
     const disk = { value: { syncState: goodPrimary } as Record<string, unknown> };
-    // The atomic save writes twice (stage, then promote). Fail the promote.
+    // S2: one save is one write. Fail it.
     const plugin = fakePlugin(disk, (call) => {
-      if (call === 2) throw new Error('torn write');
+      if (call === 1) throw new Error('torn write');
     });
     const port = createPersistPort(plugin);
 
@@ -743,11 +743,17 @@ describe('createPersistPort atomic write + backup (GAP-1)', () => {
     expect(await port.load()).toEqual(goodPrimary);
   });
 
-  it('promotes the staged blob and retains exactly one previous-good .bak', async () => {
+  // S2: the save staged the blob in one write and promoted it in a second,
+  // holding three copies of the sync state in one file for a moment. A torn
+  // data.json loses every copy inside it alike, so one write is as safe.
+  it('writes once, keeping exactly one previous-good .bak', async () => {
     const { createPersistPort } = await import('./obsidian-adapters');
     const first = { version: 1, cursor: 1, outbox: [], locallyAuthored: [], deferred: [] };
     const disk = { value: { syncState: first } as Record<string, unknown> };
-    const port = createPersistPort(fakePlugin(disk));
+    let writes = 0;
+    const port = createPersistPort(fakePlugin(disk, () => {
+      writes += 1;
+    }));
 
     const second = {
       version: 1 as const,
@@ -769,6 +775,7 @@ describe('createPersistPort atomic write + backup (GAP-1)', () => {
     expect((await port.load()) as { cursor: number }).toMatchObject({ cursor: 2 });
     expect((await port.loadBackup()) as { cursor: number }).toMatchObject({ cursor: 1 });
     expect(disk.value['syncState.staging']).toBeUndefined();
+    expect(writes).toBe(1);
   });
 
   it('preserves a corrupt blob under a timestamped sidecar without clobbering an existing one', async () => {

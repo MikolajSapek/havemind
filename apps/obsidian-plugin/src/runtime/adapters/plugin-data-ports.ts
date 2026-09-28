@@ -62,24 +62,16 @@ export function createPersistPort(plugin: Plugin): SyncStatePersistPort {
       return (await mutex.load())[PERSIST_BAK_KEY] ?? null;
     },
     async save(state) {
-      // Atomic save (GAP-1). Two serialized load-modify-saves, so a torn write
-      // can never destroy the previous good primary, and a concurrent write to
-      // another top-level key (producer, roster, onboarding, …) is never
-      // clobbered (via the shared mutex):
-      //   Phase 1, stage the new blob under the staging key, leaving the
-      //             primary and its `.bak` untouched.
-      //   Phase 2, promote: demote the current primary to `.bak`, install the
-      //             staged blob as the new primary, and clear the staging slot.
-      // If phase 2's write is torn, the disk still holds the prior primary plus
-      // the staged copy, so load() keeps returning the last good primary.
-      await mutex.update((base) => ({ ...base, [PERSIST_STAGING_KEY]: state }));
+      // One write (S2): the new primary, the prior primary as the single
+      // `.bak` a schema-corrupt primary recovers from, and no staging copy. A
+      // separate staging write added a third copy to the same file, which a
+      // torn data.json loses together with the other two. A staging key left
+      // by an older version is dropped here.
       await mutex.update((base) => {
         const next = { ...base };
         const priorPrimary = next[PERSIST_KEY];
-        // Retain exactly one previous-good backup.
         if (priorPrimary !== undefined) next[PERSIST_BAK_KEY] = priorPrimary;
-        next[PERSIST_KEY] =
-          PERSIST_STAGING_KEY in next ? next[PERSIST_STAGING_KEY] : state;
+        next[PERSIST_KEY] = state;
         delete next[PERSIST_STAGING_KEY];
         return next;
       });
