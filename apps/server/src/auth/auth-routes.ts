@@ -98,6 +98,11 @@ interface MembershipRow {
 
 interface MemberRow {
   readonly displayName: string;
+  // The stable id a client needs to act on a member (remove, rejoin) and to
+  // tell two members with the same display name apart. It lets a client read
+  // the roster here, under its access token, instead of the legacy /members
+  // route that authenticates with the refresh token.
+  readonly membershipId: string;
   readonly role: string;
 }
 
@@ -344,7 +349,9 @@ function loadVaultMembers(
 ): readonly MemberRow[] {
   return database
     .prepare(
-      `SELECT users.display_name AS displayName, memberships.role AS role
+      `SELECT users.display_name AS displayName,
+              memberships.id AS membershipId,
+              memberships.role AS role
        FROM memberships
        INNER JOIN users ON users.id = memberships.user_id
        WHERE memberships.vault_id = ? AND memberships.status = 'active'
