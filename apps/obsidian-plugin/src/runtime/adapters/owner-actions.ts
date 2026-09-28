@@ -2,8 +2,8 @@
  * The four owner-authenticated one-shot actions the UI can invoke on a connected
  * vault: mint an invitation, approve a redeemed device, issue a rejoin grant for a
  * dead contact, and revoke a membership. Each resolves the connected vault (owner
- * pairing or invitee onboarding), builds a short-lived access provider over the
- * stored refresh token, performs exactly one authenticated call, and returns null
+ * pairing or invitee onboarding), takes the connection's one shared access
+ * provider (R10), performs exactly one authenticated call, and returns null
  * rather than throwing when this device is not connected, so the caller can
  * prompt "connect first" instead of surfacing an auth error. Secrets and
  * verification phrases are forwarded to request bodies only, never logged.
@@ -11,7 +11,6 @@
 
 import type { Plugin } from 'obsidian';
 
-import { RefreshTokenAccessProvider } from '../access-token';
 import { approveRedeemedDevice, type ApprovedDevice } from '../approve-device';
 import {
   createVaultInvitation,
@@ -28,10 +27,7 @@ import { ensureClientInstanceId } from '../../storage/client-store';
 import { resolveConnectedVault } from './onboarding-wiring';
 import { createClientInstanceRepo } from './plugin-data-ports';
 import { createRequestUrlFn } from './request-url';
-import {
-  generateRefreshTokenValue,
-  generateRotationIdValue,
-} from './tokens';
+import { sharedAccessProvider } from './shared-access-provider';
 
 /**
  * Owner-only: mint a new invitation for the connected vault and return the
@@ -57,20 +53,7 @@ export async function createInvitationForOwner(
     clientInstanceId,
     secretStorage: plugin.app.secretStorage,
   });
-  const accessProvider = new RefreshTokenAccessProvider({
-    requestUrl: createRequestUrlFn(),
-    apiBaseUrl: connected.apiBaseUrl,
-    getRefreshToken: () => secrets.getRefreshToken(),
-    saveRefreshToken: (value) => secrets.saveRefreshToken(value),
-    generateRotationId: generateRotationIdValue,
-    generateSuccessorToken: generateRefreshTokenValue,
-    // GAP-5: durable in-flight rotation persistence. Connect-safe, the
-    // provider swallows any load/save/clear failure and degrades to
-    // in-memory-only, so a SecretStorage outage never aborts connect or sync.
-    loadPendingRotation: () => secrets.getPendingRotation(),
-    savePendingRotation: (record) => secrets.savePendingRotation(record),
-    clearPendingRotation: () => secrets.clearPendingRotation(),
-  });
+  const accessProvider = sharedAccessProvider(plugin, connected.apiBaseUrl, secrets);
 
   return createVaultInvitation({
     requestUrl: createRequestUrlFn(),
@@ -109,20 +92,7 @@ export async function approvePendingDeviceForOwner(
     clientInstanceId,
     secretStorage: plugin.app.secretStorage,
   });
-  const accessProvider = new RefreshTokenAccessProvider({
-    requestUrl: createRequestUrlFn(),
-    apiBaseUrl: connected.apiBaseUrl,
-    getRefreshToken: () => secrets.getRefreshToken(),
-    saveRefreshToken: (value) => secrets.saveRefreshToken(value),
-    generateRotationId: generateRotationIdValue,
-    generateSuccessorToken: generateRefreshTokenValue,
-    // GAP-5: durable in-flight rotation persistence. Connect-safe, the
-    // provider swallows any load/save/clear failure and degrades to
-    // in-memory-only, so a SecretStorage outage never aborts connect or sync.
-    loadPendingRotation: () => secrets.getPendingRotation(),
-    savePendingRotation: (record) => secrets.savePendingRotation(record),
-    clearPendingRotation: () => secrets.clearPendingRotation(),
-  });
+  const accessProvider = sharedAccessProvider(plugin, connected.apiBaseUrl, secrets);
 
   return approveRedeemedDevice({
     requestUrl: createRequestUrlFn(),
@@ -145,17 +115,7 @@ export async function listPendingApprovalsForOwner(
     clientInstanceId,
     secretStorage: plugin.app.secretStorage,
   });
-  const accessProvider = new RefreshTokenAccessProvider({
-    requestUrl: createRequestUrlFn(),
-    apiBaseUrl: connected.apiBaseUrl,
-    getRefreshToken: () => secrets.getRefreshToken(),
-    saveRefreshToken: (value) => secrets.saveRefreshToken(value),
-    generateRotationId: generateRotationIdValue,
-    generateSuccessorToken: generateRefreshTokenValue,
-    loadPendingRotation: () => secrets.getPendingRotation(),
-    savePendingRotation: (record) => secrets.savePendingRotation(record),
-    clearPendingRotation: () => secrets.clearPendingRotation(),
-  });
+  const accessProvider = sharedAccessProvider(plugin, connected.apiBaseUrl, secrets);
   return listPendingApprovals({
     requestUrl: createRequestUrlFn(),
     apiBaseUrl: connected.apiBaseUrl,
@@ -187,20 +147,7 @@ export async function requestRejoinGrantForOwner(
     clientInstanceId,
     secretStorage: plugin.app.secretStorage,
   });
-  const accessProvider = new RefreshTokenAccessProvider({
-    requestUrl: createRequestUrlFn(),
-    apiBaseUrl: connected.apiBaseUrl,
-    getRefreshToken: () => secrets.getRefreshToken(),
-    saveRefreshToken: (value) => secrets.saveRefreshToken(value),
-    generateRotationId: generateRotationIdValue,
-    generateSuccessorToken: generateRefreshTokenValue,
-    // GAP-5: durable in-flight rotation persistence. Connect-safe, the
-    // provider swallows any load/save/clear failure and degrades to
-    // in-memory-only, so a SecretStorage outage never aborts connect or sync.
-    loadPendingRotation: () => secrets.getPendingRotation(),
-    savePendingRotation: (record) => secrets.savePendingRotation(record),
-    clearPendingRotation: () => secrets.clearPendingRotation(),
-  });
+  const accessProvider = sharedAccessProvider(plugin, connected.apiBaseUrl, secrets);
 
   return requestRejoinGrant({
     apiBaseUrl: connected.apiBaseUrl,
@@ -232,20 +179,7 @@ export async function revokeMembershipForOwner(
     clientInstanceId,
     secretStorage: plugin.app.secretStorage,
   });
-  const accessProvider = new RefreshTokenAccessProvider({
-    requestUrl: createRequestUrlFn(),
-    apiBaseUrl: connected.apiBaseUrl,
-    getRefreshToken: () => secrets.getRefreshToken(),
-    saveRefreshToken: (value) => secrets.saveRefreshToken(value),
-    generateRotationId: generateRotationIdValue,
-    generateSuccessorToken: generateRefreshTokenValue,
-    // GAP-5: durable in-flight rotation persistence. Connect-safe, the
-    // provider swallows any load/save/clear failure and degrades to
-    // in-memory-only, so a SecretStorage outage never aborts connect or sync.
-    loadPendingRotation: () => secrets.getPendingRotation(),
-    savePendingRotation: (record) => secrets.savePendingRotation(record),
-    clearPendingRotation: () => secrets.clearPendingRotation(),
-  });
+  const accessProvider = sharedAccessProvider(plugin, connected.apiBaseUrl, secrets);
 
   return revokeMembership({
     apiBaseUrl: connected.apiBaseUrl,

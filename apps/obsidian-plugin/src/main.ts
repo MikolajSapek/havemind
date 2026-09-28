@@ -48,6 +48,7 @@ import {
   activityEntriesToRecords,
   type ActivityLogEntry,
 } from './runtime/activity-log';
+import { forgetSharedAccessProvider } from './runtime/adapters/shared-access-provider';
 import { LegacyRosterServerError } from './runtime/member-roster';
 import { RosterStore, type RosterMember } from './runtime/roster';
 import {
@@ -1710,6 +1711,8 @@ export default class HavemindPlugin extends Plugin {
       this.connection = null;
       this.syncState = null;
       await resetHavemindConnectionState(this);
+      // No later action may reuse an access token cached for the old pairing.
+      forgetSharedAccessProvider(this);
       this.rosterMembers = [];
       this.deadMembershipIds = [];
       this.rejoinWaiting = new Set<string>();

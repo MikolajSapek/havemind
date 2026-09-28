@@ -13,7 +13,6 @@ import type { Plugin } from 'obsidian';
 
 import type { OutboxLocalChangeRepository } from '../../sync/outbox-repository';
 import { ensureClientInstanceId } from '../../storage/client-store';
-import { RefreshTokenAccessProvider } from '../access-token';
 import type { RetryFailedCommitOutcome } from '../commit-recovery';
 import { buildConnectionResolvers } from '../connection';
 import type { StatusListener } from '../controller';
@@ -32,11 +31,8 @@ import {
 import { startPushProducer, type PushProducerHandle } from './push-producer';
 import { createRequestUrlFn } from './request-url';
 import type { RuntimeHooks } from './runtime-hooks';
+import { replaceSharedAccessProvider } from './shared-access-provider';
 import { buildSyncController } from './sync-controller';
-import {
-  generateRefreshTokenValue,
-  generateRotationIdValue,
-} from './tokens';
 
 export interface ConnectionHandle {
   stop(): void;
@@ -108,19 +104,8 @@ export async function startSyncLoop(
     clientInstanceId,
     secretStorage: plugin.app.secretStorage,
   });
-  const accessProvider = new RefreshTokenAccessProvider({
-    requestUrl: createRequestUrlFn(),
-    apiBaseUrl: connection.apiBaseUrl,
-    getRefreshToken: () => secrets.getRefreshToken(),
-    saveRefreshToken: (value) => secrets.saveRefreshToken(value),
-    generateRotationId: generateRotationIdValue,
-    generateSuccessorToken: generateRefreshTokenValue,
-    // Durable in-flight rotation persistence. A failed load or save is
-    // fail-closed: minting an unrecoverable rotation could burn the token family.
-    loadPendingRotation: () => secrets.getPendingRotation(),
-    savePendingRotation: (record) => secrets.savePendingRotation(record),
-    clearPendingRotation: () => secrets.clearPendingRotation(),
-  });
+  // R10: owner actions reuse this provider, so rotations never race.
+  const accessProvider = replaceSharedAccessProvider(plugin, connection.apiBaseUrl, secrets);
   const resolvers = buildConnectionResolvers({
     apiBaseUrl: connection.apiBaseUrl,
     vaultId: connection.vaultId,
