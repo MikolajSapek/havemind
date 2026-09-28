@@ -9,8 +9,6 @@ and the server.
 
 ### Fixed
 
-- Plugin: a device that keeps syncing stays signed in; the session deadline
-  slides on every refresh instead of ending 30 days after pairing.
 - Plugin: conflict resolution never loses both versions or locks a copy, and
   the automatic sweep never overwrites a note edited mid-merge or a
   same-named note of a different file.
@@ -23,6 +21,8 @@ and the server.
 - Plugin: Disconnect and Reset are not undone by a connection still being
   built, and instant updates keep arriving while an apply waits on an
   unsaved editor.
+- Server: a device that keeps syncing stays signed in; the session deadline
+  slides on every refresh instead of ending 30 days after pairing.
 - Server: attachments up to the advertised 25 MiB are accepted (the body
   limit is 48 MiB).
 - Server: a replayed old refresh token still burns its session, sessions
