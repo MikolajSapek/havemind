@@ -22,7 +22,6 @@ import {
   hashRefreshToken,
   parseAccessToken,
   parseRefreshToken,
-  REFRESH_TOKEN_MAX_TTL_SECONDS,
 } from './tokens.js';
 
 const START_TIME = '2026-07-15T03:00:00.000Z';
@@ -564,8 +563,10 @@ describe('SessionRepository', () => {
     const family = fixture.database
       .prepare('SELECT expires_at AS expiresAt FROM refresh_token_families WHERE id = ?')
       .get(fixture.familyId) as { expiresAt: string };
+    // The deadline slides by the family's own configured window, not by the
+    // 30-day ceiling.
     expect(Date.parse(family.expiresAt)).toBe(
-      fixture.clock.now().getTime() + REFRESH_TOKEN_MAX_TTL_SECONDS * 1_000,
+      fixture.clock.now().getTime() + 24 * 60 * 60 * 1_000,
     );
   });
 
@@ -577,7 +578,7 @@ describe('SessionRepository', () => {
       rotationId: successor.rotationId,
       successorRefreshToken: successor.refreshToken,
     });
-    fixture.clock.advance(REFRESH_TOKEN_MAX_TTL_SECONDS * 1_000 + 1);
+    fixture.clock.advance(24 * 60 * 60 * 1_000 + 1);
 
     const next = createRefreshSuccessor();
     expectSessionCode(

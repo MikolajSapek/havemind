@@ -710,7 +710,7 @@ export class SessionRepository {
     // Sliding lifetime: a refresh moves the deadline a full window ahead, so a
     // device in use never ages out, and one that stops refreshing still expires
     // a window after its last refresh. Never shortens an existing deadline.
-    const slidExpiresAt = addSeconds(now, REFRESH_TOKEN_MAX_TTL_SECONDS);
+    const slidExpiresAt = addSeconds(now, this.#familyWindowSeconds(row.familyId));
     const familyExpiresAt =
       requireStoredDate(slidExpiresAt) > requireStoredDate(row.familyExpiresAt)
         ? slidExpiresAt
@@ -752,6 +752,31 @@ export class SessionRepository {
       kind: 'success',
       wasRetry: false,
     };
+  }
+
+  /**
+   * The refresh lifetime the family was created with. Generation zero's row is
+   * never rewritten, so its own created-to-expiry span is that window even
+   * after the family deadline has slid.
+   */
+  #familyWindowSeconds(familyId: string): number {
+    const row = this.#database
+      .prepare(
+        `SELECT created_at AS createdAt, expires_at AS expiresAt
+         FROM refresh_tokens WHERE family_id = ? AND generation = 0`,
+      )
+      .get(familyId) as { createdAt: string; expiresAt: string } | undefined;
+    if (row === undefined) {
+      throw new SessionRepositoryError('REPOSITORY_INTEGRITY');
+    }
+    const seconds = Math.floor(
+      (requireStoredDate(row.expiresAt) - requireStoredDate(row.createdAt)) /
+        1_000,
+    );
+    if (seconds <= 0) {
+      throw new SessionRepositoryError('REPOSITORY_INTEGRITY');
+    }
+    return Math.min(seconds, REFRESH_TOKEN_MAX_TTL_SECONDS);
   }
 
   #successorExists(
