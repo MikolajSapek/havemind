@@ -87,6 +87,7 @@ import {
 } from './runtime/clipboard';
 
 import type { ActivityViewOptions } from './ui/activity-view';
+import { ConfirmModal } from './ui/confirm-modal';
 import {
   ConflictResolveModal,
   buildConflictModalModel,
@@ -402,7 +403,7 @@ export default class HavemindPlugin extends Plugin {
           void this.retryConnection();
         },
         onReset: () => {
-          void this.resetConnection();
+          this.confirmResetConnection();
         },
         onCopyInvitation: (envelope) => {
           // Move the secret into the clipboard; never log the envelope.
@@ -1656,6 +1657,23 @@ export default class HavemindPlugin extends Plugin {
    * is touched: notes on disk are the source of truth and are re-reconciled once
    * the device is paired again.
    */
+  /**
+   * U2: every entry point to Reset connection asks first. It wipes the pairing
+   * and the sync state, and only the owner's approval brings the device back.
+   */
+  private confirmResetConnection(): void {
+    new ConfirmModal(this.app, {
+      title: 'Reset connection?',
+      body:
+        'This device forgets its pairing and sync state. No note is touched, ' +
+        'but syncing stops until you paste a new invitation and the owner approves it.',
+      confirmLabel: 'Reset connection',
+      onConfirm: () => {
+        void this.resetConnection();
+      },
+    }).open();
+  }
+
   private async resetConnection(): Promise<void> {
     if (this.resetInFlight) return;
     this.resetInFlight = true;
@@ -1724,7 +1742,7 @@ export default class HavemindPlugin extends Plugin {
         this.disconnect();
       },
       resetConnection: () => {
-        void this.resetConnection();
+        this.confirmResetConnection();
       },
       connected: () => this.connection !== null,
     };

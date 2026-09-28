@@ -71,6 +71,8 @@ export interface MarkdownPostProcessorContext {
 export type RegistrationState = {
   commands: Command[];
   editorExtensions: EditorExtension[];
+  /** Every `Modal` opened since the last reset, in order. */
+  modals: Modal[];
   markdownPostProcessors: Array<
     (element: HTMLElement, context: MarkdownPostProcessorContext) => unknown
   >;
@@ -121,6 +123,7 @@ export class Modal {
 
   open(): void {
     this.opened = true;
+    registrationState.modals.push(this);
     this.onOpen();
   }
 
@@ -382,6 +385,7 @@ export type EditorExtension = unknown;
 export const registrationState: RegistrationState = {
   commands: [],
   editorExtensions: [],
+  modals: [],
   markdownPostProcessors: [],
   notices: [],
   protocolHandlers: new Map(),
@@ -395,6 +399,7 @@ export const registrationState: RegistrationState = {
 export function resetObsidianMock(): void {
   registrationState.commands.splice(0);
   registrationState.editorExtensions.splice(0);
+  registrationState.modals.splice(0);
   registrationState.markdownPostProcessors.splice(0);
   registrationState.notices.splice(0);
   registrationState.protocolHandlers.clear();

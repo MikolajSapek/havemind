@@ -14,6 +14,7 @@ import HavemindPlugin from './main';
 import {
   App,
   type Command,
+  type MockElement,
   type PluginManifest,
   registrationState,
   resetObsidianMock,
@@ -77,6 +78,17 @@ function installFakeConnection(plugin: HavemindPlugin): ConnectionSpy {
     spy.starts += 1;
   };
   return spy;
+}
+
+/** Clicks the button labelled `text` anywhere under `root`. */
+function clickButton(root: unknown, text: string): void {
+  const find = (node: MockElement): MockElement | undefined =>
+    node.tag === 'button' && node.text === text
+      ? node
+      : node.children.map(find).find((match) => match !== undefined);
+  const button = root === undefined ? undefined : find(root as MockElement);
+  if (button === undefined) throw new Error(`no "${text}" button`);
+  button.triggerClick();
 }
 
 /** Drains pending microtasks so a fire-and-forget command action completes. */
@@ -196,18 +208,40 @@ describe('command palette actions', () => {
     expect(command('disconnect').checkCallback?.(true)).toBe(false);
   });
 
-  it('clears the stored pairing from the Reset connection command', async () => {
+  // U2: one tap in the pane menu wiped the pairing and the sync state, with
+  // no way back but a new approval from the owner.
+  it('asks before Reset connection clears the stored pairing', async () => {
+    const plugin = newPlugin();
+    await plugin.onload();
+    const resetNotice = (): boolean =>
+      registrationState.notices.some((message) =>
+        message.startsWith('Havemind: connection reset'),
+      );
+
+    command('reset-connection').callback?.();
+    await flush();
+    expect(resetNotice()).toBe(false);
+    expect(registrationState.modals).toHaveLength(1);
+
+    clickButton(registrationState.modals[0]?.contentEl, 'Reset connection');
+    await flush();
+    expect(resetNotice()).toBe(true);
+  });
+
+  it('keeps the pairing when the reset confirmation is cancelled', async () => {
     const plugin = newPlugin();
     await plugin.onload();
 
     command('reset-connection').callback?.();
+    clickButton(registrationState.modals[0]?.contentEl, 'Cancel');
     await flush();
 
+    expect(registrationState.modals[0]?.closed).toBe(true);
     expect(
       registrationState.notices.some((message) =>
         message.startsWith('Havemind: connection reset'),
       ),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it('closes the owner composer on Done, so the status indicator returns', async () => {

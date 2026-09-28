@@ -269,12 +269,26 @@ describe('HavemindSettingTab actions (FINDING 7)', () => {
     expect(spy.stops).toBe(1);
   });
 
-  it('clears the stored pairing from the Reset connection button', async () => {
+  it('clears the stored pairing from the Reset connection button, once confirmed', async () => {
     const plugin = newPlugin();
     await plugin.onload();
     await renderSettings();
 
     button('Reset connection').trigger();
+    await flush();
+    expect(
+      registrationState.notices.some((message) =>
+        message.startsWith('Havemind: connection reset'),
+      ),
+    ).toBe(false);
+
+    const modal = registrationState.modals[0];
+    const confirm = modal === undefined
+      ? undefined
+      : flatten(modal.contentEl).find(
+          (node) => node.tag === 'button' && node.text === 'Reset connection',
+        );
+    confirm?.triggerClick();
     await flush();
 
     expect(
