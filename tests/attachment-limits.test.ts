@@ -53,4 +53,11 @@ describe('attachment size limits', () => {
     });
     expect(body.length).toBeLessThanOrEqual(DEFAULT_BODY_LIMIT_BYTES);
   }, 60_000);
+
+  // A plugin ceiling above the server's lets a payload through locally that
+  // the server then refuses, which parks it in quarantine instead of failing
+  // early with a clear reason.
+  it('never lets the plugin accept a payload the server refuses', () => {
+    expect(MAX_BINARY_PAYLOAD_BYTES).toBeLessThanOrEqual(DEFAULT_MAX_PAYLOAD_BYTES);
+  });
 });

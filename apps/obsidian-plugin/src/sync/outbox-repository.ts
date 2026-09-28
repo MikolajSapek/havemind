@@ -32,14 +32,16 @@ import { KeyedMutex } from '../runtime/keyed-mutex';
 import type { ProducerRecovery, ProducerRecoveryPort } from '../runtime/producer-recovery';
 
 /**
- * Effective per-payload ceiling for a BINARY attachment (F9). A 25 MB file
- * ({@link MAX_BINARY_FILE_BYTES}) is ~33 MB once base64-encoded, plus the JSON
- * envelope (path, blobByteHash, field names); 40 MB covers that with headroom.
- * The observer already excludes over-cap files before they reach here, so this
- * ceiling is the belt-and-braces stop that keeps an oversized binary from
- * silently wedging the outbox, the same role the default markdown ceiling plays.
+ * Effective per-payload ceiling for a BINARY attachment (F9). A 25 MiB file
+ * ({@link MAX_BINARY_FILE_BYTES}) is ~33.4 MiB once base64-encoded, plus the
+ * JSON envelope (path, blobByteHash, field names). The observer already
+ * excludes over-cap files before they reach here, so this ceiling is the
+ * belt-and-braces stop that keeps an oversized binary from silently wedging
+ * the outbox, the same role the default markdown ceiling plays. It equals the
+ * server's DEFAULT_MAX_PAYLOAD_BYTES: anything above that would pass here and
+ * be refused by the server (tests/attachment-limits.test.ts).
  */
-export const MAX_BINARY_PAYLOAD_BYTES = 40 * 1024 * 1024;
+export const MAX_BINARY_PAYLOAD_BYTES = 36 * 1024 * 1024;
 
 /**
  * Decodes standard base64 (the form the observer stores in a binary operation's
