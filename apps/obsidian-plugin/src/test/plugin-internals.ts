@@ -36,6 +36,7 @@ export interface PluginInternals {
   rosterMembers: unknown[];
   saveData(data: unknown): Promise<void>;
   startConnection(): Promise<void>;
+  syncState: unknown;
 }
 
 /**

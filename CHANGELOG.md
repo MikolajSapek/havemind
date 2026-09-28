@@ -7,12 +7,22 @@ and the server.
 
 ## [Unreleased]
 
+### Changed
+
+- Plugin: Restore in the Activity feed now really restores. It fetches the
+  note's text from that revision in the server history and writes it as a
+  normal edit. It used to add a feed entry only.
+- Plugin: People no longer shows an invented connected/disconnected state;
+  Rejoin is offered on every other member. The owner can reject a waiting
+  device.
+
 ### Removed
 
 - Server: encrypted checkpoints (`havemind checkpoint`, plans/006) and the
   `@havemind/crypto` package with its libsodium dependency. They were never
   enabled in production; backups stay plaintext on the host and are encrypted
   off it by restic, as the docs now say.
+- sync-core: the revision DAG and recipe modules the old Restore used.
 
 ## [1.5.6], 2026-09-29
 

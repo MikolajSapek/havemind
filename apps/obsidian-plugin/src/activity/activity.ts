@@ -16,16 +16,7 @@
  *    sync-core provenance (rule 3, honest attribution).
  */
 
-import {
-  generateEditRecipe,
-  reconstructFromRecipe,
-  RevisionDag,
-  RevisionDagError,
-  type ParentSnapshot,
-  type ProvenanceRun,
-  type ReconstructionRecipe,
-  type RevisionNode,
-} from '@havemind/sync-core';
+import type { ProvenanceRun } from '@havemind/sync-core';
 
 export type ActivityKind = 'create' | 'edit' | 'rename' | 'delete' | 'conflict';
 
@@ -75,40 +66,6 @@ export interface ActivityEntry {
   readonly canRestore: boolean;
 }
 
-export interface RestoreRevisionOptions {
-  readonly history: readonly RevisionRecord[];
-  readonly targetRevisionId: string;
-  readonly restorer: { readonly actorId: string; readonly displayName: string };
-  readonly now: number;
-  readonly newRevisionId: string;
-  readonly hashContent: (content: string) => string;
-}
-
-export interface RestoreResult {
-  readonly revision: RevisionNode;
-  readonly record: RevisionRecord;
-  readonly recipe: ReconstructionRecipe;
-  readonly reconstructedContent: string;
-}
-
-export type ActivityErrorCode =
-  | 'APPEND_ONLY_VIOLATION'
-  | 'DELETED_TARGET'
-  | 'UNKNOWN_TARGET'
-  | 'UNRECONCILED_HISTORY';
-
-export class ActivityError extends Error {
-  override readonly name = 'ActivityError';
-
-  constructor(
-    readonly code: ActivityErrorCode,
-    message: string,
-    cause?: unknown,
-  ) {
-    super(message, cause === undefined ? undefined : { cause });
-  }
-}
-
 function actorLabel(actor: RevisionActor): string {
   return actor.kind === 'initial-import' ? 'Initial import' : actor.displayName;
 }
@@ -136,132 +93,4 @@ export function buildActivityFeed(
       }
       return left.revisionId < right.revisionId ? 1 : -1;
     });
-}
-
-function buildHistoryDag(history: readonly RevisionRecord[]): RevisionDag {
-  const dag = new RevisionDag();
-  for (const record of history) {
-    dag.add(toRevisionNode(record));
-  }
-  return dag;
-}
-
-function toRevisionNode(record: RevisionRecord): RevisionNode {
-  return {
-    revisionId: record.revisionId,
-    vaultId: record.vaultId,
-    fileId: record.fileId,
-    parentRevisionIds: [...record.parentRevisionIds],
-    blobHash: record.blobHash,
-  };
-}
-
-function headSnapshot(head: RevisionRecord): ParentSnapshot {
-  if (head.content === null) {
-    // The file is currently deleted; restore reintroduces every byte as the
-    // restorer's own work rather than inventing a phantom parent snapshot.
-    return { revisionId: head.revisionId, content: '', provenance: [] };
-  }
-  return {
-    revisionId: head.revisionId,
-    content: head.content,
-    provenance: head.provenance,
-  };
-}
-
-/**
- * Restores the content of a historical revision by appending a NEW revision on
- * top of the current head. History is never rewritten: the append is validated
- * against the sync-core DAG, and any attempt to reuse an existing revision id or
- * to bypass the current head is rejected.
- */
-export function restoreRevision(options: RestoreRevisionOptions): RestoreResult {
-  const { history, targetRevisionId, restorer, now, newRevisionId, hashContent } =
-    options;
-
-  const target = history.find(
-    (record) => record.revisionId === targetRevisionId,
-  );
-  if (target === undefined) {
-    throw new ActivityError(
-      'UNKNOWN_TARGET',
-      `Cannot restore unknown target revision ${targetRevisionId}.`,
-    );
-  }
-  if (target.content === null) {
-    throw new ActivityError(
-      'DELETED_TARGET',
-      `Cannot restore the content of a deleted revision ${targetRevisionId}.`,
-    );
-  }
-
-  const dag = buildHistoryDag(history);
-  const heads = dag.getHeads(target.vaultId, target.fileId);
-  if (heads.length !== 1) {
-    throw new ActivityError(
-      'UNRECONCILED_HISTORY',
-      `Restore requires a single reconciled head, found ${heads.length}.`,
-    );
-  }
-
-  const headId = heads[0] as string;
-  const head = history.find((record) => record.revisionId === headId);
-  if (head === undefined) {
-    throw new ActivityError(
-      'UNRECONCILED_HISTORY',
-      `The current head ${headId} is missing from history.`,
-    );
-  }
-
-  const parent = headSnapshot(head);
-  const recipe = generateEditRecipe(parent, target.content);
-  const reconstructed = reconstructFromRecipe(recipe, [parent], newRevisionId);
-
-  const revision: RevisionNode = {
-    revisionId: newRevisionId,
-    vaultId: target.vaultId,
-    fileId: target.fileId,
-    parentRevisionIds: [headId],
-    blobHash: hashContent(target.content),
-  };
-
-  try {
-    dag.add(revision);
-  } catch (error) {
-    if (error instanceof RevisionDagError) {
-      throw new ActivityError(
-        'APPEND_ONLY_VIOLATION',
-        `Restore would break the append-only history: ${error.message}`,
-        error,
-      );
-    }
-    throw error;
-  }
-
-  const record: RevisionRecord = {
-    revisionId: newRevisionId,
-    vaultId: target.vaultId,
-    fileId: target.fileId,
-    path: head.path,
-    previousPath: null,
-    kind: 'edit',
-    actor: {
-      kind: 'author',
-      actorId: restorer.actorId,
-      displayName: restorer.displayName,
-    },
-    timestamp: now,
-    content: reconstructed.content,
-    blobHash: revision.blobHash,
-    parentRevisionIds: [headId],
-    provenance: reconstructed.provenance,
-    restoredFromRevisionId: target.revisionId,
-  };
-
-  return {
-    revision,
-    record,
-    recipe,
-    reconstructedContent: reconstructed.content,
-  };
 }

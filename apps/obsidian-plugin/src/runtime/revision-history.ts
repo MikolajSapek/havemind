@@ -177,6 +177,12 @@ export class RevisionHistory {
     if (!this.accepted.has(event.revision.revisionId)) throw new Error('Incoming revision is missing from history.');
   }
 
+  /** The accepted revision with this id, reading history it may still lack. */
+  async event(revisionId: string): Promise<RemoteEvent | undefined> {
+    if (!this.loaded || !this.accepted.has(revisionId)) await this.refresh();
+    return this.accepted.get(revisionId);
+  }
+
   async allHeads(): Promise<RemoteEvent[]> {
     if (!this.loaded) await this.refresh();
     const parents = new Set([...this.accepted.values()].flatMap((e) => e.revision.parentRevisionIds ?? []));

@@ -797,48 +797,52 @@ describe('plugin lifecycle', () => {
     expect(restored).toEqual(['rev-1']);
   });
 
-  it('wires a default Restore action during onload that appends a new activity entry', async () => {
-    // Regression: onload's activityOptions never set onRestore, so the Restore
-    // button never rendered at all (F9 bug #2). This exercises the DEFAULT
-    // wiring through the registered pane, so it proves the onload path, not
-    // just the Activity tab's rendering.
+  it('writes the text of the chosen revision into the note when Restore is clicked', async () => {
     const app = new App();
     const plugin = new HavemindPlugin(app, manifest);
     await plugin.onload();
-
-    // Seed the roster (self) and an existing activity entry directly, there
-    // is no live layout-ready hook in the headless mock (see Workspace mock),
-    // so this mirrors what loadRoster()/recordActivity would have populated.
-    internals(plugin).rosterMembers = [
-      { membershipId: 'm-owner', displayName: 'You', role: 'owner', self: true },
-    ];
+    const files: Record<string, string> = { 'Notes/a.md': 'the text now' };
+    Object.assign(app.vault, {
+      getAbstractFileByPath: (path: string) => (path in files ? { path } : null),
+      read: async (file: { path: string }) => files[file.path] ?? '',
+      modify: async (file: { path: string }, content: string) => {
+        files[file.path] = content;
+      },
+      create: async (path: string, content: string) => {
+        files[path] = content;
+      },
+    });
+    const asked: string[] = [];
+    internals(plugin).connection = {
+      stop: () => undefined,
+      serverName: 'server.example',
+      revisionContent: async (revisionId: string) => {
+        asked.push(revisionId);
+        return { fileId: 'file-1', path: 'Notes/a.md', content: 'the text as it was' };
+      },
+    };
+    internals(plugin).syncState = { pathForFileId: () => 'Notes/a.md' };
     internals(plugin).activityLog.record({
       revisionId: 'rev-1',
       fileId: 'file-1',
       path: 'Notes/a.md',
-      kind: 'create',
+      kind: 'edit',
       author: { kind: 'member', membershipId: 'm-owner' },
       timestamp: 100,
       hasContent: true,
     });
 
     const container = await openActivityTab(plugin);
-    const restoreButton = descendants(container).find(({ classes }) =>
-      classes.includes('havemind-activity-action'),
-    );
-    expect(restoreButton?.text).toBe('Restore');
+    descendants(container)
+      .find(({ classes }) => classes.includes('havemind-activity-action'))
+      ?.triggerClick();
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
-    restoreButton?.triggerClick();
-
-    const snapshot = internals(plugin).activityLog.snapshot() as Array<{
-      revisionId: string;
-    }>;
-    expect(snapshot).toHaveLength(2);
-    expect(snapshot[0]?.revisionId).toBe('rev-1');
-    expect(snapshot[1]?.revisionId).not.toBe('rev-1');
+    expect(asked).toEqual(['rev-1']);
+    expect(files['Notes/a.md']).toBe('the text as it was');
   });
 
-  it('shows a Notice and does not crash when restoring with no roster self member', async () => {
+  it('asks to connect first and writes nothing when restoring while disconnected', async () => {
     const app = new App();
     const plugin = new HavemindPlugin(app, manifest);
     await plugin.onload();

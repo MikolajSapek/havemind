@@ -9,6 +9,7 @@
  * identity alongside the new one.
  */
 
+import type { RevisionContent } from '../activity-restore';
 import type { Plugin } from 'obsidian';
 
 import type { OutboxLocalChangeRepository } from '../../sync/outbox-repository';
@@ -77,6 +78,8 @@ export interface ConnectionHandle {
    * handle.
    */
   readonly readRoster?: (selfMembershipId: string | null) => Promise<RosterMember[]>;
+  /** A revision's note text for the Activity Restore. Absent on the no-op handle. */
+  readonly revisionContent?: (revisionId: string) => Promise<RevisionContent | null>;
 }
 
 export const NOOP_HANDLE: ConnectionHandle = {
@@ -136,7 +139,7 @@ export async function startSyncLoop(
   // (rule 3 TOCTOU close). Distinct files still sync in parallel.
   const fileApplyLock = new KeyedMutex();
   let producer: PushProducerHandle | null = null;
-  const { controller, state, initializeProducer, conflictAncestor } = buildSyncController(
+  const { controller, state, initializeProducer, conflictAncestor, revisionContent } = buildSyncController(
     plugin,
     {
       apiBaseUrl: resolvers.apiBaseUrl,
@@ -230,6 +233,7 @@ export async function startSyncLoop(
     serverName: serverNameFromUrl(connection.apiBaseUrl),
     syncNow: () => controller.syncNow(),
     conflictAncestor,
+    revisionContent,
     readRoster: (selfMembershipId) =>
       fetchVaultMembers({
         apiBaseUrl: connection.apiBaseUrl,

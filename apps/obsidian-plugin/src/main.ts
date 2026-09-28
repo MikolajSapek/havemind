@@ -41,7 +41,7 @@ import {
   getPluginDataMutex,
 } from './runtime/plugin-data-mutex';
 import { RerunGuard } from './runtime/rerun-guard';
-import { restoreActivityEntry } from './runtime/activity-restore';
+import { restoreRevision, type RestoreDeps } from './runtime/activity-restore';
 import {
   ActivityLog,
   activityEntriesToRecords,
@@ -290,7 +290,9 @@ export default class HavemindPlugin extends Plugin {
         // display name and colour.
         activityFeedProvider: () =>
           activityEntriesToRecords(this.activityLog.snapshot(), this.rosterMembers),
-        onRestore: (revisionId) => this.handleRestore(revisionId),
+        onRestore: (revisionId) => {
+          void this.handleRestore(revisionId);
+        },
         // The overlay toggle lost its ribbon icon in Stage 0 and lives in the
         // pane footer now, beside the vault it annotates.
         authorOverlayProvider: () => this.authorOverlayEnabled(),
@@ -818,34 +820,37 @@ export default class HavemindPlugin extends Plugin {
   }
 
   /**
-   * Handles the Activity feed's "Restore" click: runs the append-only restore
-   * over the current feed history and records the result as a new,
-   * locally-attributed entry. A restore that cannot be performed (unknown or
-   * deleted target, unreconciled history) is surfaced via a Notice rather
-   * than silently doing nothing.
+   * The Activity feed's Restore: writes the note's text from that revision as a
+   * normal edit, which then syncs like any other. Reports what happened.
    */
-  private handleRestore(revisionId: string): void {
-    const self = this.rosterMembers.find((member) => member.self);
-    if (self === undefined) {
+  private async handleRestore(revisionId: string): Promise<void> {
+    const connection = this.connection;
+    const state = this.syncState;
+    if (connection?.revisionContent === undefined || state === null) {
       new Notice('Havemind: connect before restoring a revision.');
       return;
     }
-    const history = activityEntriesToRecords(
-      this.activityLog.snapshot(),
-      this.rosterMembers,
-    );
-    const entry = restoreActivityEntry({
-      history,
-      targetRevisionId: revisionId,
-      restorer: { actorId: self.membershipId, displayName: self.displayName },
-      now: Date.now(),
-      newRevisionId: globalThis.crypto.randomUUID(),
-    });
-    if (entry === null) {
-      new Notice('Havemind: could not restore that revision.');
-      return;
+    try {
+      const result = await restoreRevision(
+        {
+          revisionContent: connection.revisionContent,
+          currentPath: (fileId) => state.pathForFileId(fileId),
+          vault: (this.app as unknown as { vault: RestoreDeps['vault'] }).vault,
+        },
+        revisionId,
+      );
+      if (result.outcome === 'unavailable') {
+        new Notice('Havemind: that version cannot be restored (a deletion or an attachment).');
+      } else if (result.outcome === 'unchanged') {
+        new Notice(`Havemind: ${result.path} already has that text.`);
+      } else {
+        new Notice(`Havemind: restored ${result.path} to that version.`);
+      }
+    } catch (error) {
+      new Notice(
+        `Havemind: could not restore that version, ${error instanceof Error ? error.message : 'unexpected error'}`,
+      );
     }
-    this.activityLog.record(entry);
   }
 
   /**

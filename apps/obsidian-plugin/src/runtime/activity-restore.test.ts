@@ -1,93 +1,66 @@
 import { describe, expect, it } from 'vitest';
 
-import { createInitialProvenance } from '@havemind/sync-core';
+import { restoreRevision, type RestoreDeps } from './activity-restore';
 
-import type { RevisionRecord } from '../activity/activity';
-import { restoreActivityEntry } from './activity-restore';
-
-function record(overrides: Partial<RevisionRecord> = {}): RevisionRecord {
-  const revisionId = overrides.revisionId ?? 'rev-1';
-  const content = overrides.content === undefined ? 'A\n' : overrides.content;
-  return {
-    revisionId,
-    vaultId: 'vault-1',
-    fileId: 'file-1',
-    path: 'Notes/a.md',
-    previousPath: null,
-    kind: 'edit',
-    actor: { kind: 'author', actorId: 'u1', displayName: 'Alice' },
-    timestamp: 100,
-    content,
-    blobHash: 'h1',
-    parentRevisionIds: [],
-    // A record used as a restore parent must carry provenance that fully
-    // covers its own content (sync-core's assertValidProvenance).
-    provenance: content === null ? [] : createInitialProvenance(content, revisionId),
-    restoredFromRevisionId: null,
-    ...overrides,
+function vault(files: Record<string, string>) {
+  const writes: Array<{ path: string; content: string; created: boolean }> = [];
+  const port: RestoreDeps['vault'] = {
+    getAbstractFileByPath: (path) => (path in files ? { path } : null),
+    read: async (file) => files[(file as { path: string }).path] ?? '',
+    modify: async (file, content) => {
+      const path = (file as { path: string }).path;
+      files[path] = content;
+      writes.push({ path, content, created: false });
+    },
+    create: async (path, content) => {
+      files[path] = content;
+      writes.push({ path, content, created: true });
+      return { path };
+    },
   };
+  return { files, writes, port };
 }
 
-describe('restoreActivityEntry', () => {
-  it('appends a new entry attributed to the restorer for a valid target', () => {
-    const entry = restoreActivityEntry({
-      history: [record({ revisionId: 'rev-1' })],
-      targetRevisionId: 'rev-1',
-      restorer: { actorId: 'm-owner', displayName: 'You' },
-      now: 500,
-      newRevisionId: 'rev-2',
-    });
+const old = { fileId: 'f1', path: 'Notes/Old name.md', content: 'the text as it was' };
 
-    expect(entry).toEqual({
-      revisionId: 'rev-2',
-      fileId: 'file-1',
-      path: 'Notes/a.md',
-      kind: 'edit',
-      author: { kind: 'member', membershipId: 'm-owner' },
-      timestamp: 500,
-      hasContent: true,
-    });
+describe('restoreRevision', () => {
+  it('writes the old content into the note at its current path', async () => {
+    const v = vault({ 'Notes/New name.md': 'the text now' });
+    const result = await restoreRevision(
+      { revisionContent: async () => old, currentPath: () => 'Notes/New name.md', vault: v.port },
+      'rev-1',
+    );
+    expect(result).toEqual({ outcome: 'restored', path: 'Notes/New name.md' });
+    expect(v.files['Notes/New name.md']).toBe('the text as it was');
   });
 
-  it('returns null for an unknown target revision instead of throwing', () => {
-    const entry = restoreActivityEntry({
-      history: [record({ revisionId: 'rev-1' })],
-      targetRevisionId: 'rev-does-not-exist',
-      restorer: { actorId: 'm-owner', displayName: 'You' },
-      now: 500,
-      newRevisionId: 'rev-2',
-    });
-
-    expect(entry).toBeNull();
+  it('recreates a note that was deleted since', async () => {
+    const v = vault({});
+    const result = await restoreRevision(
+      { revisionContent: async () => old, currentPath: () => null, vault: v.port },
+      'rev-1',
+    );
+    expect(result.outcome).toBe('restored');
+    expect(v.writes).toEqual([{ path: 'Notes/Old name.md', content: 'the text as it was', created: true }]);
   });
 
-  it('returns null for a deleted target (nothing to restore)', () => {
-    const entry = restoreActivityEntry({
-      history: [record({ revisionId: 'rev-1', kind: 'delete', content: null })],
-      targetRevisionId: 'rev-1',
-      restorer: { actorId: 'm-owner', displayName: 'You' },
-      now: 500,
-      newRevisionId: 'rev-2',
-    });
-
-    expect(entry).toBeNull();
+  it('writes nothing when the note already has that content', async () => {
+    const v = vault({ 'Notes/Old name.md': 'the text as it was' });
+    const result = await restoreRevision(
+      { revisionContent: async () => old, currentPath: () => 'Notes/Old name.md', vault: v.port },
+      'rev-1',
+    );
+    expect(result.outcome).toBe('unchanged');
+    expect(v.writes).toEqual([]);
   });
 
-  it('returns null when history has no single reconciled head', () => {
-    // A genuine fork: rev-1 is the root, rev-2 and rev-3 both branch off it
-    // (same parentRevisionIds), so the DAG has two heads for this file.
-    const entry = restoreActivityEntry({
-      history: [
-        record({ revisionId: 'rev-1' }),
-        record({ revisionId: 'rev-2', parentRevisionIds: ['rev-1'], timestamp: 200 }),
-        record({ revisionId: 'rev-3', parentRevisionIds: ['rev-1'], timestamp: 300 }),
-      ],
-      targetRevisionId: 'rev-1',
-      restorer: { actorId: 'm-owner', displayName: 'You' },
-      now: 500,
-      newRevisionId: 'rev-4',
-    });
-
-    expect(entry).toBeNull();
+  it('reports a version it cannot restore (deleted, attachment, unknown)', async () => {
+    const v = vault({});
+    const result = await restoreRevision(
+      { revisionContent: async () => null, currentPath: () => null, vault: v.port },
+      'rev-1',
+    );
+    expect(result.outcome).toBe('unavailable');
+    expect(v.writes).toEqual([]);
   });
 });

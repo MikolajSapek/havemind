@@ -106,8 +106,8 @@ The long version, including backups and multiple vaults, is in
   name and a colour when the member can be resolved. The author identity comes
   from the server with the revision; unknown authors keep a neutral label.
   The Activity feed holds up to 200 entries in memory and resets when the
-  plugin reloads. Its current Restore action only adds an Activity entry; it
-  does not restore file contents. Do not use it for recovery.
+  plugin reloads. Restore on an entry puts that note back to the text it had
+  then, as a normal edit that syncs; the current text stays in history.
 - **Notes, attachments and how the vault looks.** Markdown notes, images and
   PDFs up to 25 MB, plus your theme, snippets, hotkeys and
   graph settings.

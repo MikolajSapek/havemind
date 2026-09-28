@@ -47,12 +47,7 @@ const DEFAULT_MAX_ENTRIES = 200;
 /** A neutral, stable id used only to colour unattributable remote entries. */
 const REMOTE_COLOR_ID = 'havemind-remote';
 
-/**
- * Placeholder vaultId for records built from the Activity feed. The feed has
- * never tracked a real per-entry vaultId (single-vault MVP), but sync-core's
- * RevisionDag rejects an empty one outright, and it is required for the
- * append-only restore path (`activity-restore.ts`) to build its DAG.
- */
+/** Placeholder vaultId: the feed never tracks a real per-entry vaultId. */
 const FEED_VAULT_ID = 'havemind-feed';
 
 /**
@@ -213,9 +208,6 @@ export function activityEntriesToRecords(
     const author = resolveAuthor(entry.author, byMembership);
     return {
       revisionId: entry.revisionId,
-      // A non-empty placeholder: the feed never tracks a real vaultId today,
-      // but sync-core's RevisionDag (used by the append-only restore path)
-      // rejects an empty vaultId outright.
       vaultId: FEED_VAULT_ID,
       fileId: entry.fileId,
       path: entry.path,
@@ -224,9 +216,7 @@ export function activityEntriesToRecords(
       actor: author,
       timestamp: entry.timestamp,
       content: entry.hasContent ? '' : null,
-      // Non-empty placeholder for the same reason as vaultId above, the feed
-      // never tracks a real content hash, but RevisionDag rejects an empty
-      // blobHash. Keyed by revisionId so distinct entries stay distinct.
+      // The feed never tracks a real content hash; keyed so entries stay distinct.
       blobHash: `feed:${entry.revisionId}`,
       parentRevisionIds: [],
       provenance: [],

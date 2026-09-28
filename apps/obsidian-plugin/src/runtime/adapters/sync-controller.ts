@@ -8,6 +8,7 @@
  * rather than passed as undefined so `exactOptionalPropertyTypes` holds.
  */
 
+import type { RevisionContent } from '../activity-restore';
 import { Notice, type Plugin } from 'obsidian';
 
 import { hashPlaintext } from '@havemind/protocol';
@@ -76,6 +77,8 @@ export interface BuiltSyncController {
   readonly initializeProducer: (producer: OutboxLocalChangeRepository, vault: VaultSnapshotPort) => Promise<ReadonlySet<string>>;
   /** The history ancestor of a conflict copy and its note, or null. */
   readonly conflictAncestor: (copyPath: string, fileId: string, targetPath: string) => Promise<string | null>;
+  /** A revision's note text for the Activity Restore, or null when it has none. */
+  readonly revisionContent: (revisionId: string) => Promise<RevisionContent | null>;
 }
 
 /**
@@ -262,6 +265,16 @@ export function buildSyncController(
     controller,
     state,
     initializeProducer: (producer, vault) => bootstrapIdentities({ history, state, producer, vault }),
+    // The Activity feed's Restore reads a revision's text from the history.
+    revisionContent: async (revisionId: string) => {
+      const event = await history.event(revisionId);
+      if (event === undefined) return null;
+      const payload = await history.payload(event);
+      if (payload.kind === 'binary' || payload.operation === 'delete' || payload.content === null) {
+        return null;
+      }
+      return { fileId: event.revision.fileId, path: payload.path, content: payload.content };
+    },
     // The conflict sweep merges a copy over the ancestor the history gives.
     conflictAncestor: async (copyPath, fileId, targetPath) => {
       const revisionId = state.revisionForConflictCopy(copyPath);

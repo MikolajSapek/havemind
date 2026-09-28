@@ -253,3 +253,15 @@ describe('persisted revision history', () => {
     expect(memory.saves).toEqual([{ cursor: 2, persisted: 0 }]);
   });
 });
+
+describe('RevisionHistory.event', () => {
+  it('finds an accepted revision by id, loading the history first', async () => {
+    const history = new RevisionHistory({
+      transport: { pull: async (after) => ({ cursor: 1, events: after === 0 ? [node('root', [], 1)] : [] }) },
+      resolveRevision: async () => ({ operation: 'update', path: 'a.md', previousPath: null, content: 'x' }),
+      state: { listOutbox: async () => [], getEnvelope: async () => undefined } as never,
+    });
+    expect((await history.event('root'))?.revision.revisionId).toBe('root');
+    expect(await history.event('missing')).toBeUndefined();
+  });
+});
