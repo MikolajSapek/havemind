@@ -29,6 +29,7 @@ vi.mock('./runtime/obsidian-adapters', async (importOriginal) => {
 });
 
 import HavemindPlugin from './main';
+import { LegacyRosterServerError } from './runtime/member-roster';
 import type { RosterMember } from './runtime/roster';
 import { App, resetObsidianMock, type PluginManifest } from './test/obsidian.mock';
 import { internals } from './test/plugin-internals';
@@ -108,6 +109,45 @@ describe('server-sourced member roster (P3)', () => {
 
     expect(adapterMocks.fetchMemberRosterForVault).toHaveBeenCalledTimes(1);
     // The guest now sees every active member of the vault, owner included.
+    expect(memberIds(plugin).sort()).toEqual(['m-magda', 'm-owner']);
+  });
+
+  // B4: the refresh-token roster read raced the sync loop's own rotation and
+  // answered 401 at every start; the live connection's access token does not.
+  it('reads the roster through the live connection when it can', async () => {
+    const plugin = newPlugin();
+    const readRoster = vi.fn(async () => SERVER_ROSTER);
+    adapterMocks.startHavemindConnection.mockResolvedValue({
+      stop: vi.fn(),
+      serverName: 'sapserver',
+      selfMembership: { membershipId: 'm-magda', role: 'editor' },
+      readRoster,
+    });
+
+    await internals(plugin).startConnection();
+    await flushMicrotasks();
+
+    expect(readRoster).toHaveBeenCalledWith('m-magda');
+    expect(adapterMocks.fetchMemberRosterForVault).not.toHaveBeenCalled();
+    expect(memberIds(plugin).sort()).toEqual(['m-magda', 'm-owner']);
+  });
+
+  it('falls back to the older roster route on a server without membership ids', async () => {
+    const plugin = newPlugin();
+    adapterMocks.startHavemindConnection.mockResolvedValue({
+      stop: vi.fn(),
+      serverName: 'sapserver',
+      selfMembership: { membershipId: 'm-magda', role: 'editor' },
+      readRoster: vi.fn(async () => {
+        throw new LegacyRosterServerError('old server');
+      }),
+    });
+    adapterMocks.fetchMemberRosterForVault.mockResolvedValue(SERVER_ROSTER);
+
+    await internals(plugin).startConnection();
+    await flushMicrotasks();
+
+    expect(adapterMocks.fetchMemberRosterForVault).toHaveBeenCalledTimes(1);
     expect(memberIds(plugin).sort()).toEqual(['m-magda', 'm-owner']);
   });
 

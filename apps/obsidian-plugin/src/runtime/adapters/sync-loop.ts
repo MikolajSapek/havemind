@@ -18,9 +18,10 @@ import type { RetryFailedCommitOutcome } from '../commit-recovery';
 import { buildConnectionResolvers } from '../connection';
 import type { StatusListener } from '../controller';
 import { KeyedMutex } from '../keyed-mutex';
+import { fetchVaultMembers } from '../member-roster';
 import { ObsidianOnboardingSecrets } from '../onboarding-secrets';
 import { createRemoteApplyProducerSync } from '../remote-apply-coordinator';
-import type { MemberRole } from '../roster';
+import type { MemberRole, RosterMember } from '../roster';
 import type { DurableSyncState } from '../sync-state';
 
 import type { StoredConnection } from './owner-connection';
@@ -65,6 +66,12 @@ export interface ConnectionHandle {
   readonly retryFailedCommit?: (path: string) => RetryFailedCommitOutcome;
   /** Runs one sync cycle now. Absent on the no-op handle. */
   readonly syncNow?: () => Promise<void>;
+  /**
+   * Reads the vault roster with this connection's own access token (B4), so
+   * no second refresh rotation races the sync loop's. Absent on the no-op
+   * handle.
+   */
+  readonly readRoster?: (selfMembershipId: string | null) => Promise<RosterMember[]>;
 }
 
 export const NOOP_HANDLE: ConnectionHandle = {
@@ -228,5 +235,13 @@ export async function startSyncLoop(
       : { retryFailedCommit: producer.retryFailedCommit }),
     serverName: serverNameFromUrl(connection.apiBaseUrl),
     syncNow: () => controller.syncNow(),
+    readRoster: (selfMembershipId) =>
+      fetchVaultMembers({
+        apiBaseUrl: connection.apiBaseUrl,
+        vaultId: connection.vaultId,
+        requestUrl: createRequestUrlFn(),
+        getAccessToken: () => accessProvider.getAccessToken(),
+        selfMembershipId,
+      }),
   };
 }

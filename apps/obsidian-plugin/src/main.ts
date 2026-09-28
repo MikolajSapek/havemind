@@ -48,6 +48,7 @@ import {
   activityEntriesToRecords,
   type ActivityLogEntry,
 } from './runtime/activity-log';
+import { LegacyRosterServerError } from './runtime/member-roster';
 import { RosterStore, type RosterMember } from './runtime/roster';
 import {
   buildRejoinRosterView,
@@ -1003,10 +1004,10 @@ export default class HavemindPlugin extends Plugin {
    */
   private async refreshRoster(): Promise<void> {
     const self = this.rosterMembers.find((member) => member.self);
+    const selfMembershipId =
+      self?.membershipId ?? this.connection?.selfMembership?.membershipId ?? null;
     try {
-      const members = await fetchMemberRosterForVault(this, {
-        selfMembershipId: self?.membershipId ?? null,
-      });
+      const members = await this.readRoster(selfMembershipId);
       // `null` means this device is not connected to a vault, there is nothing
       // authoritative to render, so the existing list stands.
       if (members === null || this.unloaded) return;
@@ -1015,6 +1016,25 @@ export default class HavemindPlugin extends Plugin {
     } catch {
       // Keep the previous list rendered. Never an empty People pane.
     }
+  }
+
+  /**
+   * B4: the live connection reads the roster with its own access token. The
+   * refresh-token route raced that connection's rotation (401 at every start)
+   * and is kept only for a server that does not send membership ids yet.
+   */
+  private async readRoster(
+    selfMembershipId: string | null,
+  ): Promise<RosterMember[] | null> {
+    const readRoster = this.connection?.readRoster;
+    if (readRoster !== undefined) {
+      try {
+        return await readRoster(selfMembershipId);
+      } catch (error) {
+        if (!(error instanceof LegacyRosterServerError)) throw error;
+      }
+    }
+    return fetchMemberRosterForVault(this, { selfMembershipId });
   }
 
   /** Upserts a member, persists the roster, and refreshes the live surfaces. */

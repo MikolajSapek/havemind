@@ -95,3 +95,51 @@ export async function fetchMemberRoster(
   }
   return members.map((entry) => parseMember(entry, options.selfMembershipId));
 }
+
+/** The server predates `membershipId` on the access-token roster route. */
+export class LegacyRosterServerError extends MemberRosterError {}
+
+export interface FetchVaultMembersOptions {
+  readonly apiBaseUrl: string;
+  readonly vaultId: string;
+  readonly requestUrl: RequestUrlFn;
+  /** The live connection's access token, so no second rotation is started. */
+  readonly getAccessToken: () => Promise<string>;
+  readonly selfMembershipId: string | null;
+}
+
+/**
+ * Reads the roster through `GET /vaults/:vaultId/members` with the live
+ * connection's access token (B4). The refresh-token route above raced the
+ * sync loop's own rotation and answered 401 at every start. Owners come
+ * first, as on the older route. Throws {@link LegacyRosterServerError} when
+ * the server does not send membership ids yet, so the caller can fall back.
+ */
+export async function fetchVaultMembers(
+  options: FetchVaultMembersOptions,
+): Promise<RosterMember[]> {
+  const token = await options.getAccessToken();
+  const response = await options.requestUrl({
+    url: `${options.apiBaseUrl}/vaults/${encodeURIComponent(options.vaultId)}/members`,
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    throw: false,
+  });
+  if (response.status < 200 || response.status >= 300) {
+    throw new MemberRosterError(
+      `The member roster request returned HTTP ${response.status}.`,
+    );
+  }
+  const members = isRecord(response.json) ? response.json.members : undefined;
+  if (!Array.isArray(members)) {
+    throw new MemberRosterError('The member roster response was malformed.');
+  }
+  if (members.some((entry) => isRecord(entry) && entry.membershipId === undefined)) {
+    throw new LegacyRosterServerError('The server does not send membership ids yet.');
+  }
+  const parsed = members.map((entry) => parseMember(entry, options.selfMembershipId));
+  return [
+    ...parsed.filter((member) => member.role === 'owner'),
+    ...parsed.filter((member) => member.role !== 'owner'),
+  ];
+}

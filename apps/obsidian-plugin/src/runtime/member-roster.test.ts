@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { fetchMemberRoster } from './member-roster';
+import {
+  LegacyRosterServerError,
+  fetchMemberRoster,
+  fetchVaultMembers,
+} from './member-roster';
 import type { RequestUrlFn, RequestUrlResponseLike } from './sync-transport';
 
 const API = 'https://sync.example.test';
@@ -144,5 +148,54 @@ describe('fetchMemberRoster', () => {
       }),
     ).rejects.toThrow();
     expect(calls).toHaveLength(0);
+  });
+});
+
+// B4: the refresh-token read raced the sync loop's own rotation and got 401
+// at every start. The access-token route of the live connection avoids it.
+describe('fetchVaultMembers', () => {
+  it('reads the vault roster with the access token, owner first', async () => {
+    const { calls, fn } = fakeRequestUrl({
+      status: 200,
+      json: {
+        members: [
+          { membershipId: 'm-magda', displayName: 'Magda', role: 'editor' },
+          { membershipId: 'm-owner', displayName: 'Mikolaj', role: 'owner' },
+        ],
+        quotaBytes: 1,
+        role: 'editor',
+        storageBytes: 0,
+        vaultId: VAULT,
+      },
+    });
+
+    const members = await fetchVaultMembers({
+      apiBaseUrl: API,
+      getAccessToken: async () => 'hm_at_secret',
+      requestUrl: fn,
+      selfMembershipId: 'm-magda',
+      vaultId: VAULT,
+    });
+
+    expect(members.map((member) => member.displayName)).toEqual(['Mikolaj', 'You']);
+    expect(calls[0]?.url).toBe(`${API}/vaults/${VAULT}/members`);
+    expect(calls[0]?.headers).toEqual({ Authorization: 'Bearer hm_at_secret' });
+  });
+
+  it('reports a server that predates membership ids as legacy', async () => {
+    const { fn } = fakeRequestUrl({
+      status: 200,
+      json: { members: [{ displayName: 'Magda', role: 'editor' }] },
+    });
+
+    await expect(
+      fetchVaultMembers({
+        apiBaseUrl: API,
+        getAccessToken: async () => 'hm_at_secret',
+        requestUrl: fn,
+        selfMembershipId: null,
+        vaultId: VAULT,
+      }),
+    ).rejects.toBeInstanceOf(LegacyRosterServerError);
   });
 });
