@@ -2152,3 +2152,33 @@ describe('author attribution reaches every applied branch (P4)', () => {
     expect(applied[0]).not.toHaveProperty('authorMembershipId');
   });
 });
+
+// P2: the initial catch-up downloaded every obsolete intermediate revision of
+// a file, only to skip it as not the current head once it had the payload.
+describe('initial catch-up of a file this device never had', () => {
+  it('skips an obsolete revision without downloading it', async () => {
+    let downloads = 0;
+    const current: RemoteEvent = { serverSequence: 2, revision: { revisionId: 'new', fileId: 'file-1', contentHash: 'h2' } };
+    const adapter = new VaultApplyAdapter({
+      files: new FakeFiles(),
+      conflictFolder: 'Havemind Conflicts',
+      resolveRevision: async () => {
+        downloads += 1;
+        return content('Notes/a.md', 'old');
+      },
+      hashContent: fakeHash,
+      history: {
+        ensureEvent: async () => undefined,
+        heads: async () => [current],
+      } as never,
+      producerSync: {
+        onRemoteWrite: async () => undefined,
+        onRemoteDelete: async () => undefined,
+        localHeadFor: async () => null,
+      },
+    });
+
+    expect(await adapter.applyRemote(event('old', 'file-1'), { bootstrap: true })).toBe('noop');
+    expect(downloads).toBe(0);
+  });
+});

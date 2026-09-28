@@ -359,9 +359,19 @@ export class VaultApplyAdapter implements VaultApplyPort {
     event: RemoteEvent,
     options?: RemoteApplyOptions,
   ): Promise<RemoteApplyOutcome> {
+    const fileId = event.revision.fileId;
+    // P2: an obsolete intermediate revision of a file this device never had
+    // is skipped during the initial catch-up; decide that before downloading
+    // its payload. The same check runs again under the file lock below.
+    if (this.history !== undefined && options?.bootstrap === true) {
+      await this.history.ensureEvent(event);
+      if ((await this.producerSync?.localHeadFor?.(fileId)) == null) {
+        const heads = await this.history.heads(fileId);
+        if (!heads.some((head) => head.revision.revisionId === event.revision.revisionId)) return 'noop';
+      }
+    }
     const decoded = await this.resolveRevision(event);
     await this.history?.ensureEvent(event);
-    const fileId = event.revision.fileId;
     // The runner flags an apply from the initial catch-up so the Activity feed can
     // stay quiet for the bootstrap replay; every other apply is a live peer edit.
     const origin: RemoteAppliedOrigin =
