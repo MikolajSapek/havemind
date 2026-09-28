@@ -384,37 +384,6 @@ describe('SessionRepository', () => {
     expect(fixture.repository.lookupAccess('not-an-access-token')).toBeNull();
   });
 
-  it('revokes one family or all sessions belonging to a device', () => {
-    const session = makeFixture();
-    session.repository.revokeSession(session.familyId);
-    expect(session.repository.lookupAccess(session.accessToken)).toBeNull();
-    expect(
-      session.database
-        .prepare('SELECT status FROM refresh_token_families WHERE id = ?')
-        .get(session.familyId),
-    ).toEqual({ status: 'revoked' });
-
-    const device = makeFixture();
-    device.repository.revokeDevice(device.deviceId);
-    expect(device.repository.lookupAccess(device.accessToken)).toBeNull();
-    expect(
-      device.database
-        .prepare('SELECT status FROM devices WHERE id = ?')
-        .get(device.deviceId),
-    ).toEqual({ status: 'revoked' });
-    expectSessionCode(
-      () => device.repository.revokeDevice('not-a-uuid'),
-      'INVALID_INPUT',
-    );
-    expectSessionCode(
-      () =>
-        device.repository.revokeSession(
-          '70000000-0000-4000-8000-000000000099',
-        ),
-      'NOT_FOUND',
-    );
-  });
-
   it('exposes an in-transaction device-revocation primitive', () => {
     const outside = makeFixture();
     // The primitive refuses to run outside a write transaction so a partial

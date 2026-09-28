@@ -26,7 +26,6 @@ export type SessionRepositoryErrorCode =
   | 'INVALID_CLOCK'
   | 'INVALID_INPUT'
   | 'INVALID_REFRESH'
-  | 'NOT_FOUND'
   | 'REFRESH_REUSE_DETECTED'
   | 'REPOSITORY_INTEGRITY'
   | 'SESSION_REVOKED';
@@ -35,7 +34,6 @@ const ERROR_MESSAGES: Readonly<Record<SessionRepositoryErrorCode, string>> = {
   INVALID_CLOCK: 'The server clock is invalid.',
   INVALID_INPUT: 'Invalid session input.',
   INVALID_REFRESH: 'Invalid refresh session.',
-  NOT_FOUND: 'Session target not found.',
   REFRESH_REUSE_DETECTED: 'Refresh token reuse was detected.',
   REPOSITORY_INTEGRITY: 'Stored session state is invalid.',
   SESSION_REVOKED: 'The session is revoked.',
@@ -522,53 +520,6 @@ export class SessionRepository {
       familyId: requireStoredUuid(row.familyId),
       userId: requireStoredUuid(row.userId),
     };
-  }
-
-  public revokeSession(familyId: string): void {
-    requireUuid(familyId);
-    const now = readClock(this.#now).toISOString();
-    const revoke = this.#database.transaction(() => {
-      const family = this.#database
-        .prepare('SELECT id FROM refresh_token_families WHERE id = ?')
-        .get(familyId) as { id: string } | undefined;
-      if (family === undefined) {
-        return false;
-      }
-      this.#database
-        .prepare(
-          `UPDATE refresh_token_families
-           SET status = 'revoked', revoked_at = COALESCE(revoked_at, ?)
-           WHERE id = ?`,
-        )
-        .run(now, familyId);
-      this.#database
-        .prepare(
-          `UPDATE access_tokens SET revoked_at = COALESCE(revoked_at, ?)
-           WHERE family_id = ?`,
-        )
-        .run(now, familyId);
-      return true;
-    });
-    if (!revoke.immediate()) {
-      throw new SessionRepositoryError('NOT_FOUND');
-    }
-  }
-
-  public revokeDevice(deviceId: string): void {
-    requireUuid(deviceId);
-    const revoke = this.#database.transaction(() => {
-      const device = this.#database
-        .prepare('SELECT id FROM devices WHERE id = ?')
-        .get(deviceId) as { id: string } | undefined;
-      if (device === undefined) {
-        return false;
-      }
-      this.revokeDeviceInCurrentTransaction(deviceId);
-      return true;
-    });
-    if (!revoke.immediate()) {
-      throw new SessionRepositoryError('NOT_FOUND');
-    }
   }
 
   /**

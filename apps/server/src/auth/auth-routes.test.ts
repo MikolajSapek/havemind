@@ -328,7 +328,11 @@ describe('deny-by-default auth-routes', () => {
   it('rejects a valid token for a revoked session with 401', async () => {
     const fixture = makeFixture();
     const app = createApp(fixture);
-    fixture.sessions.revokeDevice(DEVICE_A);
+    fixture.database
+      .transaction(() => {
+        fixture.sessions.revokeDeviceInCurrentTransaction(DEVICE_A);
+      })
+      .immediate();
 
     const response = await app.inject({
       headers: { authorization: `Bearer ${fixture.accessTokenA}` },

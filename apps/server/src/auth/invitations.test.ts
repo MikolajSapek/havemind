@@ -10,41 +10,28 @@ import { runMigrations } from '../migrations.js';
 import {
   InvitationError,
   InvitationService,
-  type ApprovePendingDeviceResult,
   type CreateInvitationResult,
   type InvitationErrorCode,
-  type RedeemInvitationResult,
+  type RedeemForOnboardingResult,
 } from './invitations.js';
 import { OwnerSetupService, createLocalOwnerSetupContext } from './setup.js';
-import { SessionRepository } from './session-repository.js';
 import {
-  generateInvitationToken,
   generateRefreshToken,
   hashInvitationToken,
-  parseAccessToken,
   parseInvitationToken,
 } from './tokens.js';
-import { parseVerificationPin } from './verification-pin.js';
 
 const START_TIME = '2026-07-15T03:00:00.000Z';
 const FIFTEEN_MINUTES_MS = 15 * 60 * 1_000;
 const OWNER_DEVICE_ID = '70000000-0000-4000-8000-000000000001';
-const JOINER_DEVICE_ID = '70000000-0000-4000-8000-000000000002';
+const REDEMPTION_ID = '70000000-0000-4000-8000-000000000002';
 const OWNER_PUBLIC_KEY = Buffer.alloc(32, 0x7a);
-const JOINER_PUBLIC_KEY = Buffer.alloc(32, 0x5b);
 const ACCESS_TTL_SECONDS = 600;
 const REFRESH_TTL_SECONDS = 24 * 60 * 60;
 
-interface MutableClock {
-  readonly now: () => Date;
-  advance(milliseconds: number): void;
-}
-
 interface Fixture {
-  readonly clock: MutableClock;
   readonly database: Database.Database;
   readonly service: InvitationService;
-  readonly sessions: SessionRepository;
   readonly ownerMembershipId: string;
   readonly ownerDeviceId: string;
   readonly vaultId: string;
@@ -53,27 +40,17 @@ interface Fixture {
 const databases: Database.Database[] = [];
 const temporaryDirectories: string[] = [];
 
-function createClock(initial = START_TIME): MutableClock {
-  let milliseconds = Date.parse(initial);
-  return {
-    advance(value): void {
-      milliseconds += value;
-    },
-    now: () => new Date(milliseconds),
-  };
-}
-
 function makeFixture(): Fixture {
   const directory = mkdtempSync(join(tmpdir(), 'havemind-invitations-'));
   temporaryDirectories.push(directory);
   const database = openDatabase(join(directory, 'havemind.sqlite'));
   databases.push(database);
   runMigrations(database);
-  const clock = createClock();
+  const now = (): Date => new Date(START_TIME);
 
   const owner = new OwnerSetupService(database, {
     accessTokenTtlSeconds: ACCESS_TTL_SECONDS,
-    now: clock.now,
+    now,
     refreshTokenTtlSeconds: REFRESH_TTL_SECONDS,
   });
   const initialized = owner.initializeOwner(createLocalOwnerSetupContext(), {
@@ -94,21 +71,15 @@ function makeFixture(): Fixture {
 
   const service = new InvitationService(database, {
     accessTokenTtlSeconds: ACCESS_TTL_SECONDS,
-    now: clock.now,
+    now,
     refreshTokenTtlSeconds: REFRESH_TTL_SECONDS,
-  });
-  const sessions = new SessionRepository(database, {
-    accessTokenTtlSeconds: ACCESS_TTL_SECONDS,
-    now: clock.now,
   });
 
   return {
-    clock,
     database,
     ownerDeviceId: OWNER_DEVICE_ID,
     ownerMembershipId: initialized.membershipId,
     service,
-    sessions,
     vaultId: vaultRow.id,
   };
 }
@@ -124,13 +95,12 @@ function createInvitation(fixture: Fixture): CreateInvitationResult {
 function redeem(
   fixture: Fixture,
   invitationToken: string,
-): RedeemInvitationResult {
-  return fixture.service.redeemInvitation({
-    deviceDisplayName: 'Joiner Phone',
-    deviceId: JOINER_DEVICE_ID,
+): RedeemForOnboardingResult {
+  return fixture.service.redeemInvitationForOnboarding({
+    deviceLabel: 'Joiner Phone',
+    initialRefreshToken: generateRefreshToken(),
     invitationToken,
-    memberDisplayName: 'Joiner',
-    publicKey: JOINER_PUBLIC_KEY,
+    redemptionId: REDEMPTION_ID,
   });
 }
 
@@ -138,18 +108,12 @@ function approve(
   fixture: Fixture,
   invitationId: string,
   verificationPhrase: string,
-): ApprovePendingDeviceResult {
-  return fixture.service.approvePendingDevice({
+): void {
+  fixture.service.approveRedeemedDevice({
     approverMembershipId: fixture.ownerMembershipId,
-    initialRefreshToken: generateRefreshToken(),
     invitationId,
     verificationPhrase,
   });
-}
-
-/** Produces a syntactically valid 6-digit PIN guaranteed to differ from `pin`. */
-function mutatePhrase(pin: string): string {
-  return pin === '000000' ? '111111' : '000000';
 }
 
 function deviceCount(database: Database.Database, status: string): number {
@@ -254,236 +218,6 @@ describe('InvitationService.createInvitation', () => {
   });
 });
 
-describe('InvitationService.redeemInvitation', () => {
-  it('creates a pending device and returns a comparable verification phrase', () => {
-    const fixture = makeFixture();
-    const invitation = createInvitation(fixture);
-    const result = redeem(fixture, invitation.invitationToken);
-
-    expect(result.state).toBe('pending_approval');
-    expect(result.pendingDeviceId).toBe(JOINER_DEVICE_ID);
-    // The verification value is a 6-digit numeric PIN…
-    expect(result.verificationPhrase).toMatch(/^[0-9]{6}$/u);
-    expect(() => parseVerificationPin(result.verificationPhrase)).not.toThrow();
-    // …and it is byte-identical to the secret the server stored and will later
-    // compare against (round-trip equality; no derivation to diverge).
-    const storedSecret = fixture.database
-      .prepare('SELECT verification_secret AS secret FROM invitations WHERE id = ?')
-      .get(invitation.invitationId) as { secret: string };
-    expect(result.verificationPhrase).toBe(storedSecret.secret);
-
-    const device = fixture.database
-      .prepare('SELECT status FROM devices WHERE id = ?')
-      .get(JOINER_DEVICE_ID) as { status: string };
-    expect(device.status).toBe('pending');
-
-    const invitationRow = fixture.database
-      .prepare(
-        `SELECT consumed_at AS consumedAt,
-                consumed_by_user_id AS consumedByUserId,
-                pending_device_id AS pendingDeviceId
-         FROM invitations WHERE id = ?`,
-      )
-      .get(invitation.invitationId) as {
-      consumedAt: string | null;
-      consumedByUserId: string | null;
-      pendingDeviceId: string | null;
-    };
-    expect(invitationRow.consumedAt).not.toBeNull();
-    expect(invitationRow.consumedByUserId).toBe(result.userId);
-    expect(invitationRow.pendingDeviceId).toBe(JOINER_DEVICE_ID);
-  });
-
-  it('returns a stable phrase that the owner can later confirm', () => {
-    const fixture = makeFixture();
-    const invitation = createInvitation(fixture);
-    const redeemed = redeem(fixture, invitation.invitationToken);
-
-    const result = approve(
-      fixture,
-      invitation.invitationId,
-      redeemed.verificationPhrase,
-    );
-    expect(() => parseAccessToken(result.accessToken)).not.toThrow();
-  });
-
-  it('marks an expired invitation consumed, returns 410 and cannot be retried', () => {
-    const fixture = makeFixture();
-    const invitation = createInvitation(fixture);
-    fixture.clock.advance(FIFTEEN_MINUTES_MS + 1);
-
-    expectInvitationError(
-      () => redeem(fixture, invitation.invitationToken),
-      'INVITATION_EXPIRED',
-      410,
-    );
-
-    const row = fixture.database
-      .prepare('SELECT consumed_at AS consumedAt FROM invitations WHERE id = ?')
-      .get(invitation.invitationId) as { consumedAt: string | null };
-    expect(row.consumedAt).not.toBeNull();
-    expect(deviceCount(fixture.database, 'pending')).toBe(0);
-
-    // A retry after expiry finds the invitation already burned.
-    expectInvitationError(
-      () => redeem(fixture, invitation.invitationToken),
-      'INVITATION_ALREADY_REDEEMED',
-      409,
-    );
-  });
-
-  it('rejects a second redemption of the same token with 409 and no second device', () => {
-    const fixture = makeFixture();
-    const invitation = createInvitation(fixture);
-    redeem(fixture, invitation.invitationToken);
-
-    expectInvitationError(
-      () => redeem(fixture, invitation.invitationToken),
-      'INVITATION_ALREADY_REDEEMED',
-      409,
-    );
-    expect(deviceCount(fixture.database, 'pending')).toBe(1);
-  });
-
-  it('rejects a malformed invitation token', () => {
-    const fixture = makeFixture();
-    expectInvitationError(
-      () => redeem(fixture, generateRefreshToken()),
-      'INVALID_INPUT',
-      400,
-    );
-  });
-
-  it('rejects a well-formed but unknown invitation token', () => {
-    const fixture = makeFixture();
-    expectInvitationError(
-      () => redeem(fixture, generateInvitationToken()),
-      'INVALID_INVITATION',
-      404,
-    );
-  });
-});
-
-describe('InvitationService.approvePendingDevice', () => {
-  it('activates the device and issues a refresh session on a matching phrase', () => {
-    const fixture = makeFixture();
-    const invitation = createInvitation(fixture);
-    const redeemed = redeem(fixture, invitation.invitationToken);
-
-    const before = accessTokenCount(fixture.database);
-    const result = approve(
-      fixture,
-      invitation.invitationId,
-      redeemed.verificationPhrase,
-    );
-
-    expect(() => parseAccessToken(result.accessToken)).not.toThrow();
-    expect(result.deviceId).toBe(JOINER_DEVICE_ID);
-    expect(result.userId).toBe(redeemed.userId);
-
-    const device = fixture.database
-      .prepare('SELECT status FROM devices WHERE id = ?')
-      .get(JOINER_DEVICE_ID) as { status: string };
-    expect(device.status).toBe('approved');
-
-    const membership = fixture.database
-      .prepare(
-        `SELECT role, status FROM memberships
-         WHERE vault_id = ? AND user_id = ?`,
-      )
-      .get(fixture.vaultId, redeemed.userId) as {
-      role: string;
-      status: string;
-    };
-    expect(membership).toMatchObject({ role: 'editor', status: 'active' });
-
-    expect(accessTokenCount(fixture.database)).toBe(before + 1);
-    const session = fixture.sessions.lookupAccess(result.accessToken);
-    expect(session?.userId).toBe(redeemed.userId);
-  });
-
-  it('removes the pending device and issues no token on a phrase mismatch', () => {
-    const fixture = makeFixture();
-    const invitation = createInvitation(fixture);
-    const redeemed = redeem(fixture, invitation.invitationToken);
-    const before = accessTokenCount(fixture.database);
-
-    expectInvitationError(
-      () =>
-        approve(
-          fixture,
-          invitation.invitationId,
-          mutatePhrase(redeemed.verificationPhrase),
-        ),
-      'PHRASE_MISMATCH',
-      403,
-    );
-
-    expect(
-      fixture.database
-        .prepare('SELECT id FROM devices WHERE id = ?')
-        .get(JOINER_DEVICE_ID),
-    ).toBeUndefined();
-    expect(
-      fixture.database
-        .prepare('SELECT id FROM users WHERE id = ?')
-        .get(redeemed.userId),
-    ).toBeUndefined();
-    expect(
-      fixture.database
-        .prepare(
-          'SELECT id FROM memberships WHERE vault_id = ? AND user_id = ?',
-        )
-        .get(fixture.vaultId, redeemed.userId),
-    ).toBeUndefined();
-    expect(accessTokenCount(fixture.database)).toBe(before);
-  });
-
-  it('rejects an unparseable phrase without removing the pending device', () => {
-    const fixture = makeFixture();
-    const invitation = createInvitation(fixture);
-    redeem(fixture, invitation.invitationToken);
-
-    expectInvitationError(
-      () => approve(fixture, invitation.invitationId, 'not a phrase'),
-      'INVALID_INPUT',
-      400,
-    );
-    expect(deviceCount(fixture.database, 'pending')).toBe(1);
-  });
-
-  it('refuses approval from a membership that is not an active vault owner', () => {
-    const fixture = makeFixture();
-    const invitation = createInvitation(fixture);
-    const redeemed = redeem(fixture, invitation.invitationToken);
-
-    expectInvitationError(
-      () =>
-        fixture.service.approvePendingDevice({
-          approverMembershipId: '70000000-0000-4000-8000-0000000000ef',
-          initialRefreshToken: generateRefreshToken(),
-          invitationId: invitation.invitationId,
-          verificationPhrase: redeemed.verificationPhrase,
-        }),
-      'NOT_AUTHORIZED',
-      403,
-    );
-    expect(deviceCount(fixture.database, 'pending')).toBe(1);
-  });
-
-  it('reports no pending device when the invitation was never redeemed', () => {
-    const fixture = makeFixture();
-    const invitation = createInvitation(fixture);
-
-    expectInvitationError(
-      () =>
-        approve(fixture, invitation.invitationId, '123456'),
-      'NO_PENDING_DEVICE',
-      409,
-    );
-  });
-});
-
 describe('InvitationService.rejectPendingDevice', () => {
   it('removes the pending device and its user without issuing a token', () => {
     const fixture = makeFixture();
@@ -500,7 +234,7 @@ describe('InvitationService.rejectPendingDevice', () => {
     expect(
       fixture.database
         .prepare('SELECT id FROM users WHERE id = ?')
-        .get(redeemed.userId),
+        .get(invitation.intendedMemberId),
     ).toBeUndefined();
     expect(accessTokenCount(fixture.database)).toBe(before);
 

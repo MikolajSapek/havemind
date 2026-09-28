@@ -15,7 +15,6 @@ import { BlobIntegrityError, type BlobStore } from './blob-store.js';
 import { DEFAULT_VAULT_QUOTA_BYTES } from './config.js';
 import {
   computeVaultStorageBytes,
-  readVaultQuotaBytes,
   resolveEffectiveQuotaBytes,
   vaultContainsBlob,
 } from './quota.js';
@@ -137,11 +136,6 @@ interface VaultRow {
   readonly nextServerSequence: number;
   readonly quotaBytes: number | null;
   readonly writeEpoch: number;
-}
-
-export interface VaultStorageUsage {
-  readonly quotaBytes: number;
-  readonly storageBytes: number;
 }
 
 interface FileRow {
@@ -399,20 +393,6 @@ export class RevisionRepository {
     );
     this.#defaultQuotaBytes =
       options.vaultQuotaBytes ?? DEFAULT_VAULT_QUOTA_BYTES;
-  }
-
-  /**
-   * Owner-facing storage usage for a vault: its canonical DISTINCT-blob byte sum
-   * and its effective quota. Reads only; never blocked by the disk-pressure guard.
-   */
-  public getStorageUsage(vaultId: string): VaultStorageUsage {
-    return {
-      quotaBytes: resolveEffectiveQuotaBytes(
-        readVaultQuotaBytes(this.#database, vaultId),
-        this.#defaultQuotaBytes,
-      ),
-      storageBytes: computeVaultStorageBytes(this.#database, vaultId),
-    };
   }
 
   /** Accepts or idempotently replays one protected revision. */

@@ -1,4 +1,4 @@
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 
 /**
  * Every operator-facing Havemind secret (database key, pairing token) carries at
@@ -10,7 +10,6 @@ export const SECRET_MIN_ENTROPY_BITS = 256;
 
 const SECRET_BYTE_LENGTH = SECRET_MIN_ENTROPY_BITS / 8;
 const FINGERPRINT_HEX_LENGTH = 12;
-const SHA256_HEX_PATTERN = /^[0-9a-f]{64}$/u;
 
 /** A deliberately secret-free error safe to log or serialize. */
 export class SecretError extends Error {
@@ -72,12 +71,4 @@ export function generateDatabaseKey(
     hash: hashSecret(value),
     value,
   });
-}
-
-/** Constant-time comparison of two SHA-256 hex digests. */
-export function secretHashesEqual(left: string, right: string): boolean {
-  if (!SHA256_HEX_PATTERN.test(left) || !SHA256_HEX_PATTERN.test(right)) {
-    return false;
-  }
-  return timingSafeEqual(Buffer.from(left, 'hex'), Buffer.from(right, 'hex'));
 }

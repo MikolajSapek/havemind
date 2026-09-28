@@ -178,7 +178,16 @@ describe('pruneExpiredRecords', () => {
   it('keeps a revoked family until a day after its window ends, then drops its tokens', () => {
     const fixture = makeFixture();
     const current = rotate(fixture, fixture.initialRefreshToken);
-    fixture.repository.revokeSession(fixture.familyId);
+    const revokedAt = fixture.now().toISOString();
+    fixture.database
+      .prepare(
+        `UPDATE refresh_token_families SET status = 'revoked', revoked_at = ?
+         WHERE id = ?`,
+      )
+      .run(revokedAt, fixture.familyId);
+    fixture.database
+      .prepare('UPDATE access_tokens SET revoked_at = ? WHERE family_id = ?')
+      .run(revokedAt, fixture.familyId);
 
     fixture.advance(DAY_MS - MINUTE_MS);
     expect(pruneExpiredRecords(fixture.database, fixture.now())).toEqual({

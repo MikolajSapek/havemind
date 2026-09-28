@@ -8,7 +8,6 @@ import {
   generateDatabaseKey,
   hashSecret,
   secretFingerprint,
-  secretHashesEqual,
 } from './secrets.js';
 
 describe('generateDatabaseKey', () => {
@@ -61,21 +60,5 @@ describe('secretFingerprint', () => {
     const fingerprint = secretFingerprint('a-very-secret-value');
     expect(fingerprint).toMatch(/^sha256:[0-9a-f]{12}$/u);
     expect(fingerprint).not.toContain('a-very-secret-value');
-  });
-});
-
-describe('secretHashesEqual', () => {
-  it('returns true for identical digests', () => {
-    const digest = hashSecret('same');
-    expect(secretHashesEqual(digest, digest)).toBe(true);
-  });
-
-  it('returns false for different digests', () => {
-    expect(secretHashesEqual(hashSecret('a'), hashSecret('b'))).toBe(false);
-  });
-
-  it('returns false for malformed digests', () => {
-    expect(secretHashesEqual('not-a-hash', hashSecret('a'))).toBe(false);
-    expect(secretHashesEqual(hashSecret('a'), 'still-not')).toBe(false);
   });
 });

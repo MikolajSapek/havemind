@@ -14,7 +14,6 @@ import {
   parsePendingDeviceCredential,
   parseRefreshToken,
   parseRejoinSecret,
-  type AccessToken,
 } from './tokens.js';
 import {
   generateVerificationPin,
@@ -219,39 +218,6 @@ export interface PendingInvitationApproval {
   readonly intendedRole: InvitationRole;
 }
 
-export interface RedeemInvitationInput {
-  readonly invitationToken: string;
-  readonly deviceId: string;
-  readonly deviceDisplayName: string;
-  readonly memberDisplayName: string;
-  readonly publicKey: Buffer;
-}
-
-export interface RedeemInvitationResult {
-  readonly state: 'pending_approval';
-  readonly invitationId: string;
-  readonly pendingDeviceId: string;
-  readonly userId: string;
-  readonly verificationPhrase: string;
-}
-
-export interface ApprovePendingDeviceInput {
-  readonly invitationId: string;
-  readonly approverMembershipId: string;
-  readonly verificationPhrase: string;
-  readonly initialRefreshToken: string;
-}
-
-export interface ApprovePendingDeviceResult {
-  readonly accessToken: AccessToken;
-  readonly accessExpiresAt: string;
-  readonly refreshExpiresAt: string;
-  readonly familyId: string;
-  readonly membershipId: string;
-  readonly deviceId: string;
-  readonly userId: string;
-}
-
 export interface RejectPendingDeviceInput {
   readonly invitationId: string;
   readonly approverMembershipId: string;
@@ -259,11 +225,11 @@ export interface RejectPendingDeviceInput {
 
 type RedeemOutcome =
   | { readonly kind: 'expired' }
-  | { readonly kind: 'ok'; readonly result: RedeemInvitationResult };
-
-type ApproveOutcome =
-  | { readonly kind: 'mismatch' }
-  | { readonly kind: 'ok'; readonly result: ApprovePendingDeviceResult };
+  | {
+      readonly kind: 'ok';
+      readonly pendingDeviceId: string;
+      readonly verificationPhrase: string;
+    };
 
 type RedeemedApproveOutcome =
   | { readonly kind: 'mismatch'; readonly attemptsRemaining: number }
@@ -308,17 +274,6 @@ function requireDisplayName(value: string): string {
     value.length > MAX_DISPLAY_NAME_LENGTH ||
     value !== value.trim() ||
     hasControlCharacter(value)
-  ) {
-    throw new InvitationError('INVALID_INPUT');
-  }
-  return value;
-}
-
-function requirePublicKey(value: Buffer): Buffer {
-  if (
-    !Buffer.isBuffer(value) ||
-    value.length !== PUBLIC_KEY_LENGTH ||
-    value.every((byte) => byte === 0)
   ) {
     throw new InvitationError('INVALID_INPUT');
   }
@@ -468,191 +423,6 @@ export class InvitationService {
     });
 
     return create.immediate();
-  }
-
-  public redeemInvitation(
-    input: RedeemInvitationInput,
-  ): RedeemInvitationResult {
-    let tokenHash: string;
-    try {
-      tokenHash = hashInvitationToken(
-        parseInvitationToken(input.invitationToken),
-      );
-    } catch {
-      throw new InvitationError('INVALID_INPUT');
-    }
-    const deviceId = requireUuid(input.deviceId);
-    const deviceDisplayName = requireDisplayName(input.deviceDisplayName);
-    const memberDisplayName = requireDisplayName(input.memberDisplayName);
-    const publicKey = requirePublicKey(input.publicKey);
-    const now = readClock(this.#now);
-    const createdAt = now.toISOString();
-
-    const redeem = this.#database.transaction((): RedeemOutcome => {
-      const invitation = this.#loadInvitationByHash(tokenHash);
-      if (invitation.consumedAt !== null) {
-        throw new InvitationError('INVITATION_ALREADY_REDEEMED');
-      }
-      if (requireStoredDate(invitation.expiresAt) <= now.getTime()) {
-        // Burn the invitation so a replay cannot succeed, then surface the
-        // expiry outside the transaction so this write commits.
-        this.#burnInvitation(invitation.id, createdAt);
-        return { kind: 'expired' };
-      }
-
-      const userId = this.#newUuid();
-      this.#database
-        .prepare(
-          `INSERT INTO users (
-             id, display_name, is_instance_owner, status, created_at, revoked_at
-           ) VALUES (?, ?, 0, 'active', ?, NULL)`,
-        )
-        .run(userId, memberDisplayName, createdAt);
-      // `vault_id` scopes the device to the invitation's vault so a later
-      // membership revocation burns it in that vault only (AUD2-04).
-      this.#database
-        .prepare(
-          `INSERT INTO devices (
-             id, user_id, display_name, public_key, status,
-             created_at, approved_at, revoked_at, vault_id
-           ) VALUES (?, ?, ?, ?, 'pending', ?, NULL, NULL, ?)`,
-        )
-        .run(
-          deviceId,
-          userId,
-          deviceDisplayName,
-          publicKey,
-          createdAt,
-          invitation.vaultId,
-        );
-
-      const consumed = this.#database
-        .prepare(
-          `UPDATE invitations
-           SET consumed_at = ?, consumed_by_user_id = ?, pending_device_id = ?
-           WHERE id = ? AND consumed_at IS NULL`,
-        )
-        .run(createdAt, userId, deviceId, invitation.id);
-      if (consumed.changes !== 1) {
-        throw new InvitationError('INVITATION_ALREADY_REDEEMED');
-      }
-
-      const verificationPhrase = parseVerificationPin(
-        invitation.verificationSecret,
-      );
-
-      return {
-        kind: 'ok',
-        result: {
-          invitationId: invitation.id,
-          pendingDeviceId: deviceId,
-          state: 'pending_approval',
-          userId,
-          verificationPhrase,
-        },
-      };
-    });
-
-    const outcome = redeem.immediate();
-    if (outcome.kind === 'expired') {
-      throw new InvitationError('INVITATION_EXPIRED');
-    }
-    return outcome.result;
-  }
-
-  public approvePendingDevice(
-    input: ApprovePendingDeviceInput,
-  ): ApprovePendingDeviceResult {
-    const invitationId = requireUuid(input.invitationId);
-    const approverMembershipId = requireUuid(input.approverMembershipId);
-    let suppliedPhrase: string;
-    try {
-      suppliedPhrase = parseVerificationPin(input.verificationPhrase);
-    } catch {
-      throw new InvitationError('INVALID_INPUT');
-    }
-    const now = readClock(this.#now);
-    const approvedAt = now.toISOString();
-
-    const approve = this.#database.transaction((): ApproveOutcome => {
-        const invitation = this.#loadInvitationById(invitationId);
-        this.#requireOwnerMembership(approverMembershipId, invitation.vaultId);
-
-        const pendingDeviceId = invitation.pendingDeviceId;
-        const pendingUserId = invitation.consumedByUserId;
-        if (pendingDeviceId === null || pendingUserId === null) {
-          throw new InvitationError('NO_PENDING_DEVICE');
-        }
-        const device = this.#database
-          .prepare('SELECT status FROM devices WHERE id = ?')
-          .get(pendingDeviceId) as { status: string } | undefined;
-        if (device === undefined || device.status !== 'pending') {
-          throw new InvitationError('NO_PENDING_DEVICE');
-        }
-
-        const expectedPhrase = parseVerificationPin(
-          invitation.verificationSecret,
-        );
-        if (suppliedPhrase !== expectedPhrase) {
-          // Discard the pending device and surface the mismatch outside the
-          // transaction so the deletion commits and no token is ever issued.
-          this.#deletePendingUser(pendingUserId);
-          return { kind: 'mismatch' };
-        }
-
-        const approved = this.#database
-          .prepare(
-            `UPDATE devices SET status = 'approved', approved_at = ?
-             WHERE id = ? AND status = 'pending'`,
-          )
-          .run(approvedAt, pendingDeviceId);
-        if (approved.changes !== 1) {
-          throw new InvitationError('REPOSITORY_INTEGRITY');
-        }
-
-        const membershipId = this.#newUuid();
-        this.#database
-          .prepare(
-            `INSERT INTO memberships (
-               id, vault_id, user_id, role, status, created_at, revoked_at
-             ) VALUES (?, ?, ?, ?, 'active', ?, NULL)`,
-          )
-          .run(
-            membershipId,
-            invitation.vaultId,
-            pendingUserId,
-            this.#normalizeStoredRole(invitation.intendedRole),
-            approvedAt,
-          );
-
-        const session = this.#sessions.createInitialSessionInCurrentTransaction(
-          {
-            deviceId: pendingDeviceId,
-            initialRefreshToken: input.initialRefreshToken,
-            refreshTokenTtlSeconds: this.#refreshTokenTtlSeconds,
-            userId: pendingUserId,
-          },
-        );
-
-        return {
-          kind: 'ok',
-          result: {
-            accessExpiresAt: session.accessExpiresAt,
-            accessToken: session.accessToken,
-            deviceId: pendingDeviceId,
-            familyId: session.familyId,
-            membershipId,
-            refreshExpiresAt: session.refreshExpiresAt,
-            userId: pendingUserId,
-          },
-        };
-      });
-
-    const outcome = approve.immediate();
-    if (outcome.kind === 'mismatch') {
-      throw new InvitationError('PHRASE_MISMATCH');
-    }
-    return outcome.result;
   }
 
   public rejectPendingDevice(input: RejectPendingDeviceInput): void {
@@ -865,16 +635,7 @@ export class InvitationService {
         invitation.verificationSecret,
       );
 
-      return {
-        kind: 'ok',
-        result: {
-          invitationId: invitation.id,
-          pendingDeviceId: deviceId,
-          state: 'pending_approval',
-          userId,
-          verificationPhrase,
-        },
-      };
+      return { kind: 'ok', pendingDeviceId: deviceId, verificationPhrase };
     });
 
     const outcome = redeem.immediate();
@@ -883,8 +644,8 @@ export class InvitationService {
     }
     return {
       pendingCredential,
-      pendingDeviceId: outcome.result.pendingDeviceId,
-      verificationPhrase: outcome.result.verificationPhrase,
+      pendingDeviceId: outcome.pendingDeviceId,
+      verificationPhrase: outcome.verificationPhrase,
     };
   }
 
