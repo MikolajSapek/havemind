@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
 
 import { isSyncableConfigPath } from './appearance-scope.js';
-import { canonicalizeVaultPath, isReservedVaultPath } from './canonicalization.js';
+import { canonicalizeVaultPath } from './canonicalization.js';
 
 describe('isSyncableConfigPath, explicit appearance allowlist', () => {
   it.each([
@@ -91,7 +91,6 @@ describe('canonicalizeVaultPath, .obsidian appearance-allowlist exception', () =
     '.obsidian/snippets/tweaks.css',
     '.obsidian/themes/Minimal/theme.css',
   ])('no longer treats an allowlisted config path as reserved: %s', (path) => {
-    expect(isReservedVaultPath(path)).toBe(false);
     expect(canonicalizeVaultPath(path)).toBe(path);
   });
 
@@ -105,7 +104,6 @@ describe('canonicalizeVaultPath, .obsidian appearance-allowlist exception', () =
     '.trash/Deleted.md',
     'Havemind Conflicts/Plan--conflict.md',
   ])('keeps every non-allowlisted, .trash and conflicts path reserved: %s', (path) => {
-    expect(isReservedVaultPath(path)).toBe(true);
     expect(() => canonicalizeVaultPath(path)).toThrow(/reserved/i);
   });
 });

@@ -2,7 +2,6 @@ import {
   canonicalizeVaultPath,
   hashBlob,
   hashPlaintext,
-  isReservedVaultPath,
 } from '@havemind/protocol';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -845,7 +844,7 @@ describe('reserved conflict folder exclusion', () => {
       CONFLICT_FOLDER.toUpperCase(),
     ]) {
       expect(classifyVaultPath(`${variant}/x.md`).eligible).toBe(false);
-      expect(isReservedVaultPath(`${variant}/x.md`)).toBe(true);
+      expect(() => canonicalizeVaultPath(`${variant}/x.md`)).toThrow(/reserved/i);
     }
   });
 

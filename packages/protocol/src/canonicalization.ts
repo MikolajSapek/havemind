@@ -33,10 +33,6 @@ export function canonicalizeMarkdown(content: string): string {
     : `${withoutTrailingNewlines}\n`;
 }
 
-export function utf16Length(content: string): number {
-  return content.length;
-}
-
 function containsControlCharacter(value: string): boolean {
   for (const character of value) {
     const codePoint = character.codePointAt(0);
@@ -100,14 +96,6 @@ function reservedRoot(path: string): boolean {
     return false;
   }
   return true;
-}
-
-export function isReservedVaultPath(path: string): boolean {
-  try {
-    return reservedRoot(normalizedVaultPath(path));
-  } catch {
-    return false;
-  }
 }
 
 export function canonicalizeVaultPath(path: string): string {

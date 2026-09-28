@@ -5,7 +5,7 @@
  * locally authored revisions (echo suppression) and any deferred remote events.
  *
  * Refresh tokens and invitation secrets never live here, those stay in
- * Obsidian SecretStorage (see `storage/secret-store.ts` and
+ * Obsidian SecretStorage (see `runtime/onboarding-secrets.ts` and
  * `plan/05-plugin-connection-and-sync.md`). Only non-secret sync bookkeeping is
  * persisted through this port, so `data.json` never carries a credential.
  *
@@ -560,21 +560,6 @@ export class DurableSyncState implements SyncStatePort {
           [event.revision.revisionId]: [...(state.reconciliationBackups?.[event.revision.revisionId] ?? []),
             ...retired.map((entry) => ({ ...entry, payloadExternalized: false }))] },
       });
-    });
-  }
-
-  /** Only a freshly queued merge with no descendants can be cancelled on failed apply. */
-  async cancelUnsentMerge(revisionId: string): Promise<void> {
-    await this.runExclusive(async () => {
-      const state = await this.ensureLoaded();
-      const entry = state.outbox.find((item) => item.revisionId === revisionId);
-      if (entry === undefined) return;
-      if (parentIdsFromHeader(entry.header).length < 2 ||
-        [...state.outbox, ...Object.values(state.quarantinedEnvelopes)].some((item) => parentIdsFromHeader(item.header).includes(revisionId))) {
-        throw new Error('Cannot cancel a pending revision with dependent work.');
-      }
-      await this.mutate({ ...state, outbox: state.outbox.filter((item) => item.revisionId !== revisionId) });
-      await this.dropPayload(revisionId);
     });
   }
 

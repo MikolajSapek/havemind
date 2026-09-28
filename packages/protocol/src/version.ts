@@ -98,33 +98,3 @@ export const discoveryDocumentSchema = z
 
 export type DiscoveryDocument = z.infer<typeof discoveryDocumentSchema>;
 
-export function negotiateProtocolVersion(
-  clientRange: ProtocolVersionRange,
-  serverRange: ProtocolVersionRange,
-): ProtocolVersion | null {
-  const parsedClient = protocolVersionRangeSchema.safeParse(clientRange);
-  const parsedServer = protocolVersionRangeSchema.safeParse(serverRange);
-
-  if (!parsedClient.success || !parsedServer.success) {
-    return null;
-  }
-
-  if (parsedClient.data.major !== parsedServer.data.major) {
-    return null;
-  }
-
-  const minimum = Math.max(
-    parsedClient.data.minMinor,
-    parsedServer.data.minMinor,
-  );
-  const maximum = Math.min(
-    parsedClient.data.maxMinor,
-    parsedServer.data.maxMinor,
-  );
-
-  if (minimum > maximum) {
-    return null;
-  }
-
-  return { major: parsedClient.data.major, minor: maximum };
-}

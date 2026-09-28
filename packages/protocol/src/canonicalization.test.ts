@@ -3,8 +3,6 @@ import { describe, expect, it } from 'vitest';
 import {
   canonicalizeMarkdown,
   canonicalizeVaultPath,
-  isReservedVaultPath,
-  utf16Length,
 } from './canonicalization.js';
 
 describe('canonicalization', () => {
@@ -47,10 +45,6 @@ describe('canonicalization', () => {
     }
   });
 
-  it('reports JavaScript and CodeMirror UTF-16 code-unit length', () => {
-    expect(utf16Length('A😀e\u0301')).toBe(5);
-  });
-
   it('normalizes valid vault paths to NFC and slash separators', () => {
     expect(canonicalizeVaultPath('Notes/Cafe\u0301.md')).toBe(
       'Notes/Café.md',
@@ -80,7 +74,6 @@ describe('canonicalization', () => {
     '.TRASH/Deleted.md',
     'Havemind Conflicts/Plan--conflict.md',
   ])('recognizes reserved paths case-insensitively: %s', (path) => {
-    expect(isReservedVaultPath(path)).toBe(true);
     expect(() => canonicalizeVaultPath(path)).toThrow(/reserved/i);
   });
 });

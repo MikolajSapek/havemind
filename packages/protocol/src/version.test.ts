@@ -9,7 +9,6 @@ import {
   PROTOCOL_MINOR_VERSION,
   PROTOCOL_VERSION,
   discoveryDocumentSchema,
-  negotiateProtocolVersion,
   protocolVersionRangeSchema,
 } from './version.js';
 
@@ -36,36 +35,6 @@ describe('protocol version contracts', () => {
     });
 
     expect(parsed.success).toBe(false);
-  });
-
-  it('negotiates the highest shared minor in the same major', () => {
-    expect(
-      negotiateProtocolVersion(
-        { major: 1, minMinor: 0, maxMinor: 3 },
-        { major: 1, minMinor: 2, maxMinor: 5 },
-      ),
-    ).toEqual({ major: 1, minor: 3 });
-  });
-
-  it('fails closed when major versions or minor ranges do not overlap', () => {
-    expect(
-      negotiateProtocolVersion(
-        { major: 1, minMinor: 0, maxMinor: 3 },
-        { major: 2, minMinor: 0, maxMinor: 3 },
-      ),
-    ).toBeNull();
-    expect(
-      negotiateProtocolVersion(
-        { major: 1, minMinor: 0, maxMinor: 1 },
-        { major: 1, minMinor: 2, maxMinor: 3 },
-      ),
-    ).toBeNull();
-    expect(
-      negotiateProtocolVersion(
-        { major: 1, minMinor: 3, maxMinor: 2 },
-        { major: 1, minMinor: 0, maxMinor: 3 },
-      ),
-    ).toBeNull();
   });
 
   it('validates a strict HTTPS discovery document', () => {
