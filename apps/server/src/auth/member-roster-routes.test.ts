@@ -8,19 +8,19 @@
  * in `memberships` joined to `users`; this route hands it back.
  */
 
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-
 import type Database from 'better-sqlite3';
 import Fastify from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { openDatabase } from '../db.js';
-import { runMigrations } from '../migrations.js';
+import {
+  makeTempDir,
+  openMigratedDatabase,
+  openSession,
+  releaseTestResources,
+  rowSeeder,
+} from '../test/fixtures/server-fixtures.js';
 import { registerMemberRosterRoutes } from './member-roster-routes.js';
 import { SessionRepository } from './session-repository.js';
-import { generateRefreshToken } from './tokens.js';
 
 const START = '2026-09-10T05:00:00.000Z';
 const LATER = '2026-09-10T06:00:00.000Z';
@@ -39,49 +39,12 @@ const DEVICE_GUEST = '90000000-0000-4000-8000-0000000000d2';
 const DEVICE_THIRD = '90000000-0000-4000-8000-0000000000d3';
 const DEVICE_OUTSIDER = '90000000-0000-4000-8000-0000000000d4';
 
-const databases: Database.Database[] = [];
-const directories: string[] = [];
+afterEach(releaseTestResources);
 
-afterEach(() => {
-  for (const db of databases.splice(0)) db.close();
-  for (const dir of directories.splice(0)) rmSync(dir, { force: true, recursive: true });
-});
-
-function insertUser(db: Database.Database, id: string, name: string): void {
-  db.prepare(
-    `INSERT INTO users (id, display_name, is_instance_owner, status, created_at)
-     VALUES (?, ?, 0, 'active', ?)`,
-  ).run(id, name, START);
-}
-
-function insertDevice(db: Database.Database, id: string, userId: string): void {
-  db.prepare(
-    `INSERT INTO devices (id, user_id, display_name, public_key, status, created_at, approved_at)
-     VALUES (?, ?, 'Device', X'01', 'approved', ?, ?)`,
-  ).run(id, userId, START, START);
-}
-
-function insertVault(db: Database.Database, id: string, name: string): void {
-  db.prepare(
-    `INSERT INTO vaults (id, display_name, write_epoch, next_server_sequence, created_at, deleted_at)
-     VALUES (?, ?, 0, 1, ?, NULL)`,
-  ).run(id, name, START);
-}
-
-function insertMembership(
-  db: Database.Database,
-  id: string,
-  vaultId: string,
-  userId: string,
-  role: 'owner' | 'editor',
-  status: 'active' | 'revoked' = 'active',
-  createdAt: string = START,
-): void {
-  db.prepare(
-    `INSERT INTO memberships (id, vault_id, user_id, role, status, created_at, revoked_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-  ).run(id, vaultId, userId, role, status, createdAt, status === 'revoked' ? LATER : null);
-}
+const { insertDevice, insertMembership, insertUser, insertVault } = rowSeeder(
+  START,
+  Buffer.from([0x01]),
+);
 
 interface Fixture {
   readonly database: Database.Database;
@@ -90,11 +53,7 @@ interface Fixture {
 }
 
 function makeFixture(): Fixture {
-  const directory = mkdtempSync(join(tmpdir(), 'havemind-roster-'));
-  directories.push(directory);
-  const database = openDatabase(join(directory, 'havemind.sqlite'));
-  databases.push(database);
-  runMigrations(database);
+  const database = openMigratedDatabase(makeTempDir('havemind-roster-'));
 
   const sessions = new SessionRepository(database, {
     accessTokenTtlSeconds: 600,
@@ -112,8 +71,8 @@ function makeFixture(): Fixture {
 
   insertMembership(database, 'm-owner', VAULT, OWNER, 'owner');
   insertMembership(database, 'm-guest', VAULT, GUEST, 'editor');
-  insertMembership(database, 'm-third', VAULT, THIRD, 'editor', 'active', LATER);
-  insertMembership(database, 'm-revoked', VAULT, REVOKED, 'editor', 'revoked');
+  insertMembership(database, 'm-third', VAULT, THIRD, 'editor', { createdAt: LATER });
+  insertMembership(database, 'm-revoked', VAULT, REVOKED, 'editor', { revokedAt: LATER });
   insertMembership(database, 'm-outsider', OTHER_VAULT, OUTSIDER, 'owner');
 
   // Sessions are issued through the repository, never by hand: refresh tokens
@@ -125,17 +84,8 @@ function makeFixture(): Fixture {
     [THIRD, DEVICE_THIRD],
     [OUTSIDER, DEVICE_OUTSIDER],
   ] as const) {
-    insertDevice(database, deviceId, userId);
-    const token = generateRefreshToken();
-    database.transaction(() => {
-      sessions.createInitialSessionInCurrentTransaction({
-        deviceId,
-        initialRefreshToken: token,
-        refreshTokenTtlSeconds: 24 * 60 * 60,
-        userId,
-      });
-    })();
-    refreshTokens[userId] = token;
+    insertDevice(database, deviceId, userId, 'Device');
+    refreshTokens[userId] = openSession(database, sessions, userId, deviceId).refreshToken;
   }
 
   return { database, refreshTokens, sessions };

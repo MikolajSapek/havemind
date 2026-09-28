@@ -1,14 +1,19 @@
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-
 import type Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { buildApp } from '../app.js';
-import { parseServerConfig } from '../config.js';
-import { openDatabase } from '../db.js';
-import { runMigrations } from '../migrations.js';
+import type { buildApp } from '../app.js';
+import {
+  ACCESS_TTL_SECONDS,
+  createTestApp,
+  definedOnly,
+  makeTempDir,
+  mintAccessToken,
+  openMigratedDatabase,
+  REFRESH_TTL_SECONDS,
+  releaseTestResources,
+  requestRejoinGrant as requestGrant,
+  rowSeeder,
+} from '../test/fixtures/server-fixtures.js';
 import { InvitationService } from './invitations.js';
 import { RejoinGrantService } from './rejoin-grants.js';
 import { SessionRepository } from './session-repository.js';
@@ -22,13 +27,6 @@ import {
 /** The invitee device's per-device rejoin secret (provisioned hash in fixture). */
 const INVITEE_REJOIN_SECRET = generateRejoinSecret();
 
-const TEST_ENV = {
-  HAVEMIND_API_BASE_URL: 'https://sync.example.test/api/v1',
-  HAVEMIND_SERVER_NAME: 'Test Havemind',
-} as const;
-
-const ACCESS_TTL_SECONDS = 600;
-const REFRESH_TTL_SECONDS = 24 * 60 * 60;
 const START_TIME = '2026-07-21T03:00:00.000Z';
 
 const OWNER_USER = '91000000-0000-4000-8000-0000000000a1';
@@ -49,100 +47,39 @@ interface Fixture {
   readonly inviteeAccessToken: string;
 }
 
-const databases: Database.Database[] = [];
-const temporaryDirectories: string[] = [];
-const applications: Array<ReturnType<typeof buildApp>> = [];
-
-function insertUser(db: Database.Database, id: string, name: string, owner: 0 | 1): void {
-  db.prepare(
-    `INSERT INTO users (id, display_name, is_instance_owner, status, created_at, revoked_at)
-     VALUES (?, ?, ?, 'active', ?, NULL)`,
-  ).run(id, name, owner, START_TIME);
-}
-
-function insertDevice(db: Database.Database, id: string, userId: string, name: string): void {
-  db.prepare(
-    `INSERT INTO devices (id, user_id, display_name, public_key, status, created_at, approved_at, revoked_at)
-     VALUES (?, ?, ?, ?, 'approved', ?, ?, NULL)`,
-  ).run(id, userId, name, Buffer.alloc(32, 0x22), START_TIME, START_TIME);
-}
-
-function insertMembership(
-  db: Database.Database,
-  id: string,
-  userId: string,
-  role: 'owner' | 'editor',
-): void {
-  db.prepare(
-    `INSERT INTO memberships (id, vault_id, user_id, role, status, created_at, revoked_at)
-     VALUES (?, ?, ?, ?, 'active', ?, NULL)`,
-  ).run(id, VAULT, userId, role, START_TIME);
-}
-
-function mintAccessToken(
-  db: Database.Database,
-  sessions: SessionRepository,
-  userId: string,
-  deviceId: string,
-): string {
-  const issue = db.transaction(() =>
-    sessions.createInitialSessionInCurrentTransaction({
-      deviceId,
-      initialRefreshToken: generateRefreshToken(),
-      refreshTokenTtlSeconds: REFRESH_TTL_SECONDS,
-      userId,
-    }),
-  );
-  return issue.immediate().accessToken;
-}
-
 function makeFixture(): Fixture {
-  const directory = mkdtempSync(join(tmpdir(), 'havemind-rejoin-routes-'));
-  temporaryDirectories.push(directory);
-  const database = openDatabase(join(directory, 'havemind.sqlite'));
-  databases.push(database);
-  runMigrations(database);
+  const database = openMigratedDatabase(makeTempDir('havemind-rejoin-routes-'));
 
   const clock = { ms: Date.parse(START_TIME) };
   const now = (): Date => new Date(clock.ms);
+  const ttls = {
+    accessTokenTtlSeconds: ACCESS_TTL_SECONDS,
+    now,
+    refreshTokenTtlSeconds: REFRESH_TTL_SECONDS,
+  };
   const sessions = new SessionRepository(database, {
     accessTokenTtlSeconds: ACCESS_TTL_SECONDS,
     now,
   });
-  const invitations = new InvitationService(database, {
-    accessTokenTtlSeconds: ACCESS_TTL_SECONDS,
-    now,
-    refreshTokenTtlSeconds: REFRESH_TTL_SECONDS,
-  });
-  const rejoin = new RejoinGrantService(database, {
-    accessTokenTtlSeconds: ACCESS_TTL_SECONDS,
-    now,
-    refreshTokenTtlSeconds: REFRESH_TTL_SECONDS,
-  });
+  const invitations = new InvitationService(database, ttls);
+  const rejoin = new RejoinGrantService(database, ttls);
 
+  const { insertDevice, insertMembership, insertUser, insertVault } = rowSeeder(
+    START_TIME,
+    Buffer.alloc(32, 0x22),
+  );
   insertUser(database, OWNER_USER, 'Alice', 1);
   insertUser(database, INVITEE_USER, 'Magda', 0);
   insertDevice(database, OWNER_DEVICE, OWNER_USER, 'Alice Laptop');
-  insertDevice(database, INVITEE_DEVICE, INVITEE_USER, 'Magda Laptop');
-  database
-    .prepare('UPDATE devices SET rejoin_secret_hash = ? WHERE id = ?')
-    .run(hashRejoinSecret(INVITEE_REJOIN_SECRET), INVITEE_DEVICE);
-  database
-    .prepare(
-      `INSERT INTO vaults (id, display_name, write_epoch, next_server_sequence, created_at, deleted_at)
-       VALUES (?, ?, 0, 1, ?, NULL)`,
-    )
-    .run(VAULT, 'Shared Vault', START_TIME);
-  insertMembership(database, OWNER_MEMBERSHIP, OWNER_USER, 'owner');
-  insertMembership(database, INVITEE_MEMBERSHIP, INVITEE_USER, 'editor');
+  insertDevice(database, INVITEE_DEVICE, INVITEE_USER, 'Magda Laptop', {
+    rejoinSecretHash: hashRejoinSecret(INVITEE_REJOIN_SECRET),
+  });
+  insertVault(database, VAULT, 'Shared Vault');
+  insertMembership(database, OWNER_MEMBERSHIP, VAULT, OWNER_USER, 'owner');
+  insertMembership(database, INVITEE_MEMBERSHIP, VAULT, INVITEE_USER, 'editor');
 
   const ownerAccessToken = mintAccessToken(database, sessions, OWNER_USER, OWNER_DEVICE);
-  const inviteeAccessToken = mintAccessToken(
-    database,
-    sessions,
-    INVITEE_USER,
-    INVITEE_DEVICE,
-  );
+  const inviteeAccessToken = mintAccessToken(database, sessions, INVITEE_USER, INVITEE_DEVICE);
 
   return {
     clock,
@@ -159,32 +96,12 @@ function createApp(
   fixture: Fixture,
   rateLimit?: { maxRequests: number; windowMs: number },
 ) {
-  const config = parseServerConfig(TEST_ENV);
-  const app = buildApp({
-    auth: {
-      clientKey: () => 'fixed-test-client',
-      database: fixture.database,
-      invitations: fixture.invitations,
-      now: () => new Date(fixture.clock.ms),
-      ...(rateLimit === undefined ? {} : { rateLimit }),
-      sessions: fixture.sessions,
-    },
-    config,
-  });
-  applications.push(app);
-  return app;
-}
-
-function requestGrant(
-  app: ReturnType<typeof buildApp>,
-  token: string,
-  membershipId: string,
-) {
-  return app.inject({
-    body: { membershipId },
-    headers: { authorization: `Bearer ${token}` },
-    method: 'POST',
-    url: '/owner/rejoin-grants',
+  return createTestApp({
+    database: fixture.database,
+    invitations: fixture.invitations,
+    now: () => new Date(fixture.clock.ms),
+    ...definedOnly({ rateLimit }),
+    sessions: fixture.sessions,
   });
 }
 
@@ -205,20 +122,7 @@ function redeem(
   });
 }
 
-afterEach(async () => {
-  while (applications.length > 0) {
-    await applications.pop()?.close();
-  }
-  while (databases.length > 0) {
-    databases.pop()?.close();
-  }
-  while (temporaryDirectories.length > 0) {
-    const directory = temporaryDirectories.pop();
-    if (directory !== undefined) {
-      rmSync(directory, { force: true, recursive: true });
-    }
-  }
-});
+afterEach(releaseTestResources);
 
 describe('POST /owner/rejoin-grants', () => {
   it('lets an owner issue a grant for a known contact', async () => {

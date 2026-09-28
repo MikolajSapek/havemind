@@ -1,17 +1,24 @@
-import { mkdtempSync, rmSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 
 import type Database from 'better-sqlite3';
 import Fastify from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { buildApp } from '../app.js';
-import { parseServerConfig } from '../config.js';
-import { openDatabase } from '../db.js';
-import { runMigrations } from '../migrations.js';
+import type { buildApp } from '../app.js';
 import type { StoredRevisionEvent } from '../revision-repository.js';
+import {
+  ACCESS_TTL_SECONDS,
+  createTestApp,
+  definedOnly,
+  makeTempDir,
+  mintAccessToken,
+  openMigratedDatabase,
+  openSession,
+  REFRESH_TTL_SECONDS,
+  releaseTestResources,
+  rowSeeder,
+  trackApp,
+} from '../test/fixtures/server-fixtures.js';
 import { DEFAULT_RATE_LIMIT } from './auth-routes.js';
 import { InvitationService } from './invitations.js';
 import { registerPreAuthOnboardingRoutes } from './onboarding-routes.js';
@@ -26,13 +33,6 @@ import {
   parseRefreshToken,
 } from './tokens.js';
 
-const TEST_ENV = {
-  HAVEMIND_API_BASE_URL: 'https://sync.example.test/api/v1',
-  HAVEMIND_SERVER_NAME: 'Test Havemind',
-} as const;
-
-const ACCESS_TTL_SECONDS = 600;
-const REFRESH_TTL_SECONDS = 24 * 60 * 60;
 const START_TIME = '2026-07-16T03:00:00.000Z';
 const INVITATION_TTL_MS = 15 * 60 * 1_000;
 
@@ -51,6 +51,11 @@ const SECOND_VAULT_TIME = '2026-07-16T04:00:00.000Z';
 // be refused, never served.
 const FOREIGN_VAULT = '80000000-0000-4000-8000-0000000000c3';
 
+const { insertDevice, insertMembership, insertUser, insertVault } = rowSeeder(
+  START_TIME,
+  Buffer.alloc(32, 0x22),
+);
+
 interface Fixture {
   readonly database: Database.Database;
   readonly sessions: SessionRepository;
@@ -59,59 +64,12 @@ interface Fixture {
   readonly clock: { ms: number };
 }
 
-const databases: Database.Database[] = [];
-const temporaryDirectories: string[] = [];
-const applications: Array<ReturnType<typeof buildApp>> = [];
-
-function insertUser(database: Database.Database, id: string, name: string) {
-  database
-    .prepare(
-      `INSERT INTO users (id, display_name, is_instance_owner, status, created_at, revoked_at)
-       VALUES (?, ?, 1, 'active', ?, NULL)`,
-    )
-    .run(id, name, START_TIME);
-}
-
-function insertDevice(
-  database: Database.Database,
-  id: string,
-  userId: string,
-  name: string,
-) {
-  database
-    .prepare(
-      `INSERT INTO devices (id, user_id, display_name, public_key, status, created_at, approved_at, revoked_at)
-       VALUES (?, ?, ?, ?, 'approved', ?, ?, NULL)`,
-    )
-    .run(id, userId, name, Buffer.alloc(32, 0x22), START_TIME, START_TIME);
-}
-
-function insertVault(database: Database.Database, id: string, name: string) {
-  database
-    .prepare(
-      `INSERT INTO vaults (id, display_name, write_epoch, next_server_sequence, created_at, deleted_at)
-       VALUES (?, ?, 0, 1, ?, NULL)`,
-    )
-    .run(id, name, START_TIME);
-}
-
-function insertMembership(
-  database: Database.Database,
-  id: string,
-  vaultId: string,
-  userId: string,
-) {
-  database
-    .prepare(
-      `INSERT INTO memberships (id, vault_id, user_id, role, status, created_at, revoked_at)
-       VALUES (?, ?, ?, 'owner', 'active', ?, NULL)`,
-    )
-    .run(id, vaultId, userId, START_TIME);
-}
-
 function insertPairing(
   database: Database.Database,
   token: string,
+  vaultId = VAULT,
+  membershipId = OWNER_MEMBERSHIP,
+  createdAt = START_TIME,
 ) {
   database
     .prepare(
@@ -123,10 +81,10 @@ function insertPairing(
     .run(
       randomUUID(),
       OWNER_USER,
-      VAULT,
-      OWNER_MEMBERSHIP,
+      vaultId,
+      membershipId,
       hashPairingToken(parsePairingToken(token)),
-      START_TIME,
+      createdAt,
       '2099-01-01T00:00:00.000Z',
     );
 }
@@ -136,78 +94,16 @@ function insertPairing(
  * created after the first. Mirrors the row shape `create-vault` mints, letting a
  * test pair a device against the second vault's token.
  */
-function insertSecondVaultForOwner(
-  database: Database.Database,
-  token: string,
-) {
-  database
-    .prepare(
-      `INSERT INTO vaults (id, display_name, write_epoch, next_server_sequence, created_at, deleted_at)
-       VALUES (?, ?, 0, 1, ?, NULL)`,
-    )
-    .run(SECOND_VAULT, 'Second Vault', SECOND_VAULT_TIME);
-  database
-    .prepare(
-      `INSERT INTO memberships (id, vault_id, user_id, role, status, created_at, revoked_at)
-       VALUES (?, ?, ?, 'owner', 'active', ?, NULL)`,
-    )
-    .run(SECOND_MEMBERSHIP, SECOND_VAULT, OWNER_USER, SECOND_VAULT_TIME);
-  database
-    .prepare(
-      `INSERT INTO owner_pairings (
-         id, user_id, vault_id, membership_id, token_hash,
-         created_at, expires_at, consumed_at, consumed_by_device_id
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
-    )
-    .run(
-      randomUUID(),
-      OWNER_USER,
-      SECOND_VAULT,
-      SECOND_MEMBERSHIP,
-      hashPairingToken(parsePairingToken(token)),
-      SECOND_VAULT_TIME,
-      '2099-01-01T00:00:00.000Z',
-    );
-}
-
-function mintAccessToken(
-  database: Database.Database,
-  sessions: SessionRepository,
-  userId: string,
-  deviceId: string,
-): string {
-  const issue = database.transaction(() =>
-    sessions.createInitialSessionInCurrentTransaction({
-      deviceId,
-      initialRefreshToken: generateRefreshToken(),
-      refreshTokenTtlSeconds: REFRESH_TTL_SECONDS,
-      userId,
-    }),
-  );
-  return issue.immediate().accessToken;
-}
-
-function issueRefreshToken(fixture: Fixture): string {
-  const refreshToken = generateRefreshToken();
-  fixture.database
-    .transaction(() =>
-      fixture.sessions.createInitialSessionInCurrentTransaction({
-        deviceId: OWNER_DEVICE,
-        initialRefreshToken: refreshToken,
-        refreshTokenTtlSeconds: REFRESH_TTL_SECONDS,
-        userId: OWNER_USER,
-      }),
-    )
-    .immediate();
-  return refreshToken;
+function insertSecondVaultForOwner(database: Database.Database, token: string) {
+  insertVault(database, SECOND_VAULT, 'Second Vault', SECOND_VAULT_TIME);
+  insertMembership(database, SECOND_MEMBERSHIP, SECOND_VAULT, OWNER_USER, 'owner', {
+    createdAt: SECOND_VAULT_TIME,
+  });
+  insertPairing(database, token, SECOND_VAULT, SECOND_MEMBERSHIP, SECOND_VAULT_TIME);
 }
 
 function makeFixture(): Fixture {
-  const directory = mkdtempSync(join(tmpdir(), 'havemind-onboarding-'));
-  temporaryDirectories.push(directory);
-  const database = openDatabase(join(directory, 'havemind.sqlite'));
-  databases.push(database);
-  runMigrations(database);
+  const database = openMigratedDatabase(makeTempDir('havemind-onboarding-'));
 
   const clock = { ms: Date.parse(START_TIME) };
   const now = (): Date => new Date(clock.ms);
@@ -221,17 +117,12 @@ function makeFixture(): Fixture {
     refreshTokenTtlSeconds: REFRESH_TTL_SECONDS,
   });
 
-  insertUser(database, OWNER_USER, 'Alice');
+  insertUser(database, OWNER_USER, 'Alice', 1);
   insertDevice(database, OWNER_DEVICE, OWNER_USER, 'Alice Laptop');
   insertVault(database, VAULT, 'Shared Vault');
   insertMembership(database, OWNER_MEMBERSHIP, VAULT, OWNER_USER);
 
-  const ownerAccessToken = mintAccessToken(
-    database,
-    sessions,
-    OWNER_USER,
-    OWNER_DEVICE,
-  );
+  const ownerAccessToken = mintAccessToken(database, sessions, OWNER_USER, OWNER_DEVICE);
 
   return { clock, database, invitations, ownerAccessToken, sessions };
 }
@@ -240,22 +131,13 @@ function createApp(
   fixture: Fixture,
   options?: { rateLimit?: { maxRequests: number; windowMs: number } },
 ) {
-  const config = parseServerConfig(TEST_ENV);
-  const app = buildApp({
-    auth: {
-      clientKey: () => 'fixed-test-client',
-      database: fixture.database,
-      invitations: fixture.invitations,
-      now: () => new Date(fixture.clock.ms),
-      sessions: fixture.sessions,
-      ...(options?.rateLimit === undefined
-        ? {}
-        : { rateLimit: options.rateLimit }),
-    },
-    config,
+  return createTestApp({
+    database: fixture.database,
+    invitations: fixture.invitations,
+    now: () => new Date(fixture.clock.ms),
+    sessions: fixture.sessions,
+    ...definedOnly({ rateLimit: options?.rateLimit }),
   });
-  applications.push(app);
-  return app;
 }
 
 async function createInvitation(
@@ -342,18 +224,8 @@ function wrongCode(code: string): string {
 
 /** Opens a live refresh family on the owner device, returning the raw token. */
 function openOwnerRefresh(fixture: Fixture): string {
-  const rawRefresh = generateRefreshToken();
-  fixture.database
-    .transaction(() =>
-      fixture.sessions.createInitialSessionInCurrentTransaction({
-        deviceId: OWNER_DEVICE,
-        initialRefreshToken: rawRefresh,
-        refreshTokenTtlSeconds: REFRESH_TTL_SECONDS,
-        userId: OWNER_USER,
-      }),
-    )
-    .immediate();
-  return rawRefresh;
+  return openSession(fixture.database, fixture.sessions, OWNER_USER, OWNER_DEVICE)
+    .refreshToken;
 }
 
 /** One committed event per vault, so the served page identifies its vault. */
@@ -406,15 +278,7 @@ function registerBootstrapWithVaultProbe(
   return { requestedVaults };
 }
 
-afterEach(async () => {
-  await Promise.all(applications.splice(0).map(async (app) => app.close()));
-  for (const database of databases.splice(0)) {
-    database.close();
-  }
-  for (const directory of temporaryDirectories.splice(0)) {
-    rmSync(directory, { force: true, recursive: true });
-  }
-});
+afterEach(releaseTestResources);
 
 describe('onboarding HTTP surface', () => {
   it('restores an owner-visible pending approval without exposing its verification phrase', async () => {
@@ -855,7 +719,7 @@ describe('onboarding HTTP surface', () => {
       .run(START_TIME, OWNER_MEMBERSHIP);
 
     const app = Fastify();
-    applications.push(app as unknown as ReturnType<typeof buildApp>);
+    trackApp(app);
     registerPreAuthOnboardingRoutes(app, {
       database: fixture.database,
       invitations: fixture.invitations,
@@ -904,7 +768,7 @@ describe('onboarding HTTP surface', () => {
   // refresh, and sync stopped as access tokens expired.
   it('keeps /auth/refresh out of the bucket other pre-auth routes exhaust', async () => {
     const fixture = makeFixture();
-    const refreshToken = issueRefreshToken(fixture);
+    const refreshToken = openOwnerRefresh(fixture);
     const app = createApp(fixture);
 
     for (let attempt = 0; attempt <= DEFAULT_RATE_LIMIT.maxRequests; attempt += 1) {
@@ -936,7 +800,7 @@ describe('onboarding HTTP surface', () => {
 
   it('still limits guessed refresh tokens without starving a known family', async () => {
     const fixture = makeFixture();
-    const refreshToken = issueRefreshToken(fixture);
+    const refreshToken = openOwnerRefresh(fixture);
     const app = createApp(fixture, {
       rateLimit: { maxRequests: 1, windowMs: 60_000 },
     });
@@ -1034,7 +898,7 @@ describe('onboarding HTTP surface', () => {
     };
 
     const app = Fastify();
-    applications.push(app as unknown as ReturnType<typeof buildApp>);
+    trackApp(app);
     registerPreAuthOnboardingRoutes(app, {
       database: fixture.database,
       invitations: fixture.invitations,
@@ -1069,7 +933,7 @@ describe('onboarding HTTP surface', () => {
     const rawRefresh = openOwnerRefresh(fixture);
 
     const app = Fastify();
-    applications.push(app as unknown as ReturnType<typeof buildApp>);
+    trackApp(app);
     const probe = registerBootstrapWithVaultProbe(app, fixture);
 
     const bootstrap = await app.inject({
@@ -1092,7 +956,7 @@ describe('onboarding HTTP surface', () => {
     const rawRefresh = openOwnerRefresh(fixture);
 
     const app = Fastify();
-    applications.push(app as unknown as ReturnType<typeof buildApp>);
+    trackApp(app);
     registerPreAuthOnboardingRoutes(app, {
       database: fixture.database,
       invitations: fixture.invitations,
@@ -1121,7 +985,7 @@ describe('onboarding HTTP surface', () => {
     const rawRefresh = openOwnerRefresh(fixture);
 
     const app = Fastify();
-    applications.push(app as unknown as ReturnType<typeof buildApp>);
+    trackApp(app);
     const probe = registerBootstrapWithVaultProbe(app, fixture);
 
     const bootstrap = await app.inject({

@@ -1,31 +1,30 @@
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import {
-  PROTOCOL_VERSION,
-  type ProtectedRevisionHeader,
-} from '@havemind/protocol';
 import type Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { buildApp } from '../app.js';
+import type { buildApp } from '../app.js';
 import { BlobStore } from '../blob-store.js';
-import { parseServerConfig } from '../config.js';
-import { openDatabase } from '../db.js';
-import { runMigrations } from '../migrations.js';
 import { RevisionRepository } from '../revision-repository.js';
+import {
+  ACCESS_TTL_SECONDS,
+  createTestApp,
+  definedOnly,
+  makeTempDir,
+  mintAccessToken,
+  openMigratedDatabase,
+  pushRevisions,
+  REFRESH_TTL_SECONDS,
+  releaseTestResources,
+  requestRejoinGrant as requestGrant,
+  revisionEntry,
+  revisionHeader,
+  rowSeeder,
+} from '../test/fixtures/server-fixtures.js';
 import { InvitationService } from './invitations.js';
 import { SessionRepository } from './session-repository.js';
 import { generateRefreshToken, hashRefreshToken } from './tokens.js';
 
-const TEST_ENV = {
-  HAVEMIND_API_BASE_URL: 'https://sync.example.test/api/v1',
-  HAVEMIND_SERVER_NAME: 'Test Havemind',
-} as const;
-
-const ACCESS_TTL_SECONDS = 600;
-const REFRESH_TTL_SECONDS = 24 * 60 * 60;
 const START_TIME = '2026-07-21T03:00:00.000Z';
 
 const OWNER_USER = '93000000-0000-4000-8000-0000000000a1';
@@ -38,13 +37,6 @@ const INVITEE_MEMBERSHIP = '93000000-0000-4000-8000-0000000000b4';
 const FILE_ID = '93000000-0000-4000-8000-0000000000c5';
 const REVISION_ID = '93000000-0000-4000-8000-000000000001';
 
-const SEMANTICS = Object.freeze({
-  pathNormalization: 'nfc-lowercase-v1',
-  payloadFormat: 'revision-payload-v1',
-  provenanceRecipe: 'source-range-v1',
-  syncSemantics: 'dag-cas-v1',
-} as const);
-
 interface Fixture {
   readonly clock: { ms: number };
   readonly database: Database.Database;
@@ -56,59 +48,9 @@ interface Fixture {
   readonly inviteeAccessToken: string;
 }
 
-const databases: Database.Database[] = [];
-const temporaryDirectories: string[] = [];
-const applications: Array<ReturnType<typeof buildApp>> = [];
-
-function insertUser(db: Database.Database, id: string, name: string, owner: 0 | 1): void {
-  db.prepare(
-    `INSERT INTO users (id, display_name, is_instance_owner, status, created_at, revoked_at)
-     VALUES (?, ?, ?, 'active', ?, NULL)`,
-  ).run(id, name, owner, START_TIME);
-}
-
-function insertDevice(db: Database.Database, id: string, userId: string, name: string): void {
-  db.prepare(
-    `INSERT INTO devices (id, user_id, display_name, public_key, status, created_at, approved_at, revoked_at)
-     VALUES (?, ?, ?, ?, 'approved', ?, ?, NULL)`,
-  ).run(id, userId, name, Buffer.alloc(32, 0x44), START_TIME, START_TIME);
-}
-
-function insertMembership(
-  db: Database.Database,
-  id: string,
-  userId: string,
-  role: 'owner' | 'editor',
-): void {
-  db.prepare(
-    `INSERT INTO memberships (id, vault_id, user_id, role, status, created_at, revoked_at)
-     VALUES (?, ?, ?, ?, 'active', ?, NULL)`,
-  ).run(id, VAULT, userId, role, START_TIME);
-}
-
-function mintAccessToken(
-  db: Database.Database,
-  sessions: SessionRepository,
-  userId: string,
-  deviceId: string,
-): string {
-  const issue = db.transaction(() =>
-    sessions.createInitialSessionInCurrentTransaction({
-      deviceId,
-      initialRefreshToken: generateRefreshToken(),
-      refreshTokenTtlSeconds: REFRESH_TTL_SECONDS,
-      userId,
-    }),
-  );
-  return issue.immediate().accessToken;
-}
-
 function makeFixture(): Fixture {
-  const directory = mkdtempSync(join(tmpdir(), 'havemind-revoke-routes-'));
-  temporaryDirectories.push(directory);
-  const database = openDatabase(join(directory, 'havemind.sqlite'));
-  databases.push(database);
-  runMigrations(database);
+  const directory = makeTempDir('havemind-revoke-routes-');
+  const database = openMigratedDatabase(directory);
 
   const clock = { ms: Date.parse(START_TIME) };
   const now = (): Date => new Date(clock.ms);
@@ -124,26 +66,20 @@ function makeFixture(): Fixture {
   const blobStore = new BlobStore(join(directory, 'blobs'));
   const revisions = new RevisionRepository(database, blobStore, { now });
 
+  const { insertDevice, insertMembership, insertUser, insertVault } = rowSeeder(
+    START_TIME,
+    Buffer.alloc(32, 0x44),
+  );
   insertUser(database, OWNER_USER, 'Alice', 1);
   insertUser(database, INVITEE_USER, 'Magda', 0);
   insertDevice(database, OWNER_DEVICE, OWNER_USER, 'Alice Laptop');
   insertDevice(database, INVITEE_DEVICE, INVITEE_USER, 'Magda Laptop');
-  database
-    .prepare(
-      `INSERT INTO vaults (id, display_name, write_epoch, next_server_sequence, created_at, deleted_at)
-       VALUES (?, ?, 0, 1, ?, NULL)`,
-    )
-    .run(VAULT, 'Shared Vault', START_TIME);
-  insertMembership(database, OWNER_MEMBERSHIP, OWNER_USER, 'owner');
-  insertMembership(database, INVITEE_MEMBERSHIP, INVITEE_USER, 'editor');
+  insertVault(database, VAULT, 'Shared Vault');
+  insertMembership(database, OWNER_MEMBERSHIP, VAULT, OWNER_USER, 'owner');
+  insertMembership(database, INVITEE_MEMBERSHIP, VAULT, INVITEE_USER, 'editor');
 
   const ownerAccessToken = mintAccessToken(database, sessions, OWNER_USER, OWNER_DEVICE);
-  const inviteeAccessToken = mintAccessToken(
-    database,
-    sessions,
-    INVITEE_USER,
-    INVITEE_DEVICE,
-  );
+  const inviteeAccessToken = mintAccessToken(database, sessions, INVITEE_USER, INVITEE_DEVICE);
 
   return {
     blobStore,
@@ -161,25 +97,18 @@ function createApp(
   fixture: Fixture,
   rateLimit?: { maxRequests: number; windowMs: number },
 ) {
-  const config = parseServerConfig(TEST_ENV);
-  const app = buildApp({
-    auth: {
-      clientKey: () => 'fixed-test-client',
+  return createTestApp({
+    database: fixture.database,
+    invitations: fixture.invitations,
+    now: () => new Date(fixture.clock.ms),
+    ...definedOnly({ rateLimit }),
+    sessions: fixture.sessions,
+    sync: {
+      blobStore: fixture.blobStore,
       database: fixture.database,
-      invitations: fixture.invitations,
-      now: () => new Date(fixture.clock.ms),
-      ...(rateLimit === undefined ? {} : { rateLimit }),
-      sessions: fixture.sessions,
-      sync: {
-        blobStore: fixture.blobStore,
-        database: fixture.database,
-        revisions: fixture.revisions,
-      },
+      revisions: fixture.revisions,
     },
-    config,
   });
-  applications.push(app);
-  return app;
 }
 
 function revoke(
@@ -191,19 +120,6 @@ function revoke(
     headers: { authorization: `Bearer ${token}` },
     method: 'POST',
     url: `/owner/memberships/${membershipId}/revoke`,
-  });
-}
-
-function requestGrant(
-  app: ReturnType<typeof buildApp>,
-  token: string,
-  membershipId: string,
-) {
-  return app.inject({
-    body: { membershipId },
-    headers: { authorization: `Bearer ${token}` },
-    method: 'POST',
-    url: '/owner/rejoin-grants',
   });
 }
 
@@ -223,38 +139,14 @@ function redeem(app: ReturnType<typeof buildApp>, refreshTokenHash: string) {
   });
 }
 
-function inviteeHeader(): ProtectedRevisionHeader {
-  return {
-    expectedDeviceId: INVITEE_DEVICE,
-    expectedMemberId: INVITEE_MEMBERSHIP,
-    fileId: FILE_ID,
-    parentRevisionIds: [],
-    payloadEncoding: 'plaintext-json-v1',
-    protocol: PROTOCOL_VERSION,
-    revisionId: REVISION_ID,
-    semantics: SEMANTICS,
-    vaultId: VAULT,
-  };
-}
-
 async function pushInviteeRevision(
   app: ReturnType<typeof buildApp>,
   token: string,
 ) {
-  return app.inject({
-    headers: { authorization: `Bearer ${token}` },
-    method: 'POST',
-    payload: {
-      revisions: [
-        {
-          header: inviteeHeader(),
-          idempotencyKey: 'k1',
-          payload: Buffer.from('opaque-invitee-1', 'utf8').toString('base64'),
-        },
-      ],
-    },
-    url: `/vaults/${VAULT}/revisions`,
-  });
+  const author = { deviceId: INVITEE_DEVICE, membershipId: INVITEE_MEMBERSHIP };
+  return pushRevisions(app, token, VAULT, [
+    revisionEntry(revisionHeader(VAULT, author, REVISION_ID, FILE_ID), 'k1', 'opaque-invitee-1'),
+  ]);
 }
 
 function pullEvents(app: ReturnType<typeof buildApp>, token: string) {
@@ -265,20 +157,7 @@ function pullEvents(app: ReturnType<typeof buildApp>, token: string) {
   });
 }
 
-afterEach(async () => {
-  while (applications.length > 0) {
-    await applications.pop()?.close();
-  }
-  while (databases.length > 0) {
-    databases.pop()?.close();
-  }
-  while (temporaryDirectories.length > 0) {
-    const directory = temporaryDirectories.pop();
-    if (directory !== undefined) {
-      rmSync(directory, { force: true, recursive: true });
-    }
-  }
-});
+afterEach(releaseTestResources);
 
 describe('POST /owner/memberships/:membershipId/revoke', () => {
   it('lets an owner revoke a member and flips membership + device to revoked', async () => {

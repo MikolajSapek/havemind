@@ -1,18 +1,29 @@
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { PROTOCOL_VERSION, type ProtectedRevisionHeader } from '@havemind/protocol';
 import type Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { buildApp } from '../app.js';
+import type { buildApp } from '../app.js';
 import { BlobStore } from '../blob-store.js';
-import { parseServerConfig } from '../config.js';
-import { openDatabase } from '../db.js';
-import { runMigrations } from '../migrations.js';
 import { RevisionRepository } from '../revision-repository.js';
 import { VaultWakeRegistry } from '../sync/vault-wake-registry.js';
+import {
+  ACCESS_TTL_SECONDS,
+  createTestApp,
+  deviceStatus,
+  familyStatus,
+  liveAccessTokenCount,
+  makeTempDir,
+  membershipStatus,
+  openMigratedDatabase,
+  openSession,
+  pushRevisions,
+  REFRESH_TTL_SECONDS,
+  releaseTestResources,
+  revisionEntry,
+  revisionHeader,
+  rowSeeder,
+} from '../test/fixtures/server-fixtures.js';
 import { InvitationService } from './invitations.js';
 import { RejoinGrantService } from './rejoin-grants.js';
 import { SessionRepository } from './session-repository.js';
@@ -21,7 +32,6 @@ import {
   generateRejoinSecret,
   hashRefreshToken,
   hashRejoinSecret,
-  type RejoinSecret,
 } from './tokens.js';
 
 /**
@@ -37,11 +47,6 @@ import {
  * regression in the service SQL.
  */
 
-const TEST_ENV = {
-  HAVEMIND_API_BASE_URL: 'https://sync.example.test/api/v1',
-  HAVEMIND_SERVER_NAME: 'Test Havemind',
-} as const;
-
 const START_TIME = '2026-07-28T03:00:00.000Z';
 /** Vault B is younger than vault A, so `loadFirstActiveVault` resolves A. */
 const VAULT_B_TIME = '2026-07-28T04:00:00.000Z';
@@ -51,8 +56,6 @@ const VAULT_B_TIME = '2026-07-28T04:00:00.000Z';
  * device, which is exactly the bug the rejoin tests below pin down.
  */
 const LATER_APPROVAL_TIME = '2026-07-28T05:00:00.000Z';
-const ACCESS_TTL_SECONDS = 600;
-const REFRESH_TTL_SECONDS = 24 * 60 * 60;
 
 const OWNER_A_USER = 'c1000000-0000-4000-8000-0000000000a1';
 const OWNER_A_DEVICE = 'c1000000-0000-4000-8000-0000000000a2';
@@ -87,12 +90,10 @@ const REVISION_B1 = 'c1000000-0000-4000-8000-000000000002';
 const MEMBER_A_REJOIN_SECRET = generateRejoinSecret();
 const MEMBER_B_REJOIN_SECRET = generateRejoinSecret();
 
-const SEMANTICS = Object.freeze({
-  pathNormalization: 'nfc-lowercase-v1',
-  payloadFormat: 'revision-payload-v1',
-  provenanceRecipe: 'source-range-v1',
-  syncSemantics: 'dag-cas-v1',
-} as const);
+const { insertDevice, insertMembership, insertUser, insertVault } = rowSeeder(
+  START_TIME,
+  Buffer.alloc(32, 0x44),
+);
 
 interface Actor {
   readonly userId: string;
@@ -120,242 +121,76 @@ interface Fixture {
   readonly soloInB: Actor;
 }
 
-const databases: Database.Database[] = [];
-const temporaryDirectories: string[] = [];
-const applications: Array<ReturnType<typeof buildApp>> = [];
-
-function insertUser(
-  database: Database.Database,
-  id: string,
-  name: string,
-  isInstanceOwner: 0 | 1,
-): void {
-  database
-    .prepare(
-      `INSERT INTO users (id, display_name, is_instance_owner, status, created_at, revoked_at)
-       VALUES (?, ?, ?, 'active', ?, NULL)`,
-    )
-    .run(id, name, isInstanceOwner, START_TIME);
-}
-
-function insertVault(
-  database: Database.Database,
-  id: string,
-  name: string,
-  createdAt: string,
-): void {
-  database
-    .prepare(
-      `INSERT INTO vaults (id, display_name, write_epoch, next_server_sequence, created_at, deleted_at)
-       VALUES (?, ?, 0, 1, ?, NULL)`,
-    )
-    .run(id, name, createdAt);
-}
-
-function insertMembership(
-  database: Database.Database,
-  id: string,
-  vaultId: string,
-  userId: string,
-  role: 'owner' | 'editor',
-  createdAt: string,
-): void {
-  database
-    .prepare(
-      `INSERT INTO memberships (id, vault_id, user_id, role, status, created_at, revoked_at)
-       VALUES (?, ?, ?, ?, 'active', ?, NULL)`,
-    )
-    .run(id, vaultId, userId, role, createdAt);
-}
-
-/**
- * Inserts an approved device. `vaultId` is the migration-007 scope: `null`
- * models a device onboarded before the column existed, whose vault cannot be
- * proven. `approvedAt` is explicit because the rejoin binding orders on it.
- */
-function insertDevice(
-  database: Database.Database,
-  options: {
-    readonly id: string;
-    readonly userId: string;
-    readonly name: string;
-    readonly vaultId: string | null;
-    readonly approvedAt?: string;
-    readonly rejoinSecret?: RejoinSecret;
-  },
-): void {
-  database
-    .prepare(
-      `INSERT INTO devices (
-         id, user_id, display_name, public_key, status,
-         created_at, approved_at, revoked_at, rejoin_secret_hash, vault_id
-       ) VALUES (?, ?, ?, ?, 'approved', ?, ?, NULL, ?, ?)`,
-    )
-    .run(
-      options.id,
-      options.userId,
-      options.name,
-      Buffer.alloc(32, 0x44),
-      START_TIME,
-      options.approvedAt ?? START_TIME,
-      options.rejoinSecret === undefined
-        ? null
-        : hashRejoinSecret(options.rejoinSecret),
-      options.vaultId,
-    );
-}
-
-/** Opens a live session, keeping the raw refresh token the client would hold. */
-function openSession(
-  database: Database.Database,
-  sessions: SessionRepository,
-  userId: string,
-  deviceId: string,
-): { accessToken: string; refreshToken: string; familyId: string } {
-  const refreshToken = generateRefreshToken();
-  const issued = database.transaction(() =>
-    sessions.createInitialSessionInCurrentTransaction({
-      deviceId,
-      initialRefreshToken: refreshToken,
-      refreshTokenTtlSeconds: REFRESH_TTL_SECONDS,
-      userId,
-    }),
-  );
-  const result = issued.immediate();
-  return {
-    accessToken: result.accessToken,
-    familyId: result.familyId,
-    refreshToken,
-  };
-}
-
 function makeActor(
   fixture: Pick<Fixture, 'database' | 'sessions'>,
   userId: string,
   deviceId: string,
   membershipId: string,
 ): Actor {
-  const session = openSession(
-    fixture.database,
-    fixture.sessions,
-    userId,
-    deviceId,
-  );
+  const session = openSession(fixture.database, fixture.sessions, userId, deviceId);
   return { ...session, deviceId, membershipId, userId };
 }
 
 function makeFixture(): Fixture {
-  const directory = mkdtempSync(join(tmpdir(), 'havemind-multi-vault-'));
-  temporaryDirectories.push(directory);
-  const database = openDatabase(join(directory, 'havemind.sqlite'));
-  databases.push(database);
-  runMigrations(database);
+  const directory = makeTempDir('havemind-multi-vault-');
+  const database = openMigratedDatabase(directory);
 
   const now = (): Date => new Date(START_TIME);
+  const ttls = {
+    accessTokenTtlSeconds: ACCESS_TTL_SECONDS,
+    now,
+    refreshTokenTtlSeconds: REFRESH_TTL_SECONDS,
+  };
   const sessions = new SessionRepository(database, {
     accessTokenTtlSeconds: ACCESS_TTL_SECONDS,
     now,
   });
-  const invitations = new InvitationService(database, {
-    accessTokenTtlSeconds: ACCESS_TTL_SECONDS,
-    now,
-    refreshTokenTtlSeconds: REFRESH_TTL_SECONDS,
-  });
+  const invitations = new InvitationService(database, ttls);
   const blobStore = new BlobStore(join(directory, 'blobs'));
   const revisions = new RevisionRepository(database, blobStore, { now });
-  const rejoin = new RejoinGrantService(database, {
-    accessTokenTtlSeconds: ACCESS_TTL_SECONDS,
-    now,
-    refreshTokenTtlSeconds: REFRESH_TTL_SECONDS,
-  });
+  const rejoin = new RejoinGrantService(database, ttls);
 
   insertVault(database, VAULT_A, 'Vault A', START_TIME);
   insertVault(database, VAULT_B, 'Vault B', VAULT_B_TIME);
 
   insertUser(database, OWNER_A_USER, 'Alice (owner A)', 1);
-  insertDevice(database, {
-    id: OWNER_A_DEVICE,
-    name: 'Alice Laptop',
-    userId: OWNER_A_USER,
-    vaultId: VAULT_A,
+  insertDevice(database, OWNER_A_DEVICE, OWNER_A_USER, 'Alice Laptop', { vaultId: VAULT_A });
+  insertMembership(database, OWNER_A_MEMBERSHIP, VAULT_A, OWNER_A_USER, 'owner', {
+    createdAt: START_TIME,
   });
-  insertMembership(
-    database,
-    OWNER_A_MEMBERSHIP,
-    VAULT_A,
-    OWNER_A_USER,
-    'owner',
-    START_TIME,
-  );
 
   insertUser(database, OWNER_B_USER, 'Bianca (owner B)', 0);
-  insertDevice(database, {
-    id: OWNER_B_DEVICE,
-    name: 'Bianca Laptop',
-    userId: OWNER_B_USER,
-    vaultId: VAULT_B,
+  insertDevice(database, OWNER_B_DEVICE, OWNER_B_USER, 'Bianca Laptop', { vaultId: VAULT_B });
+  insertMembership(database, OWNER_B_MEMBERSHIP, VAULT_B, OWNER_B_USER, 'owner', {
+    createdAt: VAULT_B_TIME,
   });
-  insertMembership(
-    database,
-    OWNER_B_MEMBERSHIP,
-    VAULT_B,
-    OWNER_B_USER,
-    'owner',
-    VAULT_B_TIME,
-  );
 
   // The dual-vault member: one membership and one device per vault. The vault-B
   // device is approved later than the vault-A one on purpose.
   insertUser(database, MEMBER_USER, 'Magda (member of both)', 0);
-  insertDevice(database, {
-    id: MEMBER_A_DEVICE,
-    name: 'Magda Laptop (vault A)',
-    rejoinSecret: MEMBER_A_REJOIN_SECRET,
-    userId: MEMBER_USER,
+  insertDevice(database, MEMBER_A_DEVICE, MEMBER_USER, 'Magda Laptop (vault A)', {
+    rejoinSecretHash: hashRejoinSecret(MEMBER_A_REJOIN_SECRET),
     vaultId: VAULT_A,
   });
-  insertDevice(database, {
+  insertDevice(database, MEMBER_B_DEVICE, MEMBER_USER, 'Magda Tablet (vault B)', {
     approvedAt: LATER_APPROVAL_TIME,
-    id: MEMBER_B_DEVICE,
-    name: 'Magda Tablet (vault B)',
-    rejoinSecret: MEMBER_B_REJOIN_SECRET,
-    userId: MEMBER_USER,
+    rejoinSecretHash: hashRejoinSecret(MEMBER_B_REJOIN_SECRET),
     vaultId: VAULT_B,
   });
-  insertMembership(
-    database,
-    MEMBER_A_MEMBERSHIP,
-    VAULT_A,
-    MEMBER_USER,
-    'editor',
-    START_TIME,
-  );
-  insertMembership(
-    database,
-    MEMBER_B_MEMBERSHIP,
-    VAULT_B,
-    MEMBER_USER,
-    'editor',
-    VAULT_B_TIME,
-  );
+  insertMembership(database, MEMBER_A_MEMBERSHIP, VAULT_A, MEMBER_USER, 'editor', {
+    createdAt: START_TIME,
+  });
+  insertMembership(database, MEMBER_B_MEMBERSHIP, VAULT_B, MEMBER_USER, 'editor', {
+    createdAt: VAULT_B_TIME,
+  });
 
   // A single-vault member of vault B: their bootstrap must never fall back to
   // vault A just because vault A is the older vault on the instance.
   insertUser(database, SOLO_USER, 'Sonia (vault B only)', 0);
-  insertDevice(database, {
-    id: SOLO_DEVICE,
-    name: 'Sonia Laptop',
-    userId: SOLO_USER,
-    vaultId: VAULT_B,
+  insertDevice(database, SOLO_DEVICE, SOLO_USER, 'Sonia Laptop', { vaultId: VAULT_B });
+  insertMembership(database, SOLO_MEMBERSHIP, VAULT_B, SOLO_USER, 'editor', {
+    createdAt: VAULT_B_TIME,
   });
-  insertMembership(
-    database,
-    SOLO_MEMBERSHIP,
-    VAULT_B,
-    SOLO_USER,
-    'editor',
-    VAULT_B_TIME,
-  );
 
   const base = { database, sessions };
   return {
@@ -375,44 +210,19 @@ function makeFixture(): Fixture {
 }
 
 function createApp(fixture: Fixture): ReturnType<typeof buildApp> {
-  const app = buildApp({
-    auth: {
-      clientKey: () => 'fixed-test-client',
+  return createTestApp({
+    database: fixture.database,
+    invitations: fixture.invitations,
+    now: () => new Date(START_TIME),
+    sessions: fixture.sessions,
+    sync: {
+      blobStore: fixture.blobStore,
       database: fixture.database,
-      invitations: fixture.invitations,
-      now: () => new Date(START_TIME),
-      sessions: fixture.sessions,
-      sync: {
-        blobStore: fixture.blobStore,
-        database: fixture.database,
-        revisions: fixture.revisions,
-        wakeRegistry: fixture.wakeRegistry,
-        waitTimeoutMs: 200,
-      },
+      revisions: fixture.revisions,
+      wakeRegistry: fixture.wakeRegistry,
+      waitTimeoutMs: 200,
     },
-    config: parseServerConfig(TEST_ENV),
   });
-  applications.push(app);
-  return app;
-}
-
-function header(
-  vaultId: string,
-  actor: Actor,
-  revisionId: string,
-  fileId: string,
-): ProtectedRevisionHeader {
-  return {
-    expectedDeviceId: actor.deviceId,
-    expectedMemberId: actor.membershipId,
-    fileId,
-    parentRevisionIds: [],
-    payloadEncoding: 'plaintext-json-v1',
-    protocol: PROTOCOL_VERSION,
-    revisionId,
-    semantics: SEMANTICS,
-    vaultId,
-  };
 }
 
 function push(
@@ -423,20 +233,13 @@ function push(
   fileId: string,
   content: string,
 ) {
-  return app.inject({
-    headers: { authorization: `Bearer ${actor.accessToken}` },
-    method: 'POST',
-    payload: {
-      revisions: [
-        {
-          header: header(vaultId, actor, revisionId, fileId),
-          idempotencyKey: `${vaultId}:${revisionId}`,
-          payload: Buffer.from(content, 'utf8').toString('base64'),
-        },
-      ],
-    },
-    url: `/vaults/${vaultId}/revisions`,
-  });
+  return pushRevisions(app, actor.accessToken, vaultId, [
+    revisionEntry(
+      revisionHeader(vaultId, actor, revisionId, fileId),
+      `${vaultId}:${revisionId}`,
+      content,
+    ),
+  ]);
 }
 
 function getEvents(
@@ -469,50 +272,7 @@ function bootstrapFileIds(response: { json: () => unknown }): string[] {
   return body.items.map((item) => item.fileId);
 }
 
-function deviceStatus(fixture: Fixture, deviceId: string): string {
-  return (
-    fixture.database
-      .prepare('SELECT status FROM devices WHERE id = ?')
-      .get(deviceId) as { status: string }
-  ).status;
-}
-
-function familyStatus(fixture: Fixture, familyId: string): string {
-  return (
-    fixture.database
-      .prepare('SELECT status FROM refresh_token_families WHERE id = ?')
-      .get(familyId) as { status: string }
-  ).status;
-}
-
-function membershipStatus(fixture: Fixture, membershipId: string): string {
-  return (
-    fixture.database
-      .prepare('SELECT status FROM memberships WHERE id = ?')
-      .get(membershipId) as { status: string }
-  ).status;
-}
-
-function liveAccessTokenCount(fixture: Fixture, deviceId: string): number {
-  return (
-    fixture.database
-      .prepare(
-        `SELECT COUNT(*) AS live FROM access_tokens
-         WHERE device_id = ? AND revoked_at IS NULL`,
-      )
-      .get(deviceId) as { live: number }
-  ).live;
-}
-
-afterEach(async () => {
-  await Promise.all(applications.splice(0).map(async (app) => app.close()));
-  for (const database of databases.splice(0)) {
-    database.close();
-  }
-  for (const directory of temporaryDirectories.splice(0)) {
-    rmSync(directory, { force: true, recursive: true });
-  }
-});
+afterEach(releaseTestResources);
 
 describe('multi-vault isolation: revision visibility', () => {
   it('never surfaces a vault-A revision in vault B events, and keeps it readable in A', async () => {
@@ -743,11 +503,8 @@ describe('multi-vault isolation: rejoin grants bind within their own vault', () 
     // An unscoped device of the same member, approved most recently of all. A
     // device whose vault is proven to be A must still win, so the ambiguous
     // legacy row is only ever a last resort.
-    insertDevice(fixture.database, {
+    insertDevice(fixture.database, LEGACY_DEVICE, MEMBER_USER, 'Magda Old Laptop (no scope)', {
       approvedAt: LATER_APPROVAL_TIME,
-      id: LEGACY_DEVICE,
-      name: 'Magda Old Laptop (no scope)',
-      userId: MEMBER_USER,
       vaultId: null,
     });
 

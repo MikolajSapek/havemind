@@ -16,7 +16,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { Writable } from 'node:stream';
+import { Writable } from 'node:stream';
 
 import { PROTOCOL_VERSION, type ProtectedRevisionHeader } from '@havemind/protocol';
 import type Database from 'better-sqlite3';
@@ -303,6 +303,50 @@ export function seedTwoTenants(
 }
 
 // ---------------------------------------------------------------------------
+// Row probes
+// ---------------------------------------------------------------------------
+
+interface HasDatabase {
+  readonly database: Database.Database;
+}
+
+function statusOf(
+  fixture: HasDatabase,
+  table: 'devices' | 'memberships' | 'refresh_token_families',
+  id: string,
+): string {
+  return (
+    fixture.database.prepare(`SELECT status FROM ${table} WHERE id = ?`).get(id) as {
+      status: string;
+    }
+  ).status;
+}
+
+export function deviceStatus(fixture: HasDatabase, deviceId: string): string {
+  return statusOf(fixture, 'devices', deviceId);
+}
+
+export function familyStatus(fixture: HasDatabase, familyId: string): string {
+  return statusOf(fixture, 'refresh_token_families', familyId);
+}
+
+export function membershipStatus(fixture: HasDatabase, membershipId: string): string {
+  return statusOf(fixture, 'memberships', membershipId);
+}
+
+/** Access tokens issued to `deviceId` that are not revoked. */
+export function liveAccessTokenCount(fixture: HasDatabase, deviceId: string): number {
+  return (
+    fixture.database
+      .prepare(
+        `SELECT COUNT(*) AS live FROM access_tokens
+         WHERE device_id = ? AND revoked_at IS NULL`,
+      )
+      .get(deviceId) as { live: number }
+  ).live;
+}
+
+// ---------------------------------------------------------------------------
 // App
 // ---------------------------------------------------------------------------
 
@@ -323,6 +367,28 @@ export interface TestAppOptions {
    */
   readonly fixedClientKey?: boolean;
   readonly loggerStream?: Writable | undefined;
+}
+
+/** A logger sink that keeps everything written to it. */
+export function collectLogs(): { writer: Writable; read: () => string } {
+  const chunks: string[] = [];
+  const writer = new Writable({
+    write(chunk, _encoding, callback) {
+      chunks.push(String(chunk));
+      callback();
+    },
+  });
+  return { read: () => chunks.join(''), writer };
+}
+
+/** `POST /owner/rejoin-grants` for `membershipId`, as the owner holding `token`. */
+export function requestRejoinGrant(app: FastifyInstance, token: string, membershipId: string) {
+  return app.inject({
+    body: { membershipId },
+    headers: { authorization: `Bearer ${token}` },
+    method: 'POST',
+    url: '/owner/rejoin-grants',
+  });
 }
 
 /** `buildApp` over `TEST_ENV`, tracked for `releaseTestResources`. */
