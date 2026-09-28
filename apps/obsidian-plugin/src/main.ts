@@ -1093,9 +1093,8 @@ export default class HavemindPlugin extends Plugin {
 
   /**
    * Command-palette "Sync now": force an immediate cycle instead of waiting for
-   * the loop's own schedule. The connection handle exposes no direct sync entry
-   * point, so this reuses the panel's "Retry now" path, stop the running loop,
-   * start a fresh one, which is exactly the forced cycle the button performs.
+   * the loop's own schedule. A live loop runs one cycle through the handle;
+   * anything else falls back to the panel's "Retry now" rebuild.
    *
    * The palette greys the command out while nothing is connected, so this guard
    * is the belt to that braces: a direct invocation explains itself rather than
@@ -1108,8 +1107,12 @@ export default class HavemindPlugin extends Plugin {
       return;
     }
     // One cycle, not a rebuild: rebuilding aborts work in flight and re-reads
-    // the whole vault. The no-op handle has no loop, so it is rebuilt instead.
-    if (connection.syncNow !== undefined) {
+    // the whole vault. The no-op handle has no loop, and a refused session has
+    // stopped its loop for good, so both are rebuilt instead.
+    if (
+      connection.syncNow !== undefined &&
+      this.connectionStatus !== 'reconnect-required'
+    ) {
       await connection.syncNow();
       return;
     }

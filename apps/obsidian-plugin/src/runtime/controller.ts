@@ -91,6 +91,8 @@ export class HavemindSyncController {
   private consecutiveFailures = 0;
   private lastObservedCycleId = 0;
   private cleanupDone = false;
+  /** Set by `stop()`; a stopped controller never runs or reports a cycle again. */
+  private stopped = false;
   /** Disposer for the visibility listener registered in `start()`. */
   private disposeVisible: (() => void) | null = null;
 
@@ -124,6 +126,7 @@ export class HavemindSyncController {
   }
 
   stop(): void {
+    this.stopped = true;
     this.scheduler.stop();
     this.disposeVisible?.();
     this.disposeVisible = null;
@@ -158,6 +161,9 @@ export class HavemindSyncController {
   }
 
   async syncNow(): Promise<void> {
+    // A stopped runner answers with a neutral 'synced' result; reporting it
+    // would paint Synced over a refused session.
+    if (this.stopped) return;
     this.report('syncing');
     const result = await this.options.runner.trigger();
     this.observeCycle(result);
@@ -172,6 +178,8 @@ export class HavemindSyncController {
    * consecutive failures declare Offline.
    */
   observeCycle(result: SyncCycleResult): void {
+    // A cycle that finishes after teardown describes a connection that is gone.
+    if (this.stopped) return;
     // Ignore a stale or duplicate cycle: a coalesced trigger and a backoff retry
     // can both deliver the same result, and an out-of-order late arrival must
     // never override a newer outcome.

@@ -165,6 +165,24 @@ describe('command palette actions', () => {
     );
   });
 
+  // A refused session stops the loop for good, so one more cycle on it can
+  // only report a neutral result. Sync now must reconnect, as it did before
+  // it learned to run a single cycle.
+  it('rebuilds the connection from Sync now when the session was refused', async () => {
+    const plugin = newPlugin();
+    await plugin.onload();
+    const spy = installFakeConnection(plugin);
+    (plugin as unknown as { connectionStatus: string }).connectionStatus =
+      'reconnect-required';
+
+    command('sync-now').checkCallback?.(false);
+    await flush();
+
+    expect(spy.syncs).toBe(0);
+    expect(spy.stops).toBe(1);
+    expect(spy.starts).toBe(1);
+  });
+
   it('stops the live loop from the Disconnect command', async () => {
     const plugin = newPlugin();
     await plugin.onload();

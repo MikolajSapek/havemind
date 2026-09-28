@@ -353,4 +353,33 @@ const OFFLINE: SyncCycleResult = { ...CLEAN, status: 'offline' };
     await Promise.resolve();
     expect(runner.triggerCount).toBe(1);
   });
+
+  // Sync now reaches a stopped controller through the connection handle. A
+  // stopped runner answers with a neutral 'synced' result, which used to be
+  // reported as Synced with a fresh timestamp over a dead session.
+  it('never reports Synced from a sync requested after the loop stopped', async () => {
+    const { controller, runner, reported } = build();
+    runner.result = { ...CLEAN, status: 'unauthenticated' };
+    controller.start();
+    await Promise.resolve();
+    await Promise.resolve();
+    runner.result = CLEAN;
+
+    await controller.syncNow();
+
+    expect(reported.at(-1)).toBe('reconnect-required');
+    expect(reported).not.toContain('synced');
+    expect(runner.triggerCount).toBe(1);
+  });
+
+  it('ignores a cycle that completes after teardown', () => {
+    const { controller, reported } = build();
+    controller.start();
+    controller.stop();
+    const before = reported.length;
+
+    controller.observeCycle({ ...CLEAN, cycleId: 99 });
+
+    expect(reported).toHaveLength(before);
+  });
 });
