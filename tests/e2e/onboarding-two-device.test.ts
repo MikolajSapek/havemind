@@ -419,8 +419,6 @@ class DeviceRuntime {
         deviceId: options.deviceId,
       },
       store,
-      enqueue: (envelope) => this.state.enqueue(envelope),
-      cancelUnsentMerge: (revisionId) => this.state.cancelUnsentMerge(revisionId),
       hasAuthoredRevision: (revisionId) => this.state.hasAuthoredRevision(revisionId),
       generateRevisionId: () => randomUUID(),
       // Seed the SHARED apply-store ownership+base for every file this device

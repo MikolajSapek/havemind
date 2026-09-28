@@ -8,6 +8,7 @@ import { createPersistPort } from './adapters/plugin-data-ports';
 import { createVaultFilePort } from './adapters/vault-file-port';
 import { DurableSyncState } from './sync-state';
 import { ApplyDeferredError } from './apply-deferred';
+import { memoryRecovery } from '../test/memory-recovery';
 
 const request = vi.hoisted(() => vi.fn());
 vi.mock('obsidian', async (importOriginal) => ({ ...await importOriginal<object>(), requestUrl: request }));
@@ -27,7 +28,7 @@ describe('client state investigation', () => {
     } as unknown as Plugin;
     const producer = new OutboxLocalChangeRepository({ identity: { vaultId: 'vault', memberId: 'member', deviceId: 'device' },
       store: { load: async () => ({ mappings: [], heads: {} }), save: async () => {} },
-      enqueue: async () => {}, generateRevisionId: () => 'unused' });
+      recovery: memoryRecovery(async () => {}), generateRevisionId: () => 'unused' });
     const { controller } = buildSyncController(plugin, {
       apiBaseUrl: 'https://example.invalid', vaultId: 'vault', getAuthToken: async () => 'test-token',
       resolveRevision: async () => { throw new Error('An empty cycle must not resolve payloads.'); },

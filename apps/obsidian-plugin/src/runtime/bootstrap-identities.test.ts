@@ -23,7 +23,7 @@ it('completes identity adoption after an interrupted shared-base write', async (
     const producer = new OutboxLocalChangeRepository({
       identity: { vaultId: 'vault', memberId: 'member', deviceId: 'device' },
       store: { load: async () => producerRaw, save: async (next) => { producerRaw = structuredClone(next); } },
-      recovery: state, enqueue: (envelope) => state.enqueue(envelope), generateRevisionId: () => 'unused',
+      recovery: state, generateRevisionId: () => 'unused',
     });
     const history = new RevisionHistory({ state,
       transport: { pull: async (after) => ({ cursor: 1, events: after === 0 ? [
@@ -64,7 +64,7 @@ function establishedDevice(localPaths: readonly string[]) {
   const producer = new OutboxLocalChangeRepository({
     identity: { vaultId: 'vault', memberId: 'member', deviceId: 'device' },
     store: { load: async () => producerRaw, save: async () => undefined },
-    recovery: state, enqueue: (envelope) => state.enqueue(envelope), generateRevisionId: () => 'unused',
+    recovery: state, generateRevisionId: () => 'unused',
   });
   const paths: Record<string, string> = { [MAPPED_ID]: 'known.md', [REMOTE_ONLY_ID]: 'new-on-pc.md', [UNTRACKED_ID]: 'local-only.md' };
   const events = [MAPPED_ID, REMOTE_ONLY_ID, UNTRACKED_ID].map((fileId, index) => ({

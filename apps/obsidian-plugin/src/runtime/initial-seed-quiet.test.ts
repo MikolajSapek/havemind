@@ -21,6 +21,7 @@ import { createRemoteApplyProducerSync } from './remote-apply-coordinator';
 import { DurableSyncState, type PersistedSyncState } from './sync-state';
 import { VaultApplyAdapter, type RemoteAppliedEvent } from './vault-apply';
 import type { RemoteEvent } from '../sync/sync-runner';
+import { memoryRecovery } from '../test/memory-recovery';
 
 const VAULT_ID = '11111111-1111-4111-8111-111111111111';
 const MEMBER_ID = '33333333-3333-4333-8333-333333333333';
@@ -133,9 +134,9 @@ describe('owner initial seed is quiet in the Activity feed', () => {
           };
         },
       },
-      enqueue: async (envelope) => {
+      recovery: memoryRecovery(async (envelope) => {
         outbox.push(envelope.revisionId);
-      },
+      }),
       generateRevisionId: () => globalThis.crypto.randomUUID(),
       onLocalMaterialized: (m) => applyLocalMaterialization(state, m),
       onLocalForgotten: (f) => forgetLocalMaterialization(state, f),

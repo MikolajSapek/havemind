@@ -29,6 +29,7 @@ import {
   type ProducerState,
 } from './outbox-repository';
 import { reconcileVaultState } from './reconciliation';
+import { memoryRecovery } from '../test/memory-recovery';
 
 const IDENTITY = {
   vaultId: '11111111-1111-4111-8111-111111111111',
@@ -94,9 +95,9 @@ function createProducer(vault: VaultSnapshotPort, maxPayloadBytes?: number) {
   const repository: LocalChangeRepository = new OutboxLocalChangeRepository({
     identity: IDENTITY,
     store,
-    enqueue: async (envelope) => {
+    recovery: memoryRecovery(async (envelope) => {
       enqueued.push(envelope);
-    },
+    }),
     generateRevisionId: () => {
       revisionCounter += 1;
       return `00000000-0000-4000-8000-00000000000${revisionCounter}`;

@@ -24,6 +24,7 @@ import {
 import type { OutboxEnvelope } from '../runtime/sync-state';
 import { OutboxLocalChangeRepository, type ProducerState } from './outbox-repository';
 import { reconcileVaultState } from './reconciliation';
+import { memoryRecovery } from '../test/memory-recovery';
 
 const IDENTITY = {
   vaultId: '11111111-1111-4111-8111-111111111111',
@@ -81,9 +82,9 @@ function makeHarness() {
   const repository = new OutboxLocalChangeRepository({
     identity: IDENTITY,
     store: new MemoryStore(),
-    enqueue: async (envelope) => {
+    recovery: memoryRecovery(async (envelope) => {
       enqueued.push(envelope);
-    },
+    }),
     generateRevisionId: () => {
       revCounter += 1;
       return `00000000-0000-4000-8000-00000000000${revCounter}`;

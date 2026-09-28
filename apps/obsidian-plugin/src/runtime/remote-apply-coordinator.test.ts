@@ -10,6 +10,7 @@ import {
   type AdoptableProducer,
 } from './remote-apply-coordinator';
 import { parseProducerState } from './obsidian-adapters';
+import { memoryRecovery } from '../test/memory-recovery';
 
 class FakeProducer implements AdoptableProducer {
   adopted: Array<{ mapping: LocalFileMapping; head: string }> = [];
@@ -129,7 +130,7 @@ describe('createRemoteApplyProducerSync', () => {
     const repository = new OutboxLocalChangeRepository({
       identity: { vaultId: 'v', memberId: 'm', deviceId: 'd' },
       store,
-      enqueue: async () => undefined,
+      recovery: memoryRecovery(async () => undefined),
       generateRevisionId: () => 'rev',
     });
     const sync = createRemoteApplyProducerSync(() => repository);

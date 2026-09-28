@@ -30,7 +30,7 @@ function setup() {
     } },
     onLocalMaterialized: (m) => applyLocalMaterialization(sync, m),
     onLocalForgotten: (m) => forgetLocalMaterialization(sync, m),
-    enqueue: (e) => sync.enqueue(e), hasAuthoredRevision: (id) => sync.hasAuthoredRevision(id),
+    hasAuthoredRevision: (id) => sync.hasAuthoredRevision(id),
     generateRevisionId: () => `00000000-0000-4000-8000-${String(++counter + 100).padStart(12, '0')}`,
   });
   return { state, producer, persist, payloads, corrupt,

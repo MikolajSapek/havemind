@@ -19,6 +19,7 @@ import {
   type ProducerStorePort,
 } from '../sync/outbox-repository';
 import { parseProducerState } from './obsidian-adapters';
+import { memoryRecovery } from '../test/memory-recovery';
 
 const PERSIST_KEY = 'syncState';
 // This suite exercises the pre-compaction, legacy rebase format.
@@ -361,7 +362,7 @@ describe('rebaseCanonicalizedHashes', () => {
     const repository = new OutboxLocalChangeRepository({
       identity: { vaultId: 'v', memberId: 'm', deviceId: 'd' },
       store,
-      enqueue: async () => undefined,
+      recovery: memoryRecovery(async () => undefined),
       generateRevisionId: () => 'rev',
     });
 

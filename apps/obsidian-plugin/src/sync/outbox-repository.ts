@@ -97,13 +97,11 @@ export interface LocalForget {
 }
 
 export interface OutboxLocalChangeRepositoryOptions {
-  readonly recovery?: ProducerRecoveryPort;
+  /** The durable journal every queue write goes through with its mapping. */
+  readonly recovery: ProducerRecoveryPort;
   readonly identity: PushIdentity;
   readonly store: ProducerStorePort;
-  readonly enqueue: (envelope: OutboxEnvelope) => Promise<void>;
   readonly generateRevisionId: () => string;
-  /** A history replay must not author merges on behalf of other devices. */
-  readonly cancelUnsentMerge?: (revisionId: string) => Promise<void>;
   readonly hasAuthoredRevision?: (revisionId: string) => Promise<boolean>;
   /**
    * Parents of a quarantined revision, undefined when it is not quarantined.
@@ -168,9 +166,9 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
   }
 
   private async recoverLocked(): Promise<void> {
-    for (const record of await this.options.recovery?.pendingProducerRecoveries() ?? []) {
+    for (const record of await this.options.recovery.pendingProducerRecoveries()) {
       if (this.activeApplies.has(record.id)) continue;
-      await this.options.recovery?.recoverProducerQueue(record.id);
+      await this.options.recovery.recoverProducerQueue(record.id);
       const current = await this.options.store.load();
       const ids = new Set(record.fileIds);
       const heads = Object.fromEntries(Object.entries(current.heads).filter(([id]) => !ids.has(id)));
@@ -178,7 +176,7 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
         mappings: [...current.mappings.filter((m) => !ids.has(m.fileId)), ...record.state.mappings],
         heads: { ...heads, ...record.state.heads },
       });
-      await this.options.recovery?.completeProducerRecovery(record.id);
+      await this.options.recovery.completeProducerRecovery(record.id);
     }
   }
 
@@ -194,28 +192,16 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
         state: { mappings: before.mappings.filter((m) => affected.has(m.fileId)),
           heads: Object.fromEntries(Object.entries(before.heads).filter(([id]) => affected.has(id))) },
       };
-      if (this.options.recovery !== undefined) {
-        await this.options.recovery.startProducerRecovery(record);
-        this.activeApplies.add(record.id);
-        const rollback = async (): Promise<void> => {
-          this.activeApplies.delete(record.id);
-          await this.recover();
-        };
-        return Object.assign(rollback, { complete: async () => {
-          await this.options.recovery?.completeProducerRecovery(record.id);
-          this.activeApplies.delete(record.id);
-        } });
-      }
-      // Compatibility for isolated adapters without the durable runtime port.
-      return () => this.mutations.runExclusive('state', async () => {
-        const current = await this.options.store.load();
-        const currentHead = current.heads[fileId];
-        if (currentHead !== undefined && currentHead !== before.heads[fileId]) await this.options.cancelUnsentMerge?.(currentHead);
-        await this.saveState({
-          mappings: [...current.mappings.filter((m) => !affected.has(m.fileId)), ...record.state.mappings],
-          heads: { ...Object.fromEntries(Object.entries(current.heads).filter(([id]) => !affected.has(id))), ...record.state.heads },
-        });
-      });
+      await this.options.recovery.startProducerRecovery(record);
+      this.activeApplies.add(record.id);
+      const rollback = async (): Promise<void> => {
+        this.activeApplies.delete(record.id);
+        await this.recover();
+      };
+      return Object.assign(rollback, { complete: async () => {
+        await this.options.recovery.completeProducerRecovery(record.id);
+        this.activeApplies.delete(record.id);
+      } });
     });
   }
 
@@ -226,7 +212,6 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
     await this.mutations.runExclusive('state', async () => {
       await this.recoverLocked();
       const recovery = this.options.recovery;
-      if (recovery === undefined) return;
       const current = await this.options.store.load();
       if (current.heads[input.mapping.fileId] !== input.expectedHead) return;
       const revisionId = input.existingRevisionId ?? this.options.generateRevisionId();
@@ -300,7 +285,7 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
         idempotencyKey: revisionId,
         ...(this.options.maxPayloadBytes === undefined ? {} : { maxPayloadBytes: this.options.maxPayloadBytes }),
       });
-      await (this.options.recovery?.enqueueAutomaticMerge.bind(this.options.recovery) ?? this.options.enqueue)({
+      await this.options.recovery.enqueueAutomaticMerge({
         header: built.header,
         idempotencyKey: built.idempotencyKey,
         payloadBase64: built.payloadBase64,
@@ -327,10 +312,6 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
    * `kind: 'resolution'` (not `'apply'`) because there is nothing to roll back:
    * this is a new local edit, so recovery must finish it forwards rather than
    * restore a previous state.
-   *
-   * With no recovery port wired the old two-write path is kept, so a caller
-   * that does not supply one (unit tests, the preview harness) behaves exactly
-   * as before.
    */
   private async commitWithRecovery(
     envelope: OutboxEnvelope,
@@ -338,12 +319,6 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
     operation: LocalChangeOperation,
   ): Promise<void> {
     const recovery = this.options.recovery;
-    if (recovery === undefined) {
-      await this.options.enqueue(envelope);
-      await this.saveState(next);
-      await this.seedSharedState(operation);
-      return;
-    }
     const record: ProducerRecovery = {
       id: this.options.generateRevisionId(),
       kind: 'resolution',

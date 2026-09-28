@@ -4,6 +4,7 @@ import { VaultChangeObserver, type VaultSnapshotPort } from '../obsidian/vault-a
 import { OutboxLocalChangeRepository, type ProducerState } from '../sync/outbox-repository';
 import { reconcileVaultState } from '../sync/reconciliation';
 import { parseProducerStateResult } from './adapters/producer-state';
+import { memoryRecovery } from '../test/memory-recovery';
 
 describe('metadata-only producer mappings', () => {
   it('loads legacy text and binary mappings without retaining their payloads or losing identity', () => {
@@ -35,7 +36,7 @@ describe('metadata-only producer mappings', () => {
     const repository = new OutboxLocalChangeRepository({
       identity: { vaultId: '00000000-0000-4000-8000-000000000001', memberId: '00000000-0000-4000-8000-000000000002', deviceId: '00000000-0000-4000-8000-000000000003' },
       store: { load: async () => stored, save: async (next) => { stored = structuredClone(next); } },
-      enqueue: async () => {},
+      recovery: memoryRecovery(async () => {}),
       generateRevisionId: () => `00000000-0000-4000-8000-${String(++counter).padStart(12, '0')}`,
     });
     const observer = new VaultChangeObserver({ repository, vault, clock: () => 1,

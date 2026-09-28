@@ -34,6 +34,7 @@ import {
 } from './sync-state';
 import { VaultApplyAdapter } from './vault-apply';
 import type { RemoteEvent } from '../sync/sync-runner';
+import { memoryRecovery } from '../test/memory-recovery';
 
 const VAULT_ID = '11111111-1111-4111-8111-111111111111';
 const MEMBER_ID = '33333333-3333-4333-8333-333333333333';
@@ -195,10 +196,10 @@ function makeHarness() {
       },
     },
     hasAuthoredRevision: async (revisionId) => outbox.includes(revisionId),
-    enqueue: async (envelope) => {
+    recovery: memoryRecovery(async (envelope) => {
       outbox.push(envelope.revisionId);
       pushed.push(envelope);
-    },
+    }),
     generateRevisionId: () => {
       const n = (revisionCounter += 1);
       return `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;

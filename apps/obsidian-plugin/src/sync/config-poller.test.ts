@@ -18,6 +18,7 @@ import {
   type ConfigAdapterPort,
 } from './config-adapter';
 import { createConfigVaultSnapshot, pollConfigOnce } from './config-poller';
+import { memoryRecovery } from '../test/memory-recovery';
 
 const IDENTITY = {
   vaultId: '11111111-1111-4111-8111-111111111111',
@@ -104,9 +105,9 @@ function makeHarness(adapter: ConfigAdapterPort) {
   const repository = new OutboxLocalChangeRepository({
     identity: IDENTITY,
     store: new MemoryStore(),
-    enqueue: async (envelope) => {
+    recovery: memoryRecovery(async (envelope) => {
       enqueued.push(envelope);
-    },
+    }),
     generateRevisionId: () => `00000000-0000-4000-8000-${String(++rev).padStart(12, '0')}`,
     onLocalMaterialized: async () => undefined,
     onLocalForgotten: async () => undefined,

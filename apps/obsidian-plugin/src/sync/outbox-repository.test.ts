@@ -13,6 +13,7 @@ import {
   OutboxLocalChangeRepository,
   type ProducerState,
 } from './outbox-repository';
+import { memoryRecovery } from '../test/memory-recovery';
 
 const IDENTITY = {
   vaultId: '11111111-1111-4111-8111-111111111111',
@@ -70,9 +71,9 @@ function makeRepo(maxPayloadBytes?: number) {
   const repo = new OutboxLocalChangeRepository({
     identity: IDENTITY,
     store,
-    enqueue: async (envelope) => {
+    recovery: memoryRecovery(async (envelope) => {
       enqueued.push(envelope);
-    },
+    }),
     generateRevisionId: () => {
       counter += 1;
       return `00000000-0000-4000-8000-00000000000${counter}`;
@@ -93,7 +94,7 @@ describe('OutboxLocalChangeRepository', () => {
     const store = new MemoryStore();
     const enqueued: OutboxEnvelope[] = [];
     const repo = new OutboxLocalChangeRepository({
-      identity: IDENTITY, store, enqueue: async (envelope) => { enqueued.push(envelope); },
+      identity: IDENTITY, store, 
       generateRevisionId: () => '00000000-0000-4000-8000-000000000001',
       recovery: {
         startProducerRecovery: async () => false,

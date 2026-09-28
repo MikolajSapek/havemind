@@ -18,7 +18,7 @@ function harness() {
     identity: { vaultId: '00000000-0000-4000-8000-000000000001', memberId: '00000000-0000-4000-8000-000000000002', deviceId: '00000000-0000-4000-8000-000000000003' },
     recovery: state,
     store: { load: async () => producerState, save: async (v) => { producerState = structuredClone(v); } },
-    enqueue: (e) => state.enqueue(e), hasAuthoredRevision: (id) => state.hasAuthoredRevision(id),
+    hasAuthoredRevision: (id) => state.hasAuthoredRevision(id),
     quarantinedParents: (id) => state.quarantinedParents(id),
     generateRevisionId: () => `00000000-0000-4000-8000-${String(++n + 100).padStart(12, '0')}`,
   });

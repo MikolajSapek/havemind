@@ -163,8 +163,6 @@ export function startPushProducer(
     identity,
     recovery: state,
     store,
-    enqueue: (envelope) => state.enqueue(envelope),
-    cancelUnsentMerge: (revisionId) => state.cancelUnsentMerge(revisionId),
     hasAuthoredRevision: (revisionId) => state.hasAuthoredRevision(revisionId),
     quarantinedParents: (revisionId) => state.quarantinedParents(revisionId),
     generateRevisionId: () => globalThis.crypto.randomUUID(),
