@@ -1,12 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import HavemindPlugin, {
+import HavemindPlugin from './main';
+import {
   ConflictResolveModal,
-  HavemindOnboardingView,
   buildConflictModalModel,
   renderConflictModalBody,
-  renderConflictSection,
-} from './main';
+} from './ui/conflict-modal';
+import { renderConflictSection } from './ui/conflict-section';
+import { HavemindOnboardingView } from './ui/onboarding-view';
 import type { PluginManifest } from './test/obsidian.mock';
 import type { ConflictCopy } from './runtime/conflict-resolution';
 import { buildConnectionPanel } from './runtime/status';

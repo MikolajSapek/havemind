@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { renderRecoveryNotice, renderSendQueueSection } from './main';
+import { renderRecoveryNotice, renderSendQueueSection } from './ui/send-queue-section';
 import type { SendQueueStatusView } from './runtime/send-queue-status';
 import {
   ItemView,

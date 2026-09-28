@@ -11,11 +11,10 @@
 
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import HavemindPlugin, {
-  HavemindOnboardingView,
-  HAVEMIND_ONBOARDING_VIEW,
-  renderConflictSection,
-} from './main';
+import HavemindPlugin from './main';
+import { renderConflictSection } from './ui/conflict-section';
+import { HavemindOnboardingView } from './ui/onboarding-view';
+import { HAVEMIND_ONBOARDING_VIEW } from './ui/view-types';
 import type { ConflictCopy } from './runtime/conflict-resolution';
 import { buildRejoinRosterView } from './runtime/rejoin-roster';
 import { buildConnectionPanel } from './runtime/status';

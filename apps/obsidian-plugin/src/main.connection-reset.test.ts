@@ -12,7 +12,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Plugin } from 'obsidian';
 
-import HavemindPlugin, { HavemindOnboardingView } from './main';
+import HavemindPlugin from './main';
+import { HavemindOnboardingView } from './ui/onboarding-view';
 import {
   evaluateOwnerConnection,
   parseOwnerConnection,

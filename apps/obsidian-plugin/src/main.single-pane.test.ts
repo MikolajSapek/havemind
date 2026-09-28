@@ -15,10 +15,8 @@
 
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import HavemindPlugin, {
-  HAVEMIND_ACTIVITY_VIEW,
-  HAVEMIND_ONBOARDING_VIEW,
-} from './main';
+import HavemindPlugin from './main';
+import { HAVEMIND_ACTIVITY_VIEW, HAVEMIND_ONBOARDING_VIEW } from './ui/view-types';
 import {
   App,
   registrationState,

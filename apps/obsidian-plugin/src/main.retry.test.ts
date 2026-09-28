@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { planQuarantineRequeueFallback, planRetryFromDisk } from './main';
+import { planQuarantineRequeueFallback, planRetryFromDisk } from './ui/retry-plan';
 
 describe('planRetryFromDisk (FINDING 1)', () => {
   it('keeps the row and asks to reconnect when the retry is unavailable (offline / disposed producer)', () => {

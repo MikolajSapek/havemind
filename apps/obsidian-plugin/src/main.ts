@@ -119,51 +119,6 @@ import type {
 } from './ui/settings-model';
 import { HAVEMIND_ONBOARDING_VIEW } from './ui/view-types';
 
-// The view classes, section renderers, modal, settings tab and pure planners now
-// live under `./ui`. They are re-exported here so `./main` remains the single
-// import surface it has always been for the plugin's tests and for anything that
-// reads the bundle entry point, moving a file must not move a public name.
-export {
-  HAVEMIND_ACTIVITY_VIEW,
-  HAVEMIND_ONBOARDING_VIEW,
-} from './ui/view-types';
-export type { ActivityViewOptions } from './ui/activity-view';
-export {
-  renderConflictSection,
-  type ConflictSectionActions,
-} from './ui/conflict-section';
-export {
-  renderRecoveryNotice,
-  renderSendQueueSection,
-  type SendQueueSectionActions,
-} from './ui/send-queue-section';
-export {
-  ConflictResolveModal,
-  buildConflictModalModel,
-  renderConflictModalBody,
-  type ConflictModalActions,
-  type ConflictModalModel,
-} from './ui/conflict-modal';
-export {
-  HavemindOnboardingView,
-  type ConnectReporter,
-  type CreateConnectionViewModel,
-  type GuestWaitingViewModel,
-  type InvitationRole,
-  type OnboardingViewOptions,
-  type PendingApprovalEntry,
-} from './ui/onboarding-view';
-export type {
-  HavemindConnectionActions,
-  HavemindSettingsInfo,
-} from './ui/settings-model';
-export {
-  planQuarantineRequeueFallback,
-  planRetryFromDisk,
-  type QuarantineRequeueFallback,
-  type RetryFromDiskEffect,
-} from './ui/retry-plan';
-
 /** Debounce window for the MRG-05 auto-repair sweep, a burst becomes one pass. */
 const CONFLICT_SWEEP_DEBOUNCE_MS = 2000;
 
@@ -332,11 +287,6 @@ export default class HavemindPlugin extends Plugin {
     // pane's Activity tab, so registering the old type only kept a second,
     // orphaned surface that a restored workspace layout could rebuild and that
     // would then drift from the tab reading the same feed.
-    //
-    // `HAVEMIND_ACTIVITY_VIEW` is still re-exported below: dropping a published
-    // name is a separate decision from closing the second door. The view class
-    // itself is reached through `./ui/activity-view`, which still builds and is
-    // still covered; it simply has no registered type pointing at it.
     this.registerView(HAVEMIND_ONBOARDING_VIEW, (leaf: WorkspaceLeaf) => {
       const view = new HavemindOnboardingView(leaf, {
         // A phone joins vaults, it does not run them: hosting needs Docker, a

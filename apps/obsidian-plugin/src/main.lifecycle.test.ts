@@ -1,10 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import HavemindPlugin, {
-  HavemindOnboardingView,
-  HAVEMIND_ACTIVITY_VIEW,
-  HAVEMIND_ONBOARDING_VIEW,
-} from './main';
+import HavemindPlugin from './main';
+import { HavemindOnboardingView } from './ui/onboarding-view';
+import { HAVEMIND_ACTIVITY_VIEW, HAVEMIND_ONBOARDING_VIEW } from './ui/view-types';
 import { buildConnectionPanel } from './runtime/status';
 import { buildRejoinRosterView } from './runtime/rejoin-roster';
 import { HavemindActivityView } from './ui/activity-view';
