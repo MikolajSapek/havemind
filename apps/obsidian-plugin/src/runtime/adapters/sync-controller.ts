@@ -33,7 +33,11 @@ import { RevisionHistory } from '../revision-history';
 import { WakeSubscription } from '../wake-subscription';
 
 import { createConfigApplyReloader } from './config-apply';
-import { createOutboxPayloadStore, createPersistPort } from './plugin-data-ports';
+import {
+  createOutboxPayloadStore,
+  createPersistedRevisionHistoryStore,
+  createPersistPort,
+} from './plugin-data-ports';
 import { createRequestUrlFn } from './request-url';
 import type { RuntimeHooks } from './runtime-hooks';
 import { createBackoffScheduler, createSchedulerHooks } from './scheduler-hooks';
@@ -121,7 +125,14 @@ export function buildSyncController(
       new Notice(message);
     },
   });
-  const history = new RevisionHistory({ transport, state, resolveRevision: connection.resolveRevision });
+  const history = new RevisionHistory({
+    transport, state, resolveRevision: connection.resolveRevision,
+    // P13: a new connection pulls only the events after the stored log.
+    store: createPersistedRevisionHistoryStore(plugin, {
+      apiBaseUrl: connection.apiBaseUrl,
+      vaultId: connection.vaultId,
+    }),
+  });
   const lock = fileApplyLock ?? new KeyedMutex();
   const files = createVaultFilePort({
       vault: (plugin.app as unknown as AppWithVault).vault,

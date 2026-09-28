@@ -5,6 +5,8 @@ export const CLIENT_STORE_NAMES = [
   'deferred-applies',
   'file-mappings',
   'heads',
+  // P13: the accepted revision log, so a new connection pulls only the tail.
+  'history',
   'inbox',
   'outbox',
   // Arch P1: out-of-band store for large outbox payload bytes, keyed by
@@ -17,8 +19,8 @@ export const CLIENT_STORE_NAMES = [
 // Bumped 1 → 2 when the `payloads` store was added (arch P1). `open()`'s
 // `onupgradeneeded` creates only the object stores a database is missing, so an
 // existing v1 database gains the `payloads` store on next open without touching
-// any already-stored data.
-export const CLIENT_STORE_VERSION = 2;
+// any already-stored data. Bumped 2 → 3 for the `history` store (P13), same way.
+export const CLIENT_STORE_VERSION = 3;
 
 const CLIENT_DATABASE_PREFIX = 'havemind-client-';
 const CLIENT_INSTANCE_ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -277,6 +279,29 @@ export class IndexedDbClientStore {
     assertStorageKey(revisionId);
     await this.runTransaction<undefined>('payloads', 'readwrite', (store) =>
       store.delete(revisionId),
+    );
+  }
+
+  /** P13: one record of the persisted revision history, or undefined when absent. */
+  async getHistoryRecord(key: string): Promise<unknown> {
+    assertStorageKey(key);
+    return this.runTransaction<unknown>('history', 'readonly', (store) =>
+      store.get(key),
+    );
+  }
+
+  async putHistoryRecord(key: string, value: unknown): Promise<void> {
+    assertStorageKey(key);
+    await this.runTransaction('history', 'readwrite', (store) =>
+      store.put(value, key),
+    );
+  }
+
+  /** Remove one history record; a no-op when absent. */
+  async deleteHistoryRecord(key: string): Promise<void> {
+    assertStorageKey(key);
+    await this.runTransaction<undefined>('history', 'readwrite', (store) =>
+      store.delete(key),
     );
   }
 

@@ -344,7 +344,11 @@ function parsePullResponse(response: RequestUrlResponseLike): PullResult {
       },
     };
   });
-  return { cursor: body.cursor as number, events };
+  return {
+    cursor: body.cursor as number,
+    ...(typeof body.epoch === 'string' ? { epoch: body.epoch } : {}),
+    events,
+  };
 }
 
 function malformed(detail: string): RequestUrlTransportError {

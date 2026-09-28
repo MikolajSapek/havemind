@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ancestors, commonAncestor, RevisionHistory } from './revision-history';
+import { ancestors, commonAncestor, RevisionHistory, type RevisionHistoryStore } from './revision-history';
 import type { RemoteEvent } from '../sync/sync-runner';
 
 function node(id: string, parents: string[] = [], sequence = 0): RemoteEvent {
@@ -100,5 +100,156 @@ describe('revision payload cache', () => {
     for (let index = 0; index < 1_000; index += 1) await subject.payload(node(`n${index}`));
     await subject.payload(node('first'));
     expect(fetched.filter((id) => id === 'first')).toHaveLength(2);
+  });
+});
+
+// P13: every connection rebuilt the accepted graph by paging the whole event
+// log from cursor 0, so start cost grew with every edit ever made.
+describe('persisted revision history', () => {
+  type Log = { epoch?: string; events: RemoteEvent[] };
+  function server(log: Log, pulls: number[]) {
+    return { pull: async (after: number) => {
+      pulls.push(after);
+      if (after > log.events.length) throw new Error('Server returned HTTP 409.');
+      return { cursor: log.events.length, ...(log.epoch === undefined ? {} : { epoch: log.epoch }),
+        events: log.events.filter((event) => event.serverSequence > after) };
+    } };
+  }
+  function memoryStore(initial: unknown = null) {
+    const saves: Array<{ cursor: number; persisted: number }> = [];
+    let stored: unknown = initial;
+    const store: RevisionHistoryStore = {
+      load: async () => stored,
+      save: async (history, persisted) => {
+        saves.push({ cursor: history.cursor, persisted });
+        stored = structuredClone({ epoch: history.epoch, cursor: history.cursor, events: history.events });
+      },
+    };
+    return { store, saves };
+  }
+  function connect(log: Log, pulls: number[], store: RevisionHistoryStore): RevisionHistory {
+    return new RevisionHistory({
+      transport: server(log, pulls), store,
+      resolveRevision: async () => { throw new Error('must not fetch'); },
+      state: { listOutbox: async () => [], getEnvelope: async () => undefined } as never,
+    });
+  }
+  const ids = (events: RemoteEvent[]) => events.map((event) => event.revision.revisionId);
+
+  it('resumes a new connection from the stored cursor instead of 0', async () => {
+    const log: Log = { epoch: 'e1', events: [node('root', [], 1), node('a', ['root'], 2), node('b', ['a'], 3)] };
+    const memory = memoryStore();
+    const firstPulls: number[] = [];
+    await connect(log, firstPulls, memory.store).refresh();
+    expect(firstPulls).toEqual([0]);
+    expect(memory.saves).toEqual([{ cursor: 3, persisted: 0 }]);
+
+    log.events.push(node('c', ['b'], 4));
+    const pulls: number[] = [];
+    const second = connect(log, pulls, memory.store);
+    expect(ids(await second.heads('file'))).toEqual(['c']);
+    // One overlapping event anchors the stored history to the server's log.
+    expect(pulls).toEqual([2]);
+    expect((await second.graph('file')).has('root')).toBe(true);
+    expect(memory.saves.at(-1)).toEqual({ cursor: 4, persisted: 3 });
+  });
+
+  it('does not save again when nothing new arrived', async () => {
+    const log: Log = { events: [node('root', [], 1)] };
+    const memory = memoryStore();
+    const history = connect(log, [], memory.store);
+    await history.refresh();
+    await history.refresh();
+    expect(memory.saves).toHaveLength(1);
+  });
+
+  it('reloads from 0 when a restored server reports a lower cursor', async () => {
+    const original = (): Log => ({ events: [node('root', [], 1), node('a', ['root'], 2), node('b', ['a'], 3)] });
+    for (const restored of [
+      { events: [node('root', [], 1), node('x', ['root'], 2)] },
+      { events: [node('root', [], 1)] },
+    ]) {
+      const memory = memoryStore();
+      await connect(original(), [], memory.store).refresh();
+      const pulls: number[] = [];
+      const history = connect(restored, pulls, memory.store);
+      expect(ids(await history.allHeads())).toEqual([ids(restored.events).at(-1)]);
+      expect(pulls).toEqual([2, 0]);
+      expect(memory.saves.at(-1)).toEqual({ cursor: restored.events.length, persisted: 0 });
+    }
+  });
+
+  it('reloads from 0 when the server epoch changed or its log was rewritten', async () => {
+    const original = [node('root', [], 1), node('a', ['root'], 2)];
+    for (const next of [
+      { epoch: 'e2', events: [...original, node('b', ['a'], 3)] },
+      { epoch: 'e1', events: [node('root', [], 1), node('other', ['root'], 2), node('b2', ['other'], 3)] },
+    ]) {
+      const memory = memoryStore();
+      await connect({ epoch: 'e1', events: original }, [], memory.store).refresh();
+      const pulls: number[] = [];
+      const history = connect(next, pulls, memory.store);
+      expect(ids(await history.allHeads())).toEqual([ids(next.events).at(-1)]);
+      expect(pulls).toEqual([1, 0]);
+      expect([...(await history.graph('file')).keys()]).toEqual(ids(next.events));
+    }
+  });
+
+  it('reloads from 0 when the stored history is corrupt', async () => {
+    const log: Log = { events: [node('root', [], 1), node('a', ['root'], 2)] };
+    for (const corrupt of [
+      'not an object',
+      { epoch: null, cursor: 2, events: [node('root', [], 1)] },
+      { epoch: null, cursor: 2, events: [node('root', [], 1), node('a', ['root'], 3)] },
+      { epoch: null, cursor: 5, events: [] },
+      { epoch: null, cursor: 1, events: [{ serverSequence: 1, revision: { revisionId: 7 } }] },
+    ]) {
+      const memory = memoryStore(corrupt);
+      const pulls: number[] = [];
+      expect(ids(await connect(log, pulls, memory.store).allHeads())).toEqual(['a']);
+      expect(pulls).toEqual([0]);
+      expect(memory.saves).toEqual([{ cursor: 2, persisted: 0 }]);
+    }
+    const failing = memoryStore();
+    failing.store.load = async () => { throw new Error('IndexedDB unavailable'); };
+    const pulls: number[] = [];
+    expect(ids(await connect(log, pulls, failing.store).allHeads())).toEqual(['a']);
+    expect(pulls).toEqual([0]);
+  });
+
+  it('keeps the stored history when the server is unreachable at start', async () => {
+    const log: Log = { events: [node('root', [], 1), node('a', ['root'], 2)] };
+    const memory = memoryStore();
+    await connect(log, [], memory.store).refresh();
+    let offline = true;
+    const pulls: number[] = [];
+    const history = new RevisionHistory({
+      transport: { pull: async (after) => {
+        pulls.push(after);
+        if (offline) throw new Error('offline');
+        return server(log, []).pull(after);
+      } },
+      store: memory.store,
+      resolveRevision: async () => { throw new Error('must not fetch'); },
+      state: { listOutbox: async () => [], getEnvelope: async () => undefined } as never,
+    });
+    await expect(history.refresh()).rejects.toThrow('offline');
+    offline = false;
+    await history.refresh();
+    expect(pulls.at(-1)).toBe(1);
+    expect(memory.saves).toHaveLength(1);
+  });
+
+  it('still syncs when saving the history fails, and rewrites it whole next time', async () => {
+    const log: Log = { events: [node('root', [], 1)] };
+    const memory = memoryStore();
+    const save = memory.store.save;
+    memory.store.save = async () => { throw new Error('quota'); };
+    const history = connect(log, [], memory.store);
+    await history.refresh();
+    memory.store.save = save;
+    log.events.push(node('a', ['root'], 2));
+    await history.refresh();
+    expect(memory.saves).toEqual([{ cursor: 2, persisted: 0 }]);
   });
 });

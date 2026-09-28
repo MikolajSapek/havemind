@@ -347,6 +347,13 @@ describe('RequestUrlTransport', () => {
     expect(result.events[0]?.revision).not.toHaveProperty('authorMembershipId');
   });
 
+  it('surfaces the server epoch so a stored history can notice a restore', async () => {
+    const withEpoch = build(() => ({ status: 200, json: { cursor: 0, epoch: 'epoch-2', events: [] } }));
+    expect((await withEpoch.transport.pull(0)).epoch).toBe('epoch-2');
+    const without = build(() => ({ status: 200, json: { cursor: 0, epoch: 7, events: [] } }));
+    expect(await without.transport.pull(0)).not.toHaveProperty('epoch');
+  });
+
   it('throws on a malformed pull body', async () => {
     const { transport } = build(() => ({ status: 200, json: { cursor: 'x' } }));
     await expect(transport.pull(0)).rejects.toBeInstanceOf(

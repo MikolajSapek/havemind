@@ -99,6 +99,11 @@ export interface PushItemResult {
 
 export interface PullResult {
   readonly cursor: number;
+  /**
+   * The server epoch, rotated by a restore. Absent when the server does not
+   * send one. Lets a persisted revision history notice a restored server (P13).
+   */
+  readonly epoch?: string;
   readonly events: readonly RemoteEvent[];
 }
 

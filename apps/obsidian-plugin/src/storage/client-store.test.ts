@@ -128,6 +128,22 @@ describe('IndexedDbClientStore storage', () => {
     await expect(reopened.getPayload('rev-1')).resolves.toBeUndefined();
   });
 
+  it('stores, reads, and deletes revision history records across reopen (P13)', async () => {
+    const indexedDb = new FakeIndexedDbFactory();
+    const first = createStore(indexedDb);
+    await first.open();
+
+    await first.putHistoryRecord('history|vault', { cursor: 3 });
+    await expect(first.getHistoryRecord('absent')).resolves.toBeUndefined();
+    first.close();
+
+    const reopened = createStore(indexedDb);
+    await reopened.open();
+    await expect(reopened.getHistoryRecord('history|vault')).resolves.toEqual({ cursor: 3 });
+    await reopened.deleteHistoryRecord('history|vault');
+    await expect(reopened.getHistoryRecord('history|vault')).resolves.toBeUndefined();
+  });
+
   it('reports a blocked upgrade, closes late success, and permits an explicit retry', async () => {
     const indexedDb = new FakeIndexedDbFactory();
     indexedDb.blockNextOpen();

@@ -26,6 +26,8 @@ import type {
   SyncStatePersistPort,
 } from '../sync-state';
 import type { OnboardingPersistPort } from '../onboarding-store';
+import type { RevisionHistoryStore } from '../revision-history';
+import { createRevisionHistoryStore } from '../revision-history-store';
 import {
   IndexedDbClientStore,
   ensureClientInstanceId,
@@ -183,27 +185,10 @@ export function createClientInstanceRepo(
  * instance id + the open both happen once behind a cached promise.
  */
 export function createOutboxPayloadStore(plugin: Plugin): OutboxPayloadStore {
-  let storePromise: Promise<IndexedDbClientStore | null> | null = null;
-  const ensureStore = (): Promise<IndexedDbClientStore | null> => {
-    if (storePromise === null) {
-      storePromise = (async () => {
-        try {
-          const clientInstanceId = await ensureClientInstanceId(
-            createClientInstanceRepo(plugin),
-          );
-          const store = new IndexedDbClientStore({ clientInstanceId });
-          await store.open();
-          return store;
-        } catch {
-          console.warn(
-            'Havemind: outbox payload store unavailable; payloads stay inline in data.json.',
-          );
-          return null;
-        }
-      })();
-    }
-    return storePromise;
-  };
+  const ensureStore = openClientStoreLazily(
+    plugin,
+    'Havemind: outbox payload store unavailable; payloads stay inline in data.json.',
+  );
   return {
     async putPayload(revisionId, payloadBase64) {
       const store = await ensureStore();
@@ -223,5 +208,54 @@ export function createOutboxPayloadStore(plugin: Plugin): OutboxPayloadStore {
       if (store === null) return;
       await store.deletePayload(revisionId);
     },
+  };
+}
+
+/**
+ * P13: the accepted revision log for one vault, kept in IndexedDB so a new
+ * connection pulls only the events after the last one it knows. Keyed by vault
+ * and checked against the server URL, so another vault or server never reuses
+ * it. When IndexedDB is unavailable the store holds nothing and every
+ * connection reads the whole log, as before.
+ */
+export function createPersistedRevisionHistoryStore(
+  plugin: Plugin,
+  scope: { readonly apiBaseUrl: string; readonly vaultId: string },
+): RevisionHistoryStore {
+  return createRevisionHistoryStore(
+    openClientStoreLazily(
+      plugin,
+      'Havemind: revision history store unavailable; each connection reads the full history.',
+    ),
+    scope,
+  );
+}
+
+/**
+ * The client database, opened once on first use. CONNECT-SAFE: never throws;
+ * resolves to null (after one warning) when IndexedDB cannot be opened.
+ */
+function openClientStoreLazily(
+  plugin: Plugin,
+  unavailableWarning: string,
+): () => Promise<IndexedDbClientStore | null> {
+  let storePromise: Promise<IndexedDbClientStore | null> | null = null;
+  return () => {
+    if (storePromise === null) {
+      storePromise = (async () => {
+        try {
+          const clientInstanceId = await ensureClientInstanceId(
+            createClientInstanceRepo(plugin),
+          );
+          const store = new IndexedDbClientStore({ clientInstanceId });
+          await store.open();
+          return store;
+        } catch {
+          console.warn(unavailableWarning);
+          return null;
+        }
+      })();
+    }
+    return storePromise;
   };
 }
