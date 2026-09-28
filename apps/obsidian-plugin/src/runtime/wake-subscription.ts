@@ -39,6 +39,14 @@ const DEFAULT_MAX_BACKOFF_MS = 60_000;
  */
 const DEFAULT_SETTLE_DELAY_MS = 250;
 
+/**
+ * Settle re-checks before the loop stops waiting for a fired wake's pull to
+ * advance the cursor (about 10 s at the default delay). A pull that cannot
+ * advance it, an apply deferred behind an unsaved editor, must not hold the
+ * channel shut: past this budget it re-arms beyond what it already announced.
+ */
+const MAX_SETTLE_CHECKS = 40;
+
 export interface WakeSubscriptionOptions {
   readonly requestUrl: RequestUrlFn;
   /** Canonical HTTPS API base, no trailing slash (e.g. `https://host`). */
@@ -106,6 +114,14 @@ export class WakeSubscription {
    * same still-behind cursor.
    */
   private pendingSyncFromCursor: number | null = null;
+  /** Settle re-checks spent on the current pending wake. */
+  private settleChecks = 0;
+  /**
+   * Highest server cursor a wake was already fired for. Polling from here
+   * waits for changes beyond it, so a durable cursor stuck behind it cannot
+   * make the server answer at once, over and over.
+   */
+  private announcedCursor = 0;
   /** null until the first edge is emitted, so the very first state is reported. */
   private connected: boolean | null = null;
   private runPromise: Promise<void> = Promise.resolve();
@@ -205,13 +221,18 @@ export class WakeSubscription {
         // sent, pause a short bounded delay and re-check instead of re-polling.
         if (
           this.pendingSyncFromCursor !== null &&
-          sentCursor <= this.pendingSyncFromCursor
+          sentCursor <= this.pendingSyncFromCursor &&
+          this.settleChecks < MAX_SETTLE_CHECKS
         ) {
+          this.settleChecks += 1;
           await this.settleDelay();
           continue;
         }
-        // Durable cursor caught up (sync landed) or no wake pending: re-arm.
+        // Durable cursor caught up (sync landed), no wake pending, or the wake
+        // never settled: re-arm, past anything already announced.
         this.pendingSyncFromCursor = null;
+        this.settleChecks = 0;
+        sentCursor = Math.max(sentCursor, this.announcedCursor);
         const polledCursor = await this.awaitOrStop(this.pollOnce(sentCursor));
         if (polledCursor === null) return;
         resolvedCursor = polledCursor;
@@ -238,10 +259,14 @@ export class WakeSubscription {
         // sent; the next iteration waits for the durable cursor to advance past
         // it before re-arming, the "one wake → one sync, then wait" contract.
         this.pendingSyncFromCursor = sentCursor;
+        this.announcedCursor = resolvedCursor;
         this.options.onWake();
       } else {
         // Heartbeat (unchanged cursor): nothing pending, re-issue normally.
         this.pendingSyncFromCursor = null;
+        // A server cursor below the one sent (a restored server) means the
+        // announced position no longer exists; poll from the durable cursor.
+        if (resolvedCursor < sentCursor) this.announcedCursor = 0;
       }
     }
   }

@@ -154,6 +154,44 @@ describe('WakeSubscription', () => {
     expect(settleDelays).toBe(5); // re-checks were spaced by the bounded delay
   });
 
+  // A pull that cannot advance the cursor (an unsaved editor defers the apply)
+  // used to hold the loop in the settle gate for good: no /wait was issued
+  // again, so later peer changes waited for the slow heartbeat while the
+  // channel still reported itself connected.
+  it('listens again for new changes when the wake never settles', async () => {
+    let wakes = 0;
+    let settleDelays = 0;
+    const { fn, calls } = scriptedRequestUrl({
+      script: [ok(7), ok(9), ok(9)],
+      onCall: (index) => {
+        if (index >= 2) sub.stop();
+      },
+    });
+    const sub = new WakeSubscription({
+      ...baseOptions(),
+      loadCursor: async () => 5, // the apply is deferred, the cursor stays put
+      requestUrl: fn,
+      onWake: () => {
+        wakes += 1;
+      },
+      scheduler: (callback) => {
+        settleDelays += 1;
+        if (settleDelays > 1_000) sub.stop(); // safety net for a regression
+        callback();
+      },
+    });
+
+    sub.start();
+    await sub.whenStopped();
+
+    // Re-armed past the changes it already announced, so the server holds the
+    // request until something new lands instead of answering at once.
+    expect(calls[1]).toBe('https://host/vaults/vault-1/wait?cursor=7');
+    expect(calls[2]).toBe('https://host/vaults/vault-1/wait?cursor=9');
+    expect(wakes).toBe(2);
+    expect(settleDelays).toBeLessThan(1_000);
+  });
+
   it('re-issues the long-poll on a heartbeat without forcing a sync', async () => {
     let wakes = 0;
     // Both calls are heartbeats (unchanged cursor 5 → 5): re-issue, never wake.
