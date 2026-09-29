@@ -43,13 +43,13 @@ const TAP_METHODS = [
   'dismissInvitation',
 ] as const;
 
-/** The body of a method, from its signature to the next one at the same depth. */
+/** The body of a method, from its signature to the next one at the same depth or the class end. */
 function methodBody(name: string): string {
   const start = source.search(
     new RegExp(`\\n {2}(private|public) (async )?${name}\\(`),
   );
   if (start < 0) throw new Error(`method ${name} not found in the plugin sources`);
-  const next = source.slice(start + 1).search(/\n {2}(private|public|override) /);
+  const next = source.slice(start + 1).search(/\n {2}(private|public|override) |\n}/);
   return next < 0 ? source.slice(start) : source.slice(start, start + 1 + next);
 }
 

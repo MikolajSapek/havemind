@@ -515,9 +515,7 @@ describe('F9 rejoin wiring', () => {
       boundDeviceId: 'd-magda',
     });
 
-    await (plugin as unknown as {
-      requestRejoin: (id: string) => Promise<void>;
-    }).requestRejoin('m-magda');
+    await internals(plugin).requestRejoin('m-magda');
 
     expect(adapterMocks.requestRejoinGrantForOwner).toHaveBeenCalledWith(plugin, {
       membershipId: 'm-magda',
@@ -529,9 +527,7 @@ describe('F9 rejoin wiring', () => {
     const plugin = newPlugin();
     adapterMocks.requestRejoinGrantForOwner.mockResolvedValue(null);
 
-    await (plugin as unknown as {
-      requestRejoin: (id: string) => Promise<void>;
-    }).requestRejoin('m-magda');
+    await internals(plugin).requestRejoin('m-magda');
 
     expect(internals(plugin).rejoinWaiting.has('m-magda')).toBe(false);
   });
@@ -563,9 +559,7 @@ describe('F9 rejoin wiring', () => {
       membershipId: 'm-magda',
     });
 
-    await (plugin as unknown as {
-      removeMember: (id: string) => Promise<void>;
-    }).removeMember('m-magda');
+    await internals(plugin).removeMember('m-magda');
 
     expect(adapterMocks.revokeMembershipForOwner).toHaveBeenCalledWith(plugin, {
       membershipId: 'm-magda',
@@ -592,9 +586,7 @@ describe('F9 rejoin wiring', () => {
     });
     adapterMocks.revokeMembershipForOwner.mockResolvedValue(null);
 
-    await (plugin as unknown as {
-      removeMember: (id: string) => Promise<void>;
-    }).removeMember('m-magda');
+    await internals(plugin).removeMember('m-magda');
 
     const members = internals(plugin).rosterMembers as Array<{ membershipId: string }>;
     expect(members.map((m) => m.membershipId)).toEqual(['m-magda']);

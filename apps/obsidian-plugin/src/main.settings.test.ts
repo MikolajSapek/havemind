@@ -168,9 +168,7 @@ describe('HavemindSettingTab read-only summary (FINDING 7)', () => {
     const plugin = newPlugin();
     await plugin.onload();
     installFakeConnection(plugin);
-    (
-      plugin as unknown as { rosterMembers: unknown[] }
-    ).rosterMembers = [
+    internals(plugin).rosterMembers = [
       { membershipId: 'm-owner', displayName: 'Mikolaj', role: 'owner', self: true },
       { membershipId: 'm-magda', displayName: 'Magda', role: 'editor', self: false },
     ];

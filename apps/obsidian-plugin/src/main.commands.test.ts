@@ -233,22 +233,16 @@ describe('command palette actions', () => {
     // reads as a dropped connection on a vault that is in fact synced.
     const plugin = newPlugin();
     await plugin.onload();
-    const internals = plugin as unknown as {
-      connectionActive: boolean;
-      pendingInvitation: unknown;
-      dismissInvitation: () => void;
-    };
-
-    internals.connectionActive = true;
-    internals.pendingInvitation = {
+    internals(plugin).connectionActive = true;
+    internals(plugin).pendingInvitation = {
       envelope: 'v1.ABC',
       expiresAt: '2999-01-01T00:00:00.000Z',
       invitationId: 'id-1',
     };
 
-    internals.dismissInvitation();
+    internals(plugin).dismissInvitation();
 
-    expect(internals.connectionActive).toBe(false);
-    expect(internals.pendingInvitation).toBeNull();
+    expect(internals(plugin).connectionActive).toBe(false);
+    expect(internals(plugin).pendingInvitation).toBeNull();
   });
 });

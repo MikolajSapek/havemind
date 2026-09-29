@@ -9,10 +9,7 @@ import {
 
 import { isSafePassiveJoinProtocolData } from './onboarding/invite';
 import type { DurableSyncState } from './runtime/sync-state';
-import {
-  createSerializedDataPort,
-  getPluginDataMutex,
-} from './runtime/plugin-data-mutex';
+import { getPluginDataMutex } from './runtime/plugin-data-mutex';
 import { restoreRevision, type RestoreDeps } from './runtime/activity-restore';
 import { lastEditedLabel } from './runtime/last-edited';
 import {
@@ -21,12 +18,7 @@ import {
   type ActivityLogEntry,
 } from './runtime/activity-log';
 import { forgetSharedAccessProvider } from './runtime/adapters/shared-access-provider';
-import { LegacyRosterServerError } from './runtime/member-roster';
-import { RosterStore, type RosterMember } from './runtime/roster';
-import {
-  buildRejoinRosterView,
-  type RejoinRosterView,
-} from './runtime/rejoin-roster';
+import { buildRejoinRosterView } from './runtime/rejoin-roster';
 import {
   REJOIN_POLL_INTERVAL_MS,
   type RejoinController,
@@ -41,36 +33,26 @@ import {
   type StatusBarView,
 } from './runtime/status';
 import {
-  approvePendingDeviceForOwner,
-  rejectPendingDeviceForOwner,
   buildRejoinControllerForInvitee,
   connectFromInput,
-  createInvitationForOwner,
-  fetchMemberRosterForVault,
-  listPendingApprovalsForOwner,
-  requestRejoinGrantForOwner,
   resetHavemindConnectionState,
-  revokeMembershipForOwner,
   startHavemindConnection,
   type ConnectionHandle,
 } from './runtime/obsidian-adapters';
-import type { CreatedInvitation } from './runtime/create-invitation';
-import { ApproveDeviceError } from './runtime/approve-device';
 import {
   browserClipboardCopyDeps,
   copyTextToClipboard,
 } from './runtime/clipboard';
 
 import { Conflicts } from './plugin/conflicts';
+import { Invitations } from './plugin/invitations';
+import { People } from './plugin/people';
 import { SendQueue } from './plugin/send-queue';
 import { ConfirmModal } from './ui/confirm-modal';
 import {
   HavemindOnboardingView,
   type ConnectReporter,
-  type CreateConnectionViewModel,
   type GuestWaitingViewModel,
-  type InvitationRole,
-  type PendingApprovalEntry,
 } from './ui/onboarding-view';
 import {
   DECORATIVE,
@@ -95,18 +77,12 @@ export default class HavemindPlugin extends Plugin {
    * assigned, otherwise its vault listeners and running sync loop leak with no
    * `stop()` ever reaching them.
    */
-  private unloaded = false;
-  private pendingInvitation: CreatedInvitation | null = null;
-  private pendingApprovals: PendingApprovalEntry[] = [];
-  private connectionActive = false;
+  unloaded = false;
   /**
    * True once the user opened an `obsidian://havemind-join` link, which answers
    * the entry chooser on their behalf: they hold an invitation (design 1d).
    */
   private arrivedWithInvitation = false;
-  private connectionNotice: string | undefined;
-  /** Visual treatment for `connectionNotice`; see CreateConnectionViewModel. */
-  private connectionNoticeKind: 'info' | 'success' | undefined;
   private awaitingApproval: GuestWaitingViewModel | null = null;
   /**
    * True once the server reported this invitation is dead (owner rejected the
@@ -123,19 +99,6 @@ export default class HavemindPlugin extends Plugin {
   private readonly activityLog = new ActivityLog();
   /** Disposer for the activityLog subscription set up in onload(); torn down in onunload(). */
   private activityLogUnsubscribe: (() => void) | null = null;
-  /**
-   * Persistent presence roster: the members connected to this vault. Sourced
-   * from approve-time records + the local self membership and persisted in
-   * data.json (endpoint-free). Never derived from sync activity.
-   */
-  private rosterMembers: RosterMember[] = [];
-  /**
-   * F9 Rejoin (owner side). Membership ids the owner has asserted are dead
-   * (pilot heuristic, no server liveness signal yet, see renderRejoinRoster):
-   * their roster rows draw as disconnected and offer Rejoin.
-   */
-  /** Membership ids the owner has issued a rejoin grant for (awaiting reconnect). */
-  private rejoinWaiting = new Set<string>();
   /**
    * F9 Rejoin (invitee side). The live controller driving terminal-auth →
    * syncing while this device polls for the owner's grant, plus the interval id
@@ -178,6 +141,8 @@ export default class HavemindPlugin extends Plugin {
   syncState: DurableSyncState | null = null;
   /** Status bar item naming who last edited the open note. */
   private lastEditedItem: HTMLElement | null = null;
+  readonly people = new People(this);
+  readonly invitations = new Invitations(this);
   readonly conflicts = new Conflicts(this);
   readonly sendQueue = new SendQueue(this);
 
@@ -204,7 +169,7 @@ export default class HavemindPlugin extends Plugin {
         // snapshot mapped through the roster, so each row shows the author's
         // display name and colour.
         activityFeedProvider: () =>
-          activityEntriesToRecords(this.activityLog.snapshot(), this.rosterMembers),
+          activityEntriesToRecords(this.activityLog.snapshot(), this.people.rosterMembers),
         onRestore: (revisionId) => {
           void this.handleRestore(revisionId);
         },
@@ -212,14 +177,14 @@ export default class HavemindPlugin extends Plugin {
         // pane footer now, beside the vault it annotates.
         arrivedWithInvitationProvider: () => this.arrivedWithInvitation,
         onOpenComposer: () => {
-          void this.openCreateConnectionView();
+          void this.invitations.openCreateConnectionView();
         },
-        onCloseComposer: () => this.closeCreateConnectionView(),
+        onCloseComposer: () => this.invitations.closeCreateConnectionView(),
         onSyncNow: () => {
           void this.syncNow();
         },
         composerProvider: () =>
-          this.connectionActive ? this.composerModel() : null,
+          this.invitations.connectionActive ? this.invitations.composerModel() : null,
         guestWaitingProvider: () => this.awaitingApproval,
         guestInvalidProvider: () => this.guestInvitationInvalid,
         panelProvider: () => this.connectionPanel(),
@@ -242,13 +207,13 @@ export default class HavemindPlugin extends Plugin {
             this.views.refreshOnboardingNow();
           });
         },
-        rejoinRosterProvider: () => this.rejoinRosterView(),
-        rejoinWaitingProvider: () => this.rejoinWaiting,
+        rejoinRosterProvider: () => buildRejoinRosterView(this.people.rosterMembers),
+        rejoinWaitingProvider: () => this.people.rejoinWaiting,
         onRejoin: (membershipId) => {
-          void this.requestRejoin(membershipId);
+          void this.people.requestRejoin(membershipId);
         },
         onRemove: (membershipId) => {
-          void this.removeMember(membershipId);
+          void this.people.removeMember(membershipId);
         },
         onConnect: (input, serverUrl, report) => {
           void this.connectFromInput(input, serverUrl, report).catch(() => {
@@ -268,14 +233,14 @@ export default class HavemindPlugin extends Plugin {
           return copyTextToClipboard(envelope, browserClipboardCopyDeps());
         },
         onCreateInvitation: (role, name, report) => {
-          void this.createInvitation(role, name, report);
+          void this.invitations.createInvitation(role, name, report);
         },
-        onDismissInvitation: () => this.dismissInvitation(),
+        onDismissInvitation: () => this.invitations.dismissInvitation(),
         onApprove: (invitationId, verificationPhrase, report) => {
-          void this.approvePendingDevice(invitationId, verificationPhrase, report);
+          void this.invitations.approvePendingDevice(invitationId, verificationPhrase, report);
         },
         onReject: (invitationId, report) => {
-          void this.rejectPendingDevice(invitationId, report);
+          void this.invitations.rejectPendingDevice(invitationId, report);
         },
         onClosed: () => this.views.unregisterOnboarding(view),
       });
@@ -286,7 +251,7 @@ export default class HavemindPlugin extends Plugin {
     this.addCommand({
       id: 'open-activity',
       name: 'Open activity',
-      callback: () => this.openActivityView(),
+      callback: () => this.openPane(),
     });
     this.addCommand({
       id: 'connect',
@@ -298,7 +263,7 @@ export default class HavemindPlugin extends Plugin {
     this.addCommand({
       id: 'create-connection',
       name: 'Create connection (owner)',
-      callback: () => this.openCreateConnectionView(),
+      callback: () => this.invitations.openCreateConnectionView(),
     });
     // The three connection actions the panel exposes as buttons also belong in
     // the palette, so they can be run, and bound to a hotkey, without hunting
@@ -342,7 +307,7 @@ export default class HavemindPlugin extends Plugin {
     // pane and keeps its `show-authors` command, so removing its icon costs no
     // keyboard or screen-reader access (F8-02d).
     this.addRibbonIcon('hexagon', 'Open Havemind', () => {
-      void this.openHavemindPane();
+      void this.openPane();
     });
 
     this.statusItem = this.addStatusBarItem();
@@ -352,7 +317,7 @@ export default class HavemindPlugin extends Plugin {
     // the one place the button and full status detail render. The click listener
     // sits on the element itself, so subsequent setStatus text updates keep it.
     this.statusItem.onClickEvent(() => {
-      void this.openView(HAVEMIND_ONBOARDING_VIEW);
+      void this.openPane();
     });
     // The item is a real control, so it must say so and be reachable without a
     // mouse: the role and name make it announce itself as "Open Havemind panel,
@@ -367,7 +332,7 @@ export default class HavemindPlugin extends Plugin {
       if (keyboardEvent.key !== 'Enter' && keyboardEvent.key !== ' ') return;
       // Space would otherwise scroll the pane behind the status bar.
       keyboardEvent.preventDefault();
-      void this.openView(HAVEMIND_ONBOARDING_VIEW);
+      void this.openPane();
     });
     this.setStatus(formatStatusBar({ status: 'disconnected' }));
 
@@ -392,12 +357,12 @@ export default class HavemindPlugin extends Plugin {
       if (!isSafePassiveJoinProtocolData(data)) return;
       // A passive join URI belongs to the guest paste wizard, not the owner
       // composer.
-      this.connectionActive = false;
+      this.invitations.connectionActive = false;
       // Arriving through havemind-join *is* the answer to the entry chooser:
       // this user has an invitation. Asking them anyway would be asking a
       // question they have already answered by clicking the link (design 1d).
       this.arrivedWithInvitation = true;
-      void this.openView(HAVEMIND_ONBOARDING_VIEW);
+      void this.openPane();
     });
 
     this.conflicts.watchVault();
@@ -436,156 +401,9 @@ export default class HavemindPlugin extends Plugin {
   }
 
   private openConnectView(): Promise<void> {
-    this.connectionActive = false;
+    this.invitations.connectionActive = false;
     this.views.refreshOnboardingNow();
-    return this.openView(HAVEMIND_ONBOARDING_VIEW);
-  }
-
-  /**
-   * Owner action: open the unified "Create connection" panel where the invite
-   * is minted and the joining device is approved in one living surface.
-   */
-  private openCreateConnectionView(): Promise<void> {
-    this.connectionActive = true;
-    this.connectionNotice = undefined;
-    this.connectionNoticeKind = undefined;
-    this.views.refreshOnboardingNow();
-    return this.openView(HAVEMIND_ONBOARDING_VIEW);
-  }
-
-  /** Returns from the owner composer without discarding an already-minted invite. */
-  private closeCreateConnectionView(): void {
-    this.connectionActive = false;
-    this.connectionNotice = undefined;
-    this.connectionNoticeKind = undefined;
-    this.views.refreshOnboardingNow();
-  }
-
-  /** Snapshot of the owner composer state for the unified panel. */
-  private composerModel(): CreateConnectionViewModel {
-    return {
-      role: 'editor',
-      name: '',
-      invitation: this.pendingInvitation,
-      pending: this.pendingApprovals,
-      invitationExpired: this.isInvitationExpired(),
-      ...(this.connectionNotice === undefined
-        ? {}
-        : { notice: this.connectionNotice }),
-      ...(this.connectionNoticeKind === undefined
-        ? {}
-        : { noticeKind: this.connectionNoticeKind }),
-    };
-  }
-
-  /** True once the minted invitation is past its ISO-8601 expiry. */
-  private isInvitationExpired(): boolean {
-    if (this.pendingInvitation === null) return false;
-    const expiry = Date.parse(this.pendingInvitation.expiresAt);
-    return Number.isFinite(expiry) && Date.now() >= expiry;
-  }
-
-  /** Owner action: refuse the device waiting on `invitationId` and drop its row. */
-  private async rejectPendingDevice(
-    invitationId: string,
-    report: ConnectReporter,
-  ): Promise<void> {
-    try {
-      const rejected = await rejectPendingDeviceForOwner(this, { invitationId });
-      if (rejected === null) {
-        report('Connect as the vault owner before rejecting a device.');
-        return;
-      }
-      this.pendingApprovals = this.pendingApprovals.filter(
-        (entry) => entry.invitationId !== invitationId,
-      );
-      this.connectionNotice = 'Device rejected. Its invitation no longer works.';
-      this.connectionNoticeKind = undefined;
-      this.views.refreshOnboardingNow();
-    } catch (error) {
-      report(error instanceof Error ? error.message : 'Could not reject the device.');
-    }
-  }
-
-  /**
-   * Owner action: approve the joining device that read out `verificationPhrase`
-   * against `POST …/invitations/:invitationId/approve`. The phrase is a
-   * second-channel secret and is never logged; failures are reported to the view.
-   */
-  private async approvePendingDevice(
-    invitationId: string,
-    verificationPhrase: string,
-    report: ConnectReporter,
-  ): Promise<void> {
-    try {
-      const approved = await approvePendingDeviceForOwner(this, {
-        invitationId,
-        verificationPhrase,
-      });
-      if (approved === null) {
-        report('Connect as the vault owner before approving a device.');
-        return;
-      }
-      // The device's display name is only known while its waiting row still
-      // exists, so read it before filtering the row out.
-      const approvedEntry = this.pendingApprovals.find(
-        (entry) => entry.invitationId === invitationId,
-      );
-      const approvedName = approvedEntry?.intendedMemberDisplayName;
-      const connectedMessage = `${approvedName ?? 'Device'} connected.`;
-      // Record the approved device as a PERSISTENT roster member (green until an
-      // explicit teardown). The owner's client already knows the display name,
-      // role and server membershipId at approval time, endpoint-free.
-      try {
-        await this.recordRosterMember({
-          membershipId: approved.membershipId,
-          displayName: approvedName ?? 'Member',
-          role: approvedEntry?.intendedRole ?? 'editor',
-          self: false,
-        });
-      } catch {
-        // The server has already approved the device. Do not falsely report a
-        // rejected approval, but make the local durability failure actionable.
-        report(
-          'Device approved, but its local roster entry could not be saved. Reconnect to retry the local save.',
-        );
-        return;
-      }
-      this.pendingApprovals = this.pendingApprovals.filter(
-        (entry) => entry.invitationId !== invitationId,
-      );
-      this.connectionNotice = connectedMessage;
-      this.connectionNoticeKind = 'success';
-      report(connectedMessage);
-      // Re-render to drop the approved row while keeping the create section
-      // (invitation + role/name) fully alive.
-      this.views.refreshOnboardingNow();
-    } catch (error) {
-      if (error instanceof ApproveDeviceError && error.locked) {
-        // The invitation is spent after too many wrong codes: drop its waiting
-        // row and point the owner back to Create invitation.
-        this.pendingApprovals = this.pendingApprovals.filter(
-          (entry) => entry.invitationId !== invitationId,
-        );
-        this.connectionNotice =
-          'This invitation is now invalid. Create a new one above to try again.';
-        this.connectionNoticeKind = undefined;
-        report(error.message);
-        this.views.refreshOnboardingNow();
-        return;
-      }
-      if (error instanceof ApproveDeviceError) {
-        // A wrong code (or other approval error): keep the row so the owner can
-        // retry in place, and surface the "N attempts left" message inline.
-        report(error.message);
-        return;
-      }
-      report(
-        `Could not approve: ${
-          error instanceof Error ? error.message : 'unexpected error'
-        }`,
-      );
-    }
+    return this.openPane();
   }
 
   /** Starts sync without allowing startup failures to escape UI/event callbacks. */
@@ -608,7 +426,7 @@ export default class HavemindPlugin extends Plugin {
     try {
     // Load the persisted roster first so a reopened, already-connected vault
     // shows its connected members immediately (never derived from activity).
-    await this.loadRoster();
+    await this.people.loadRoster();
     if (attempt.signal.aborted) return;
     const handle = await startHavemindConnection(
       this,
@@ -641,15 +459,15 @@ export default class HavemindPlugin extends Plugin {
     // rejoin poll that captured an earlier value no-ops instead of tearing this
     // one down (FINDING 1b).
     this.connectGeneration += 1;
-    this.adoptSelfMembership(this.connection);
+    this.people.adoptSelfMembership(this.connection);
     // P3: the People list comes from the server, not from what this device
     // witnessed. Runs on every connect AND reconnect (retryConnection routes
     // through startConnection), so a guest sees the whole vault.
-    void this.refreshRoster();
+    void this.people.refreshRoster();
     // B8: only the owner has pending approvals; asking from a guest device is
     // a 403 at every start and a wasted token rotation.
     if (handle.selfMembership?.role === 'owner') {
-      void this.restorePendingApprovals();
+      void this.invitations.restorePendingApprovals();
     }
     // MRG-05: on start (after the canonicalization rebase inside the handle
     // build), sweep any pre-existing conflict copies that a persisted ancestor
@@ -721,88 +539,6 @@ export default class HavemindPlugin extends Plugin {
     }
   }
 
-  /** Records the local member into the roster once the connection knows it. */
-  private adoptSelfMembership(handle: ConnectionHandle | null): void {
-    const self = handle?.selfMembership;
-    if (self === undefined) return;
-    void this.recordRosterMember({
-      membershipId: self.membershipId,
-      displayName: 'You',
-      role: self.role,
-      self: true,
-    }).catch(() => {
-      new Notice('Havemind: could not save this device in the member roster.');
-      this.views.refreshOnboarding();
-    });
-  }
-
-  /** The durable roster store over the shared plugin-data blob. */
-  private rosterStore(): RosterStore {
-    // Route the roster's read-modify-save through the shared per-plugin mutex so
-    // a concurrent write to another data.json key (sync state, producer,
-    // onboarding) is never clobbered (MAJOR).
-    return new RosterStore({
-      persist: createSerializedDataPort(getPluginDataMutex(this)),
-    });
-  }
-
-  private async loadRoster(): Promise<void> {
-    this.rosterMembers = await this.rosterStore().readMembers();
-    this.views.refreshOnboarding();
-  }
-
-  /**
-   * P3: replaces the People list with the vault's server-authoritative roster
-   * (`GET /members`). The roster used to be assembled from what each device
-   * happened to witness, so a guest saw a list of one while the owner saw
-   * everyone. The server holds the truth and every member reads the same list.
-   *
-   * Failure is deliberately silent and NON-DESTRUCTIVE: an unreachable server,
-   * a refused session or a malformed payload leaves `rosterMembers` exactly as
-   * it was, so an offline device keeps showing what it last knew instead of
-   * blanking the People pane. The next connect or reconnect retries.
-   */
-  private async refreshRoster(): Promise<void> {
-    const self = this.rosterMembers.find((member) => member.self);
-    const selfMembershipId =
-      self?.membershipId ?? this.connection?.selfMembership?.membershipId ?? null;
-    try {
-      const members = await this.readRoster(selfMembershipId);
-      // `null` means this device is not connected to a vault, there is nothing
-      // authoritative to render, so the existing list stands.
-      if (members === null || this.unloaded) return;
-      this.rosterMembers = await this.rosterStore().replaceMembers(members);
-      this.views.refreshOnboarding();
-    } catch {
-      // Keep the previous list rendered. Never an empty People pane.
-    }
-  }
-
-  /**
-   * B4: the live connection reads the roster with its own access token. The
-   * refresh-token route raced that connection's rotation (401 at every start)
-   * and is kept only for a server that does not send membership ids yet.
-   */
-  private async readRoster(
-    selfMembershipId: string | null,
-  ): Promise<RosterMember[] | null> {
-    const readRoster = this.connection?.readRoster;
-    if (readRoster !== undefined) {
-      try {
-        return await readRoster(selfMembershipId);
-      } catch (error) {
-        if (!(error instanceof LegacyRosterServerError)) throw error;
-      }
-    }
-    return fetchMemberRosterForVault(this, { selfMembershipId });
-  }
-
-  /** Upserts a member, persists the roster, and refreshes the live surfaces. */
-  private async recordRosterMember(member: RosterMember): Promise<void> {
-    this.rosterMembers = await this.rosterStore().recordMember(member);
-    this.views.refreshOnboarding();
-  }
-
   /**
    * Drives the Connect form: classifies the pasted input (invitation envelope or
    * owner pairing token), runs the matching flow, and once connected starts the
@@ -871,9 +607,9 @@ export default class HavemindPlugin extends Plugin {
       this.connectGeneration += 1;
       // Record this device's own membership as a persistent roster member so the
       // invitee's UI clearly shows it is connected.
-      this.adoptSelfMembership(handle);
+      this.people.adoptSelfMembership(handle);
       // P3: pull the server-authoritative roster for this freshly paired vault.
-      void this.refreshRoster();
+      void this.people.refreshRoster();
       // MRG-05: sweep any pre-existing conflict copies now that a base is loaded.
       this.conflicts.scheduleConflictSweep();
     }
@@ -977,71 +713,6 @@ export default class HavemindPlugin extends Plugin {
     this.views.refreshOnboarding();
   }
 
-  /** The rejoin-aware roster projection over the persistent members. */
-  private rejoinRosterView(): RejoinRosterView {
-    return buildRejoinRosterView(this.rosterMembers);
-  }
-
-  /**
-   * Owner action: issue a rejoin grant for a known-dead contact via the existing
-   * authenticated transport, then show "waiting for <name> to reconnect" until
-   * the roster refreshes. Nothing secret is sent or shown.
-   */
-  private async requestRejoin(membershipId: string): Promise<void> {
-    try {
-      const waiting = await requestRejoinGrantForOwner(this, { membershipId });
-      if (waiting === null) {
-        new Notice('Havemind: connect as the vault owner before rejoining a member.');
-        return;
-      }
-      this.rejoinWaiting = new Set([...this.rejoinWaiting, membershipId]);
-      this.views.refreshOnboardingNow();
-    } catch (error) {
-      new Notice(
-        `Havemind: could not request rejoin, ${
-          error instanceof Error ? error.message : 'unexpected error'
-        }`,
-      );
-    }
-  }
-
-  /**
-   * Owner action: permanently remove a member from the vault. Revokes the
-   * membership server-side (append-only, the member's past revisions and
-   * attribution survive; their sessions are burned and they are terminally
-   * locked out), then drops the member from the local roster and clears any
-   * dead/waiting markers so no stale Rejoin affordance lingers. This is a
-   * control-plane action and records nothing in the Activity feed. On success a
-   * confirmation Notice names the removed member.
-   */
-  private async removeMember(membershipId: string): Promise<void> {
-    const member = this.rosterMembers.find(
-      (entry) => entry.membershipId === membershipId,
-    );
-    const displayName = member?.displayName ?? 'member';
-    try {
-      const removed = await revokeMembershipForOwner(this, { membershipId });
-      if (removed === null) {
-        new Notice(
-          'Havemind: connect as the vault owner before removing a member.',
-        );
-        return;
-      }
-      this.rosterMembers = await this.rosterStore().removeMember(membershipId);
-      this.rejoinWaiting = new Set(
-        [...this.rejoinWaiting].filter((id) => id !== membershipId),
-      );
-      new Notice(`Removed ${displayName} from the vault.`);
-      this.views.refreshOnboardingNow();
-    } catch (error) {
-      new Notice(
-        `Havemind: could not remove member, ${
-          error instanceof Error ? error.message : 'unexpected error'
-        }`,
-      );
-    }
-  }
-
   /**
    * Invitee side: arm the rejoin poll after a terminal auth failure. Idempotent
    *, a second terminal status while a poll is already armed is a no-op, so the
@@ -1080,19 +751,6 @@ export default class HavemindPlugin extends Plugin {
     // this single boundary rather than reshaping the platform declaration.
     this.registerInterval(timer as unknown as number);
     this.rejoinPollTimer = timer;
-  }
-
-  /** Hydrates owner approvals after restart; failure never disrupts sync. */
-  private async restorePendingApprovals(): Promise<void> {
-    try {
-      const pending = await listPendingApprovalsForOwner(this);
-      if (pending === null || this.unloaded) return;
-      this.pendingApprovals = [...pending];
-      this.views.refreshOnboarding();
-    } catch {
-      // A non-owner or temporarily unavailable server must not make a healthy
-      // connection appear broken. The composer will retry when reopened.
-    }
   }
 
   /**
@@ -1272,16 +930,16 @@ export default class HavemindPlugin extends Plugin {
       await resetHavemindConnectionState(this);
       // No later action may reuse an access token cached for the old pairing.
       forgetSharedAccessProvider(this);
-      this.rosterMembers = [];
-      this.rejoinWaiting = new Set<string>();
-      this.pendingInvitation = null;
-      this.pendingApprovals = [];
+      this.people.rosterMembers = [];
+      this.people.rejoinWaiting = new Set<string>();
+      this.invitations.pendingInvitation = null;
+      this.invitations.pendingApprovals = [];
       this.sendQueue.notifiedQuarantineIds = new Set<string>();
       this.awaitingApproval = null;
       this.guestInvitationInvalid = false;
-      this.connectionActive = false;
-      this.connectionNotice = undefined;
-      this.connectionNoticeKind = undefined;
+      this.invitations.connectionActive = false;
+      this.invitations.connectionNotice = undefined;
+      this.invitations.connectionNoticeKind = undefined;
       this.connectionStatus = 'disconnected';
       this.lastSyncedAt = undefined;
       this.connectionError = undefined;
@@ -1312,7 +970,7 @@ export default class HavemindPlugin extends Plugin {
 
   /** Opens (or reveals) the Havemind pane. */
   revealPanel(): void {
-    void this.openView(HAVEMIND_ONBOARDING_VIEW);
+    void this.openPane();
   }
 
   /**
@@ -1345,7 +1003,7 @@ export default class HavemindPlugin extends Plugin {
         this.lastSyncedAt === undefined
           ? 'Not yet'
           : formatActivityTime(this.lastSyncedAt),
-      members: formatMemberCount(this.rosterMembers.length),
+      members: formatMemberCount(this.people.rosterMembers.length),
       connected: this.connection !== null,
     };
   }
@@ -1365,7 +1023,7 @@ export default class HavemindPlugin extends Plugin {
         author = null;
       }
     }
-    item.setText(lastEditedLabel(author, this.rosterMembers));
+    item.setText(lastEditedLabel(author, this.people.rosterMembers));
   }
 
   private connectionPanel(): ConnectionPanelView {
@@ -1380,75 +1038,6 @@ export default class HavemindPlugin extends Plugin {
         ? {}
         : { errorMessage: this.connectionError }),
     });
-  }
-
-  /**
-   * Owner action: mint an invitation for the connected vault, reveal the
-   * copyable envelope, and register the joining device in the waiting list so
-   * the owner can approve it by clicking a row (never by typing a UUID). The
-   * envelope (a secret) is rendered only for the owner to copy, never logged.
-   */
-  private async createInvitation(
-    role: InvitationRole,
-    name: string,
-    report: ConnectReporter,
-  ): Promise<void> {
-    try {
-      const invitation = await createInvitationForOwner(this, {
-        intendedRole: role,
-        ...(name.length === 0 ? {} : { intendedMemberDisplayName: name }),
-      });
-      if (invitation === null) {
-        report('Connect as the vault owner before creating an invitation.');
-        return;
-      }
-      // Minting an invite always belongs to the composer and must reveal the
-      // invite section, never leave it hidden behind another surface.
-      this.connectionActive = true;
-      this.setPendingInvitation(invitation);
-      this.pendingApprovals = [
-        ...this.pendingApprovals.filter(
-          (entry) => entry.invitationId !== invitation.invitationId,
-        ),
-        {
-          invitationId: invitation.invitationId,
-          expiresAt: invitation.expiresAt,
-          intendedRole: role,
-          ...(name.length === 0 ? {} : { intendedMemberDisplayName: name }),
-        },
-      ];
-      this.connectionNotice =
-        'Invitation created. Copy it and send it to the other device.';
-      this.connectionNoticeKind = undefined;
-      this.views.refreshOnboardingNow();
-    } catch (error) {
-      report(
-        `Could not create invitation: ${
-          error instanceof Error ? error.message : 'unexpected error'
-        }`,
-      );
-    }
-  }
-
-  /** Clears the minted-invitation display without touching the waiting list. */
-  /**
-   * Closes the owner composer and returns to the connection panel. Clearing
-   * `connectionActive` is what makes Done a real exit: `render()` gives the
-   * composer priority and returns before drawing the status indicator, so
-   * leaving the composer open would hide "Connected, synced" indefinitely and
-   * read as if the vault had disconnected.
-   */
-  private dismissInvitation(): void {
-    this.pendingInvitation = null;
-    this.connectionActive = false;
-    this.connectionNotice = undefined;
-    this.connectionNoticeKind = undefined;
-    this.views.refreshOnboardingNow();
-  }
-
-  /** Stores the created invitation so the onboarding view can display it. */
-  setPendingInvitation(invitation: CreatedInvitation | null): void {
-    this.pendingInvitation = invitation;
   }
 
   private setStatus(view: StatusBarView): void {
@@ -1471,19 +1060,12 @@ export default class HavemindPlugin extends Plugin {
   /**
    * The single door into the plugin (plans/007 Stage 0). Every entry point,
    * the ribbon hexagon, `open-activity`, `connect`, resolves here, so the user
-   * never has to know which of two panes holds the thing they want. `openView`
-   * reuses an existing leaf, so asking twice focuses the pane rather than
-   * opening a second copy of it.
+   * never has to know which of two panes holds the thing they want. It reuses
+   * an existing leaf, so asking twice focuses the pane rather than opening a
+   * second copy of it.
    */
-  private openHavemindPane(): Promise<void> {
-    return this.openView(HAVEMIND_ONBOARDING_VIEW);
-  }
-
-  private openActivityView(): Promise<void> {
-    return this.openHavemindPane();
-  }
-
-  private async openView(type: string): Promise<void> {
+  async openPane(): Promise<void> {
+    const type = HAVEMIND_ONBOARDING_VIEW;
     const existingLeaf = this.app.workspace.getLeavesOfType(type)[0];
     const leaf = existingLeaf ?? this.app.workspace.getRightLeaf(false);
     if (!leaf) return;

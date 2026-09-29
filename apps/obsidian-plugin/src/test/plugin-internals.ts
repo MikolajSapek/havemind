@@ -19,6 +19,7 @@ import type { ConflictResolveModal } from '../ui/conflict-modal';
 export interface PluginInternals {
   activityLog: { record(entry: unknown): void; snapshot(): unknown[] };
   connection: unknown;
+  connectionActive: boolean;
   connectionError: unknown;
   connectionPanel(): unknown;
   connectionStatus: string;
@@ -27,13 +28,17 @@ export interface PluginInternals {
   loadRoster(): Promise<void>;
   openConflictModal(copyPath: string): Promise<ConflictResolveModal | null>;
   pendingApprovals: unknown;
+  pendingInvitation: unknown;
   pollRejoinOnce(): Promise<void>;
   recordRosterMember(member: unknown): Promise<void>;
   rejoinController: unknown;
   rejoinPollTimer: unknown;
   rejoinWaiting: Set<string>;
+  removeMember(membershipId: string): Promise<void>;
+  requestRejoin(membershipId: string): Promise<void>;
   resetConnection(): unknown;
   disconnect(): void;
+  dismissInvitation(): void;
   retryConnection(): Promise<void>;
   rosterMembers: unknown[];
   saveData(data: unknown): Promise<void>;
@@ -46,7 +51,7 @@ export interface PluginInternals {
 }
 
 /** The plugin fields holding the modules under `plugin/` that members moved into. */
-const MODULES = ['conflicts', 'sendQueue'];
+const MODULES = ['conflicts', 'invitations', 'people', 'sendQueue'];
 
 /**
  * Reads the plugin as its private surface. One cast, declared once, instead of
