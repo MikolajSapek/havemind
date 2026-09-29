@@ -14,6 +14,8 @@ import {
   planRetryFromDisk,
 } from '../ui/retry-plan';
 
+import { errorMessage } from './error-message';
+
 /** Send-queue row id prefix for a parked incoming change (B2). */
 const PARKED_ROW_PREFIX = 'received:';
 
@@ -146,7 +148,7 @@ export class SendQueue {
       }
     } catch (error) {
       new Notice(
-        `Havemind: still cannot apply this change, ${error instanceof Error ? error.message : 'unexpected error'}`,
+        `Havemind: still cannot apply this change, ${errorMessage(error)}`,
       );
     }
     this.plugin.views.refreshOnboardingNow();

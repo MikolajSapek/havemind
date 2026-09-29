@@ -5,16 +5,12 @@ import {
   type WorkspaceLeaf,
 } from 'obsidian';
 
-
 import { isSafePassiveJoinProtocolData } from './onboarding/invite';
 import type { DurableSyncState } from './runtime/sync-state';
 import { getPluginDataMutex } from './runtime/plugin-data-mutex';
 import { restoreRevision, type RestoreDeps } from './runtime/activity-restore';
-import {
-  ActivityLog,
-  activityEntriesToRecords,
-  type ActivityLogEntry,
-} from './runtime/activity-log';
+import { ActivityLog, activityEntriesToRecords } from './runtime/activity-log';
+import type { RuntimeHooks } from './runtime/adapters/runtime-hooks';
 import { forgetSharedAccessProvider } from './runtime/adapters/shared-access-provider';
 import { buildRejoinRosterView } from './runtime/rejoin-roster';
 import {
@@ -37,6 +33,7 @@ import {
 
 import { registerCommands } from './plugin/commands';
 import { Conflicts } from './plugin/conflicts';
+import { errorMessage } from './plugin/error-message';
 import { Invitations } from './plugin/invitations';
 import { People } from './plugin/people';
 import { InviteeRejoin } from './plugin/rejoin';
@@ -354,13 +351,7 @@ export default class HavemindPlugin extends Plugin {
   }
 
   /** Runtime hooks handed to the sync loop so live surfaces stay fed. */
-  private activityHooks(): {
-    onLocalActivity: (entry: ActivityLogEntry) => void;
-    onRemoteActivity: (entry: ActivityLogEntry) => void;
-    onConflictWritten: () => void;
-    onSendQueueChanged: () => void;
-    onFailedToQueueNotified: (revisionId: string) => void;
-  } {
+  private activityHooks(): RuntimeHooks {
     return {
       onLocalActivity: (entry) => this.activityLog.record(entry),
       // FIX 1: a remote-applied revision reaches the Activity feed too, so
@@ -408,7 +399,7 @@ export default class HavemindPlugin extends Plugin {
       }
     } catch (error) {
       new Notice(
-        `Havemind: could not restore that version, ${error instanceof Error ? error.message : 'unexpected error'}`,
+        `Havemind: could not restore that version, ${errorMessage(error)}`,
       );
     }
   }
@@ -632,20 +623,6 @@ export default class HavemindPlugin extends Plugin {
   }
 
   /**
-   * User-initiated "Reset connection" (P1 #5): clear the damaged persisted
-   * pairing so this device can be paired again. This is the supported form of the
-   * manual "delete data.json" the field incident needed.
-   *
-   * Order: quiesce first (stop the loop, disarm the rejoin poll) so nothing
-   * re-writes the keys mid-reset, then clear disk + secrets, then drop the
-   * in-memory mirrors of what was just cleared (roster, send-queue state,
-   * pending invitation/approval) and return the panel to `disconnected`.
-   *
-   * Idempotent under a rapid double-click via `resetInFlight`. No vault content
-   * is touched: notes on disk are the source of truth and are re-reconciled once
-   * the device is paired again.
-   */
-  /**
    * U2: every entry point to Reset connection asks first. It wipes the pairing
    * and the sync state, and only the owner's approval brings the device back.
    */
@@ -662,6 +639,20 @@ export default class HavemindPlugin extends Plugin {
     }).open();
   }
 
+  /**
+   * User-initiated "Reset connection" (P1 #5): clear the damaged persisted
+   * pairing so this device can be paired again. This is the supported form of the
+   * manual "delete data.json" the field incident needed.
+   *
+   * Order: quiesce first (stop the loop, disarm the rejoin poll) so nothing
+   * re-writes the keys mid-reset, then clear disk + secrets, then drop the
+   * in-memory mirrors of what was just cleared (roster, send-queue state,
+   * pending invitation/approval) and return the panel to `disconnected`.
+   *
+   * Idempotent under a rapid double-click via `resetInFlight`. No vault content
+   * is touched: notes on disk are the source of truth and are re-reconciled once
+   * the device is paired again.
+   */
   private async resetConnection(): Promise<void> {
     if (this.resetInFlight) return;
     this.resetInFlight = true;
@@ -692,11 +683,7 @@ export default class HavemindPlugin extends Plugin {
         'Havemind: connection reset. Paste a new invitation or pairing token to connect.',
       );
     } catch (error) {
-      new Notice(
-        `Havemind: could not reset the connection, ${
-          error instanceof Error ? error.message : 'unexpected error'
-        }`,
-      );
+      new Notice(`Havemind: could not reset the connection, ${errorMessage(error)}`);
     } finally {
       this.resetInFlight = false;
       this.views.refreshOnboarding();
@@ -774,18 +761,12 @@ export default class HavemindPlugin extends Plugin {
    * second copy of it.
    */
   async openPane(): Promise<void> {
-    const type = HAVEMIND_ONBOARDING_VIEW;
-    const existingLeaf = this.app.workspace.getLeavesOfType(type)[0];
+    const existingLeaf = this.app.workspace.getLeavesOfType(HAVEMIND_ONBOARDING_VIEW)[0];
     const leaf = existingLeaf ?? this.app.workspace.getRightLeaf(false);
     if (!leaf) return;
-
     if (!existingLeaf) {
-      await leaf.setViewState({
-        active: true,
-        type,
-      });
+      await leaf.setViewState({ active: true, type: HAVEMIND_ONBOARDING_VIEW });
     }
-
     await this.app.workspace.revealLeaf(leaf);
   }
 }

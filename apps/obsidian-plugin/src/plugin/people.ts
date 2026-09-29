@@ -16,6 +16,8 @@ import {
 } from '../runtime/plugin-data-mutex';
 import { RosterStore, type RosterMember } from '../runtime/roster';
 
+import { errorMessage } from './error-message';
+
 export class People {
   /**
    * Persistent presence roster: the members connected to this vault. Sourced
@@ -125,11 +127,7 @@ export class People {
       this.rejoinWaiting = new Set([...this.rejoinWaiting, membershipId]);
       this.plugin.views.refreshOnboardingNow();
     } catch (error) {
-      new Notice(
-        `Havemind: could not request rejoin, ${
-          error instanceof Error ? error.message : 'unexpected error'
-        }`,
-      );
+      new Notice(`Havemind: could not request rejoin, ${errorMessage(error)}`);
     }
   }
 
@@ -162,11 +160,7 @@ export class People {
       new Notice(`Removed ${displayName} from the vault.`);
       this.plugin.views.refreshOnboardingNow();
     } catch (error) {
-      new Notice(
-        `Havemind: could not remove member, ${
-          error instanceof Error ? error.message : 'unexpected error'
-        }`,
-      );
+      new Notice(`Havemind: could not remove member, ${errorMessage(error)}`);
     }
   }
 }

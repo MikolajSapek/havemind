@@ -16,6 +16,8 @@ import type {
   PendingApprovalEntry,
 } from '../ui/onboarding-view';
 
+import { errorMessage } from './error-message';
+
 export class Invitations {
   public pendingInvitation: CreatedInvitation | null = null;
   public pendingApprovals: PendingApprovalEntry[] = [];
@@ -166,11 +168,7 @@ export class Invitations {
         report(error.message);
         return;
       }
-      report(
-        `Could not approve: ${
-          error instanceof Error ? error.message : 'unexpected error'
-        }`,
-      );
+      report(`Could not approve: ${errorMessage(error)}`);
     }
   }
 
@@ -227,11 +225,7 @@ export class Invitations {
       this.connectionNoticeKind = undefined;
       this.plugin.views.refreshOnboardingNow();
     } catch (error) {
-      report(
-        `Could not create invitation: ${
-          error instanceof Error ? error.message : 'unexpected error'
-        }`,
-      );
+      report(`Could not create invitation: ${errorMessage(error)}`);
     }
   }
 
@@ -245,9 +239,6 @@ export class Invitations {
    */
   public dismissInvitation(): void {
     this.pendingInvitation = null;
-    this.connectionActive = false;
-    this.connectionNotice = undefined;
-    this.connectionNoticeKind = undefined;
-    this.plugin.views.refreshOnboardingNow();
+    this.closeCreateConnectionView();
   }
 }
