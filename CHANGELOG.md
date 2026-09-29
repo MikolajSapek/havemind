@@ -35,8 +35,9 @@ and the server.
 - Which paths sync is decided in one place, the protocol package, so the
   plugin can no longer queue a path the server would refuse.
 - Plugin (internal): notes and attachments share one apply flow, `main.ts` is
-  split into modules, and duplicated helpers and eight-parameter functions
-  are gone.
+  split into modules, the longest files carry half the comment lines, and
+  duplicated helpers, eight-parameter functions and an apply branch that
+  never ran are gone.
 
 ## [1.5.7], 2026-09-29
 
