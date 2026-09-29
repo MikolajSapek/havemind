@@ -73,6 +73,8 @@ export interface OutboxPayloadStore {
   getPayload(revisionId: string): Promise<string | undefined>;
   /** Remove the payload; a no-op when absent. */
   deletePayload(revisionId: string): Promise<void>;
+  /** Every stored `revisionId`, so a load can drop the ones nothing refers to. */
+  listPayloadIds(): Promise<readonly string[]>;
 }
 
 /**
@@ -1073,7 +1075,7 @@ export class DurableSyncState implements SyncStatePort {
         // externalized bytes, fail-closed on a torn/missing payload, and migrate
         // any legacy inline payloads out of `data.json`. Part of the shared
         // in-flight load so every concurrent caller observes a settled cache.
-        .then(() => this.reconcilePayloads())
+        .then((clean) => this.reconcilePayloads(clean))
         .finally(() => {
           this.loadPromise = null;
         });
@@ -1102,9 +1104,12 @@ export class DurableSyncState implements SyncStatePort {
    *        the raw blob to a sidecar for manual recovery, resume from a clean,
    *        writable empty state, rewrite the primary to it (so a restart never
    *        re-locks), and set the observable recovery signal.
+   *
+   * True when the primary loaded as it was saved, so the stored payloads it
+   * does not refer to are orphans rather than the preserved copy's evidence.
    */
-  private async hydrate(raw: unknown): Promise<void> {
-    if (this.cache !== null) return;
+  private async hydrate(raw: unknown): Promise<boolean> {
+    if (this.cache !== null) return false;
     if (isRecord(raw) && !validRecoveryFields(raw)) {
       await this.persist.preserveCorrupt(raw, this.now());
       throw new Error('Invalid producer recovery journal; sync is paused with original state preserved.');
@@ -1112,7 +1117,7 @@ export class DurableSyncState implements SyncStatePort {
     const outcome = parsePersistedState(raw);
     if (outcome.status !== 'corrupt') {
       if (this.cache === null) this.cache = this.trimmed(outcome.state);
-      return;
+      return true;
     }
 
     if (isRecord(raw) && (raw.producerRecovery !== undefined || raw.reconciliationBackups !== undefined)) {
@@ -1120,7 +1125,7 @@ export class DurableSyncState implements SyncStatePort {
       throw new Error('Corrupt sync state includes recovery data; original state preserved.');
     }
     const backup = await this.persist.loadBackup();
-    if (this.cache !== null) return;
+    if (this.cache !== null) return false;
     const backupOutcome = parsePersistedState(backup);
     if (backupOutcome.status === 'ok') {
       // The last durable snapshot is intact, recover from it, but still stash
@@ -1141,7 +1146,7 @@ export class DurableSyncState implements SyncStatePort {
           this.recoveryRequired = true;
         }
       }
-      return;
+      return false;
     }
 
     // No usable backup. Preserve the bytes we could not parse to a sidecar, then
@@ -1149,7 +1154,7 @@ export class DurableSyncState implements SyncStatePort {
     // clean/salvaged state so a restart re-reads an 'ok' blob (the permanent-wedge
     // bug this fixes: the corrupt primary used to survive and re-lock every load).
     await this.persist.preserveCorrupt(raw, this.now());
-    if (this.cache !== null) return;
+    if (this.cache !== null) return false;
     if (outcome.salvage !== null) {
       // SALVAGE: the outbox was readable. Keep it (plus locallyAuthored); the
       // unrecoverable fields were already reset to safe defaults during parse.
@@ -1165,6 +1170,7 @@ export class DurableSyncState implements SyncStatePort {
     // Arch P1: `reconcilePayloads` (which populates `externalized`) runs after
     // hydrate, so `toDiskForm` is a passthrough here; use it anyway for symmetry.
     await this.persist.save(this.toDiskForm(this.cache));
+    return false;
   }
 
   private async mutate(next: PersistedSyncState): Promise<void> {
@@ -1276,7 +1282,7 @@ export class DurableSyncState implements SyncStatePort {
    * When anything changed, the cleaned/migrated state is persisted immediately
    * (disk form) so a legacy blob is shrunk on first load, not only on next edit.
    */
-  private async reconcilePayloads(): Promise<void> {
+  private async reconcilePayloads(sweep: boolean): Promise<void> {
     const state = this.cache;
     if (state === null) return;
 
@@ -1340,16 +1346,39 @@ export class DurableSyncState implements SyncStatePort {
       }
     }
 
-    if (!cacheChanged && !persistNeeded) return;
     const next: PersistedSyncState = {
       ...state,
       outbox: nextOutbox,
       quarantine: [...state.quarantine, ...addedQuarantine],
       quarantinedEnvelopes: nextStash,
     };
+    if (sweep) await this.sweepPayloads(next);
+    if (!cacheChanged && !persistNeeded) return;
     this.cache = next;
     if (persistNeeded) {
       await this.persist.save(this.toDiskForm(next));
+    }
+  }
+
+  /**
+   * S1: deletes stored payloads no queued, stashed or quarantined change refers
+   * to. They are left by a stop between storing a payload and saving the queue,
+   * by a failed delete, and by entries moved into a reconciliation backup, which
+   * keeps its bytes inline. Best-effort: a failure leaves them for the next load.
+   */
+  private async sweepPayloads(state: PersistedSyncState): Promise<void> {
+    if (this.payloadStore === undefined) return;
+    const live = new Set([
+      ...state.outbox.map((envelope) => envelope.revisionId),
+      ...Object.values(state.quarantinedEnvelopes).map((envelope) => envelope.revisionId),
+      ...state.quarantine.map((row) => row.revisionId),
+    ]);
+    try {
+      for (const revisionId of await this.payloadStore.listPayloadIds()) {
+        if (!live.has(revisionId)) await this.payloadStore.deletePayload(revisionId);
+      }
+    } catch {
+      /* best-effort: the next load tries again */
     }
   }
 

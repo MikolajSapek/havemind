@@ -56,6 +56,14 @@ class FakeObjectStore {
     return request as unknown as IDBRequest;
   }
 
+  getAllKeys(): IDBRequest {
+    const request = new FakeRequest();
+    this.transaction.run(request, () => {
+      request.result = [...this.records.keys()];
+    });
+    return request as unknown as IDBRequest;
+  }
+
   put(value: unknown, key?: IDBValidKey): IDBRequest {
     const request = new FakeRequest();
     this.transaction.run(
@@ -295,6 +303,21 @@ export class FakeIndexedDbFactory {
       }
 
       completeOpen();
+    });
+    return request as unknown as IDBOpenDBRequest;
+  }
+
+  /** Fires versionchange at open connections, then deletes once none is left. */
+  deleteDatabase(name: string): IDBOpenDBRequest {
+    const request = new FakeOpenRequest();
+    queueMicrotask(() => {
+      this.triggerVersionChange(name);
+      if ([...this.connections].some((connection) => connection.name === name)) {
+        request.onblocked?.(new Event('blocked'));
+        return;
+      }
+      this.databases.delete(name);
+      request.onsuccess?.(new Event('success'));
     });
     return request as unknown as IDBOpenDBRequest;
   }

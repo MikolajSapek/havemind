@@ -82,6 +82,30 @@ export async function ensureClientInstanceId(
   return generatedId;
 }
 
+/**
+ * S1: deletes a client's database. Reset connection drops the client id that
+ * names it, so nothing would open or remove it again. Open connections close on
+ * the version change; a blocked delete finishes once they have. It never holds
+ * up the caller, and a failure only leaves the database behind.
+ */
+export async function deleteClientDatabase(
+  clientInstanceId: string,
+  indexedDB?: IDBFactory,
+): Promise<void> {
+  const factory = indexedDB ?? globalThis.indexedDB;
+  if (!factory || !isValidClientInstanceId(clientInstanceId)) return;
+  await new Promise<void>((resolve) => {
+    try {
+      const request = factory.deleteDatabase(clientDatabaseName(clientInstanceId));
+      request.onsuccess = () => resolve();
+      request.onerror = () => resolve();
+      request.onblocked = () => resolve();
+    } catch {
+      resolve();
+    }
+  });
+}
+
 export function isValidClientInstanceId(value: string): boolean {
   return (
     value.length >= 16 &&
@@ -108,7 +132,7 @@ export class IndexedDbClientStore {
       );
     }
 
-    this.databaseName = `${CLIENT_DATABASE_PREFIX}${options.clientInstanceId}`;
+    this.databaseName = clientDatabaseName(options.clientInstanceId);
     this.indexedDB = indexedDB;
   }
 
@@ -246,6 +270,14 @@ export class IndexedDbClientStore {
     );
   }
 
+  /** S1: every stored payload's `revisionId`. */
+  async listPayloadIds(): Promise<readonly string[]> {
+    const keys = await this.runTransaction<IDBValidKey[]>('payloads', 'readonly', (store) =>
+      store.getAllKeys(),
+    );
+    return keys.filter((key): key is string => typeof key === 'string');
+  }
+
   /** P13: one record of the persisted revision history, or undefined when absent. */
   async getHistoryRecord(key: string): Promise<unknown> {
     assertStorageKey(key);
@@ -357,6 +389,10 @@ export class IndexedDbClientStore {
       };
     });
   }
+}
+
+function clientDatabaseName(clientInstanceId: string): string {
+  return `${CLIENT_DATABASE_PREFIX}${clientInstanceId}`;
 }
 
 function assertClientInstanceId(value: string): void {

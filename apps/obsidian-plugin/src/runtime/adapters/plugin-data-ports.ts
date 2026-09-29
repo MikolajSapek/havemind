@@ -156,6 +156,10 @@ export function createOutboxPayloadStore(plugin: Plugin): OutboxPayloadStore {
       if (store === null) return;
       await store.deletePayload(revisionId);
     },
+    async listPayloadIds() {
+      const store = await ensureStore();
+      return store === null ? [] : store.listPayloadIds();
+    },
   };
 }
 

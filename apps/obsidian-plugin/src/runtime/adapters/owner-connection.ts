@@ -10,7 +10,7 @@
 
 import type { Plugin } from 'obsidian';
 
-import { ensureClientInstanceId } from '../../storage/client-store';
+import { deleteClientDatabase, ensureClientInstanceId } from '../../storage/client-store';
 import { ObsidianOnboardingSecrets } from '../onboarding-secrets';
 import { getPluginDataMutex } from '../plugin-data-mutex';
 
@@ -219,7 +219,8 @@ export async function preserveCorruptOwnerConnection(
  *   2. Clear the secrets, while the `clientInstanceId` that namespaces them is
  *      still on disk (best-effort, a SecretStorage failure must not abort the
  *      reset, or the user is stuck in the broken state they asked to leave).
- *   3. Drop every top-level plugin-data key EXCEPT the corrupt-* sidecars.
+ *   3. Delete the IndexedDB database that id names (best-effort, S1).
+ *   4. Drop every top-level plugin-data key EXCEPT the corrupt-* sidecars.
  *
  * No vault content is touched: notes and attachments on disk are the source of
  * truth and are re-reconciled after re-pairing.
@@ -235,8 +236,9 @@ export async function resetHavemindConnectionState(
     await preserveCorruptOwnerConnection(plugin, result.raw, now());
   }
 
+  let clientInstanceId: string | null = null;
   try {
-    const clientInstanceId = await ensureClientInstanceId(
+    clientInstanceId = await ensureClientInstanceId(
       createClientInstanceRepo(plugin),
     );
     const secrets = new ObsidianOnboardingSecrets({
@@ -256,6 +258,9 @@ export async function resetHavemindConnectionState(
       'Havemind: could not clear the stored connection secrets during reset.',
     );
   }
+  // S1: the next pairing mints a new client id, so nothing would ever open or
+  // remove the database named by this one.
+  if (clientInstanceId !== null) await deleteClientDatabase(clientInstanceId);
 
   await getPluginDataMutex(plugin).update((base) => {
     const next: Record<string, unknown> = {};

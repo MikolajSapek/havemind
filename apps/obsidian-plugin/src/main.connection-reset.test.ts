@@ -19,8 +19,13 @@ import {
   parseOwnerConnection,
   startHavemindConnection,
 } from './runtime/obsidian-adapters';
-import { preserveCorruptOwnerConnection } from './runtime/adapters/owner-connection';
+import {
+  preserveCorruptOwnerConnection,
+  resetHavemindConnectionState,
+} from './runtime/adapters/owner-connection';
 import { ObsidianOnboardingSecrets } from './runtime/onboarding-secrets';
+import { IndexedDbClientStore } from './storage/client-store';
+import { FakeIndexedDbFactory } from './test/indexeddb.mock';
 import { buildConnectionPanel, type ConnectionStatus } from './runtime/status';
 import {
   App,
@@ -222,6 +227,28 @@ describe('Reset connection action (P1 #5)', () => {
     await internals(plugin).resetConnection();
 
     expect(Object.keys(disk.value).some((key) => key.includes('Corrupt.'))).toBe(false);
+  });
+
+  // S1: the next pairing mints a new client id, so the database named by the
+  // old one was never opened or removed again.
+  it('deletes the IndexedDB database of the client id it drops', async () => {
+    const indexedDb = new FakeIndexedDbFactory();
+    const store = new IndexedDbClientStore({
+      clientInstanceId: CLIENT_INSTANCE_ID,
+      indexedDB: indexedDb.asFactory(),
+    });
+    await store.open();
+    await store.putPayload('rev-1', 'BYTES');
+    vi.stubGlobal('indexedDB', indexedDb.asFactory());
+    try {
+      await resetHavemindConnectionState(
+        fakePlugin({ value: { clientInstanceId: CLIENT_INSTANCE_ID } }),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(indexedDb.getStoreNames(store.databaseName)).toEqual([]);
   });
 
   // S1: every start with a damaged record added another timestamped sidecar,

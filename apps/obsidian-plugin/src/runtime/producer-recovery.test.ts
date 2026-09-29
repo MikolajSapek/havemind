@@ -22,6 +22,7 @@ function setup() {
   const state = () => new DurableSyncState({ persist, payloadStore: {
     putPayload: async (id, bytes) => { payloads.set(id, bytes); },
     getPayload: async (id) => payloads.get(id), deletePayload: async (id) => { payloads.delete(id); },
+    listPayloadIds: async () => [...payloads.keys()],
   } });
   const producer = (sync: DurableSyncState) => new OutboxLocalChangeRepository({
     identity: { vaultId: '00000000-0000-4000-8000-000000000001', memberId: '00000000-0000-4000-8000-000000000002', deviceId: '00000000-0000-4000-8000-000000000003' },
@@ -80,7 +81,8 @@ describe('durable producer recovery', () => {
     expect(await reopened.isLocallyAuthored('old')).toBe(false);
     expect(h.raw().reconciliationBackups?.repair?.[0]?.payloadBase64).toBe(env('old').payloadBase64);
     expect(await reopened.pendingProducerRecoveries()).toEqual([]);
-    expect(h.payloads.get('old')).toBe(env('old').payloadBase64);
+    // The backup keeps the bytes inline, so the stored copy is swept (S1).
+    expect(h.payloads.has('old')).toBe(false);
   });
 
   it('failed staging leaves the original queue and bytes intact in memory and on reload', async () => {

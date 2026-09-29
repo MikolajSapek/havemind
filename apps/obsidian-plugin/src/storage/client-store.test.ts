@@ -80,7 +80,7 @@ describe('IndexedDbClientStore storage', () => {
     );
   });
 
-  it('stores, reads, and deletes out-of-band outbox payloads across reopen (arch P1)', async () => {
+  it('stores, lists, reads, and deletes out-of-band outbox payloads across reopen (arch P1)', async () => {
     const indexedDb = new FakeIndexedDbFactory();
     const first = createStore(indexedDb);
     await first.open();
@@ -95,9 +95,11 @@ describe('IndexedDbClientStore storage', () => {
     await expect(reopened.getPayload('rev-1')).resolves.toBe(
       'BASE64-PAYLOAD-BYTES',
     );
+    await expect(reopened.listPayloadIds()).resolves.toEqual(['rev-1']);
 
     await reopened.deletePayload('rev-1');
     await expect(reopened.getPayload('rev-1')).resolves.toBeUndefined();
+    await expect(reopened.listPayloadIds()).resolves.toEqual([]);
   });
 
   it('stores, reads, and deletes revision history records across reopen (P13)', async () => {

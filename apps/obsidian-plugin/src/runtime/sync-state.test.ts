@@ -846,6 +846,10 @@ class FakePayloadStore implements OutboxPayloadStore {
     this.deletes += 1;
     this.map.delete(revisionId);
   }
+
+  async listPayloadIds(): Promise<readonly string[]> {
+    return [...this.map.keys()];
+  }
 }
 
 /** The disk (data.json) form the persist port last received. */
@@ -1075,6 +1079,29 @@ describe('DurableSyncState outbox payload externalization (arch P1)', () => {
 
     expect((await state.listOutbox()).map((entry) => entry.revisionId)).toEqual(['rev-1', 'rev-2']);
     expect(diskState(persist).outbox.map((entry) => entry.revisionId)).toEqual(['rev-1', 'rev-2']);
+  });
+
+  it('deletes stored payloads nothing refers to any more when it loads (S1)', async () => {
+    const first = new DurableSyncState({ persist, payloadStore: store });
+    await first.enqueue(envelope());
+    await first.enqueue(envelope({ revisionId: 'rev-2', operationId: 'op-2' }));
+    await first.quarantineOutboxItem('rev-2', 'server-rejected');
+    await first.quarantineOutboxItem('rev-3', 'payload-missing');
+    store.map.set('rev-3', 'KEPT-FOR-ITS-ROW');
+    store.map.set('orphan', 'LEAKED');
+
+    await new DurableSyncState({ persist, payloadStore: store }).listOutbox();
+
+    expect([...store.map.keys()].sort()).toEqual(['rev-1', 'rev-2', 'rev-3']);
+  });
+
+  it('keeps every stored payload when the queue was recovered from a damaged copy', async () => {
+    await new DurableSyncState({ persist, payloadStore: store }).enqueue(envelope());
+    persist.saved = { version: 1, cursor: 'not-a-number' };
+
+    await new DurableSyncState({ persist, payloadStore: store }).listOutbox();
+
+    expect(store.map.has('rev-1')).toBe(true);
   });
 
   it('still recovers a corrupt blob from backup with a payload store present (GAP-1)', async () => {
