@@ -232,13 +232,21 @@ describe('VaultApplyAdapter', () => {
     expect(files.deletes).toEqual([]);
   });
 
-  it('protects locally changed binary bytes from a remote tombstone', async () => {
-    const { adapter, files } = build(() => binaryContent('a.png', new Uint8Array(), 'delete'));
+  // The decoder tags every tombstone markdown, so the guard must read an
+  // attachment by its path. Reading it as text hashed characters, never the
+  // bytes, and every peer's delete of an attachment became a conflict.
+  it.each([
+    ['protects locally changed bytes', new Uint8Array([9]), 'conflict', []],
+    ['deletes unchanged bytes', new Uint8Array([1]), 'applied', ['a.png']],
+  ] as const)('%s of an attachment a peer deleted', async (_, bytes, outcome, deletes) => {
+    const tombstone = { operation: 'delete', path: 'a.png', previousPath: null, kind: 'markdown', content: null, binaryContent: null } as const;
+    const { adapter, files } = build(() => tombstone);
     files.owners.set('a.png', 'file-1');
-    files.binaryOnDisk.set('a.png', new Uint8Array([9]));
+    files.binaryOnDisk.set('a.png', bytes);
+    files.onDisk.set('a.png', new TextDecoder().decode(bytes));
     files.baseHashes.set('file-1', await hashBlob(new Uint8Array([1])));
-    expect(await adapter.applyRemote(event())).toBe('conflict');
-    expect(files.deletes).toEqual([]);
+    expect(await adapter.applyRemote(event())).toBe(outcome);
+    expect(files.deletes).toEqual(deletes);
   });
 
   it('keeps the rename source if materializing the destination fails', async () => {

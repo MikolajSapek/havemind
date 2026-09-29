@@ -437,7 +437,10 @@ export class VaultApplyAdapter implements VaultApplyPort {
       // remote tombstone must not take it with no copy left behind. Same
       // shape as the rename source check below. An allowlisted `.obsidian/`
       // settings file keeps resolving by recency and is deleted regardless.
-      const onDisk = lastWriterWins ? null : await this.read(decoded, decoded.path);
+      // A tombstone is always tagged markdown, so the path decides how the
+      // file is read: an attachment's bytes must be hashed as bytes.
+      const target = classifyVaultPath(decoded.path);
+      const onDisk = lastWriterWins ? null : await this.read(target.eligible ? target.kind : 'markdown', decoded.path);
       if (onDisk !== null && await this.holdsLocalEdit(fileId, event, onDisk)) {
         return this.writeConflict(event, decoded);
       }
@@ -497,7 +500,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
       decoded.previousPath !== null &&
       this.files.fileIdAtPath(decoded.previousPath) === fileId
     ) {
-      const previousOnDisk = await this.read(decoded, decoded.previousPath);
+      const previousOnDisk = await this.read(decoded.kind, decoded.previousPath);
       if (previousOnDisk !== null && !lastWriterWins &&
         await this.holdsLocalEdit(fileId, event, previousOnDisk)) {
         return this.writeConflict(event, decoded);
@@ -512,7 +515,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
       // target is not a collision, it is the F3 adopt path, which converges in
       // place below and must still vacate the source.
       if (!lastWriterWins) {
-        const destinationOnDisk = await this.read(decoded, decoded.path);
+        const destinationOnDisk = await this.read(decoded.kind, decoded.path);
         if (destinationOnDisk !== null && !contentMatches(destinationOnDisk, incoming)) {
           return this.writeConflict(event, decoded);
         }
@@ -537,7 +540,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
 
     // Read the on-disk content once; both the F3 adoption check below and the
     // rule-3 overwrite guard consume it.
-    const onDisk = await this.read(decoded, decoded.path);
+    const onDisk = await this.read(decoded.kind, decoded.path);
     const converged = onDisk !== null && contentMatches(onDisk, incoming);
     const owner = this.files.fileIdAtPath(decoded.path);
     if (owner !== null && owner !== fileId) {
@@ -632,7 +635,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
     // pre-write producer adoption and merge (or preserve both in a conflict
     // copy) instead of clobbering it. No `await` separates this read from the
     // write below, so nothing can interleave between them.
-    const preWriteOnDisk = await this.read(decoded, decoded.path);
+    const preWriteOnDisk = await this.read(decoded.kind, decoded.path);
     // A settings file skips the diversion entirely (last-writer-wins): the write
     // below replaces the semantic content whatever landed since the first read.
     if (preWriteOnDisk !== null && !lastWriterWins && !contentMatches(preWriteOnDisk, incoming)) {
@@ -670,9 +673,9 @@ export class VaultApplyAdapter implements VaultApplyPort {
     return this.reportApplied(event, decoded, origin);
   }
 
-  /** Reads `path` as the payload's kind: note text, or an attachment's RAW bytes (F9). */
-  private read(decoded: DecodedRevisionPayload, path: string): Promise<Content | null> {
-    return decoded.kind === 'binary' ? this.files.readBinaryByPath(path) : this.files.readByPath(path);
+  /** Reads `path` as note text, or as an attachment's RAW bytes (F9). */
+  private read(kind: SyncContentKind | undefined, path: string): Promise<Content | null> {
+    return kind === 'binary' ? this.files.readBinaryByPath(path) : this.files.readByPath(path);
   }
 
   /** Note text through the runtime's SHA-256 helper; an attachment's raw bytes through `hashBlob`. */
