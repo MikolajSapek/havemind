@@ -4,7 +4,6 @@ import {
   innerRevisionPayloadSchema,
   opaqueBlobReceiptSchema,
   protectedRevisionHeaderSchema,
-  reconstructionRecipeSchema,
   requiredSemanticsSchema,
   validateRevisionPayloadAgainstHeader,
 } from './revision-schema.js';
@@ -37,26 +36,12 @@ const protectedHeader = {
   semantics,
 } as const;
 
-const recipe = {
-  version: 1,
-  parts: [
-    {
-      type: 'source',
-      parentRevisionId,
-      start: 0,
-      end: 4,
-    },
-    { type: 'literal', text: ' updated' },
-  ],
-} as const;
-
 const updatePayload = {
   schemaVersion: 1,
   operation: 'update',
   path: 'Notes/Plan.md',
   content: '# Plan\n updated',
   plaintextHash: hash,
-  recipe,
 } as const;
 
 describe('revision-schema', () => {
@@ -161,43 +146,7 @@ describe('revision-schema', () => {
     expect(receipt.parentRevisionIds).toBeUndefined();
   });
 
-  it('uses the same source-range recipe shape as sync-core', () => {
-    expect(reconstructionRecipeSchema.parse(recipe)).toEqual(recipe);
-    expect(reconstructionRecipeSchema.parse({ version: 1, parts: [] })).toEqual({
-      version: 1,
-      parts: [],
-    });
-  });
-
-  it('rejects invalid ranges, empty literals and CR text', () => {
-    expect(
-      reconstructionRecipeSchema.safeParse({
-        ...recipe,
-        parts: [
-          {
-            type: 'source',
-            parentRevisionId,
-            start: 4,
-            end: 4,
-          },
-        ],
-      }).success,
-    ).toBe(false);
-    expect(
-      reconstructionRecipeSchema.safeParse({
-        ...recipe,
-        parts: [{ type: 'literal', text: '' }],
-      }).success,
-    ).toBe(false);
-    expect(
-      reconstructionRecipeSchema.safeParse({
-        ...recipe,
-        parts: [{ type: 'literal', text: 'bad\r\n' }],
-      }).success,
-    ).toBe(false);
-  });
-
-  it('validates a normalized Markdown snapshot and its recipe', () => {
+  it('validates a normalized Markdown snapshot', () => {
     const payload = innerRevisionPayloadSchema.parse(updatePayload);
     expect(payload.operation).toBe('update');
     expect(
@@ -205,67 +154,14 @@ describe('revision-schema', () => {
     ).toEqual({ header: protectedHeader, payload: updatePayload });
   });
 
-  it('rejects a recipe source that is not a protected-header parent', () => {
-    expect(() =>
-      validateRevisionPayloadAgainstHeader(protectedHeader, {
-        ...updatePayload,
-        recipe: {
-          version: 1,
-          parts: [
-            {
-              type: 'source',
-              parentRevisionId: revisionId,
-              start: 0,
-              end: 1,
-            },
-          ],
-        },
-      }),
-    ).toThrow(/parent/i);
-  });
-
-  it('allows restore provenance to reference an earlier non-head revision', () => {
-    const currentHeadHeader = {
-      ...protectedHeader,
-      parentRevisionIds: [laterParentId],
-    };
-    const historicalRestore = {
-      ...updatePayload,
-      operation: 'restore',
-      recipe: {
-        version: 1,
-        parts: [
-          {
-            type: 'source',
-            parentRevisionId,
-            start: 0,
-            end: 4,
-          },
-        ],
-      },
-    } as const;
-
-    expect(
-      validateRevisionPayloadAgainstHeader(
-        currentHeadHeader,
-        historicalRestore,
-      ),
-    ).toEqual({ header: currentHeadHeader, payload: historicalRestore });
-  });
-
   it('enforces operation parent counts and rename path semantics', () => {
     const rootHeader = { ...protectedHeader, parentRevisionIds: [] };
-    const literalRecipe = {
-      version: 1,
-      parts: [{ type: 'literal', text: '# New\n' }],
-    } as const;
 
     expect(
       validateRevisionPayloadAgainstHeader(rootHeader, {
         ...updatePayload,
         operation: 'create',
         content: '# New\n',
-        recipe: literalRecipe,
       }).payload.operation,
     ).toBe('create');
     expect(
@@ -273,7 +169,6 @@ describe('revision-schema', () => {
         ...updatePayload,
         operation: 'initial-import',
         content: '# New\n',
-        recipe: literalRecipe,
       }).payload.operation,
     ).toBe('initial-import');
     expect(() =>
@@ -314,7 +209,6 @@ describe('revision-schema', () => {
         path: 'Notes/Plan.md',
         content: '# must not survive',
         plaintextHash: hash,
-        recipe: null,
       }).success,
     ).toBe(false);
   });
@@ -327,7 +221,6 @@ describe('revision-schema', () => {
         path: 'Notes/Plan.md',
         content: null,
         plaintextHash: null,
-        recipe: null,
       }).payload.operation,
     ).toBe('delete');
   });

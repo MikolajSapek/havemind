@@ -8,7 +8,9 @@
  * relevant fields and rejects reserved or non-canonical paths outright, so a
  * hostile or corrupt payload can never steer a write into `.obsidian/`,
  * `Havemind Conflicts/` or a path-traversal target (the trusted producer
- * validates the full schema, recipe, hashes, at creation time).
+ * validates the full schema and the hashes at creation time). Fields it does not
+ * need are ignored, which is why a payload from a plugin that wrote a `recipe`
+ * (up to 1.5.7) and one from a plugin that does not decode the same way.
  */
 
 import { canonicalizeVaultPath, isCanonicalBase64 } from '@havemind/protocol';

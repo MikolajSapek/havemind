@@ -43,7 +43,6 @@ describe('innerRevisionPayloadSchema, binary variant', () => {
       path: 'Attachments/pic.png',
       contentBase64: 'AAEC/w==',
       blobByteHash: byteHash,
-      recipe: null,
     };
 
     const parsed = innerRevisionPayloadSchema.parse(payload);
@@ -60,7 +59,6 @@ describe('innerRevisionPayloadSchema, binary variant', () => {
       previousPath: 'Attachments/old.pdf',
       contentBase64: '',
       blobByteHash: byteHash,
-      recipe: null,
     };
 
     expect(() => innerRevisionPayloadSchema.parse(payload)).not.toThrow();
@@ -74,13 +72,12 @@ describe('innerRevisionPayloadSchema, binary variant', () => {
       path: 'Attachments/pic.png',
       contentBase64: 'not base64!!',
       blobByteHash: byteHash,
-      recipe: null,
     };
 
     expect(() => innerRevisionPayloadSchema.parse(payload)).toThrow();
   });
 
-  it('rejects a binary payload carrying a non-null recipe', () => {
+  it('rejects a binary payload carrying a field the schema does not define', () => {
     const payload = {
       schemaVersion: 1,
       operation: 'create',
@@ -88,7 +85,7 @@ describe('innerRevisionPayloadSchema, binary variant', () => {
       path: 'Attachments/pic.png',
       contentBase64: 'AAA=',
       blobByteHash: byteHash,
-      recipe: { version: 1, parts: [] },
+      extra: 'not part of the format',
     };
 
     expect(() => innerRevisionPayloadSchema.parse(payload)).toThrow();
@@ -104,7 +101,6 @@ describe('validateRevisionPayloadAgainstHeader, binary', () => {
       path: 'Attachments/pic.png',
       contentBase64: 'AAEC/w==',
       blobByteHash: byteHash,
-      recipe: null,
     };
 
     const result = validateRevisionPayloadAgainstHeader(header([]), payload);
@@ -112,7 +108,7 @@ describe('validateRevisionPayloadAgainstHeader, binary', () => {
     expect(result.payload).toMatchObject({ kind: 'binary' });
   });
 
-  it('accepts a binary update parented on a prior revision (no recipe-part check)', () => {
+  it('accepts a binary update parented on a prior revision', () => {
     const payload = {
       schemaVersion: 1,
       operation: 'update',
@@ -120,7 +116,6 @@ describe('validateRevisionPayloadAgainstHeader, binary', () => {
       path: 'Attachments/pic.png',
       contentBase64: 'AAEC/w==',
       blobByteHash: byteHash,
-      recipe: null,
     };
 
     expect(() =>
@@ -135,7 +130,6 @@ describe('validateRevisionPayloadAgainstHeader, binary', () => {
       path: 'Notes/a.md',
       content: 'Hello\n',
       plaintextHash: 'a'.repeat(64),
-      recipe: { version: 1, parts: [{ type: 'literal', text: 'Hello\n' }] },
     };
 
     expect(() =>

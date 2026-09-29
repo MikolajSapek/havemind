@@ -6,11 +6,9 @@
  * bytes and computes their content-addressed hash, so the header must be valid
  * on its own and the payload must be decodable by the peer.
  *
- * The recipe is deliberately literal-only: a single literal part carrying the
- * whole note (or an empty parts list for an empty note). A literal-only recipe
- * has no `source` parts, so it validates against any header regardless of
- * parents, correct for both root creates and parented updates. Source-range
- * (delta) recipes are a later optimisation and are not required for correctness.
+ * A note travels once, as `content` plus its hash. Releases up to 1.5.7 also
+ * wrote the whole note a second time inside a one-part "recipe" that no plugin
+ * read. Only a merge still carries one, see `legacyRecipe`.
  */
 
 import {
@@ -51,7 +49,7 @@ export interface BuildRevisionEnvelopeInput {
    * Whether this change carries markdown text (`content`) or raw binary bytes
    * (`binaryContent`). Defaults to `'markdown'` so every existing caller is
    * unchanged. A `'binary'` change is a whole-file replace (F9), no line diff,
-   * no recipe, no canonicalisation.
+   * no canonicalisation.
    */
   readonly kind?: 'markdown' | 'binary';
   /** Note content, or `null` for a delete tombstone / binary change. */
@@ -138,6 +136,9 @@ export async function buildRevisionEnvelope(
   };
 
   const payload = await buildInnerPayload(input, path);
+  if (parentRevisionIds.length >= 2) {
+    payload.recipe = legacyRecipe(payload.content);
+  }
   // Fail fast: never enqueue an envelope the server (or the peer) would reject.
   validateRevisionPayloadAgainstHeader(header, payload);
 
@@ -167,6 +168,27 @@ export async function buildRevisionEnvelope(
   };
 }
 
+/**
+ * The `recipe` every payload carried up to release 1.5.7. Nothing ever read it,
+ * so an ordinary revision no longer writes it. A revision with two or more
+ * parents (a merge) still does, byte for byte as before: the client tells "the
+ * same merge, made on two devices" from any other revision by the hash of the
+ * payload (`retireEquivalentMerges`, `reconcileHeads`), and a device on 1.5.7 or
+ * older writes the recipe. A device that did not would never recognise its
+ * merge as equivalent to theirs and would keep it queued for good, stranding the
+ * edits made on top of it. When those two checks compare content instead of
+ * bytes, and no such device is left, delete this function, its call and the
+ * `recipe` field of the payload schemas.
+ */
+function legacyRecipe(content: unknown): unknown {
+  // A tombstone or an attachment carried `recipe: null`.
+  if (typeof content !== 'string') return null;
+  return {
+    version: 1,
+    parts: content === '' ? [] : [{ type: 'literal', text: content }],
+  };
+}
+
 async function buildInnerPayload(
   input: BuildRevisionEnvelopeInput,
   path: string,
@@ -178,13 +200,12 @@ async function buildInnerPayload(
       path,
       content: null,
       plaintextHash: null,
-      recipe: null,
     };
   }
 
   if (input.kind === 'binary') {
-    // Whole-file replace over RAW bytes: no canonicalisation, no recipe. Kept
-    // deliberately separate from the markdown path below.
+    // Whole-file replace over RAW bytes: no canonicalisation. Kept deliberately
+    // separate from the markdown path below.
     //
     // `blobByteHash` is DESCRIPTIVE metadata, not an integrity guarantee
     // (AUD-10(b)). No consumer reads it: `decodeRevisionPayload` ignores the
@@ -209,7 +230,6 @@ async function buildInnerPayload(
     }
     base.contentBase64 = bytesToBase64(bytes);
     base.blobByteHash = await hashBlob(bytes);
-    base.recipe = null;
     return base;
   }
 
@@ -227,25 +247,7 @@ async function buildInnerPayload(
   }
   base.content = content;
   base.plaintextHash = await hashPlaintext(content);
-  // NOTE: this stores the content a second time inside the literal recipe part,
-  // so the payload carries the note twice. This duplication is NOT removable
-  // without a protocol change: `contentRevisionPayloadSchema` (revision-schema)
-  // requires BOTH a non-null `content` string AND a non-null `recipe`, and a
-  // literal recipe part must carry its own `text`. Dropping either field, or
-  // reconstructing `content` from the recipe alone, would break the peer decoder
-  // and the header/payload validation contract. Halving the payload therefore
-  // belongs to a future protocol revision, not this fix; the effective ceiling
-  // is instead raised by the pre-enqueue size guard above catching payloads that
-  // would be rejected. See revision-schema.ts contentRevisionPayloadSchema.
-  base.recipe = buildLiteralRecipe(content);
   return base;
-}
-
-function buildLiteralRecipe(content: string): Record<string, unknown> {
-  // An empty note reconstructs from no parts; a non-empty note from one literal.
-  const parts =
-    content.length === 0 ? [] : [{ type: 'literal', text: content }];
-  return { version: 1, parts };
 }
 
 function bytesToBase64(bytes: Uint8Array): string {

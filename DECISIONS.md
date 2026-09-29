@@ -3,6 +3,38 @@
 Log of blockers, open questions and simpler-variant choices raised during
 `/loop` execution. One entry per decision; newest first.
 
+## 2026-09-29, P9: a note is stored once in its payload, except in a merge
+
+**Decision:** the revision payload no longer carries the note text twice. Up to
+1.5.7 every payload held `content` and, again, the same text in a one-part
+`recipe`. Ordinary revisions (zero or one parent) now write `content` only,
+which halves them. A revision with two or more parents (a merge) still writes
+the recipe, byte for byte as before.
+
+**Why it is safe to drop:** no released plugin reads the recipe. The four
+distinct decoder builds that cover the 30 release tags 1.0.0 to 1.5.7 read
+`schemaVersion`, `operation`, `path`, `previousPath`, `content` and (for
+attachments) `contentBase64`, and nothing else; each was run against payloads
+from the new encoder. The server never parses a payload. The full payload
+schema is called only by the encoder on its own output, and
+`plans/001-technical-plan.md` and `specs/001-mvp.md` describe receivers
+validating recipes, which no receiver ever did (see the 2026-07-16 entry on
+`decodeRevisionPayload`), so those lines are superseded.
+
+**Why merges keep it:** the client recognises "the same merge, made on two
+devices" by the hash of the payload (`retireEquivalentMerges` in
+`runtime/sync-state.ts`, `reconcileHeads` in `runtime/head-reconciliation.ts`).
+Between a device on 1.5.7 or older and one on the new encoder, an identical
+merge had different bytes, so it was never retired: 5 of the 21 two-device
+scenarios failed, a queued merge never left the outbox, and an edit made on top
+of it never reached the other device. Merges keep the old bytes so both formats
+agree.
+
+**To finish the removal:** make those two checks compare the decoded content and
+parents instead of the payload hash, wait until no device below the release that
+does so is left, then delete `legacyRecipe` in `revision-envelope.ts` and the
+`recipe` field of the payload schemas. Nothing else refers to it.
+
 ## 2026-08-18, SRV-03/04/05 (Restic backup) closed as won't-fix, not deferred
 
 **Decision:** the server backup work (SRV-03 Restic deployment, SRV-04

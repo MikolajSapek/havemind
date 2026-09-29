@@ -34,7 +34,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Writable } from 'node:stream';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { buildApp } from '../../apps/server/src/app.js';
 import { SessionRepository } from '../../apps/server/src/auth/session-repository.js';
@@ -51,6 +51,7 @@ import { runMigrations } from '../../apps/server/src/migrations.js';
 import { RevisionRepository } from '../../apps/server/src/revision-repository.js';
 
 import { canonicalizeMarkdown } from '@havemind/protocol';
+import type * as SyncCore from '@havemind/sync-core';
 
 import { TFile, TFolder } from 'obsidian';
 
@@ -88,6 +89,41 @@ import {
   SyncRunner,
   type SyncCycleResult,
 } from '../../apps/obsidian-plugin/src/sync/sync-runner.js';
+
+/**
+ * Releases up to 1.5.7 wrote a `recipe` (the note text again) into every
+ * payload. While `oldFormat` is set, the envelopes built here get one too, so a
+ * device that runs it stands in for a plugin that has not been updated.
+ */
+const payloadFormat = vi.hoisted(() => ({ oldFormat: false }));
+
+vi.mock('@havemind/sync-core', async (importOriginal) => {
+  const real = await importOriginal<typeof SyncCore>();
+  const { createHash } = await import('node:crypto');
+  return {
+    ...real,
+    buildRevisionEnvelope: async (
+      input: Parameters<typeof real.buildRevisionEnvelope>[0],
+    ) => {
+      const built = await real.buildRevisionEnvelope(input);
+      if (!payloadFormat.oldFormat) return built;
+      const payload = JSON.parse(
+        Buffer.from(built.payloadBase64, 'base64').toString('utf8'),
+      ) as Record<string, unknown>;
+      const content = payload.content;
+      payload.recipe =
+        typeof content !== 'string'
+          ? null
+          : { version: 1, parts: content === '' ? [] : [{ type: 'literal', text: content }] };
+      const bytes = Buffer.from(JSON.stringify(payload), 'utf8');
+      return {
+        ...built,
+        payloadBase64: bytes.toString('base64'),
+        contentHash: createHash('sha256').update(bytes).digest('hex'),
+      };
+    },
+  };
+});
 
 const SERVER_ORIGIN = 'https://sync.example.test';
 const TEST_ENV = {
@@ -306,6 +342,8 @@ function memoryPersist(): {
  * producer and vault-apply adapter, over a single in-memory vault.
  */
 class DeviceRuntime {
+  /** Stands in for a plugin that still writes the old payload format. */
+  oldFormat = false;
   readonly editors = new Map<string, string[]>();
   beforeProcess?: () => void;
   beforeResolve?: () => void;
@@ -472,6 +510,7 @@ class DeviceRuntime {
    * per-path create/modify event, never a full-vault rescan (a rescan would
    * re-enqueue a note this device only materialised from the peer). */
   async edit(path: string, content: string): Promise<void> {
+    payloadFormat.oldFormat = this.oldFormat;
     const existed = this.files.has(path);
     this.files.set(path, content.replace(/\r\n?/gu, '\n'));
     if (existed) {
@@ -512,6 +551,7 @@ class DeviceRuntime {
   }
 
   async sync(): Promise<SyncCycleResult> {
+    payloadFormat.oldFormat = this.oldFormat;
     const result = await this.runner.trigger();
     // Real Obsidian fires vault events for the writes the apply side just made;
     // the production plugin routes them back through the SAME observer
@@ -1231,6 +1271,49 @@ describe('Revision causality through production client components', () => {
     const server = await TwoDeviceServer.create();
     try {
       const { owner, invitee } = await connectTwoDevices(server);
+      await owner.edit('Shared.md', 'base'); await owner.sync(); await invitee.sync();
+      await owner.edit('Shared.md', 'same'); await invitee.edit('Shared.md', 'same');
+      for (let i = 0; i < 4; i++) { await owner.sync(); await invitee.sync(); }
+      expect(server.database.prepare('SELECT * FROM file_heads').all()).toHaveLength(1);
+      expect(await owner.outboxSize()).toBe(0); expect(await invitee.outboxSize()).toBe(0);
+    } finally { await server.close(); }
+  });
+
+  // The client recognises "the same merge" by the hash of its payload
+  // (`retireEquivalentMerges`, `reconcileHeads`), so a device on the old payload
+  // format and one on the new must write the same bytes for a merge. If they do
+  // not, the second merge is never retired and edits made on top of it stay in
+  // the queue for good.
+  it.each([
+    ['owner', true],
+    ['invitee', false],
+  ] as const)('a merge from a device still on the old payload format (%s) is retired like any other', async (_name, ownerIsOld) => {
+    const server = await TwoDeviceServer.create();
+    try {
+      const { owner, invitee } = await connectTwoDevices(server);
+      (ownerIsOld ? owner : invitee).oldFormat = true;
+      await owner.edit('Shared.md', 'a\nb\nc'); await owner.sync(); await invitee.sync();
+      await owner.edit('Shared.md', 'A\nb\nc');
+      await invitee.edit('Shared.md', 'a\nB\nc');
+      await owner.sync(); await invitee.sync(); // invitee has an unsent merge
+      await invitee.edit('Shared.md', 'A\nB\nC'); // descendant of that merge
+      await owner.sync(); await owner.sync(); // owner's equivalent merge wins
+      for (let round = 0; round < 5; round++) { await invitee.sync(); await owner.sync(); }
+      expect(await invitee.outboxSize()).toBe(0);
+      expect(await owner.outboxSize()).toBe(0);
+      expect(owner.read('Shared.md')).toBe('A\nB\nC\n');
+      expect(server.database.prepare('SELECT * FROM file_heads').all()).toHaveLength(1);
+    } finally { await server.close(); }
+  });
+
+  it.each([
+    ['owner', true],
+    ['invitee', false],
+  ] as const)('identical concurrent edits resolve into one head across payload formats (%s on the old one)', async (_name, ownerIsOld) => {
+    const server = await TwoDeviceServer.create();
+    try {
+      const { owner, invitee } = await connectTwoDevices(server);
+      (ownerIsOld ? owner : invitee).oldFormat = true;
       await owner.edit('Shared.md', 'base'); await owner.sync(); await invitee.sync();
       await owner.edit('Shared.md', 'same'); await invitee.edit('Shared.md', 'same');
       for (let i = 0; i < 4; i++) { await owner.sync(); await invitee.sync(); }

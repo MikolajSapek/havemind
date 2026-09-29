@@ -8,12 +8,10 @@ const identifierSchema = z.string().uuid();
 const parentRevisionIdsSchema = z.array(identifierSchema).max(32);
 
 /**
- * Wire-format line-ending check: content and recipe-literal fragments must use
- * LF, never CR/CRLF. This is DELIBERATELY only a line-ending check, not the full
- * `canonicalizeMarkdown` transform: a literal recipe part is a mid-document
- * fragment, so it must NOT be forced to a single trailing newline (AUD-03).
- * Hashing/diff-base canonicalisation lives in `canonicalizeMarkdown`; this schema
- * validates wire structure only.
+ * Wire-format line-ending check: content must use LF, never CR/CRLF. This is
+ * DELIBERATELY only a line-ending check, not the full `canonicalizeMarkdown`
+ * transform (AUD-03). Hashing/diff-base canonicalisation lives in
+ * `canonicalizeMarkdown`; this schema validates wire structure only.
  */
 function usesLfLineEndings(text: string): boolean {
   return !text.includes('\r');
@@ -102,43 +100,13 @@ export const opaqueBlobReceiptSchema = z
 
 export type OpaqueBlobReceipt = z.infer<typeof opaqueBlobReceiptSchema>;
 
-const sourceRangePartSchema = z
-  .object({
-    type: z.literal('source'),
-    parentRevisionId: identifierSchema,
-    start: z.number().int().nonnegative().safe(),
-    end: z.number().int().positive().safe(),
-  })
-  .strict()
-  .refine((part) => part.start < part.end, {
-    message: 'Source range must not be empty or inverted.',
-    path: ['end'],
-  });
-
-const literalPartSchema = z
-  .object({
-    type: z.literal('literal'),
-    text: z
-      .string()
-      .min(1)
-      .refine(usesLfLineEndings, {
-        message: 'Literal text must use LF line endings.',
-      }),
-  })
-  .strict();
-
-export const reconstructionRecipeSchema = z
-  .object({
-    version: z.literal(1),
-    parts: z.array(
-      z.discriminatedUnion('type', [sourceRangePartSchema, literalPartSchema]),
-    ),
-  })
-  .strict();
-
-export type ReconstructionRecipe = z.infer<
-  typeof reconstructionRecipeSchema
->;
+/**
+ * The note text written a second time. Releases up to 1.5.7 put it in every
+ * payload; the current encoder still does in a merge (a revision with two or
+ * more parents), see `legacyRecipe` in sync-core. Nothing reads it, so it is
+ * accepted as it is and not checked.
+ */
+const legacyRecipeSchema = z.unknown().optional();
 
 const canonicalPathSchema = z.string().refine(
   (path) => {
@@ -213,7 +181,7 @@ const contentRevisionPayloadSchema = z
     previousPath: canonicalPathSchema.optional(),
     content: normalizedMarkdownSchema,
     plaintextHash: plaintextHashSchema,
-    recipe: reconstructionRecipeSchema,
+    recipe: legacyRecipeSchema,
   })
   .strict()
   .superRefine((payload, context) => {
@@ -242,13 +210,13 @@ const contentRevisionPayloadSchema = z
 
 /**
  * Binary attachment payload (F9). Whole-file replace only, there is no line
- * diff or three-way merge for binary, so the recipe is always `null`. The raw
- * bytes are carried base64-encoded and DESCRIBED by `blobByteHash` (SHA-256 of
- * the RAW bytes, never a canonicalised form). That field is metadata only: the
- * decoder does not verify it and no consumer reads it (AUD-10(b)); integrity is
- * closed by the content-addressed hash over the whole payload. A legacy markdown payload carries
- * no `kind` field, so the presence of `kind: 'binary'` is what selects this
- * union member; old revisions keep decoding through `contentRevisionPayloadSchema`.
+ * diff or three-way merge for binary. The raw bytes are carried base64-encoded
+ * and DESCRIBED by `blobByteHash` (SHA-256 of the RAW bytes, never a
+ * canonicalised form). That field is metadata only: the decoder does not verify
+ * it and no consumer reads it (AUD-10(b)); integrity is closed by the
+ * content-addressed hash over the whole payload. A legacy markdown payload
+ * carries no `kind` field, so the presence of `kind: 'binary'` is what selects
+ * this union member.
  */
 const binaryRevisionPayloadSchema = z
   .object({
@@ -266,7 +234,7 @@ const binaryRevisionPayloadSchema = z
     previousPath: canonicalPathSchema.optional(),
     contentBase64: base64ContentSchema,
     blobByteHash: sha256HexField,
-    recipe: z.null(),
+    recipe: legacyRecipeSchema,
   })
   .strict()
   .superRefine((payload, context) => {
@@ -300,10 +268,11 @@ const tombstoneRevisionPayloadSchema = z
     path: canonicalPathSchema,
     content: z.null(),
     plaintextHash: z.null(),
-    recipe: z.null(),
+    recipe: legacyRecipeSchema,
   })
   .strict();
 
+/** What the current encoder writes, checked before a revision is queued. */
 export const innerRevisionPayloadSchema = z.union([
   contentRevisionPayloadSchema,
   binaryRevisionPayloadSchema,
@@ -325,28 +294,6 @@ export function validateRevisionPayloadAgainstHeader(
 ): ValidatedRevisionInput {
   const header = protectedRevisionHeaderSchema.parse(headerInput);
   const payload = innerRevisionPayloadSchema.parse(payloadInput);
-  const parents = new Set(header.parentRevisionIds);
-
-  // Binary payloads (kind 'binary') carry no recipe (whole-file replace only),
-  // as do delete tombstones and restores, none has source parts to validate.
-  if (
-    payload.operation !== 'delete' &&
-    payload.operation !== 'restore' &&
-    payload.recipe !== null
-  ) {
-    for (const part of payload.recipe.parts) {
-      if (part.type === 'source' && !parents.has(part.parentRevisionId)) {
-        throw new Error(
-          `Recipe source ${part.parentRevisionId} is not a protected-header parent.`,
-        );
-      }
-    }
-  }
-
-  // A restore is causally based on the current head but copies provenance
-  // ranges from an older revision. The trusted client must separately verify
-  // that every such source exists in retained history for this vault and file.
-
   const isRootOperation =
     payload.operation === 'create' || payload.operation === 'initial-import';
   if (isRootOperation && header.parentRevisionIds.length !== 0) {
