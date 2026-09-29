@@ -823,6 +823,8 @@ class FakePayloadStore implements OutboxPayloadStore {
   readonly map = new Map<string, string>();
   putFails = false;
   getFails = false;
+  /** Holds every read until it resolves. */
+  gate: Promise<void> = Promise.resolve();
   puts = 0;
   gets = 0;
   deletes = 0;
@@ -835,6 +837,7 @@ class FakePayloadStore implements OutboxPayloadStore {
 
   async getPayload(revisionId: string): Promise<string | undefined> {
     this.gets += 1;
+    await this.gate;
     if (this.getFails) throw new Error('payload store unavailable');
     return this.map.get(revisionId);
   }
@@ -1055,6 +1058,23 @@ describe('DurableSyncState outbox payload externalization (arch P1)', () => {
       'RETRY-BYTES',
     );
     expect(store.map.get('rev-1')).toBe('RETRY-BYTES');
+  });
+
+  it('keeps a change queued while the first load still reads stored payloads', async () => {
+    await new DurableSyncState({ persist, payloadStore: store }).enqueue(envelope());
+    let release = (): void => {};
+    store.gate = new Promise((resolve) => { release = resolve; });
+    const state = new DurableSyncState({ persist, payloadStore: store });
+
+    const loading = state.listOutbox();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const queued = state.enqueue(envelope({ revisionId: 'rev-2', operationId: 'op-2' }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    release();
+    await Promise.all([loading, queued]);
+
+    expect((await state.listOutbox()).map((entry) => entry.revisionId)).toEqual(['rev-1', 'rev-2']);
+    expect(diskState(persist).outbox.map((entry) => entry.revisionId)).toEqual(['rev-1', 'rev-2']);
   });
 
   it('still recovers a corrupt blob from backup with a payload store present (GAP-1)', async () => {

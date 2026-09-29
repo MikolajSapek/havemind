@@ -1060,7 +1060,10 @@ export class DurableSyncState implements SyncStatePort {
   }
 
   private async ensureLoaded(): Promise<PersistedSyncState> {
-    if (this.cache !== null) return this.cache;
+    // The cache is set before the load finishes reading stored payloads. A
+    // change made in that window was lost when the load swapped its own copy
+    // in, so every caller waits for the whole load.
+    if (this.cache !== null && this.loadPromise === null) return this.cache;
     if (this.loadPromise === null) {
       this.loadPromise = this.persist
         .load()
