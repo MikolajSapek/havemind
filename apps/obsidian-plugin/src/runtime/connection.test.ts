@@ -1,4 +1,5 @@
 import { sha256Hex } from '@havemind/protocol';
+import { PayloadDecodeError } from '@havemind/sync-core';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -184,6 +185,27 @@ describe('buildConnectionResolvers', () => {
         path: 'Notatki/zażółć.md',
         content: 'gęślą jaźń \u{1F600}\n',
       });
+    });
+
+    it('refuses bytes that hash correctly but are not valid UTF-8, rather than decoding them lossily', async () => {
+      const encoder = new TextEncoder();
+      const bytes = new Uint8Array([
+        ...encoder.encode('{"schemaVersion":1,"operation":"create","path":"Notes/a.md","content":"x'),
+        0xff,
+        ...encoder.encode('y"}'),
+      ]);
+      const hashed: RemoteEvent = {
+        serverSequence: 7,
+        revision: { revisionId: 'rev-4', fileId: 'file-1', contentHash: await sha256Hex(bytes) },
+      };
+      const resolvers = buildConnectionResolvers({
+        apiBaseUrl: API,
+        vaultId: VAULT,
+        getAccessToken: async () => 'access-1',
+        requestUrl: async () => ({ status: 200, json: null, arrayBuffer: bytes.buffer as ArrayBuffer }),
+      });
+
+      await expect(resolvers.resolveRevision(hashed)).rejects.toThrow(PayloadDecodeError);
     });
 
     it('rejects received bytes that do not hash to the receipt', async () => {

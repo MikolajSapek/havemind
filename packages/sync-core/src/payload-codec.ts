@@ -70,16 +70,17 @@ export class PayloadDecodeError extends Error {
   }
 }
 
+// Fatal: bytes that are not UTF-8 fail closed, not as U+FFFD written into a note.
+const UTF8 = new TextDecoder('utf-8', { fatal: true });
+
 export function decodeRevisionPayload(
   bytes: string | Uint8Array,
 ): DecodedRevisionPayload {
-  const text = typeof bytes === 'string' ? bytes : new TextDecoder().decode(bytes);
-
   let json: unknown;
   try {
-    json = JSON.parse(text);
+    json = JSON.parse(typeof bytes === 'string' ? bytes : UTF8.decode(bytes));
   } catch (error) {
-    throw new PayloadDecodeError('Revision payload is not valid JSON.', error);
+    throw new PayloadDecodeError('Revision payload is not valid UTF-8 JSON.', error);
   }
 
   if (!isRecord(json)) {

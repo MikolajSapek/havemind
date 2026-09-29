@@ -58,6 +58,19 @@ describe('decodeRevisionPayload', () => {
     expect(decodeRevisionPayload(bytes).content).toBe('Hi\n');
   });
 
+  it('rejects bytes that are not valid UTF-8 instead of decoding replacement characters', () => {
+    // A stray 0xFF inside the note text: a lenient decoder turns it into U+FFFD
+    // and the note is written with a character the author never typed.
+    const encoder = new TextEncoder();
+    const bytes = new Uint8Array([
+      ...encoder.encode('{"schemaVersion":1,"operation":"create","path":"Notes/a.md","content":"x'),
+      0xff,
+      ...encoder.encode('y\\n"}'),
+    ]);
+
+    expect(() => decodeRevisionPayload(bytes)).toThrow(PayloadDecodeError);
+  });
+
   it('rejects invalid JSON', () => {
     expect(() => decodeRevisionPayload('not json')).toThrow(PayloadDecodeError);
   });
