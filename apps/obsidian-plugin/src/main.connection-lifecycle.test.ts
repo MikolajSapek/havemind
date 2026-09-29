@@ -752,16 +752,14 @@ describe('disconnect() tears down the rejoin poll (NIT)', () => {
   it('disarms an armed invitee rejoin poll, like retryConnection/onunload', () => {
     const plugin = newPlugin();
     const timer = globalThis.setInterval(() => undefined, 1_000_000);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const internals = plugin as any;
-    internals.rejoinController = { attempt: () => undefined };
-    internals.rejoinPollTimer = timer;
-    internals.rejoinArmedGeneration = 0;
+    internals(plugin).rejoinController = { attempt: () => undefined };
+    internals(plugin).rejoinPollTimer = timer;
+    internals(plugin).rejoinArmedGeneration = 0;
 
-    internals.disconnect();
+    internals(plugin).disconnect();
 
-    expect(internals.rejoinController).toBeNull();
-    expect(internals.rejoinPollTimer).toBeNull();
+    expect(internals(plugin).rejoinController).toBeNull();
+    expect(internals(plugin).rejoinPollTimer).toBeNull();
   });
 });
 

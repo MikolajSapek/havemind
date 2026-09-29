@@ -18,12 +18,6 @@ import {
 import { forgetSharedAccessProvider } from './runtime/adapters/shared-access-provider';
 import { buildRejoinRosterView } from './runtime/rejoin-roster';
 import {
-  REJOIN_POLL_INTERVAL_MS,
-  type RejoinController,
-  type RejoinResumed,
-  type RejoinState,
-} from './runtime/rejoin';
-import {
   buildConnectionPanel,
   formatStatusBar,
   type ConnectionPanelView,
@@ -31,7 +25,6 @@ import {
   type StatusBarView,
 } from './runtime/status';
 import {
-  buildRejoinControllerForInvitee,
   connectFromInput,
   resetHavemindConnectionState,
   startHavemindConnection,
@@ -46,6 +39,7 @@ import { registerCommands } from './plugin/commands';
 import { Conflicts } from './plugin/conflicts';
 import { Invitations } from './plugin/invitations';
 import { People } from './plugin/people';
+import { InviteeRejoin } from './plugin/rejoin';
 import { SendQueue } from './plugin/send-queue';
 import { StatusBar } from './plugin/status-bar';
 import { ConfirmModal } from './ui/confirm-modal';
@@ -87,22 +81,13 @@ export default class HavemindPlugin extends Plugin {
   private guestInvitationInvalid = false;
   private connectionStatus: ConnectionStatus = 'disconnected';
   private lastSyncedAt: number | undefined;
-  private connectionError: string | undefined;
+  connectionError: string | undefined;
   /** Lifecycle-safe bridge between long-lived plugin state and short-lived leaves. */
   readonly views = new PluginViewRegistry();
   /** Live feed behind the Activity view (previously orphaned, now wired). */
   private readonly activityLog = new ActivityLog();
   /** Disposer for the activityLog subscription set up in onload(); torn down in onunload(). */
   private activityLogUnsubscribe: (() => void) | null = null;
-  /**
-   * F9 Rejoin (invitee side). The live controller driving terminal-auth →
-   * syncing while this device polls for the owner's grant, plus the interval id
-   * so unload tears the poll down. Null when no rejoin is armed.
-   */
-  private rejoinController: RejoinController | null = null;
-  private rejoinPollTimer: ReturnType<typeof globalThis.setInterval> | null = null;
-  /** Guards the post-rejoin restart so it fires exactly once (no double-start). */
-  private rejoinRestarted = false;
   /**
    * Monotonic counter bumped each time a live connection is (re-)established
    * (`startConnection`/`connectFromInput` assign a handle). The invitee rejoin
@@ -111,9 +96,7 @@ export default class HavemindPlugin extends Plugin {
    * connect, a rejoin restart) and must not tear that healthy connection down,
    * see `pollRejoinOnce` (FINDING 1b).
    */
-  private connectGeneration = 0;
-  /** `connectGeneration` captured when the rejoin poll armed; null when disarmed. */
-  private rejoinArmedGeneration: number | null = null;
+  connectGeneration = 0;
   /**
    * Guards a user-initiated "Retry now" so a rapid double-click never spawns a
    * second connection build while the first is still in flight, two live
@@ -136,6 +119,7 @@ export default class HavemindPlugin extends Plugin {
   syncState: DurableSyncState | null = null;
   readonly people = new People(this);
   readonly invitations = new Invitations(this);
+  readonly rejoin = new InviteeRejoin(this);
   readonly conflicts = new Conflicts(this);
   readonly sendQueue = new SendQueue(this);
   readonly statusBar = new StatusBar(this);
@@ -286,7 +270,7 @@ export default class HavemindPlugin extends Plugin {
     this.unloaded = true;
     this.abortConnectionAttempts();
     // Cancel any in-flight invitee rejoin poll so it never fires after unload.
-    this.disarmRejoin();
+    this.rejoin.disarmRejoin();
     // Cancel any pending auto-repair sweep so it never fires after unload.
     this.conflicts.cancelConflictSweep();
     this.connection?.stop();
@@ -297,7 +281,7 @@ export default class HavemindPlugin extends Plugin {
   }
 
   /** Starts sync without allowing startup failures to escape UI/event callbacks. */
-  private async startConnection(): Promise<void> {
+  async startConnection(): Promise<void> {
     try {
       await this.startConnectionOnce();
     } catch {
@@ -545,7 +529,7 @@ export default class HavemindPlugin extends Plugin {
     // Tear down any armed invitee rejoin poll, matching retryConnection/onunload
     //, otherwise a disconnected device keeps polling the server for a rejoin
     // grant it will never act on (NIT).
-    this.disarmRejoin();
+    this.rejoin.disarmRejoin();
     this.connectionStatus = 'disconnected';
     this.lastSyncedAt = undefined;
     this.connectionError = undefined;
@@ -594,143 +578,13 @@ export default class HavemindPlugin extends Plugin {
       this.connectionError = 'The server refused the session, reconnect.';
       // Terminal auth failure: arm the invitee rejoin poll so this device
       // re-admits itself once the owner clicks Rejoin, no re-pairing needed.
-      void this.armRejoin();
+      void this.rejoin.armRejoin();
     }
     // SND-01: fire a Notice the first time each item enters quarantine (never on
     // a retry). Runs on every status change, the point sends are dead-lettered.
     this.sendQueue.checkQuarantineNotices();
     this.statusBar.setStatus(view);
     this.views.refreshOnboarding();
-  }
-
-  /**
-   * Invitee side: arm the rejoin poll after a terminal auth failure. Idempotent
-   *, a second terminal status while a poll is already armed is a no-op, so the
-   * poll is never doubled. Builds the controller from this device's persisted
-   * (membershipId, deviceId); if none is stored there is nothing to rejoin with.
-   */
-  private async armRejoin(): Promise<void> {
-    if (this.rejoinController !== null) return;
-    let controller: RejoinController | null;
-    try {
-      controller = await buildRejoinControllerForInvitee(this);
-    } catch {
-      if (!this.unloaded) {
-        this.connectionError = 'Havemind could not prepare reconnection. Pair again if this persists.';
-        this.views.refreshOnboardingNow();
-      }
-      return;
-    }
-    // The build awaits plugin data; guard against unload racing it and against a
-    // second arm having won while we awaited.
-    if (controller === null || this.unloaded || this.rejoinController !== null) {
-      return;
-    }
-    this.rejoinController = controller;
-    this.rejoinRestarted = false;
-    // Snapshot the connect generation so a poll tick can tell whether the
-    // connection has been rebuilt since (FINDING 1b).
-    this.rejoinArmedGeneration = this.connectGeneration;
-    // registerInterval so unload tears the poll down; the panel polls redemption
-    // every REJOIN_POLL_INTERVAL_MS until the owner's grant lands.
-    const timer = globalThis.setInterval(() => {
-      void this.pollRejoinOnce();
-    }, REJOIN_POLL_INTERVAL_MS);
-    // `registerInterval` clears the timer on unload; the Obsidian runtime hands
-    // a numeric id while Node's types surface a Timeout object, cast the id at
-    // this single boundary rather than reshaping the platform declaration.
-    this.registerInterval(timer as unknown as number);
-    this.rejoinPollTimer = timer;
-  }
-
-  /**
-   * One rejoin poll tick. Presents the persisted binding; on the first
-   * 'syncing' result it disarms and restarts the connection exactly once (the
-   * `rejoinRestarted` guard plus the controller's own idempotency prevent a
-   * double-start). If unload raced the in-flight attempt, it cancels cleanly.
-   */
-  private async pollRejoinOnce(): Promise<void> {
-    const controller = this.rejoinController;
-    if (controller === null || this.rejoinRestarted || this.unloaded) return;
-    // FINDING 1b: if the connection was re-established since this poll armed
-    // (Retry now, a fresh user connect, a rejoin restart, anything that assigns
-    // a new handle bumps `connectGeneration`), this poll is stale. Presenting the
-    // binding now would drive a 'syncing' result that stops + restarts the
-    // healthy connection. Disarm and bail instead of thrashing it.
-    if (
-      this.rejoinArmedGeneration !== null &&
-      this.connectGeneration !== this.rejoinArmedGeneration
-    ) {
-      this.disarmRejoin();
-      return;
-    }
-    let result: RejoinState | RejoinResumed;
-    try {
-      result = await controller.attempt();
-    } catch {
-      // FIX C1: attempt() can reject if the post-200 refresh-token save throws
-      // (SecretStorage/keychain write). The controller normally converts that to
-      // 'rejoin-failed', but a raw throw must never escape here as an unhandled
-      // rejection that leaves the 30 s poll spinning against a burned grant in
-      // silence. Route it to the same surfaced terminal path.
-      if (this.unloaded || this.rejoinRestarted) return;
-      this.surfaceRejoinFailed();
-      return;
-    }
-    if (this.unloaded || this.rejoinRestarted) return;
-    if (typeof result === 'object' && result.status === 'syncing') {
-      this.rejoinRestarted = true;
-      this.disarmRejoin();
-      await this.restartConnectionAfterRejoin();
-      return;
-    }
-    // FIX 4: 'rejoin-failed' is terminal and unrecoverable by polling (the
-    // server returned a 200 the controller could not use, or the post-200 save
-    // failed). Leaving the 30 s poll armed spins forever in silence, so disarm
-    // it and surface the failure to the user. The manual retry path: a later
-    // terminal-auth status (the user reconnecting) re-arms the poll from
-    // scratch, since disarmRejoin cleared `rejoinController`.
-    if (result === 'rejoin-failed') {
-      this.surfaceRejoinFailed();
-    }
-  }
-
-  /**
-   * Disarm the doomed poll and surface a terminal rejoin failure to the user
-   * (status + Notice), leaving a manual reconnect as the only retry path. Shared
-   * by the 'rejoin-failed' controller result and a raw throw from attempt().
-   */
-  private surfaceRejoinFailed(): void {
-    this.disarmRejoin();
-    this.connectionError =
-      'Rejoin failed, the server rejected the automatic rejoin. Reconnect manually to resume syncing.';
-    this.statusBar.setStatus(formatStatusBar({ status: 'reconnect-required' }));
-    new Notice(
-      'Havemind: rejoin failed. Reconnect manually to resume syncing.',
-    );
-    this.views.refreshOnboarding();
-  }
-
-  /** Tears the invitee rejoin poll down (idempotent). */
-  private disarmRejoin(): void {
-    if (this.rejoinPollTimer !== null) {
-      globalThis.clearInterval(this.rejoinPollTimer);
-      this.rejoinPollTimer = null;
-    }
-    this.rejoinController = null;
-    this.rejoinArmedGeneration = null;
-  }
-
-  /**
-   * Restarts the connection after a successful rejoin. The fresh refresh token
-   * is already persisted, so startConnection resumes sync under the SAME
-   * membership. Follows the established invariant: stop-previous → await →
-   * guard-against-unload → assign (the guard lives inside startConnection).
-   */
-  private async restartConnectionAfterRejoin(): Promise<void> {
-    this.connection?.stop();
-    this.connection = null;
-    await this.startConnection();
   }
 
   /**
@@ -768,7 +622,7 @@ export default class HavemindPlugin extends Plugin {
     }
     this.retryInFlight = true;
     try {
-      this.disarmRejoin();
+      this.rejoin.disarmRejoin();
       this.connection?.stop();
       this.connection = null;
       await this.startConnection();
@@ -813,7 +667,7 @@ export default class HavemindPlugin extends Plugin {
     this.resetInFlight = true;
     try {
       this.abortConnectionAttempts();
-      this.disarmRejoin();
+      this.rejoin.disarmRejoin();
       this.connection?.stop();
       this.connection = null;
       this.syncState = null;

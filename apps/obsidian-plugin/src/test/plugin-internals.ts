@@ -31,6 +31,7 @@ export interface PluginInternals {
   pendingInvitation: unknown;
   pollRejoinOnce(): Promise<void>;
   recordRosterMember(member: unknown): Promise<void>;
+  rejoinArmedGeneration: unknown;
   rejoinController: unknown;
   rejoinPollTimer: unknown;
   rejoinWaiting: Set<string>;
@@ -51,7 +52,7 @@ export interface PluginInternals {
 }
 
 /** The plugin fields holding the modules under `plugin/` that members moved into. */
-const MODULES = ['conflicts', 'invitations', 'people', 'sendQueue', 'statusBar'];
+const MODULES = ['conflicts', 'invitations', 'people', 'rejoin', 'sendQueue', 'statusBar'];
 
 /**
  * Reads the plugin as its private surface. One cast, declared once, instead of
