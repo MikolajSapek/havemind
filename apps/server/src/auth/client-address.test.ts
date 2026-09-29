@@ -27,9 +27,11 @@ afterEach(releaseTestResources);
 // the Compose network (the last test covers how a `::` listener reports it).
 const PROXY = '172.18.0.1';
 const TRUSTED = '172.18.0.0/16';
-// Two tailnet devices, as `tailscale serve` reports them in X-Forwarded-For.
-const CLIENT_A = '100.64.0.1';
-const CLIENT_B = '100.64.0.2';
+// Two devices, as `tailscale serve` reports them in X-Forwarded-For. Real
+// tailnet addresses (the CGNAT range) trip the private-infra check, so these are
+// documentation addresses (RFC 5737).
+const CLIENT_A = '192.0.2.1';
+const CLIENT_B = '192.0.2.2';
 
 // One row per limiter that keys unauthenticated requests by client address.
 const IP_KEYED_ROUTES = [
