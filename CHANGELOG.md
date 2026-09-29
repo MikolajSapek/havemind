@@ -22,6 +22,13 @@ and the server.
 
 - Plugin: opening the app no longer reads and hashes every file. A file whose
   size and modification time match what the last start saw is skipped.
+- Plugin: each change carries a note's text once instead of twice, so an edit
+  uploads and stores half as much, and notes of roughly 250 to 490 KiB that
+  were refused as too large now sync. Merges keep the old form, so devices on
+  older versions still recognise the same merge made on both sides.
+- Plugin: sending and receiving a large attachment takes about a third of the
+  time and a fraction of the memory it did (a 25 MiB file: about 3 s instead of
+  9 to 12 s, measured on a computer).
 - Server: `HAVEMIND_TRUSTED_PROXIES` (empty by default) names the proxy in
   front of the server, such as `tailscale serve`, so each client gets its own
   pre-login rate limit instead of all of them sharing one.
