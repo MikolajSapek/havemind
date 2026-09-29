@@ -1,4 +1,4 @@
-import { hashBlob } from '@havemind/protocol';
+import { bytesToBase64, hashBlob } from '@havemind/protocol';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { decodeRevisionPayload } from './payload-codec.js';
@@ -38,11 +38,41 @@ describe('buildRevisionEnvelope, binary', () => {
       kind: 'binary',
       path: 'Attachments/big.bin',
       content: null,
-      binaryContent: new Uint8Array(300_000),
+      binaryContentBase64: bytesToBase64(new Uint8Array(300_000)),
       idempotencyKey: 'idem-slices',
     });
 
     expect(fromCharCode.mock.calls.length).toBeLessThan(1000);
+  });
+
+  it('ships the attachment base64 it is given and encodes only the payload around it', async () => {
+    // A caller that has read the file already holds its base64 (the observer's
+    // `content`); decoding it and encoding it again is 25 MB and a second of
+    // blocked thread spent on the same string.
+    const bytes = new Uint8Array(300_000).map((_, i) => i % 256);
+    const contentBase64 = bytesToBase64(bytes);
+    const btoaSpy = vi.spyOn(globalThis, 'btoa');
+
+    const built = await buildRevisionEnvelope({
+      identity,
+      revisionId,
+      parentRevisionIds: [],
+      operation: 'create',
+      kind: 'binary',
+      path: 'Attachments/big.bin',
+      content: null,
+      binaryContentBase64: contentBase64,
+      idempotencyKey: 'idem-given',
+    });
+
+    const encodes = btoaSpy.mock.calls.length;
+    btoaSpy.mockRestore();
+    const payload = JSON.parse(
+      new TextDecoder().decode(base64ToBytes(built.payloadBase64)),
+    ) as { contentBase64: string; blobByteHash: string };
+    expect(payload.contentBase64).toBe(contentBase64);
+    expect(payload.blobByteHash).toBe(await hashBlob(bytes));
+    expect(encodes).toBe(1); // the payload for the wire
   });
 
   it('round-trips raw bytes exactly through encode → decode', async () => {
@@ -56,7 +86,7 @@ describe('buildRevisionEnvelope, binary', () => {
       kind: 'binary',
       path: 'Attachments/pic.png',
       content: null,
-      binaryContent: bytes,
+      binaryContentBase64: bytesToBase64(bytes),
       idempotencyKey: 'idem-1',
     });
 
@@ -80,7 +110,7 @@ describe('buildRevisionEnvelope, binary', () => {
       kind: 'binary',
       path: 'Attachments/x.bin',
       content: null,
-      binaryContent: bytes,
+      binaryContentBase64: bytesToBase64(bytes),
       idempotencyKey: 'idem-2',
     });
 

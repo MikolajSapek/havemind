@@ -12,6 +12,7 @@
  */
 
 import {
+  base64ToBytes,
   bytesToBase64,
   canonicalizeMarkdown,
   canonicalizeVaultPath,
@@ -48,15 +49,18 @@ export interface BuildRevisionEnvelopeInput {
   readonly previousPath?: string | null;
   /**
    * Whether this change carries markdown text (`content`) or raw binary bytes
-   * (`binaryContent`). Defaults to `'markdown'` so every existing caller is
-   * unchanged. A `'binary'` change is a whole-file replace (F9), no line diff,
-   * no canonicalisation.
+   * (`binaryContentBase64`). Defaults to `'markdown'` so every existing caller
+   * is unchanged. A `'binary'` change is a whole-file replace (F9), no line
+   * diff, no canonicalisation.
    */
   readonly kind?: 'markdown' | 'binary';
   /** Note content, or `null` for a delete tombstone / binary change. */
   readonly content: string | null;
-  /** Raw file bytes for a binary change; ignored for markdown/delete. */
-  readonly binaryContent?: Uint8Array | null;
+  /**
+   * A binary change's raw file bytes as standard base64, the form the payload
+   * carries and the caller already holds; ignored for markdown/delete.
+   */
+  readonly binaryContentBase64?: string | null;
   readonly idempotencyKey: string;
   /**
    * Reject (rather than build) an envelope whose payload exceeds this many
@@ -216,7 +220,7 @@ async function buildInnerPayload(
     // included) is content-addressed and re-hashed on read in the server's blob
     // store, so a corrupted attachment fails there, not here. Do not describe
     // this field as a check until something actually verifies it.
-    const bytes = input.binaryContent ?? new Uint8Array(0);
+    const contentBase64 = input.binaryContentBase64 ?? '';
     const base: Record<string, unknown> = {
       schemaVersion: 1,
       operation: input.operation,
@@ -229,8 +233,8 @@ async function buildInnerPayload(
       }
       base.previousPath = canonicalizeVaultPath(input.previousPath);
     }
-    base.contentBase64 = bytesToBase64(bytes);
-    base.blobByteHash = await hashBlob(bytes);
+    base.contentBase64 = contentBase64;
+    base.blobByteHash = await hashBlob(base64ToBytes(contentBase64));
     return base;
   }
 

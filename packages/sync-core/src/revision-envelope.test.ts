@@ -166,7 +166,7 @@ describe('buildRevisionEnvelope', () => {
   it.each([
     ['a rename', { operation: 'rename', path: 'Notes/b.md', previousPath: 'Notes/a.md', content: 'Hello\n' }],
     ['a tombstone', { operation: 'delete', path: 'Notes/a.md', content: null }],
-    ['an attachment', { operation: 'update', kind: 'binary', path: 'Attachments/pic.png', content: null, binaryContent: new Uint8Array([1, 2, 3]) }],
+    ['an attachment', { operation: 'update', kind: 'binary', path: 'Attachments/pic.png', content: null, binaryContentBase64: 'AQID' }],
   ] as const)('writes no recipe into %s', async (_name, change) => {
     const envelope = await buildRevisionEnvelope({
       identity: IDENTITY,
@@ -235,7 +235,7 @@ describe('buildRevisionEnvelope, a payload with two parents', () => {
       kind: 'binary',
       path: 'Attachments/pic.png',
       content: null,
-      binaryContent: new Uint8Array([1, 2, 3]),
+      binaryContentBase64: 'AQID',
       idempotencyKey: 'op-merge-binary',
     });
 

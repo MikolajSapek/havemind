@@ -10,6 +10,7 @@
  * keeps them in agreement.
  */
 
+import { bytesToBase64 } from '@havemind/protocol';
 import { describe, expect, it } from 'vitest';
 
 import { MAX_BINARY_FILE_BYTES } from '../apps/obsidian-plugin/src/obsidian/vault-adapter';
@@ -33,7 +34,7 @@ describe('attachment size limits', () => {
       path: 'attachments/largest-allowed.pdf',
       kind: 'binary',
       content: null,
-      binaryContent: new Uint8Array(MAX_BINARY_FILE_BYTES),
+      binaryContentBase64: bytesToBase64(new Uint8Array(MAX_BINARY_FILE_BYTES)),
       idempotencyKey: 'largest-allowed',
       maxPayloadBytes: MAX_BINARY_PAYLOAD_BYTES,
     });

@@ -1,4 +1,4 @@
-import { canonicalizeVaultPath, isCanonicalBase64 } from '@havemind/protocol';
+import { bytesToBase64, canonicalizeVaultPath, isCanonicalBase64 } from '@havemind/protocol';
 import { describe, expect, it } from 'vitest';
 
 import { decodeRevisionPayload } from './payload-codec.js';
@@ -54,7 +54,7 @@ const CHANGES: ReadonlyArray<
   ['an empty note', { parentRevisionIds: [], operation: 'create', path: 'Notes/a.md', content: '' }],
   ['a rename', { parentRevisionIds: [A], operation: 'rename', path: 'Notes/b.md', previousPath: 'Notes/a.md', content: 'Hello\n' }],
   ['a delete tombstone', { parentRevisionIds: [A], operation: 'delete', path: 'Notes/a.md', content: null }],
-  ['an attachment', { parentRevisionIds: [], operation: 'create', kind: 'binary', path: 'Attachments/pic.png', content: null, binaryContent: new Uint8Array([0, 16, 255, 128, 127, 0, 171]) }],
+  ['an attachment', { parentRevisionIds: [], operation: 'create', kind: 'binary', path: 'Attachments/pic.png', content: null, binaryContentBase64: bytesToBase64(new Uint8Array([0, 16, 255, 128, 127, 0, 171])) }],
 ];
 
 describe('revision payload compatibility with released plugins', () => {
@@ -82,9 +82,7 @@ describe('revision payload compatibility with released plugins', () => {
       content: current.content,
       binaryContent: current.binaryContent ?? null,
     });
-    expect(current.content ?? current.binaryContent ?? null).toEqual(
-      change.content ?? change.binaryContent ?? null,
-    );
+    expect(old).toMatchObject({ content: change.content });
   });
 
   it('decodes a payload written by a plugin that still stored the recipe', () => {

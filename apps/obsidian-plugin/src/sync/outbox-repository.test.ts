@@ -625,6 +625,34 @@ describe('OutboxLocalChangeRepository', () => {
       expect(decoded.binaryContent).toEqual(bytes);
     });
 
+    it('hands the observer\'s base64 to the envelope as it is: encoded once, for the wire', async () => {
+      const { repo, enqueued } = makeRepo();
+      const bytes = new Uint8Array(300_000).map((_, i) => i % 256);
+      const btoaSpy = vi.spyOn(globalThis, 'btoa');
+
+      await repo.commitLocalChange({
+        operation: makeOperation({
+          content: Buffer.from(bytes).toString('base64'),
+          contentHash: 'blob-hash-once',
+          contentKind: 'binary',
+          path: 'Attachments/once.bin',
+        }),
+        removeFileId: null,
+        upsertMapping: {
+          collisionKey: 'attachments/once.bin',
+          contentHash: 'blob-hash-once',
+          contentKind: 'binary',
+          fileId: FILE_ID,
+          path: 'Attachments/once.bin',
+        },
+      });
+
+      const encodes = btoaSpy.mock.calls.length;
+      btoaSpy.mockRestore();
+      expect(decodeRevisionPayload(decode(enqueued[0] as OutboxEnvelope)).binaryContent).toEqual(bytes);
+      expect(encodes).toBe(1);
+    });
+
     it('decodes the observer\'s base64 in slices, never as one full-size string', async () => {
       const { repo, enqueued } = makeRepo();
       const bytes = new Uint8Array(300_000).map((_, i) => i % 256);

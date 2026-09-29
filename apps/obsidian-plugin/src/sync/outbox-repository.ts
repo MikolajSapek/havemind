@@ -15,7 +15,6 @@
  * behind an injected `ProducerStorePort` so it survives an Obsidian restart.
  */
 
-import { base64ToBytes } from '@havemind/protocol';
 import {
   buildRevisionEnvelope,
   type RevisionEnvelopeOperation,
@@ -401,11 +400,11 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
         // enqueue and the store.save below, so a too-large note is surfaced to the
         // caller and never enters the outbox (no silent wedge, no state mutation).
         // A binary change (F9) is a whole-file replace over RAW bytes: the observer
-        // stored those bytes as base64 in `content`, so decode them and hand the
-        // codec `kind: 'binary'` + `binaryContent` (never markdown `content`, which
-        // would be canonicalised). The base64 of a 25 MB file needs a raised
-        // ceiling, so binary uses {@link MAX_BINARY_PAYLOAD_BYTES} rather than the
-        // markdown default.
+        // stored those bytes as base64 in `content`, which is handed to the codec
+        // as it is with `kind: 'binary'` (never markdown `content`, which would be
+        // canonicalised). The base64 of a 25 MB file needs a raised ceiling, so
+        // binary uses {@link MAX_BINARY_PAYLOAD_BYTES} rather than the markdown
+        // default.
         const isBinary = operation.contentKind === 'binary';
         const built = await buildRevisionEnvelope({
           identity: {
@@ -423,7 +422,7 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
             ? {
                 kind: 'binary' as const,
                 content: null,
-                binaryContent: base64ToBytes(operation.content ?? ''),
+                binaryContentBase64: operation.content ?? '',
                 maxPayloadBytes: MAX_BINARY_PAYLOAD_BYTES,
               }
             : {
