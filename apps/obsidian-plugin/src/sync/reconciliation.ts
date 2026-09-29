@@ -6,7 +6,9 @@ import {
   LocalVaultError,
   MAX_BINARY_FILE_BYTES,
   pathExtension,
+  RACY_STAT_MS,
   SYNCABLE_BINARY_EXTENSIONS,
+  type FileStat,
   type LocalChangeRepository,
   type LocalFileMapping,
   type SyncContentKind,
@@ -23,6 +25,8 @@ export interface ReconcileVaultStateOptions {
   observer: VaultChangeObserver;
   repository: LocalChangeRepository;
   vault: VaultSnapshotPort;
+  /** Wall clock for recording file stats (P7). Defaults to Date.now. */
+  now?: () => number;
 }
 
 /**
@@ -224,7 +228,22 @@ export async function reconcileVaultState(
   }
   const unmatchedVault: EligibleVaultFile[] = [];
 
+  // P7: a mapped file whose size and mtime match the stat the last scan
+  // recorded is unchanged without reading it. Stats are taken before the read
+  // and recorded only for files whose hash matched and that were not written
+  // within RACY_STAT_MS of the scan.
+  const now = options.now ?? Date.now;
+  const statsToRecord: { fileId: string; contentHash: string; stat: FileStat }[] = [];
+  const canRecord = vault.stat !== undefined && repository.recordStats !== undefined;
   for (const [collisionKey, { readPath, kind }] of eligible) {
+    const known = mappingsByCollision.get(collisionKey);
+    const statAt = now();
+    const stat = canRecord && known !== undefined ? await vault.stat?.(readPath) ?? null : null;
+    if (stat !== null && known?.stat?.mtime === stat.mtime && known.stat.size === stat.size) {
+      mappingsByCollision.delete(collisionKey);
+      unchanged += 1;
+      continue;
+    }
     const read = await readEligibleContent(vault, readPath, kind);
     if (read === 'too-large') {
       // Over the per-file cap: dropped from the mappings match set below so it is
@@ -243,6 +262,9 @@ export async function reconcileVaultState(
     mappingsByCollision.delete(collisionKey);
     if (mapping.contentHash === contentHash) {
       unchanged += 1;
+      if (stat !== null && stat.mtime + RACY_STAT_MS <= statAt) {
+        statsToRecord.push({ fileId: mapping.fileId, contentHash, stat });
+      }
     } else if (
       await observeResilient(readPath, recordSkip, () => observer.observeModify(readPath))
     ) {
@@ -251,6 +273,8 @@ export async function reconcileVaultState(
       skipped += 1;
     }
   }
+
+  if (statsToRecord.length > 0) await repository.recordStats?.(statsToRecord);
 
   const unmatchedMappings = [...mappingsByCollision.values()];
   const {

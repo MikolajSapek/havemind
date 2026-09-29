@@ -65,6 +65,23 @@ export class LocalVaultError extends Error {
 
 export type LocalChangeKind = 'create' | 'update' | 'rename' | 'delete';
 
+/**
+ * A file's size and modification time as the startup scan last verified them
+ * against its hash (P7). A later scan skips reading a file whose stat still
+ * matches.
+ */
+export interface FileStat {
+  mtime: number;
+  size: number;
+}
+
+/**
+ * A stat is recorded only for a file last written at least this long before
+ * the scan looked: a newer write can share its mtime tick with a later
+ * same-size edit (git's rule for racy entries).
+ */
+export const RACY_STAT_MS = 2_000;
+
 export interface LocalFileMapping {
   collisionKey: string;
   /**
@@ -76,6 +93,8 @@ export interface LocalFileMapping {
   contentKind?: SyncContentKind;
   fileId: string;
   path: string;
+  /** Recorded by the startup scan; any write through the plugin drops it. */
+  stat?: FileStat;
 }
 
 export interface LocalChangeOperation {
@@ -118,6 +137,8 @@ export interface VaultSnapshotPort {
    * classify each path with `classifyVaultPath` to learn its `kind`.
    */
   listSyncablePaths(): Promise<readonly string[]>;
+  /** Size and modification time of `path`, or null when unknown (P7). */
+  stat?(path: string): Promise<FileStat | null>;
   readText(path: string): Promise<string>;
   /** Raw bytes of a binary attachment at `path` (F9). */
   readBinary(path: string): Promise<Uint8Array>;
@@ -147,6 +168,13 @@ export interface LocalChangeRepository {
    */
   commitLocalChange(commit: LocalChangeCommit): Promise<string | null>;
   listMappings(): Promise<readonly LocalFileMapping[]>;
+  /**
+   * Records the startup scan's stats on mappings whose hash is still the one
+   * the scan verified against the disk, in one save (P7).
+   */
+  recordStats?(
+    entries: readonly { fileId: string; contentHash: string; stat: FileStat }[],
+  ): Promise<void>;
 }
 
 export type VaultPathClassification =

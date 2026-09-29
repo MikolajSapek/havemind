@@ -10,6 +10,7 @@ import {
   MAX_BINARY_FILE_BYTES,
   pathExtension,
   SYNCABLE_BINARY_EXTENSIONS,
+  type FileStat,
   type LocalChangeCommit,
   type LocalChangeRepository,
   type LocalFileMapping,
@@ -585,3 +586,95 @@ function binaryMapping(
     path,
   };
 }
+
+/** A vault that reports file stats and counts every content read (P7). */
+class StatVault extends ReconciliationVault {
+  readonly stats = new Map<string, { mtime: number; size: number }>();
+  reads = 0;
+
+  override async readText(path: string): Promise<string> {
+    this.reads += 1;
+    return super.readText(path);
+  }
+
+  override async readBinary(path: string): Promise<Uint8Array> {
+    this.reads += 1;
+    return super.readBinary(path);
+  }
+
+  async stat(path: string): Promise<FileStat | null> {
+    return this.stats.get(path) ?? null;
+  }
+}
+
+class StatRepository extends ReconciliationRepository {
+  async recordStats(
+    entries: readonly { fileId: string; contentHash: string; stat: FileStat }[],
+  ): Promise<void> {
+    for (const entry of entries) {
+      const current = this.mappings.get(entry.fileId);
+      if (current?.contentHash === entry.contentHash) {
+        this.mappings.set(entry.fileId, { ...current, stat: entry.stat });
+      }
+    }
+  }
+}
+
+// P7: every start read and hashed every file in the vault, PDFs included.
+// A file whose size and modification time match what the last scan recorded
+// is not read again.
+describe('reconcileVaultState, unchanged files are not read again (P7)', () => {
+  async function scanAt(vault: StatVault, repository: StatRepository, now: number) {
+    vault.reads = 0;
+    return reconcileVaultState({
+      observer: createObserver(vault, repository),
+      repository,
+      vault,
+      now: () => now,
+    });
+  }
+
+  it('reads an unchanged file once, then skips it while its size and mtime hold', async () => {
+    const vault = new StatVault();
+    vault.contents.set('a.md', 'one');
+    vault.stats.set('a.md', { mtime: 1_000, size: 3 });
+    const repository = new StatRepository([mapping('file-a', 'a.md', 'one')]);
+
+    await scanAt(vault, repository, 10_000);
+    expect(vault.reads).toBe(1);
+
+    const again = await scanAt(vault, repository, 20_000);
+    expect(vault.reads).toBe(0);
+    expect(again.unchanged).toBe(1);
+    expect(repository.commits).toEqual([]);
+  });
+
+  it('reads a file again when its mtime changes, and syncs the edit', async () => {
+    const vault = new StatVault();
+    vault.contents.set('a.md', 'one');
+    vault.stats.set('a.md', { mtime: 1_000, size: 3 });
+    const repository = new StatRepository([mapping('file-a', 'a.md', 'one')]);
+    await scanAt(vault, repository, 10_000);
+
+    vault.contents.set('a.md', 'two');
+    vault.stats.set('a.md', { mtime: 15_000, size: 3 });
+    const result = await scanAt(vault, repository, 20_000);
+
+    expect(vault.reads).toBeGreaterThan(0);
+    expect(result.updated).toBe(1);
+  });
+
+  it('does not record a stat taken within two seconds of the last write', async () => {
+    // A write in the same mtime tick as the recorded stat could leave both
+    // unchanged; only a file older than the margin is trusted (as in git).
+    const vault = new StatVault();
+    vault.contents.set('a.md', 'one');
+    vault.stats.set('a.md', { mtime: 9_500, size: 3 });
+    const repository = new StatRepository([mapping('file-a', 'a.md', 'one')]);
+    await scanAt(vault, repository, 10_000);
+
+    await scanAt(vault, repository, 20_000);
+
+    expect(vault.reads).toBe(1);
+  });
+});

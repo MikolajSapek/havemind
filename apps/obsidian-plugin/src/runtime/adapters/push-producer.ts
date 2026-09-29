@@ -197,6 +197,17 @@ export function startPushProducer(
       const config = await listSyncableConfigPaths(vault.adapter, CONFIG_DIR);
       return [...notes, ...config];
     },
+    // P7: size and mtime without reading the file, so the startup scan can
+    // skip files that have not changed since it last read them. A stat that
+    // fails only means the file is read.
+    async stat(path) {
+      try {
+        const stat = await vault.adapter.stat(path);
+        return stat === null || stat.type !== 'file' ? null : { mtime: stat.mtime, size: stat.size };
+      } catch {
+        return null;
+      }
+    },
     async readText(path) {
       // A `.obsidian/` config path is invisible to the Vault file API, so read it
       // through the DataAdapter; everything else stays on the Vault API.

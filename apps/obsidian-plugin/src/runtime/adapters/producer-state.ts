@@ -7,7 +7,7 @@
  * edit mint a fresh duplicate fileId instead of updating in place.
  */
 
-import type { LocalFileMapping } from '../../obsidian/vault-adapter';
+import type { FileStat, LocalFileMapping } from '../../obsidian/vault-adapter';
 import type { ProducerState } from '../../sync/outbox-repository';
 
 import { isRecord } from './shared';
@@ -72,7 +72,14 @@ function buildProducerMapping(entry: Record<string, unknown>): LocalFileMapping 
       : {}),
     fileId: entry.fileId as string,
     path: entry.path as string,
+    // P7: the startup scan's stat; a malformed one is dropped, which only
+    // means the file is read at the next start.
+    ...(isFileStat(entry.stat) ? { stat: { mtime: entry.stat.mtime, size: entry.stat.size } } : {}),
   };
+}
+
+function isFileStat(value: unknown): value is FileStat {
+  return isRecord(value) && Number.isFinite(value.mtime) && Number.isFinite(value.size);
 }
 
 /**

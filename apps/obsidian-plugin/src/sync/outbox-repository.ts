@@ -21,6 +21,7 @@ import {
 } from '@havemind/sync-core';
 
 import type {
+  FileStat,
   LocalChangeCommit,
   LocalChangeKind,
   LocalChangeOperation,
@@ -158,7 +159,29 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
     await this.options.store.save({ ...state, mappings: state.mappings.map((m) => ({
       fileId: m.fileId, path: m.path, collisionKey: m.collisionKey, contentHash: m.contentHash,
       ...(m.contentKind === undefined ? {} : { contentKind: m.contentKind }),
+      ...(m.stat === undefined ? {} : { stat: m.stat }),
     })) });
+  }
+
+  /**
+   * P7: records the startup scan's file stats in one save, only on mappings
+   * whose hash is still the one the scan verified against the disk.
+   */
+  async recordStats(
+    entries: readonly { fileId: string; contentHash: string; stat: FileStat }[],
+  ): Promise<void> {
+    await this.mutations.runExclusive('state', async () => {
+      const state = await this.options.store.load();
+      const byFile = new Map(entries.map((entry) => [entry.fileId, entry]));
+      let changed = false;
+      const mappings = state.mappings.map((mapping) => {
+        const entry = byFile.get(mapping.fileId);
+        if (entry === undefined || entry.contentHash !== mapping.contentHash) return mapping;
+        changed = true;
+        return { ...mapping, stat: entry.stat };
+      });
+      if (changed) await this.saveState({ ...state, mappings });
+    });
   }
 
   async recover(): Promise<void> {

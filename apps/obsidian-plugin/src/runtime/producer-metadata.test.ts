@@ -21,6 +21,17 @@ describe('metadata-only producer mappings', () => {
     expect(parseProducerStateResult(parsed.state)).toEqual(parsed);
   });
 
+  it('keeps a valid startup-scan stat and drops a malformed one (P7)', () => {
+    const base = { fileId: 'f', path: 'n.md', collisionKey: 'n.md', contentHash: 'h' };
+    const stat = { mtime: 1, size: 2 };
+    const parsed = parseProducerStateResult({
+      mappings: [{ ...base, stat }, { ...base, fileId: 'g', collisionKey: 'm.md', path: 'm.md', stat: { mtime: 'x' } }],
+      heads: {},
+    });
+    expect(parsed.state.mappings[0]?.stat).toEqual(stat);
+    expect(parsed.state.mappings[1]).not.toHaveProperty('stat');
+  });
+
   it.each(['markdown', 'binary'] as const)('keeps %s payloads out of mappings and recognises unchanged files and offline renames', async (kind) => {
     let path = kind === 'binary' ? 'asset.png' : 'note.md';
     const originalPath = path;

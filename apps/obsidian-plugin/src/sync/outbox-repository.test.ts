@@ -662,3 +662,47 @@ describe('OutboxLocalChangeRepository', () => {
     });
   });
 });
+
+// P7: the startup scan records a file's size and mtime on its mapping so the
+// next start can skip reading it. Only a mapping whose hash is still the one
+// the scan verified may carry it, and it must survive saves for other files.
+describe('recordStats', () => {
+  const STAT = { mtime: 1_000, size: 6 };
+  const OTHER = '33333333-3333-4333-8333-333333333333';
+  const mappingOf = (fileId: string, path: string, contentHash: string) => ({
+    collisionKey: path.toLowerCase(), contentHash, fileId, path,
+  });
+
+  it('keeps the stat across saves for other files and drops it when the file changes', async () => {
+    const { repo } = makeRepo();
+    await repo.commitLocalChange({
+      operation: makeOperation(), removeFileId: null, upsertMapping: mappingOf(FILE_ID, 'Notes/a.md', 'hash-1'),
+    });
+    await repo.recordStats([{ fileId: FILE_ID, contentHash: 'hash-1', stat: STAT }]);
+
+    await repo.commitLocalChange({
+      operation: makeOperation({ fileId: OTHER, operationId: 'op-2', path: 'Notes/b.md' }),
+      removeFileId: null,
+      upsertMapping: mappingOf(OTHER, 'Notes/b.md', 'hash-1'),
+    });
+    expect((await repo.listMappings()).find((m) => m.fileId === FILE_ID)?.stat).toEqual(STAT);
+
+    await repo.commitLocalChange({
+      operation: makeOperation({ kind: 'update', contentHash: 'hash-2', operationId: 'op-3' }),
+      removeFileId: null,
+      upsertMapping: mappingOf(FILE_ID, 'Notes/a.md', 'hash-2'),
+    });
+    expect((await repo.listMappings()).find((m) => m.fileId === FILE_ID)?.stat).toBeUndefined();
+  });
+
+  it('never attaches a stat to a mapping whose hash moved on', async () => {
+    const { repo } = makeRepo();
+    await repo.commitLocalChange({
+      operation: makeOperation(), removeFileId: null, upsertMapping: mappingOf(FILE_ID, 'Notes/a.md', 'hash-1'),
+    });
+
+    await repo.recordStats([{ fileId: FILE_ID, contentHash: 'stale-hash', stat: STAT }]);
+
+    expect((await repo.listMappings())[0]?.stat).toBeUndefined();
+  });
+});
