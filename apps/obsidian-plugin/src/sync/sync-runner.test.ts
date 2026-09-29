@@ -97,10 +97,6 @@ class FakeVault implements VaultApplyPort {
     }
     return outcome;
   }
-
-  async recordConflict(event: RemoteEvent): Promise<void> {
-    this.conflicts.push(event);
-  }
 }
 
 function makeRunner(
@@ -758,7 +754,7 @@ describe('SyncRunner remote apply', () => {
 
   it('applies over a clean open buffer that still matches its synced base', async () => {
     const vault = new FakeVault();
-    vault.buffers.set('file-a', [{ baseHash: 'base', currentHash: 'base' }]);
+    vault.buffers.set('file-a', [{ unsaved: false }]);
     const { runner } = makeRunner({
       vault,
       transport: {
@@ -801,31 +797,9 @@ describe('SyncRunner remote apply', () => {
     expect(vault.acknowledged).toEqual([]);
   });
 
-  it('never overwrites a divergent open buffer: routes to conflict instead', async () => {
+  it('defers while an open editor holds unsaved text, and stops advancing', async () => {
     const vault = new FakeVault();
-    vault.buffers.set('file-a', [{ baseHash: 'base', currentHash: 'local-edit' }]);
-    const { runner, state } = makeRunner({
-      vault,
-      transport: {
-        push: vi.fn(async () => []),
-        pull: vi.fn(async () => ({
-          cursor: 1,
-          events: [event(1, 'file-a', 'remote-hash')],
-        })),
-      },
-    });
-
-    const result = await runner.trigger();
-
-    expect(vault.applied).toHaveLength(0);
-    expect(vault.conflicts).toHaveLength(1);
-    expect(result.status).toBe('conflict');
-    expect(state.cursor).toBe(1);
-  });
-
-  it('defers when a divergent buffer has an unknown base and stops advancing', async () => {
-    const vault = new FakeVault();
-    vault.buffers.set('file-a', [{ baseHash: null, currentHash: 'local-edit' }]);
+    vault.buffers.set('file-a', [{ unsaved: true }]);
     const { runner, state } = makeRunner({
       vault,
       transport: {
@@ -854,8 +828,8 @@ describe('SyncRunner remote apply', () => {
     // A conflict copy was written to disk, so the status must surface it, a
     // deferred apply (nothing written, retried next cycle) must never hide it.
     const vault = new FakeVault();
-    vault.buffers.set('file-a', [{ baseHash: 'base', currentHash: 'local-edit' }]);
-    vault.buffers.set('file-b', [{ baseHash: null, currentHash: 'local-edit' }]);
+    vault.applyOutcomes.set('file-a', 'conflict');
+    vault.buffers.set('file-b', [{ unsaved: true }]);
     const { runner } = makeRunner({
       vault,
       transport: {
@@ -875,29 +849,6 @@ describe('SyncRunner remote apply', () => {
     expect(result.conflicts).toBe(1);
     expect(result.deferred).toBe(1);
     expect(result.status).toBe('conflict');
-  });
-
-  it('applies when a divergent buffer already equals the incoming remote content', async () => {
-    const vault = new FakeVault();
-    vault.buffers.set('file-a', [
-      { baseHash: 'base', currentHash: 'remote-hash' },
-    ]);
-    const { runner } = makeRunner({
-      vault,
-      transport: {
-        push: vi.fn(async () => []),
-        pull: vi.fn(async () => ({
-          cursor: 1,
-          events: [event(1, 'file-a', 'remote-hash')],
-        })),
-      },
-    });
-
-    const result = await runner.trigger();
-
-    expect(vault.applied).toHaveLength(1);
-    expect(vault.conflicts).toHaveLength(0);
-    expect(result.status).toBe('synced');
   });
 
   it('routes to conflict when the on-disk guard rejects a clean-buffer apply', async () => {

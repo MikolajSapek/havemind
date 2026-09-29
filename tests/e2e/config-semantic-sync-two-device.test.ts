@@ -36,8 +36,8 @@
  * the real wire, but it cannot prove that the production apply adapter REFUSED to
  * write a conflict copy, because this harness does not instantiate
  * `VaultApplyAdapter`: it assembles the sync stack over harness-owned ports whose
- * apply path has no on-disk divergence guard of its own (`recordConflict` is
- * reached only from the runner's open-BUFFER guard, and Obsidian never opens a
+ * apply path has no on-disk divergence guard of its own (its only divergence
+ * check models a file edited in an open editor, and Obsidian never opens a
  * hidden config file as an editor buffer). The branch-level decision,
  * `resolvesLastWriterWins`, every divergence branch it guards, and the untouched
  * conflict-copy behaviour for notes and attachments, is pinned in

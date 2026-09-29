@@ -261,10 +261,8 @@ describe('VaultApplyAdapter', () => {
 
   it('exposes open buffer states from the vault port', async () => {
     const { adapter, files } = build(() => content('Notes/a.md', 'A\n'));
-    files.buffers.set('file-1', [{ baseHash: 'a', currentHash: 'a' }]);
-    expect(await adapter.openBuffers('file-1')).toEqual([
-      { baseHash: 'a', currentHash: 'a' },
-    ]);
+    files.buffers.set('file-1', [{ unsaved: false }]);
+    expect(await adapter.openBuffers('file-1')).toEqual([{ unsaved: false }]);
   });
 
   it('creates a remote-only file at the decoded path', async () => {
@@ -376,15 +374,6 @@ describe('VaultApplyAdapter', () => {
     await adapter.applyRemote(event('rev-9', 'file-1'));
     // The foreign owner is untouched, Havemind never claims the path.
     expect(files.owners.get('Notes/a.md')).toBe('other-file');
-  });
-
-  it('records a conflict artifact for a divergent open buffer', async () => {
-    const { adapter, files } = build(() => content('Notes/a.md', 'D\n'));
-    await adapter.recordConflict(event('rev-9', 'file-9'));
-    expect(files.writes).toEqual([]);
-    expect(files.conflicts).toEqual([
-      { path: 'Havemind Conflicts/a (conflict Windows 2026-07-22 2156).md', content: 'D\n' },
-    ]);
   });
 
   describe('on-disk overwrite guard (rule 3)', () => {

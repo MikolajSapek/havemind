@@ -10,7 +10,7 @@
 
 import { TFolder, type TFile, type Vault, type Workspace } from 'obsidian';
 
-import { canonicalizeMarkdown, hashPlaintext, isSyncableConfigPath } from '@havemind/protocol';
+import { canonicalizeMarkdown, isSyncableConfigPath } from '@havemind/protocol';
 
 import {
   removeConfig,
@@ -183,11 +183,7 @@ export function createVaultFilePort(options: VaultFilePortOptions): VaultFilePor
       if (texts.length === 0) return [];
       const file = vault.getAbstractFileByPath(path);
       const disk = file === null ? null : canonicalizeMarkdown(await vault.read(file as TFile));
-      return Promise.all(texts.map(async (content) => ({
-        baseHash: disk === null ? null : await hashPlaintext(disk),
-        currentHash: await hashPlaintext(content),
-        unsaved: content !== disk,
-      })));
+      return texts.map((content) => ({ unsaved: content !== disk }));
     },
     fileIdAtPath(path) {
       // The single shared ownership truth: a path Havemind owns (authored here or

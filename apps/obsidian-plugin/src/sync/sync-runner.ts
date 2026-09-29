@@ -92,10 +92,7 @@ export interface SyncStatePort {
 
 export interface OpenBuffer {
   /** Live editor differs from disk: retry once Obsidian saves it. */
-  readonly unsaved?: boolean;
-  /** Hash of the synced base loaded into the editor, or null if unknown. */
-  readonly baseHash: string | null;
-  readonly currentHash: string;
+  readonly unsaved: boolean;
 }
 
 /** `conflict` may come from the vault's on-disk guard (rule 3); `noop` = converged. */
@@ -117,9 +114,6 @@ export interface VaultApplyPort {
     event: RemoteEvent,
     options?: RemoteApplyOptions,
   ): Promise<RemoteApplyOutcome>;
-  /** Record a visible conflict artifact without overwriting the active file. */
-  recordConflict(event: RemoteEvent): Promise<void>;
-
 }
 
 export type SchedulerCancellation = () => void;
@@ -176,8 +170,6 @@ export interface SyncCycleResult {
   readonly error?: string;
 }
 
-type RemoteApplyDecision = 'apply' | 'conflict' | 'defer';
-
 /** Quarantine reason for a revision dead-lettered because a parent was quarantined. */
 const PARENT_QUARANTINED_REASON = 'parent-quarantined';
 /** Quarantine reason for an orphaned child whose parent is dead/absent (terminal). */
@@ -218,29 +210,6 @@ const DEFAULT_MAX_BACKOFF_MS = 60_000;
 const DEFAULT_MAX_PUSH_BATCH_BYTES = 512 * 1024;
 /** Mirrors the server's DEFAULT_MAX_BATCH_SIZE. */
 const DEFAULT_MAX_PUSH_BATCH_ITEMS = 64;
-
-/** A buffer equal to its synced base is safe to replace; a divergent one never is. */
-function decideRemoteApply(
-  buffers: readonly OpenBuffer[],
-  incomingContentHash: string,
-): RemoteApplyDecision {
-  if (buffers.some((buffer) => buffer.unsaved)) return 'defer';
-  const divergent = buffers.filter(
-    (buffer) => buffer.currentHash !== buffer.baseHash,
-  );
-  if (divergent.length === 0) {
-    return 'apply';
-  }
-  if (divergent.every((buffer) => buffer.currentHash === incomingContentHash)) {
-    // The buffer already equals the remote content: writing loses nothing.
-    return 'apply';
-  }
-  if (divergent.some((buffer) => buffer.baseHash === null)) {
-    // Without a known base we cannot safely build a conflict: defer and retry.
-    return 'defer';
-  }
-  return 'conflict';
-}
 
 export class SyncRunner {
   private readonly options: Required<
@@ -602,66 +571,56 @@ export class SyncRunner {
         continue;
       }
 
+      // An editor holding unsaved text wins: wait until Obsidian saves it. The
+      // vault's on-disk guard may still divert the write to a conflict (rule 3).
       const buffers = await this.options.vault.openBuffers(
         remoteEvent.revision.fileId,
       );
-      const decision = decideRemoteApply(
-        buffers,
-        remoteEvent.revision.contentHash,
-      );
-
-      if (decision === 'defer') {
+      if (buffers.some((buffer) => buffer.unsaved)) {
         deferred += 1;
         break;
       }
 
-      if (decision === 'conflict') {
-        await this.options.vault.recordConflict(remoteEvent);
+      let outcome: RemoteApplyOutcome;
+      try {
+        outcome = await this.options.vault.applyRemote(remoteEvent, {
+          bootstrap:
+            bootstrapTarget !== null &&
+            remoteEvent.serverSequence <= bootstrapTarget,
+        });
+      } catch (error) {
+        // One change this device cannot apply (e.g. iOS refusing to read a
+        // PDF) must not stop the whole vault forever: after a few tries it is
+        // parked, listed in the panel, and the cursor moves on (B2).
+        const id = remoteEvent.revision.revisionId;
+        const attempts = (this.applyFailures.get(id) ?? 0) + 1;
+        if (
+          isAuthDenied(error) ||
+          this.options.state.parkRemote === undefined ||
+          attempts < MAX_APPLY_ATTEMPTS
+        ) {
+          this.applyFailures.set(id, attempts);
+          throw error;
+        }
+        this.applyFailures.delete(id);
+        await this.options.state.parkRemote(
+          remoteEvent,
+          error instanceof Error ? error.message : String(error),
+        );
+        cursor = remoteEvent.serverSequence;
+        await this.options.state.saveCursor(cursor);
+        continue;
+      }
+      this.applyFailures.delete(remoteEvent.revision.revisionId);
+      if (outcome === 'deferred') {
+        deferred += 1;
+        break;
+      }
+      if (outcome === 'conflict') {
         conflicts += 1;
       } else {
-        // The buffer guard cleared this event, but the vault's on-disk guard may
-        // still divert it to a conflict (rule 3): count it for the status.
-        let outcome: RemoteApplyOutcome;
-        try {
-          outcome = await this.options.vault.applyRemote(remoteEvent, {
-            bootstrap:
-              bootstrapTarget !== null &&
-              remoteEvent.serverSequence <= bootstrapTarget,
-          });
-        } catch (error) {
-          // One change this device cannot apply (e.g. iOS refusing to read a
-          // PDF) must not stop the whole vault forever: after a few tries it is
-          // parked, listed in the panel, and the cursor moves on (B2).
-          const id = remoteEvent.revision.revisionId;
-          const attempts = (this.applyFailures.get(id) ?? 0) + 1;
-          if (
-            isAuthDenied(error) ||
-            this.options.state.parkRemote === undefined ||
-            attempts < MAX_APPLY_ATTEMPTS
-          ) {
-            this.applyFailures.set(id, attempts);
-            throw error;
-          }
-          this.applyFailures.delete(id);
-          await this.options.state.parkRemote(
-            remoteEvent,
-            error instanceof Error ? error.message : String(error),
-          );
-          cursor = remoteEvent.serverSequence;
-          await this.options.state.saveCursor(cursor);
-          continue;
-        }
-        this.applyFailures.delete(remoteEvent.revision.revisionId);
-        if (outcome === 'deferred') {
-          deferred += 1;
-          break;
-        }
-        if (outcome === 'conflict') {
-          conflicts += 1;
-        } else {
-          await this.options.state.retireEquivalentMerges?.(remoteEvent);
-          applied += 1;
-        }
+        await this.options.state.retireEquivalentMerges?.(remoteEvent);
+        applied += 1;
       }
 
       cursor = remoteEvent.serverSequence;

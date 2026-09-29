@@ -33,7 +33,7 @@ describe('retrying a quarantined send whose stash was evicted', () => {
       pull: async () => ({ cursor: 0, events: [] }),
     };
     const runner = new SyncRunner({ transport, state, scheduler: () => undefined,
-      vault: { openBuffers: async () => [], applyRemote: async () => 'applied', recordConflict: async () => {} } });
+      vault: { openBuffers: async () => [], applyRemote: async () => 'applied' } });
     await runner.trigger();
     const [row] = state.quarantineSnapshot();
     if (row === undefined) throw new Error('expected a quarantined send');

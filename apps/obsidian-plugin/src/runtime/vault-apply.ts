@@ -7,7 +7,8 @@ import { ApplyDeferredError } from './apply-deferred';
  *  - a path owned by a DIFFERENT local file is a collision: the content goes to
  *    `Havemind Conflicts/` and the live file is untouched;
  *  - a delete tombstone removes a file only if the same fileId owns that path.
- * Overwriting a divergent OPEN buffer is ruled out earlier, by the runner.
+ * While an editor holds unsaved text for the file, the runner and `applyRemote`
+ * both defer.
  */
 
 import {
@@ -673,15 +674,6 @@ export class VaultApplyAdapter implements VaultApplyPort {
     }
     return parents.includes(localHead) || (this.history !== undefined &&
       ancestors(await this.history.graph(fileId), event.revision.revisionId).has(localHead));
-  }
-
-  /**
-   * The runner's separate open-BUFFER divergence path. A settings file never
-   * reaches it (Obsidian opens no hidden config file as an editor buffer).
-   */
-  async recordConflict(event: RemoteEvent): Promise<void> {
-    const decoded = await this.resolveRevision(event);
-    await this.writeConflict(event, decoded);
   }
 
   /**

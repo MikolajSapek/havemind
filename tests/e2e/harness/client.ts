@@ -55,11 +55,11 @@ import { pollConfigOnce } from '../../../apps/obsidian-plugin/src/sync/config-po
 import { reconcileVaultState } from '../../../apps/obsidian-plugin/src/sync/reconciliation.js';
 import {
   SyncRunner,
-  type OpenBuffer,
   type PullResult,
   type PushItemResult,
   type PushReceipt,
   type PushRevision,
+  type RemoteApplyOutcome,
   type RemoteEvent,
   type SyncCycleResult,
   type SyncStatePort,
@@ -341,7 +341,8 @@ export class HarnessClient {
   };
 
   readonly #headByFile = new Map<string, string>();
-  readonly #openBuffers = new Map<string, OpenBuffer>();
+  /** Files open in an editor: the synced base loaded and the current text. */
+  readonly #openBuffers = new Map<string, { baseHash: string; currentHash: string }>();
 
   #runner: SyncRunner;
   #failNextApply = false;
@@ -648,11 +649,8 @@ export class HarnessClient {
   #vaultPort(): VaultApplyPort {
     return {
       applyRemote: async (event) => this.#applyRemote(event),
-      openBuffers: async (fileId) => {
-        const buffer = this.#openBuffers.get(fileId);
-        return buffer === undefined ? [] : [buffer];
-      },
-      recordConflict: async (event) => this.#recordConflict(event),
+      // The harness never models editor text that is not yet on disk.
+      openBuffers: async () => [],
     };
   }
 
@@ -811,10 +809,18 @@ export class HarnessClient {
     return { cursor: body.cursor, events };
   }
 
-  async #applyRemote(event: RemoteEvent): Promise<void> {
+  async #applyRemote(event: RemoteEvent): Promise<RemoteApplyOutcome> {
     if (this.#failNextApply) {
       this.#failNextApply = false;
       throw new Error('simulated crash during local apply');
+    }
+    // Stands in for the production on-disk guard (rule 3): a file edited in an
+    // open editor since its synced base keeps the edit, and the incoming
+    // revision becomes a conflict copy.
+    const editor = this.#openBuffers.get(event.revision.fileId);
+    if (editor !== undefined && editor.currentHash !== editor.baseHash) {
+      await this.#recordConflict(event);
+      return 'conflict';
     }
     // The canonical target path travels inside the opaque payload (the server
     // never sees it), so materialising a remote revision means DECODING it with
@@ -827,7 +833,7 @@ export class HarnessClient {
       this.#repository.forgetRemoteMapping(collisionKey);
       this.#headByFile.set(event.revision.fileId, event.revision.revisionId);
       this.#recordApplied(event, decoded);
-      return;
+      return 'applied';
     }
 
     const content = canonicalizeMarkdown(decoded.content ?? '');
@@ -855,6 +861,7 @@ export class HarnessClient {
       });
     }
     this.#recordApplied(event, decoded);
+    return 'applied';
   }
 
   /**

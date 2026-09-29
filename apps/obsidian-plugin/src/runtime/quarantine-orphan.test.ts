@@ -65,7 +65,7 @@ describe('editing a file after one of its revisions was quarantined', () => {
     const h = harness();
     const server = fakeServer({ failFirstWith413: true });
     const runner = new SyncRunner({ transport: server.transport, state: h.state,
-      vault: { openBuffers: async () => [], applyRemote: async () => 'applied', recordConflict: async () => {} },
+      vault: { openBuffers: async () => [], applyRemote: async () => 'applied' },
       scheduler: () => undefined });
 
     const r1 = await edit(h.producer, 'create', 'v1');
@@ -88,7 +88,7 @@ describe('editing a file after one of its revisions was quarantined', () => {
     const h = harness();
     const server = fakeServer({ failFirstWith413: false });
     const runner = new SyncRunner({ transport: server.transport, state: h.state,
-      vault: { openBuffers: async () => [], applyRemote: async () => 'applied', recordConflict: async () => {} },
+      vault: { openBuffers: async () => [], applyRemote: async () => 'applied' },
       scheduler: () => undefined });
     const accepted = await edit(h.producer, 'create', 'v1');
     await runner.trigger();
