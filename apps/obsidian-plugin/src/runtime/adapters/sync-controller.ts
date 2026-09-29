@@ -86,6 +86,16 @@ export interface BuiltSyncController {
   readonly retryParked: (revisionId: string) => Promise<boolean>;
 }
 
+/** What {@link buildSyncController} connects to; only `onStatus` is required. */
+export interface SyncControllerWiring {
+  readonly onStatus: StatusListener;
+  readonly hooks?: RuntimeHooks | undefined;
+  readonly producerSync?: RemoteApplyProducerSync;
+  readonly fileApplyLock?: KeyedMutex;
+  readonly getProducer?: () => OutboxLocalChangeRepository | null;
+  readonly prepareProducer?: () => Promise<void>;
+}
+
 /**
  * Assembles the full sync runtime for a connected vault and returns a controller
  * `main.ts` can `start()` on layout-ready and `stop()` on unload.
@@ -93,13 +103,9 @@ export interface BuiltSyncController {
 export function buildSyncController(
   plugin: Plugin,
   connection: SyncConnection,
-  onStatus: StatusListener,
-  hooks?: RuntimeHooks,
-  producerSync?: RemoteApplyProducerSync,
-  fileApplyLock?: KeyedMutex,
-  getProducer?: () => OutboxLocalChangeRepository | null,
-  prepareProducer?: () => Promise<void>,
+  wiring: SyncControllerWiring,
 ): BuiltSyncController {
+  const { onStatus, hooks, producerSync, fileApplyLock, getProducer, prepareProducer } = wiring;
   const state = new DurableSyncState({
     persist: createPersistPort(plugin),
     // Arch P1: keep large outbox payload bytes out of `data.json`. Best-effort,

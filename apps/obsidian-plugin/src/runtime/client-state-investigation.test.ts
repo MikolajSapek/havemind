@@ -32,7 +32,7 @@ describe('client state investigation', () => {
     const { controller } = buildSyncController(plugin, {
       apiBaseUrl: 'https://example.invalid', vaultId: 'vault', getAuthToken: async () => 'test-token',
       resolveRevision: async () => { throw new Error('An empty cycle must not resolve payloads.'); },
-    }, () => {}, undefined, undefined, undefined, () => producer);
+    }, { onStatus: () => {}, getProducer: () => producer });
     try {
       // No scheduler, wake subscription, pagination or overlapping trigger.
       await controller.syncNow();
@@ -56,7 +56,9 @@ describe('client state investigation', () => {
     } as unknown as Plugin;
     const state = new DurableSyncState({ persist: createPersistPort(plugin) });
     const ref = { current: null as OutboxLocalChangeRepository | null };
-    const handle = startPushProducer(plugin, state, { vaultId: 'vault', memberId: 'member', deviceId: 'device' }, () => {}, ref);
+    const handle = startPushProducer(plugin, {
+      state, identity: { vaultId: 'vault', memberId: 'member', deviceId: 'device' }, triggerSync: () => {}, producerRef: ref,
+    });
     try {
       await handle.initialize();
       expect((data.pushProducer as { heads: unknown }).heads).toEqual({ file: 'head' });

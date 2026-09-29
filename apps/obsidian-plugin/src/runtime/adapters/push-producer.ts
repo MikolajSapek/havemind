@@ -103,16 +103,19 @@ export interface PushProducerHandle {
   retryFailedCommit(path: string): RetryFailedCommitOutcome;
 }
 
-export function startPushProducer(
-  plugin: Plugin,
-  state: DurableSyncState,
-  identity: PushIdentity,
-  triggerSync: () => void,
-  producerRef: { current: OutboxLocalChangeRepository | null },
-  hooks?: RuntimeHooks,
-  fileApplyLock?: KeyedMutex,
-  initializeIdentities?: (repository: OutboxLocalChangeRepository, snapshot: VaultSnapshotPort) => Promise<ReadonlySet<string>>,
-): PushProducerHandle {
+/** What {@link startPushProducer} connects to. */
+export interface PushProducerWiring {
+  readonly state: DurableSyncState;
+  readonly identity: PushIdentity;
+  readonly triggerSync: () => void;
+  readonly producerRef: { current: OutboxLocalChangeRepository | null };
+  readonly hooks?: RuntimeHooks | undefined;
+  readonly fileApplyLock?: KeyedMutex;
+  readonly initializeIdentities?: (repository: OutboxLocalChangeRepository, snapshot: VaultSnapshotPort) => Promise<ReadonlySet<string>>;
+}
+
+export function startPushProducer(plugin: Plugin, wiring: PushProducerWiring): PushProducerHandle {
+  const { state, identity, triggerSync, producerRef, hooks, fileApplyLock, initializeIdentities } = wiring;
   const vault = (plugin.app as unknown as AppWithVault).vault;
   const store: ProducerStorePort = {
     async load() {

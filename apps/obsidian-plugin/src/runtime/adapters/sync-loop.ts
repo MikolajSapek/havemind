@@ -160,15 +160,15 @@ export async function startSyncLoop(
           }
         : {}),
     },
-    onStatus,
-    extras.hooks,
-    producerSync,
-    fileApplyLock,
-    () => producerRef.current,
-    async () => { await producer?.initialize(); },
+    {
+      onStatus,
+      hooks: extras.hooks,
+      producerSync,
+      fileApplyLock,
+      getProducer: () => producerRef.current,
+      prepareProducer: async () => { await producer?.initialize(); },
+    },
   );
-
-
 
   // The push producer detects local edits, enumerates pre-existing files and
   // enqueues revisions the runner POSTs. Without a server-issued memberId +
@@ -177,22 +177,21 @@ export async function startSyncLoop(
   // flow supply memberId + deviceId (connectAsOwner reads `pairing.memberId`
   // off the pairing response), so `hasPushIdentity` is true for either path.
   if (hasPushIdentity) {
-    producer = startPushProducer(
-      plugin,
+    producer = startPushProducer(plugin, {
       state,
-      {
+      identity: {
         vaultId: connection.vaultId,
         memberId: connection.memberId as string,
         deviceId: connection.deviceId as string,
       },
-      () => {
+      triggerSync: () => {
         void controller.syncNow();
       },
       producerRef,
-      extras.hooks,
+      hooks: extras.hooks,
       fileApplyLock,
-      initializeProducer,
-    );
+      initializeIdentities: initializeProducer,
+    });
   }
 
   controller.start();
