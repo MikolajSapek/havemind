@@ -37,8 +37,8 @@ export interface RequestUrlOptions {
 export interface RequestUrlResponseLike {
   readonly status: number;
   readonly json: unknown;
-  /** Raw response body, used for octet-stream blob reads. */
-  readonly text?: string;
+  /** The response body as received, byte for byte: what a blob read verifies and decodes. */
+  readonly arrayBuffer?: ArrayBuffer;
 }
 
 export type RequestUrlFn = (

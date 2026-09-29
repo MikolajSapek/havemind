@@ -256,8 +256,8 @@ class TwoDeviceServer {
 /**
  * Maps a full canonical URL onto a Fastify `inject`, so every real client piece
  * (onboarding api, refresh, transport, blob fetch) speaks to the opaque server
- * exactly over the wire. Returns both parsed `json` and raw `text` (the blob
- * resolver reads `text`).
+ * exactly over the wire. Returns the parsed `json` and the raw body as
+ * `arrayBuffer` (the blob resolver reads the bytes).
  */
 function injectRequestUrl(app: FastifyApp): RequestUrlFn {
   return async (options) => {
@@ -275,7 +275,7 @@ function injectRequestUrl(app: FastifyApp): RequestUrlFn {
     } catch {
       json = undefined;
     }
-    return { status: response.statusCode, json, text };
+    return { status: response.statusCode, json, arrayBuffer: new Uint8Array(response.rawPayload).buffer };
   };
 }
 

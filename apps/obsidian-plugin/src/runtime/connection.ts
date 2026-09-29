@@ -89,14 +89,16 @@ export function buildConnectionResolvers(
           `Blob fetch for ${event.revision.contentHash} returned HTTP ${response.status}.`,
         );
       }
-      const body = response.text ?? '';
+      // The bytes as received: a string made from them is one more copy (33 MB
+      // for an attachment) that is encoded again to be hashed, and a lossy one.
+      const body = new Uint8Array(response.arrayBuffer ?? new ArrayBuffer(0));
       // Integrity gate: the server is opaque and never re-hashes on read, so the
       // client must verify the downloaded bytes hash to the expected blobHash
       // (`revision.contentHash`, the receipt's content-addressed hash) BEFORE
       // decoding or applying them. `sha256Hex` is the exact helper the protocol
-      // and server use to derive that hash (UTF-8 bytes → 64-char lowercase hex),
-      // so a corrupted, tampered, or wrong-blob response is caught here instead
-      // of being silently materialised into the vault.
+      // and server use to derive that hash (bytes → 64-char lowercase hex), so a
+      // corrupted, tampered, or wrong-blob response is caught here instead of
+      // being silently materialised into the vault.
       const actualHash = await sha256Hex(body);
       if (actualHash !== event.revision.contentHash) {
         throw new BlobIntegrityError(event.revision.contentHash, actualHash);

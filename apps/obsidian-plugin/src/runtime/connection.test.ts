@@ -1,3 +1,4 @@
+import { sha256Hex } from '@havemind/protocol';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -56,7 +57,7 @@ describe('buildConnectionResolvers', () => {
       requestUrl: async (options) => {
         calls.push(options);
         const { status, text } = responder(options);
-        return { status, json: null, text };
+        return { status, json: null, arrayBuffer: new TextEncoder().encode(text).buffer as ArrayBuffer };
       },
     });
     return { resolvers, calls };
@@ -140,6 +141,57 @@ describe('buildConnectionResolvers', () => {
     await expect(resolvers.resolveRevision(wrongHashEvent)).rejects.toBeInstanceOf(
       BlobIntegrityError,
     );
+  });
+
+  describe('a response that carries its bytes', () => {
+    function resolversFor(body: string) {
+      return buildConnectionResolvers({
+        apiBaseUrl: API,
+        vaultId: VAULT,
+        getAccessToken: async () => 'access-1',
+        // Only the bytes, as Obsidian hands them over: the client must verify and
+        // decode these, not a string made from them, which for an attachment is a
+        // second 33 MB copy that then has to be encoded again to be hashed.
+        requestUrl: async () => ({
+          status: 200,
+          json: null,
+          arrayBuffer: new TextEncoder().encode(body).buffer as ArrayBuffer,
+        }),
+      });
+    }
+
+    it('verifies and decodes the received bytes', async () => {
+      await expect(resolversFor(payloadJson).resolveRevision(event)).resolves.toMatchObject({
+        operation: 'create',
+        path: 'Notes/a.md',
+        content: 'Remote body\n',
+      });
+    });
+
+    it('decodes multi-byte text from the same bytes it hashed', async () => {
+      const body = JSON.stringify({
+        schemaVersion: 1,
+        operation: 'create',
+        path: 'Notatki/zażółć.md',
+        content: 'gęślą jaźń \u{1F600}\n',
+      });
+      const hashed: RemoteEvent = {
+        serverSequence: 6,
+        revision: { revisionId: 'rev-3', fileId: 'file-1', contentHash: await sha256Hex(body) },
+      };
+
+      await expect(resolversFor(body).resolveRevision(hashed)).resolves.toMatchObject({
+        path: 'Notatki/zażółć.md',
+        content: 'gęślą jaźń \u{1F600}\n',
+      });
+    });
+
+    it('rejects received bytes that do not hash to the receipt', async () => {
+      const tampered = payloadJson.replace('Remote body', 'Tampered body');
+      await expect(resolversFor(tampered).resolveRevision(event)).rejects.toBeInstanceOf(
+        BlobIntegrityError,
+      );
+    });
   });
 
   it('throws when the blob fetch is not successful', async () => {

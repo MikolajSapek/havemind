@@ -287,13 +287,14 @@ describe('registerVaultChangeListeners folder events (AUD-04)', () => {
 });
 
 describe('createRequestUrlFn', () => {
-  it('forwards the response text body Obsidian requestUrl returns', async () => {
+  it('forwards the response bytes Obsidian requestUrl returns', async () => {
     const { createRequestUrlFn } = await import('./obsidian-adapters');
 
+    const body = new TextEncoder().encode('raw-blob-body').buffer as ArrayBuffer;
     mockRequestUrl.mockResolvedValue({
       status: 200,
       headers: {},
-      arrayBuffer: new ArrayBuffer(0),
+      arrayBuffer: body,
       json: { ok: true },
       text: 'raw-blob-body',
     });
@@ -304,10 +305,10 @@ describe('createRequestUrlFn', () => {
       method: 'GET',
     });
 
-    // This is the field resolveRevision() reads (response.text) to decode the
-    // blob payload; omitting it makes every pull look empty and never
-    // materializes remote notes on disk.
-    expect(response.text).toBe('raw-blob-body');
+    // This is the field resolveRevision() reads to verify and decode the blob
+    // payload; omitting it makes every pull look empty and never materializes
+    // remote notes on disk.
+    expect(response.arrayBuffer).toBe(body);
     expect(response.status).toBe(200);
     expect(response.json).toEqual({ ok: true });
   });
@@ -342,7 +343,6 @@ describe('createRequestUrlFn', () => {
 
     expect(jsonReads).toBe(0);
     expect(response.status).toBe(502);
-    expect(response.text).toBe('<html>502 Bad Gateway</html>');
     // Reading `.json` on a non-JSON body is guarded: it yields undefined, never
     // a throw, so status classification downstream always runs.
     expect(() => JSON.stringify(response.json)).not.toThrow();

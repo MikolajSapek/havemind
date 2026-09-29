@@ -36,10 +36,11 @@ export function createRequestUrlFn(): RequestUrlFn {
     // guarded lazy accessor instead: the transport reads `.json` only AFTER its
     // status check passes, and a non-JSON body yields `undefined` rather than a
     // throw, so status-based classification (ensureOk / isPermanentStatus) always
-    // runs. `.text` is a plain field that never throws and is forwarded eagerly.
+    // runs. `.arrayBuffer` is a plain field that never throws and is forwarded
+    // as it is; the string form (`.text`) is not, so a blob is never held twice.
     return {
       status: response.status,
-      text: response.text,
+      arrayBuffer: response.arrayBuffer,
       get json(): unknown {
         try {
           return response.json;
