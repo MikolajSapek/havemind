@@ -1,3 +1,4 @@
+import { base64ToBytes } from '@havemind/protocol';
 import { decodeRevisionPayload, type DecodedRevisionPayload } from '@havemind/sync-core';
 import type { RemoteEvent, SyncTransport } from '../sync/sync-runner';
 import type { DurableSyncState } from './sync-state';
@@ -208,7 +209,7 @@ export class RevisionHistory {
     const queued = await this.options.state.getEnvelope(id);
     const payload = queued === undefined
       ? await this.options.resolveRevision(event)
-      : decodeRevisionPayload(Uint8Array.from(atob(queued.payloadBase64), (char) => char.charCodeAt(0)));
+      : decodeRevisionPayload(base64ToBytes(queued.payloadBase64));
     // An attachment is never merged from here and can be megabytes: keeping
     // every one fetched made memory grow for the whole connection (P13).
     if (payload.kind === 'binary') return payload;

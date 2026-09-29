@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { decodeRevisionPayload } from '@havemind/sync-core';
 import { protectedRevisionHeaderSchema } from '@havemind/protocol';
@@ -623,6 +623,34 @@ describe('OutboxLocalChangeRepository', () => {
       // The exact raw bytes round-trip through the envelope, never markdown
       // `content`, which would be canonicalised and corrupt binary data.
       expect(decoded.binaryContent).toEqual(bytes);
+    });
+
+    it('decodes the observer\'s base64 in slices, never as one full-size string', async () => {
+      const { repo, enqueued } = makeRepo();
+      const bytes = new Uint8Array(300_000).map((_, i) => i % 256);
+      const atobSpy = vi.spyOn(globalThis, 'atob');
+
+      await repo.commitLocalChange({
+        operation: makeOperation({
+          content: Buffer.from(bytes).toString('base64'),
+          contentHash: 'blob-hash-slices',
+          contentKind: 'binary',
+          path: 'Attachments/slices.bin',
+        }),
+        removeFileId: null,
+        upsertMapping: {
+          collisionKey: 'attachments/slices.bin',
+          contentHash: 'blob-hash-slices',
+          contentKind: 'binary',
+          fileId: FILE_ID,
+          path: 'Attachments/slices.bin',
+        },
+      });
+
+      const longest = Math.max(...atobSpy.mock.calls.map(([text]) => text.length));
+      atobSpy.mockRestore();
+      expect(decodeRevisionPayload(decode(enqueued[0] as OutboxEnvelope)).binaryContent).toEqual(bytes);
+      expect(longest).toBeLessThanOrEqual(64 * 1024);
     });
 
     it('does not throw RevisionPayloadTooLargeError for a large binary within the file cap (raised ceiling)', async () => {

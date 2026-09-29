@@ -15,6 +15,7 @@
  * behind an injected `ProducerStorePort` so it survives an Obsidian restart.
  */
 
+import { base64ToBytes } from '@havemind/protocol';
 import {
   buildRevisionEnvelope,
   type RevisionEnvelopeOperation,
@@ -43,19 +44,6 @@ import type { ProducerRecovery, ProducerRecoveryPort } from '../runtime/producer
  * be refused by the server (tests/attachment-limits.test.ts).
  */
 export const MAX_BINARY_PAYLOAD_BYTES = 36 * 1024 * 1024;
-
-/**
- * Decodes standard base64 (the form the observer stores in a binary operation's
- * `content`) back to the raw bytes `buildRevisionEnvelope` re-hashes and ships.
- */
-function decodeBase64ToBytes(base64: string): Uint8Array {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-  return bytes;
-}
 
 /** Server identity a revision header must carry to be accepted (rule 3). */
 export interface PushIdentity {
@@ -435,7 +423,7 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
             ? {
                 kind: 'binary' as const,
                 content: null,
-                binaryContent: decodeBase64ToBytes(operation.content ?? ''),
+                binaryContent: base64ToBytes(operation.content ?? ''),
                 maxPayloadBytes: MAX_BINARY_PAYLOAD_BYTES,
               }
             : {

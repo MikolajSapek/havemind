@@ -13,7 +13,11 @@
  * (up to 1.5.7) and one from a plugin that does not decode the same way.
  */
 
-import { canonicalizeVaultPath, isCanonicalBase64 } from '@havemind/protocol';
+import {
+  base64ToBytes,
+  canonicalizeVaultPath,
+  isCanonicalBase64,
+} from '@havemind/protocol';
 
 export type RevisionOperation =
   | 'initial-import'
@@ -137,17 +141,7 @@ function decodeBase64(base64: string): Uint8Array {
   if (!isCanonicalBase64(base64)) {
     throw new PayloadDecodeError('Binary revision content is not valid base64.');
   }
-  let binary: string;
-  try {
-    binary = atob(base64);
-  } catch (error) {
-    throw new PayloadDecodeError('Binary revision content is not valid base64.', error);
-  }
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-  return bytes;
+  return base64ToBytes(base64);
 }
 
 function assertCanonicalPath(value: unknown, field: string): string {

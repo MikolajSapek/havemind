@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { decodeRevisionPayload, PayloadDecodeError } from './payload-codec';
 
@@ -73,6 +73,27 @@ describe('decodeRevisionPayload, binary', () => {
     expect(decoded.kind).toBe('markdown');
     expect(decoded.binaryContent).toBeNull();
     expect(decoded.content).toBe('Hello\n');
+  });
+
+  it('decodes a large attachment without building a full-size intermediate string', () => {
+    const bytes = new Uint8Array(300_000).map((_, i) => i % 256);
+    const atobSpy = vi.spyOn(globalThis, 'atob');
+
+    const decoded = decodeRevisionPayload(
+      encode({
+        schemaVersion: 1,
+        operation: 'create',
+        kind: 'binary',
+        path: 'Attachments/big.bin',
+        contentBase64: Buffer.from(bytes).toString('base64'),
+        blobByteHash: byteHash,
+      }),
+    );
+
+    const longest = Math.max(...atobSpy.mock.calls.map(([text]) => text.length));
+    atobSpy.mockRestore();
+    expect(decoded.binaryContent).toEqual(bytes);
+    expect(longest).toBeLessThanOrEqual(64 * 1024);
   });
 
   it('decodes an empty binary file to a zero-length byte array', () => {

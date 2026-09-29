@@ -1,4 +1,5 @@
 import {
+  bytesToBase64,
   canonicalizeMarkdown,
   hashBlob,
   syncContentKind,
@@ -18,13 +19,6 @@ import { normalizeConfigContent } from '../sync/config-normalize';
  * by the raised payload ceiling in `outbox-repository.ts`.
  */
 export const MAX_BINARY_FILE_BYTES = 25 * 1024 * 1024;
-
-/**
- * Bytes handed to `String.fromCharCode` at once while encoding base64. Large
- * enough that the loop is not the cost, small enough to stay well inside the
- * argument limit that a whole-array spread would breach.
- */
-const BASE64_CHUNK_BYTES = 8192;
 
 export type LocalVaultErrorCode = 'path-collision';
 
@@ -636,27 +630,8 @@ function pathUnderFolder(path: string, folderPrefix: string): string | null {
   return path.startsWith(prefix) ? path.slice(folderPrefix.length) : null;
 }
 
-/**
- * Base64 of raw bytes, binary-safe (every byte 0x00–0xFF preserved). This is the
- * exact bijection the wire codec (`@havemind/sync-core`) uses, so the base64 an
- * observer stores in `content` round-trips to identical bytes on decode (F9).
- */
-export function bytesToBase64(bytes: Uint8Array): string {
-  // Built in chunks, not byte by byte. Per-byte concatenation blocks the main
-  // thread for ~1.2s on a 25MB attachment (MAX_BINARY_FILE_BYTES) on a laptop,
-  // and several times that on a phone; while it runs the UI cannot repaint and
-  // taps do nothing. Chunked is about twice as fast for identical output.
-  //
-  // The chunk is small enough to spread into `fromCharCode` as arguments: the
-  // whole array would overflow the call stack on a large attachment.
-  let binary = '';
-  for (let offset = 0; offset < bytes.length; offset += BASE64_CHUNK_BYTES) {
-    binary += String.fromCharCode(
-      ...bytes.subarray(offset, offset + BASE64_CHUNK_BYTES),
-    );
-  }
-  return btoa(binary);
-}
+// Still exported from here: vault-apply.ts and several tests import it from this module.
+export { bytesToBase64 };
 
 async function sha256Hex(text: string): Promise<string> {
   const data = new TextEncoder().encode(text);

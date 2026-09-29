@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ancestors, commonAncestor, RevisionHistory, type RevisionHistoryStore } from './revision-history';
 import type { RemoteEvent } from '../sync/sync-runner';
 
@@ -86,6 +86,27 @@ describe('revision payload cache', () => {
     await subject.payload(node('pdf'));
     await subject.payload(node('pdf'));
     expect(fetches).toBe(2);
+  });
+
+  it('reads a queued attachment without building a full-size intermediate string', async () => {
+    const bytes = new Uint8Array(300_000).map((_, i) => i % 256);
+    const payloadBase64 = Buffer.from(JSON.stringify({
+      schemaVersion: 1, operation: 'update', kind: 'binary', path: 'a.pdf',
+      contentBase64: Buffer.from(bytes).toString('base64'), blobByteHash: 'b'.repeat(64),
+    })).toString('base64');
+    const subject = new RevisionHistory({
+      transport: { pull: async () => ({ cursor: 0, events: [] }) },
+      resolveRevision: async () => { throw new Error('a queued payload is read locally'); },
+      state: { listOutbox: async () => [], getEnvelope: async () => ({ payloadBase64 }) } as never,
+    });
+    const atobSpy = vi.spyOn(globalThis, 'atob');
+
+    const payload = await subject.payload(node('queued'));
+
+    const longest = Math.max(...atobSpy.mock.calls.map(([text]) => text.length));
+    atobSpy.mockRestore();
+    expect(payload.binaryContent).toEqual(bytes);
+    expect(longest).toBeLessThanOrEqual(64 * 1024);
   });
 
   it('keeps recent note payloads, within a bound', async () => {

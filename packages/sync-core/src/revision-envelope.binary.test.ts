@@ -1,5 +1,5 @@
 import { hashBlob } from '@havemind/protocol';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { decodeRevisionPayload } from './payload-codec.js';
 import { buildRevisionEnvelope } from './revision-envelope.js';
@@ -19,7 +19,32 @@ function base64ToBytes(base64: string): Uint8Array {
   return bytes;
 }
 
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 describe('buildRevisionEnvelope, binary', () => {
+  it('encodes an attachment in slices, not one string character per byte', async () => {
+    // Twice per attachment (its own base64 inside the payload, then the payload
+    // for the wire), so a per-byte build costs a 25 MB file two blocked seconds
+    // each on a laptop and far more on a phone.
+    const fromCharCode = vi.spyOn(String, 'fromCharCode');
+
+    await buildRevisionEnvelope({
+      identity,
+      revisionId,
+      parentRevisionIds: [],
+      operation: 'create',
+      kind: 'binary',
+      path: 'Attachments/big.bin',
+      content: null,
+      binaryContent: new Uint8Array(300_000),
+      idempotencyKey: 'idem-slices',
+    });
+
+    expect(fromCharCode.mock.calls.length).toBeLessThan(1000);
+  });
+
   it('round-trips raw bytes exactly through encode → decode', async () => {
     const bytes = new Uint8Array([0x00, 0x10, 0xff, 0x80, 0x7f, 0x00, 0xab]);
 
