@@ -1,11 +1,42 @@
-import { isSyncableConfigPath } from './appearance-scope.js';
+import { isSyncableConfigPath, pathExtension } from './appearance-scope.js';
 
 const WINDOWS_DRIVE_PATH = /^[a-zA-Z]:/u;
+
+/**
+ * The reserved folder holding conflict copies: excluded from sync so a copy
+ * never syncs back, and rejected on the wire so a peer can never plant one.
+ * The single definition of the name, the plugin imports it from here.
+ */
+export const CONFLICT_FOLDER = 'Havemind Conflicts';
+
 const RESERVED_ROOTS = new Set([
   '.obsidian',
   '.trash',
-  'havemind conflicts',
+  CONFLICT_FOLDER.toLowerCase(),
 ]);
+
+/**
+ * Non-markdown extensions that sync as whole-file binary attachments (F9).
+ * Lowercase, no leading dot. Every other non-markdown extension stays local.
+ */
+export const SYNCABLE_BINARY_EXTENSIONS = [
+  'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'pdf',
+] as const;
+
+const BINARY_EXTENSIONS: ReadonlySet<string> = new Set(
+  SYNCABLE_BINARY_EXTENSIONS,
+);
+
+/**
+ * The text formats the `.obsidian/` allowlist can admit. A config file whose
+ * extension is in neither this set nor the binary one is excluded, never
+ * forced through the text path, so widening the allowlist can never corrupt a
+ * new format.
+ */
+const CONFIG_TEXT_EXTENSIONS: ReadonlySet<string> = new Set(['css', 'json']);
+
+/** Whether a synced file carries markdown text or raw binary bytes (F9). */
+export type SyncContentKind = 'markdown' | 'binary';
 
 /**
  * Canonical form of note content used for HASHING and DIFF BASES only, never
@@ -106,4 +137,36 @@ export function canonicalizeVaultPath(path: string): string {
   }
 
   return normalized;
+}
+
+/**
+ * How a canonical vault path (forward slashes, NFC) syncs: `'markdown'`,
+ * `'binary'`, or `null` when it stays on the machine. The one home of the scope
+ * rules, so which roots and config files are off limits cannot differ between
+ * the producer and the wire:
+ *  - an `.obsidian/` file is admitted only by the appearance allowlist, and its
+ *    kind follows its extension (binary first, then text);
+ *  - any other path needs a `.md` or allowlisted attachment extension, no
+ *    hidden (dot) or empty segment, and a top-level folder that is not reserved.
+ * Path SYNTAX (control characters, a drive-like prefix) is checked only by
+ * `canonicalizeVaultPath`; tests/vault-path-policy.test.ts pins the few paths
+ * where the two answers still differ.
+ */
+export function syncContentKind(canonicalPath: string): SyncContentKind | null {
+  const extension = pathExtension(canonicalPath);
+  if (isSyncableConfigPath(canonicalPath)) {
+    if (BINARY_EXTENSIONS.has(extension)) return 'binary';
+    return CONFIG_TEXT_EXTENSIONS.has(extension) ? 'markdown' : null;
+  }
+
+  const kind =
+    extension === 'md'
+      ? 'markdown'
+      : BINARY_EXTENSIONS.has(extension)
+        ? 'binary'
+        : null;
+  const hidden = canonicalPath
+    .split('/')
+    .some((segment) => segment === '' || segment.startsWith('.'));
+  return kind === null || hidden || reservedRoot(canonicalPath) ? null : kind;
 }

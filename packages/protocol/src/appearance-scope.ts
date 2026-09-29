@@ -113,8 +113,12 @@ function normalizeSeparators(path: string): string {
   return path.replace(/\\/gu, '/');
 }
 
-/** Lowercased extension without the dot; `''` when the last segment has none. */
-function extensionOf(path: string): string {
+/**
+ * Extension of a path, lowercased, without the dot; `''` when its last segment
+ * has none. A dotfile like `.gitignore` has no extension by this definition, so
+ * it is never mistaken for an attachment.
+ */
+export function pathExtension(path: string): string {
   const dot = path.lastIndexOf('.');
   const slash = path.lastIndexOf('/');
   if (dot <= slash + 1) return '';
@@ -158,14 +162,14 @@ export function isSyncableConfigPath(path: string): boolean {
   if (normalized.startsWith(SNIPPETS_PREFIX)) {
     return (
       segments.length === SNIPPETS_SEGMENT_COUNT &&
-      SNIPPET_EXTENSIONS.has(extensionOf(normalized))
+      SNIPPET_EXTENSIONS.has(pathExtension(normalized))
     );
   }
 
   if (normalized.startsWith(THEMES_PREFIX)) {
     return (
       segments.length >= THEMES_MIN_SEGMENT_COUNT &&
-      THEME_EXTENSIONS.has(extensionOf(normalized))
+      THEME_EXTENSIONS.has(pathExtension(normalized))
     );
   }
 

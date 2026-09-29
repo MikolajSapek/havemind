@@ -32,9 +32,10 @@ and restore procedure when recovering a vault.
 
 ## Dot-paths and the reserved folder (AUD-07)
 
-Verified against `apps/obsidian-plugin/src/obsidian/vault-adapter.ts`
-(`classifyVaultPath` / `eligibleKind`) and `packages/protocol/src/canonicalization.ts`
-(`RESERVED_ROOTS`). The producer excludes a path when any of these hold:
+Verified against `packages/protocol/src/canonicalization.ts` (`syncContentKind`
+and `RESERVED_ROOTS`), the one place these rules live; the plugin's
+`classifyVaultPath` in `apps/obsidian-plugin/src/obsidian/vault-adapter.ts` only
+calls it. The producer excludes a path when any of these hold:
 
 1. **Any path segment starts with a dot** (e.g. `Notes/.drafts/x.md`,
    `Notes/.hidden.md`, `.trash/x.md`). This also covers everything under

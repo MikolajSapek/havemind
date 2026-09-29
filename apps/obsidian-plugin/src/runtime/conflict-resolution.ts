@@ -13,20 +13,19 @@
  */
 
 import type { TFile, Vault, Workspace } from 'obsidian';
-import { canonicalizeMarkdown } from '@havemind/protocol';
+import { canonicalizeMarkdown, CONFLICT_FOLDER } from '@havemind/protocol';
 
 import { editorTexts } from './adapters/editor-buffers';
 
 /**
- * Reserved, sync-excluded folder holding conflict copies, the SINGLE definition
- * of the name. Three sites depend on it agreeing exactly: this resolution flow,
- * the producer's reserved-root exclusion (`obsidian/vault-adapter.ts`) and the
- * apply adapter's `conflictFolder` (`runtime/obsidian-adapters.ts`). All three
- * import it from here; a private duplicate would let the exclusion drift away
- * from the folder that is actually written to, and every conflict copy would then
- * sync back as an ordinary note.
+ * Reserved, sync-excluded folder holding conflict copies. Defined once, in the
+ * protocol, where the wire and the producer's exclusion (`syncContentKind`)
+ * reserve it too: a private copy here would let those drift away from the
+ * folder that is actually written to, and every conflict copy would then sync
+ * back as an ordinary note. Re-exported for the plugin modules that import it
+ * from here (this flow and the apply adapter's `conflictFolder`).
  */
-export const CONFLICT_FOLDER = 'Havemind Conflicts';
+export { CONFLICT_FOLDER };
 
 /** A single UUID (8-4-4-4-12 hex). Legacy copies are two of these joined. */
 const UUID = '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}';

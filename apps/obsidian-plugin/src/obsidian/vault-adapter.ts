@@ -1,35 +1,18 @@
-import { canonicalizeMarkdown, hashBlob, isSyncableConfigPath } from '@havemind/protocol';
+import {
+  canonicalizeMarkdown,
+  hashBlob,
+  pathExtension,
+  SYNCABLE_BINARY_EXTENSIONS,
+  syncContentKind,
+  type SyncContentKind,
+} from '@havemind/protocol';
 
-import { CONFLICT_FOLDER } from '../runtime/conflict-resolution';
 import { normalizeConfigContent } from '../sync/config-normalize';
 
-/**
- * Top-level folders the producer never syncs. The reserved conflict folder is
- * imported from its single definition in `runtime/conflict-resolution.ts` rather
- * than re-typed here: the name is load-bearing in three places (this exclusion,
- * the resolution flow, and the apply adapter's `conflictFolder`), and a
- * divergence would make every conflict copy sync back as an ordinary note, an
- * endless echo. `conflict-resolution.ts` has no runtime imports of its own
- * (Obsidian types only), so this direction introduces no cycle.
- */
-const RESERVED_TOP_LEVEL_DIRECTORIES = new Set(
-  [CONFLICT_FOLDER].map((name) => name.toLowerCase()),
-);
-
-/**
- * Non-markdown file extensions the pilot syncs as whole-file binary attachments
- * (F9). Lowercase, no leading dot. Every other non-markdown extension stays
- * excluded (counted as an attachment in reconciliation, never read or enqueued).
- */
-export const SYNCABLE_BINARY_EXTENSIONS = [
-  'png',
-  'jpg',
-  'jpeg',
-  'gif',
-  'webp',
-  'svg',
-  'pdf',
-] as const;
+// Which paths sync, and as what, is decided in the protocol (`syncContentKind`):
+// the package that also rejects a bad path on arrival, so the two cannot drift.
+// Re-exported for the modules that import these names from here.
+export { pathExtension, SYNCABLE_BINARY_EXTENSIONS, type SyncContentKind };
 
 /**
  * Hard per-file byte ceiling for a binary attachment. A file above this is
@@ -46,9 +29,6 @@ export const MAX_BINARY_FILE_BYTES = 25 * 1024 * 1024;
  * argument limit that a whole-array spread would breach.
  */
 const BASE64_CHUNK_BYTES = 8192;
-
-/** Whether a synced file carries markdown text or raw binary bytes (F9). */
-export type SyncContentKind = 'markdown' | 'binary';
 
 export type LocalVaultErrorCode = 'path-collision';
 
@@ -222,7 +202,7 @@ export function classifyVaultPath(path: string): VaultPathClassification {
   // only falls back to the caller's original path, so a backslash path resolves
   // against Obsidian's forward-slash index instead of silently reading ''.
   const canonicalPath = normalizeWirePath(path);
-  const kind = eligibleKind(canonicalPath);
+  const kind = syncContentKind(canonicalPath);
   if (kind === null) {
     return { eligible: false };
   }
@@ -233,105 +213,6 @@ export function classifyVaultPath(path: string): VaultPathClassification {
     eligible: true,
     kind,
   };
-}
-
-/**
- * Extension of a path, lowercased, without the dot; `''` when there is none.
- * A dotfile like `.gitignore` has no extension by this definition, its leading
- * dot is caught by the dotpath guard, never mistaken for an attachment.
- */
-export function pathExtension(canonicalPath: string): string {
-  const dot = canonicalPath.lastIndexOf('.');
-  const slash = canonicalPath.lastIndexOf('/');
-  if (dot <= slash + 1) return '';
-  return canonicalPath.slice(dot + 1).toLowerCase();
-}
-
-const SYNCABLE_BINARY_EXTENSION_SET: ReadonlySet<string> = new Set(
-  SYNCABLE_BINARY_EXTENSIONS,
-);
-
-/**
- * Text extensions the `.obsidian/` appearance mirror carries through the
- * text/'markdown' content path (canonicalised, hashed as UTF-8). A binary
- * config asset (an extension in {@link SYNCABLE_BINARY_EXTENSION_SET}) rides the
- * existing base64 + size-cap path instead; that set is checked FIRST so a
- * genuinely binary format is never routed through the text path (which would
- * corrupt it). An extension in NEITHER set stays excluded-with-notice, kept as
- * defence in depth even though the scope allowlist admits no such extension
- * today, so widening the allowlist can never silently corrupt a new format.
- */
-const CONFIG_TEXT_EXTENSIONS: ReadonlySet<string> = new Set([
-  'md',
-  'json',
-  'css',
-  'js',
-  'txt',
-]);
-
-/**
- * Content kind for a `.obsidian/` config path already admitted by
- * {@link isSyncableConfigPath}. Binary formats first (exact bytes, size cap),
- * then text formats, else `null` (excluded-with-notice, never forced through
- * the text path).
- */
-function configContentKind(canonicalPath: string): SyncContentKind | null {
-  const extension = pathExtension(canonicalPath);
-  if (SYNCABLE_BINARY_EXTENSION_SET.has(extension)) return 'binary';
-  if (CONFIG_TEXT_EXTENSIONS.has(extension)) return 'markdown';
-  return null;
-}
-
-/**
- * Returns the sync kind of a path, or `null` when it is not syncable. Markdown
- * notes and the allowlisted binary attachments (F9) are eligible; the dotpath
- * and reserved-`Havemind Conflicts` exclusions are UNCHANGED, so a Havemind
- * conflict artifact is never re-synced (rule: no cycles).
- */
-function eligibleKind(canonicalPath: string): SyncContentKind | null {
-  // `.obsidian/` APPEARANCE ALLOWLIST (theme CSS, snippets, hotkeys,
-  // appearance/app settings), ONLY the explicit set named inside
-  // `isSyncableConfigPath`. Third-party plugin code and state
-  // (`.obsidian/plugins/**`), the enabled-plugins registry and per-machine
-  // `workspace.json` are NOT in scope: mirroring a peer's plugin code let any
-  // vault member overwrite another member's installed plugin, which Obsidian
-  // then executes on reload (audit #3 finding 2).
-  // Admitted here, and ONLY here, BEFORE the dotpath guard below that
-  // (correctly) rejects every other dot-path. The content kind is chosen by
-  // EXTENSION, not forced to text: a binary config asset uses the base64 path,
-  // an unknown binary stays excluded-with-notice, only genuine text config is
-  // canonicalised. The reserved `Havemind Conflicts/` exclusion below is
-  // untouched, no config path lives there, so no re-sync cycle is introduced.
-  if (isSyncableConfigPath(canonicalPath)) {
-    return configContentKind(canonicalPath);
-  }
-
-  const extension = pathExtension(canonicalPath);
-  const kind: SyncContentKind | null =
-    extension === 'md'
-      ? 'markdown'
-      : SYNCABLE_BINARY_EXTENSION_SET.has(extension)
-        ? 'binary'
-        : null;
-  if (kind === null) {
-    return null;
-  }
-
-  const segments = canonicalPath.split('/');
-  if (segments.some((segment) => segment === '' || segment.startsWith('.'))) {
-    return null;
-  }
-
-  const [top] = segments;
-  // Case-FOLDED, matching the protocol's `RESERVED_ROOTS`. On a case-insensitive
-  // filesystem `havemind conflicts/` is the same folder as the reserved root, and
-  // a case-sensitive comparison here classified it eligible, enqueued it, then
-  // threw inside `canonicalizeVaultPath` at envelope-build time, killing the push
-  // cycle and latching the device Offline.
-  if (top === undefined || RESERVED_TOP_LEVEL_DIRECTORIES.has(top.toLowerCase())) {
-    return null;
-  }
-  return kind;
 }
 
 export class VaultChangeObserver {
