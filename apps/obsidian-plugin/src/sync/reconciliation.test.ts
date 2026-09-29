@@ -1,4 +1,4 @@
-import { canonicalizeMarkdown } from '@havemind/protocol';
+import { canonicalizeMarkdown, pathExtension, SYNCABLE_BINARY_EXTENSIONS } from '@havemind/protocol';
 import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -6,14 +6,12 @@ import { RevisionPayloadTooLargeError } from '@havemind/sync-core';
 
 import {
   bytesToBase64,
-  LocalVaultError,
-  MAX_BINARY_FILE_BYTES,
-  pathExtension,
-  SYNCABLE_BINARY_EXTENSIONS,
   type FileStat,
   type LocalChangeCommit,
   type LocalChangeRepository,
   type LocalFileMapping,
+  LocalVaultError,
+  MAX_BINARY_FILE_BYTES,
   VaultChangeObserver,
   type VaultSnapshotPort,
 } from '../obsidian/vault-adapter';

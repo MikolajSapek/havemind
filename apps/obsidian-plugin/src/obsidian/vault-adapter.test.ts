@@ -2,19 +2,19 @@ import {
   canonicalizeVaultPath,
   hashBlob,
   hashPlaintext,
+  SYNCABLE_BINARY_EXTENSIONS,
 } from '@havemind/protocol';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
-  MAX_BINARY_FILE_BYTES,
-  SYNCABLE_BINARY_EXTENSIONS,
-  VaultChangeObserver,
   bytesToBase64,
   classifyVaultPath,
   type LocalChangeCommit,
   type LocalChangeRepository,
   type LocalFileMapping,
   type LocalVaultError,
+  MAX_BINARY_FILE_BYTES,
+  VaultChangeObserver,
   type VaultSnapshotPort,
 } from './vault-adapter';
 import { CONFLICT_FOLDER } from '../runtime/conflict-resolution';

@@ -10,17 +10,15 @@
 
 import { Notice, type Plugin, type TFile } from 'obsidian';
 
-import { isSyncableConfigPath } from '@havemind/protocol';
+import { isSyncableConfigPath, pathExtension, SYNCABLE_BINARY_EXTENSIONS } from '@havemind/protocol';
 import { RevisionPayloadTooLargeError } from '@havemind/sync-core';
 
 import type { ActivityKind } from '../../activity/activity';
 import {
   classifyVaultPath,
-  pathExtension,
-  SYNCABLE_BINARY_EXTENSIONS,
-  VaultChangeObserver,
   type LocalChangeKind,
   type LocalChangeOperation,
+  VaultChangeObserver,
   type VaultSnapshotPort,
 } from '../../obsidian/vault-adapter';
 import {

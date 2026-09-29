@@ -19,14 +19,14 @@ import {
   canonicalizeMarkdown,
   hashBlob,
   isSyncableConfigPath,
+  pathExtension,
+  type SyncContentKind,
 } from '@havemind/protocol';
 import { mergeText, type DecodedRevisionPayload } from '@havemind/sync-core';
 
 import {
   bytesToBase64,
   classifyVaultPath,
-  pathExtension,
-  type SyncContentKind,
 } from '../obsidian/vault-adapter';
 
 import { withKeys, KeyedMutex, type KeyedLock } from './keyed-mutex';

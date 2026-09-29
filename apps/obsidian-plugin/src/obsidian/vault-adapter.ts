@@ -1,8 +1,6 @@
 import {
   canonicalizeMarkdown,
   hashBlob,
-  pathExtension,
-  SYNCABLE_BINARY_EXTENSIONS,
   syncContentKind,
   type SyncContentKind,
 } from '@havemind/protocol';
@@ -11,8 +9,6 @@ import { normalizeConfigContent } from '../sync/config-normalize';
 
 // Which paths sync, and as what, is decided in the protocol (`syncContentKind`):
 // the package that also rejects a bad path on arrival, so the two cannot drift.
-// Re-exported for the modules that import these names from here.
-export { pathExtension, SYNCABLE_BINARY_EXTENSIONS, type SyncContentKind };
 
 /**
  * Hard per-file byte ceiling for a binary attachment. A file above this is

@@ -1,17 +1,22 @@
-import { canonicalizeMarkdown, hashBlob, hashPlaintext, isSyncableConfigPath } from '@havemind/protocol';
+import {
+  canonicalizeMarkdown,
+  hashBlob,
+  hashPlaintext,
+  isSyncableConfigPath,
+  pathExtension,
+  SYNCABLE_BINARY_EXTENSIONS,
+  type SyncContentKind,
+} from '@havemind/protocol';
 
 import { normalizeConfigContent } from './config-normalize';
 import {
   classifyVaultPath,
-  LocalVaultError,
-  MAX_BINARY_FILE_BYTES,
-  pathExtension,
-  RACY_STAT_MS,
-  SYNCABLE_BINARY_EXTENSIONS,
   type FileStat,
   type LocalChangeRepository,
   type LocalFileMapping,
-  type SyncContentKind,
+  LocalVaultError,
+  MAX_BINARY_FILE_BYTES,
+  RACY_STAT_MS,
   type VaultChangeObserver,
   type VaultSnapshotPort,
 } from '../obsidian/vault-adapter';
