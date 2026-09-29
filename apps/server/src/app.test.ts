@@ -86,6 +86,57 @@ describe('server configuration', () => {
       }).host,
     ).toBe('0.0.0.0');
   });
+
+  it('trusts no proxy unless HAVEMIND_TRUSTED_PROXIES names one', () => {
+    expect(parseServerConfig(TEST_ENV).trustedProxies).toEqual([]);
+    // Compose passes an unset variable through as an empty string.
+    for (const empty of ['', '   ']) {
+      expect(
+        parseServerConfig({ ...TEST_ENV, HAVEMIND_TRUSTED_PROXIES: empty })
+          .trustedProxies,
+      ).toEqual([]);
+    }
+  });
+
+  it('reads HAVEMIND_TRUSTED_PROXIES as a comma-separated list of addresses and ranges', () => {
+    const config = parseServerConfig({
+      ...TEST_ENV,
+      HAVEMIND_TRUSTED_PROXIES: ' 172.18.0.1, 10.0.0.0/8 ,fd00::/8, ::1 ',
+    });
+
+    expect(config.trustedProxies).toEqual([
+      '172.18.0.1',
+      '10.0.0.0/8',
+      'fd00::/8',
+      '::1',
+    ]);
+    // Everything the parser accepts must be something Fastify accepts too.
+    expect(() => buildApp({ config })).not.toThrow();
+  });
+
+  it.each([
+    ['a hostname', 'proxy.internal'],
+    ['a hop count', '1'],
+    ['a boolean', 'true'],
+    ['a named range', 'loopback'],
+    ['an IPv4 prefix past 32', '10.0.0.0/33'],
+    ['an IPv6 prefix past 128', 'fd00::/129'],
+    ['a non-numeric prefix', '10.0.0.0/eight'],
+    ['a netmask', '10.0.0.0/255.0.0.0'],
+    ['a second slash', '10.0.0.0/8/8'],
+    ['an empty entry', '172.18.0.1,,10.0.0.1'],
+    ['a trailing comma', '172.18.0.1,'],
+    // A range that matches every address makes X-Forwarded-For client
+    // controlled, which is worse than trusting no proxy at all.
+    ['an IPv4 range matching every address', '0.0.0.0/0'],
+    ['an IPv6 range matching every address', '::/0'],
+  ])('rejects %s in HAVEMIND_TRUSTED_PROXIES', (_caseName, value) => {
+    const parse = () =>
+      parseServerConfig({ ...TEST_ENV, HAVEMIND_TRUSTED_PROXIES: value });
+
+    expect(parse).toThrow(ConfigValidationError);
+    expect(parse).toThrow(/HAVEMIND_TRUSTED_PROXIES/u);
+  });
 });
 
 describe('Fastify application', () => {

@@ -202,6 +202,73 @@ That URL must match `HAVEMIND_API_BASE_URL` in `deploy/.env` exactly. Never
 run `tailscale funnel` for Havemind, that would make it public, which
 defeats the entire model.
 
+### Per-client rate limits behind the proxy (optional)
+
+Requests that carry a device token are rate limited per device. Requests that
+do not (invitation review and redeem, approval polling, owner pairing,
+bootstrap, rejoin, and a refresh with a token nobody knows) are limited per
+client address, 120 a minute. Behind `tailscale serve` every one of them reaches
+the server from the proxy, so by default everyone using your server shares one
+bucket: a device that polls or retries a lot makes everyone else's requests wait
+out the minute. The plugin backs off and retries on a `429`, so the cost is
+delay, not lost data, and on a small tailnet it is tolerable. That is why the
+default stays as it is.
+
+To give each client its own bucket, tell the server which address your proxy
+connects from, in `HAVEMIND_TRUSTED_PROXIES`: comma-separated IP addresses or
+CIDR ranges, empty by default. On a connection from one of those addresses the
+server takes the client's address from `X-Forwarded-For`; on any other
+connection it ignores the header, so a client cannot choose its own bucket. The
+address is used for nothing but choosing the bucket.
+
+The address to list is the one **the server** sees, not the client's and, in the
+shipped Compose stack, not `127.0.0.1`: `tailscale serve` connects to the
+published port on the host, and Docker forwards that into the container from an
+address on the Compose network. List that network's range:
+
+```bash
+docker network inspect havemind_default \
+  --format '{{range .IPAM.Config}}{{.Subnet}}{{end}}'
+# e.g. 172.18.0.0/16
+```
+
+Put it in `deploy/.env` and recreate the container:
+
+```
+HAVEMIND_TRUSTED_PROXIES=172.18.0.0/16
+```
+
+```bash
+docker compose -f deploy/compose.yaml up -d
+```
+
+`tailscale serve` sets `X-Forwarded-For` to the tailnet address of the calling
+device and replaces anything the client sent (Tailscale 1.98,
+`addProxyForwardedHeaders` in `ipn/ipnlocal/serve.go`). Confirm the whole chain
+from two tailnet devices: use up the limit on the first, then try the second
+straight away.
+
+```bash
+probe() { curl -s -o /dev/null -w '%{http_code} ' -X POST \
+  -H 'content-type: application/json' -d '{"invitationToken":"x"}' \
+  https://your-server.your-tailnet.ts.net/invitations/review; }
+for i in $(seq 125); do probe; done; echo   # first device: ends in 429s
+probe; echo                                 # second device: anything but 429
+```
+
+If the second device gets `429` too, the setting did not match: the server does
+not see your proxy at an address you listed, or your Tailscale version does not
+send the header. The server then behaves exactly as it does without the setting,
+so nothing is worse than before. The server refuses to start on a value it
+cannot parse, and `havemind doctor` says why. If you recreate the stack and
+Docker gives the Compose network another range, repeat the `docker network
+inspect` step.
+
+List only addresses that belong to your proxy: anything that can connect from a
+listed address can choose its own bucket, which is why the shipped stack
+publishes the port on the host's loopback and nowhere else. A range that matches
+every address (`0.0.0.0/0`) is refused.
+
 ## f. Connect the plugin
 
 1. Install the Havemind Obsidian plugin: Settings, then Community plugins,

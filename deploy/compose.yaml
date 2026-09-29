@@ -39,6 +39,9 @@ services:
       HAVEMIND_API_BASE_URL: ${HAVEMIND_API_BASE_URL}
       HAVEMIND_SERVER_NAME: ${HAVEMIND_SERVER_NAME:-Havemind}
       HAVEMIND_LOG_LEVEL: ${HAVEMIND_LOG_LEVEL:-info}
+      # Empty ignores X-Forwarded-For (one rate-limit bucket for everyone behind
+      # the proxy). What to put here: docs/self-hosting.md, section e.
+      HAVEMIND_TRUSTED_PROXIES: ${HAVEMIND_TRUSTED_PROXIES:-}
       HAVEMIND_DATA_DIR: /data
       # Scheduled backups (AUD-10 / 1.0 release gate). The server writes its own
       # artifacts here on a timer, because the pilot operator account has neither

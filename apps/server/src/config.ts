@@ -1,3 +1,4 @@
+import { isIP } from 'node:net';
 
 // F9 binary attachments: a 25 MiB file is base64-encoded inside its revision
 // payload (~33.4 MiB, under DEFAULT_MAX_PAYLOAD_BYTES = 36 MiB in
@@ -62,6 +63,12 @@ export interface ServerConfig {
   readonly minFreeDiskBytes: number;
   readonly port: number;
   readonly serverName: string;
+  /**
+   * Addresses (IPs or CIDR ranges) of the reverse proxy in front of the server,
+   * as the server sees them. `X-Forwarded-For` is believed only on a connection
+   * from one of these; empty, the default, ignores the header entirely.
+   */
+  readonly trustedProxies: readonly string[];
   readonly vaultQuotaBytes: number;
 }
 
@@ -120,6 +127,9 @@ export function parseServerConfig(environment: ServerEnvironment): ServerConfig 
     MAX_MIN_FREE_DISK_BYTES,
   );
   const logLevel = parseLogLevel(environment.HAVEMIND_LOG_LEVEL);
+  const trustedProxies = parseTrustedProxies(
+    environment.HAVEMIND_TRUSTED_PROXIES,
+  );
 
   return Object.freeze({
     apiBaseUrl,
@@ -129,6 +139,7 @@ export function parseServerConfig(environment: ServerEnvironment): ServerConfig 
     minFreeDiskBytes,
     port,
     serverName,
+    trustedProxies,
     vaultQuotaBytes,
   });
 }
@@ -240,6 +251,36 @@ function parseLogLevel(value: string | undefined): ServerLogLevel {
     ]);
   }
   return matched;
+}
+
+/**
+ * A comma-separated list of IP addresses and CIDR ranges, or nothing. Only
+ * these forms, so that whatever passes here is also accepted by Fastify's
+ * `trustProxy` (no hostnames, hop counts or named ranges). A prefix of 0 is
+ * refused: a range matching every address would make `X-Forwarded-For`
+ * client controlled, which is worse than trusting no proxy at all.
+ */
+function parseTrustedProxies(value: string | undefined): readonly string[] {
+  if (value === undefined || value.trim() === '') {
+    return [];
+  }
+  return value.split(',').map((item) => {
+    const entry = item.trim();
+    const [address = '', prefix, ...rest] = entry.split('/');
+    const family = isIP(address);
+    const maximumPrefix = family === 4 ? 32 : 128;
+    const validPrefix =
+      prefix === undefined ||
+      (/^\d+$/u.test(prefix) &&
+        Number(prefix) >= 1 &&
+        Number(prefix) <= maximumPrefix);
+    if (family === 0 || !validPrefix || rest.length > 0) {
+      throw new ConfigValidationError([
+        `HAVEMIND_TRUSTED_PROXIES must list IP addresses or CIDR ranges, got "${entry}"`,
+      ]);
+    }
+    return entry;
+  });
 }
 
 function containsControlCharacter(value: string): boolean {

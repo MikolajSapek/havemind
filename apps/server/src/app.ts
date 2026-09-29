@@ -81,7 +81,12 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
     onConstructorPoisoning: 'error',
     onProtoPoisoning: 'error',
     requestTimeout: REQUEST_TIMEOUT_MS,
-    trustProxy: false,
+    // Off unless the operator names their proxy: with it, a client could put
+    // any address in X-Forwarded-For and pick its own rate-limit bucket.
+    trustProxy:
+      options.config.trustedProxies.length === 0
+        ? false
+        : [...options.config.trustedProxies],
   });
 
   const discovery = createDiscoveryDocument(options.config);

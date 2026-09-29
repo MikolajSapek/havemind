@@ -27,6 +27,20 @@ describe('analyzeCompose, real hardened package', () => {
     const matches = composeText.match(/0\.0\.0\.0/g) ?? [];
     expect(matches).toHaveLength(0);
   });
+
+  it('hands every setting deploy/.env.example offers to the container', async () => {
+    // Compose passes the container only what its environment block names, so a
+    // setting missing there does nothing however it is set in deploy/.env.
+    const composeText = await read('deploy/compose.yaml');
+    const keys = (await read('deploy/.env.example'))
+      .split('\n')
+      .flatMap((line) => /^(HAVEMIND_\w+)=/u.exec(line)?.[1] ?? []);
+
+    expect(keys.length).toBeGreaterThan(0);
+    expect(keys.filter((key) => !composeText.includes(`\${${key}`))).toEqual(
+      [],
+    );
+  });
 });
 
 describe('analyzeCompose, catches unsafe configuration', () => {

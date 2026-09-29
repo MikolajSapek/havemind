@@ -373,6 +373,8 @@ export function definedOnly<T extends object>(
 }
 
 export interface TestAppOptions {
+  /** Extra `HAVEMIND_*` settings layered over {@link TEST_ENV}. */
+  readonly env?: Readonly<Record<string, string>>;
   /**
    * Suites default to a single fixed rate-limit bucket for simplicity. Pass
    * `false` to exercise the real default `clientKey` (device-keyed for
@@ -417,7 +419,7 @@ export function createTestApp(
           : { clientKey: () => 'fixed-test-client' }),
         ...auth,
       },
-      config: parseServerConfig(TEST_ENV),
+      config: parseServerConfig({ ...TEST_ENV, ...options.env }),
       ...definedOnly({ loggerStream: options.loggerStream }),
     }),
   );

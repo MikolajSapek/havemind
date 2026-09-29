@@ -206,8 +206,8 @@ function isWaitGetRoute(request: FastifyRequest): boolean {
 
 /**
  * Keys an authenticated device's requests by its own device identity rather
- * than by IP: behind Tailscale serve (`trustProxy: false`) every request
- * arrives from the loopback address, so IP-keying would put every device
+ * than by IP: behind Tailscale serve (`trustProxy` is off by default) every
+ * request arrives from the proxy's address, so IP-keying would put every device
  * sharing that tunnel into one global bucket and let one device's bulk
  * traffic 429 every other device. Falls back to IP for requests that carry
  * no valid session, pairing/approval endpoints never send a bearer token,
@@ -267,7 +267,7 @@ function isRefreshRoute(request: FastifyRequest): boolean {
 
 /**
  * Keys `/auth/refresh` by the refresh family the presented token belongs to.
- * Behind Tailscale serve every pre-auth request arrives from loopback, so an
+ * Behind Tailscale serve every pre-auth request arrives from the proxy, so an
  * IP key would let anyone's junk invitation or refresh traffic 429 every
  * device's refresh, and sync would stop as access tokens expired. The family
  * id is not a secret, and a family's own bucket still caps a replay flood
@@ -340,7 +340,7 @@ export function registerAuthRoutes(
         };
 
   // `/auth/refresh` draws from its own limiter (see `refreshClientKey`), so
-  // junk on the invitation/bootstrap routes, which all share one loopback
+  // junk on the invitation/bootstrap routes, which all share one proxy
   // bucket behind Tailscale serve, can never starve a device's refresh.
   const refreshRateLimit = createRateLimiter(
     deps.rateLimit ?? DEFAULT_RATE_LIMIT,
