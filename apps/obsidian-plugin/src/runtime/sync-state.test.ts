@@ -413,7 +413,7 @@ describe('DurableSyncState', () => {
     await state.quarantineOutboxItem('rev-1', 'server-rejected');
 
     expect(await state.listOutbox()).toEqual([]);
-    expect(await state.listQuarantine()).toEqual([
+    expect(state.quarantineSnapshot()).toEqual([
       {
         revisionId: 'rev-1',
         fileId: 'file-1',
@@ -425,7 +425,7 @@ describe('DurableSyncState', () => {
     // The dead-letter record and the emptied outbox both survive a restart.
     const reopened = new DurableSyncState({ persist });
     expect(await reopened.listOutbox()).toEqual([]);
-    expect(await reopened.listQuarantine()).toEqual([
+    expect(reopened.quarantineSnapshot()).toEqual([
       {
         revisionId: 'rev-1',
         fileId: 'file-1',
@@ -580,7 +580,7 @@ describe('DurableSyncState', () => {
       expect(recovered.isRecoveryRequired()).toBe(false);
 
       // The bad entry is quarantined (visible), not silently dropped.
-      const quarantine = await recovered.listQuarantine();
+      const quarantine = recovered.quarantineSnapshot();
       expect(
         quarantine.some(
           (row) => row.revisionId === 'rev-bad' && row.reason === 'corrupt-envelope',
@@ -698,7 +698,7 @@ describe('DurableSyncState', () => {
       const outbox = await state.listOutbox();
       expect(outbox).toHaveLength(1);
       expect(outbox[0]?.revisionId).toBe('rev-1');
-      expect(await state.listQuarantine()).toEqual([]);
+      expect(state.quarantineSnapshot()).toEqual([]);
 
       // A second retry is inert, the stash is gone, so no double-enqueue.
       await state.requeueQuarantined('rev-1');
@@ -710,7 +710,7 @@ describe('DurableSyncState', () => {
       await state.quarantineOutboxItem('rev-1', 'server-rejected');
 
       await state.discardQuarantined('rev-1');
-      expect(await state.listQuarantine()).toEqual([]);
+      expect(state.quarantineSnapshot()).toEqual([]);
 
       // Retry after discard is a no-op, nothing re-enters the outbox.
       await state.requeueQuarantined('rev-1');
@@ -720,7 +720,7 @@ describe('DurableSyncState', () => {
     it('records a durable failed-to-queue entry surfaced in the quarantine (SND-02)', async () => {
       await state.recordFailedToQueue('Notes/A.md');
 
-      const quarantine = await state.listQuarantine();
+      const quarantine = state.quarantineSnapshot();
       expect(quarantine).toEqual([
         {
           revisionId: 'failed-to-queue:Notes/A.md',
@@ -728,19 +728,18 @@ describe('DurableSyncState', () => {
           reason: 'failed-to-queue',
         },
       ]);
-      // Surfaces synchronously to the send-queue panel provider too.
-      expect(state.quarantineSnapshot()).toEqual(quarantine);
 
       // Idempotent per path: a second failure for the same file does not add a
       // duplicate row.
       await state.recordFailedToQueue('Notes/A.md');
-      expect(await state.listQuarantine()).toHaveLength(1);
+      expect(state.quarantineSnapshot()).toHaveLength(1);
 
       // Durable across a restart, and discardable via the shared SND-01 path.
       const reopened = new DurableSyncState({ persist });
-      expect(await reopened.listQuarantine()).toHaveLength(1);
+      await reopened.loadCursor();
+      expect(reopened.quarantineSnapshot()).toHaveLength(1);
       await reopened.discardQuarantined('failed-to-queue:Notes/A.md');
-      expect(await reopened.listQuarantine()).toEqual([]);
+      expect(reopened.quarantineSnapshot()).toEqual([]);
     });
 
     it('round-trips a synthetic failed-to-queue revisionId (MAJOR 2 routing)', () => {
@@ -773,7 +772,7 @@ describe('DurableSyncState', () => {
       await bounded.quarantineOutboxItem('rev-2', 'server-rejected');
 
       // Both rows stay visible in the panel, nothing is silently dropped.
-      const rows = await bounded.listQuarantine();
+      const rows = bounded.quarantineSnapshot();
       expect(rows.map((r) => r.revisionId).sort()).toEqual(['rev-1', 'rev-2']);
 
       // The oldest stash was evicted to respect the budget, so its Retry is
@@ -784,7 +783,7 @@ describe('DurableSyncState', () => {
       expect(await bounded.requeueQuarantined('rev-2')).toBe(true);
       // The evicted row remains after its inert retry, visibility is preserved.
       expect(
-        (await bounded.listQuarantine()).some((r) => r.revisionId === 'rev-1'),
+        (bounded.quarantineSnapshot()).some((r) => r.revisionId === 'rev-1'),
       ).toBe(true);
     });
 
@@ -798,11 +797,11 @@ describe('DurableSyncState', () => {
       expect(await state.requeueQuarantined('rev-2')).toBe(true);
     });
 
-    it('keeps listQuarantine shape unchanged (no envelope leak into the row)', async () => {
+    it('keeps the quarantine row shape unchanged (no envelope leak into the row)', async () => {
       await state.enqueue(envelope());
       await state.quarantineOutboxItem('rev-1', 'server-rejected');
       // The row carries the revision's parents, never its payload.
-      expect(await state.listQuarantine()).toEqual([
+      expect(state.quarantineSnapshot()).toEqual([
         {
           revisionId: 'rev-1',
           fileId: 'file-1',
@@ -986,7 +985,7 @@ describe('DurableSyncState outbox payload externalization (arch P1)', () => {
     expect(await state.listOutbox()).toEqual([]);
     expect(await state.getEnvelope('rev-1')).toBeUndefined();
     expect(state.peekEnvelope('rev-1')).toBeUndefined();
-    const rows = await state.listQuarantine();
+    const rows = state.quarantineSnapshot();
     expect(rows).toEqual([
       { revisionId: 'rev-1', fileId: 'file-1', reason: PAYLOAD_MISSING_REASON },
     ]);

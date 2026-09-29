@@ -693,10 +693,6 @@ export class DurableSyncState implements SyncStatePort {
     });
   }
 
-  async listQuarantine(): Promise<readonly QuarantinedRevision[]> {
-    return (await this.ensureLoaded()).quarantine;
-  }
-
   /**
    * The parents of a quarantined revision, or undefined when `revisionId` is
    * not quarantined or its parents were never recorded (a legacy row whose

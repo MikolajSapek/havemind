@@ -81,7 +81,7 @@ describe('editing a file after one of its revisions was quarantined', () => {
     const r3 = await edit(h.producer, 'update', 'v3');
     await runner.trigger();
     expect(server.committed.has(r3 as string)).toBe(true);
-    expect((await h.state.listQuarantine()).map((q) => q.revisionId)).toEqual([r1]);
+    expect((h.state.quarantineSnapshot()).map((q) => q.revisionId)).toEqual([r1]);
   });
 
   it('skips a chain of quarantined revisions back to the accepted one', async () => {
