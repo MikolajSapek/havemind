@@ -2,7 +2,6 @@ import {
   Notice,
   Platform,
   Plugin,
-  setIcon,
   type WorkspaceLeaf,
 } from 'obsidian';
 
@@ -11,7 +10,6 @@ import { isSafePassiveJoinProtocolData } from './onboarding/invite';
 import type { DurableSyncState } from './runtime/sync-state';
 import { getPluginDataMutex } from './runtime/plugin-data-mutex';
 import { restoreRevision, type RestoreDeps } from './runtime/activity-restore';
-import { lastEditedLabel } from './runtime/last-edited';
 import {
   ActivityLog,
   activityEntriesToRecords,
@@ -44,21 +42,19 @@ import {
   copyTextToClipboard,
 } from './runtime/clipboard';
 
+import { registerCommands } from './plugin/commands';
 import { Conflicts } from './plugin/conflicts';
 import { Invitations } from './plugin/invitations';
 import { People } from './plugin/people';
 import { SendQueue } from './plugin/send-queue';
+import { StatusBar } from './plugin/status-bar';
 import { ConfirmModal } from './ui/confirm-modal';
 import {
   HavemindOnboardingView,
   type ConnectReporter,
   type GuestWaitingViewModel,
 } from './ui/onboarding-view';
-import {
-  DECORATIVE,
-  formatActivityTime,
-  prefersReducedMotion,
-} from './ui/primitives';
+import { formatActivityTime, prefersReducedMotion } from './ui/primitives';
 import { HavemindSettingTab, formatMemberCount } from './ui/setting-tab';
 import { PluginViewRegistry } from './ui/view-registry';
 import type {
@@ -68,7 +64,6 @@ import type {
 import { HAVEMIND_ONBOARDING_VIEW } from './ui/view-types';
 
 export default class HavemindPlugin extends Plugin {
-  private statusItem: HTMLElement | null = null;
   connection: ConnectionHandle | null = null;
   /**
    * Set true in `onunload`. `startConnection` runs on `onLayoutReady` and awaits
@@ -139,12 +134,11 @@ export default class HavemindPlugin extends Plugin {
    * and the sweep is a no-op.
    */
   syncState: DurableSyncState | null = null;
-  /** Status bar item naming who last edited the open note. */
-  private lastEditedItem: HTMLElement | null = null;
   readonly people = new People(this);
   readonly invitations = new Invitations(this);
   readonly conflicts = new Conflicts(this);
   readonly sendQueue = new SendQueue(this);
+  readonly statusBar = new StatusBar(this);
 
   override onload(): void {
     // The pane carries the activity feed as a tab (plans/007 Stage 0) and is the
@@ -173,8 +167,6 @@ export default class HavemindPlugin extends Plugin {
         onRestore: (revisionId) => {
           void this.handleRestore(revisionId);
         },
-        // The overlay toggle lost its ribbon icon in Stage 0 and lives in the
-        // pane footer now, beside the vault it annotates.
         arrivedWithInvitationProvider: () => this.arrivedWithInvitation,
         onOpenComposer: () => {
           void this.invitations.openCreateConnectionView();
@@ -248,105 +240,9 @@ export default class HavemindPlugin extends Plugin {
       return view;
     });
 
-    this.addCommand({
-      id: 'open-activity',
-      name: 'Open activity',
-      callback: () => this.openPane(),
-    });
-    this.addCommand({
-      id: 'connect',
-      name: 'Connect to Havemind',
-      callback: () => this.openConnectView(),
-    });
-    // Single owner entry point: create the invitation and approve the joining
-    // device in one living panel (replaces the old create/approve split).
-    this.addCommand({
-      id: 'create-connection',
-      name: 'Create connection (owner)',
-      callback: () => this.invitations.openCreateConnectionView(),
-    });
-    // The three connection actions the panel exposes as buttons also belong in
-    // the palette, so they can be run, and bound to a hotkey, without hunting
-    // for the pane. `checkCallback` reports availability: syncing and
-    // disconnecting are meaningless with nothing connected, so they grey out
-    // rather than fail on invocation.
-    const actions = this.connectionActions();
-    this.addCommand({
-      id: 'sync-now',
-      name: 'Sync now',
-      checkCallback: (checking) => {
-        if (checking) return actions.connected();
-        actions.syncNow();
-        return true;
-      },
-    });
-    this.addCommand({
-      id: 'disconnect',
-      name: 'Disconnect',
-      checkCallback: (checking) => {
-        if (checking) return actions.connected();
-        actions.disconnect();
-        return true;
-      },
-    });
-    // Reset carries no availability guard on purpose: it exists for the state in
-    // which the stored pairing is damaged, and that state is not always
-    // detectable up front, a user who needs it must always be able to reach it.
-    this.addCommand({
-      id: 'reset-connection',
-      name: 'Reset connection',
-      callback: () => {
-        actions.resetConnection();
-      },
-    });
-    // One hexagon, one pane (plans/007 Stage 0). The plugin used to offer three
-    // doors, this icon for the activity feed, a second icon for the author
-    // overlay, and the command palette for the panel that actually connects a
-    // vault. A new user found the hexagon, got an activity list, and had no
-    // route to connecting anything. The overlay toggle now lives inside the
-    // pane and keeps its `show-authors` command, so removing its icon costs no
-    // keyboard or screen-reader access (F8-02d).
-    this.addRibbonIcon('hexagon', 'Open Havemind', () => {
-      void this.openPane();
-    });
+    registerCommands(this);
 
-    this.statusItem = this.addStatusBarItem();
-    this.statusItem.addClass('havemind-status-bar');
-    // The status bar is text-only (setText clobbers children), so the Retry
-    // button lives in the panel. Clicking the status bar item opens that panel,
-    // the one place the button and full status detail render. The click listener
-    // sits on the element itself, so subsequent setStatus text updates keep it.
-    this.statusItem.onClickEvent(() => {
-      void this.openPane();
-    });
-    // The item is a real control, so it must say so and be reachable without a
-    // mouse: the role and name make it announce itself as "Open Havemind panel,
-    // button", the tabindex puts it in the tab order, and Enter/Space open the
-    // same panel the click opens. Attributes live on the element itself, so the
-    // setStatus rebuild (which only replaces children) keeps them.
-    this.statusItem.setAttribute('role', 'button');
-    this.statusItem.setAttribute('tabindex', '0');
-    this.statusItem.setAttribute('aria-label', 'Open Havemind panel');
-    this.registerDomEvent(this.statusItem, 'keydown', (event) => {
-      const keyboardEvent = event as KeyboardEvent;
-      if (keyboardEvent.key !== 'Enter' && keyboardEvent.key !== ' ') return;
-      // Space would otherwise scroll the pane behind the status bar.
-      keyboardEvent.preventDefault();
-      void this.openPane();
-    });
-    this.setStatus(formatStatusBar({ status: 'disconnected' }));
-
-    // Who last edited the open note, from the server-stamped revision author.
-    this.lastEditedItem = this.addStatusBarItem();
-    const workspace = this.app.workspace as unknown as {
-      on?: (name: string, handler: () => void) => unknown;
-    };
-    const fileOpen = workspace.on?.('file-open', () => {
-      void this.refreshLastEdited();
-    });
-    if (fileOpen !== undefined && fileOpen !== null) {
-      this.registerEvent(fileOpen as Parameters<typeof this.registerEvent>[0]);
-    }
+    this.statusBar.attach();
 
     this.addSettingTab(new HavemindSettingTab(this.app, this));
 
@@ -400,12 +296,6 @@ export default class HavemindPlugin extends Plugin {
     this.activityLogUnsubscribe = null;
   }
 
-  private openConnectView(): Promise<void> {
-    this.invitations.connectionActive = false;
-    this.views.refreshOnboardingNow();
-    return this.openPane();
-  }
-
   /** Starts sync without allowing startup failures to escape UI/event callbacks. */
   private async startConnection(): Promise<void> {
     try {
@@ -414,7 +304,7 @@ export default class HavemindPlugin extends Plugin {
       if (this.unloaded) return;
       this.connectionStatus = 'offline';
       this.connectionError = 'Havemind could not start syncing. Try reconnecting.';
-      this.setStatus(formatStatusBar({ status: 'offline' }));
+      this.statusBar.setStatus(formatStatusBar({ status: 'offline' }));
       new Notice('Havemind: could not start syncing. Try reconnecting.');
       this.views.refreshOnboarding();
     }
@@ -661,7 +551,7 @@ export default class HavemindPlugin extends Plugin {
     this.connectionError = undefined;
     this.awaitingApproval = null;
     this.guestInvitationInvalid = false;
-    this.setStatus(formatStatusBar({ status: 'disconnected' }));
+    this.statusBar.setStatus(formatStatusBar({ status: 'disconnected' }));
     this.views.refreshOnboardingNow();
   }
 
@@ -692,7 +582,7 @@ export default class HavemindPlugin extends Plugin {
     if (status === 'synced') {
       this.lastSyncedAt = Date.now();
       this.connectionError = undefined;
-      void this.refreshLastEdited();
+      void this.statusBar.refreshLastEdited();
     }
     if (status === 'reset-required') {
       // The stored connection is damaged (P1 #5): drop any stale server-side
@@ -709,7 +599,7 @@ export default class HavemindPlugin extends Plugin {
     // SND-01: fire a Notice the first time each item enters quarantine (never on
     // a retry). Runs on every status change, the point sends are dead-lettered.
     this.sendQueue.checkQuarantineNotices();
-    this.setStatus(view);
+    this.statusBar.setStatus(view);
     this.views.refreshOnboarding();
   }
 
@@ -814,7 +704,7 @@ export default class HavemindPlugin extends Plugin {
     this.disarmRejoin();
     this.connectionError =
       'Rejoin failed, the server rejected the automatic rejoin. Reconnect manually to resume syncing.';
-    this.setStatus(formatStatusBar({ status: 'reconnect-required' }));
+    this.statusBar.setStatus(formatStatusBar({ status: 'reconnect-required' }));
     new Notice(
       'Havemind: rejoin failed. Reconnect manually to resume syncing.',
     );
@@ -943,7 +833,7 @@ export default class HavemindPlugin extends Plugin {
       this.connectionStatus = 'disconnected';
       this.lastSyncedAt = undefined;
       this.connectionError = undefined;
-      this.setStatus(formatStatusBar({ status: 'disconnected' }));
+      this.statusBar.setStatus(formatStatusBar({ status: 'disconnected' }));
       new Notice(
         'Havemind: connection reset. Paste a new invitation or pairing token to connect.',
       );
@@ -1008,24 +898,6 @@ export default class HavemindPlugin extends Plugin {
     };
   }
 
-  /** Names the last editor of the open note in the status bar. */
-  private async refreshLastEdited(): Promise<void> {
-    const item = this.lastEditedItem;
-    if (item === null) return;
-    const file = (this.app.workspace as { getActiveFile?: () => { path: string } | null })
-      .getActiveFile?.();
-    const fileId = file === null || file === undefined ? null : this.syncState?.fileIdAtPath(file.path) ?? null;
-    let author: string | null = null;
-    if (fileId !== null) {
-      try {
-        author = (await this.connection?.lastAuthor?.(fileId)) ?? null;
-      } catch {
-        author = null;
-      }
-    }
-    item.setText(lastEditedLabel(author, this.people.rosterMembers));
-  }
-
   private connectionPanel(): ConnectionPanelView {
     return buildConnectionPanel({
       status: this.connectionStatus,
@@ -1038,23 +910,6 @@ export default class HavemindPlugin extends Plugin {
         ? {}
         : { errorMessage: this.connectionError }),
     });
-  }
-
-  private setStatus(view: StatusBarView): void {
-    const item = this.statusItem;
-    if (item === null) return;
-    // A leading hive-hexagon glyph precedes the stable label. setText would
-    // clobber the glyph, so rebuild the item: glyph first, then the same text
-    // in a trailing span. The label string and tooltip are unchanged.
-    item.empty();
-    const glyph = item.createEl('span', { attr: DECORATIVE });
-    setIcon(glyph, 'hexagon');
-    // Design 1a proposes cutting this label as a duplicate of the pane. Kept
-    // deliberately: with the pane closed the status bar is the ONLY surface
-    // showing sync state, and a bare mark plus a colour dot is unreadable to
-    // anyone who cannot see the colour. The pane is where words are optional;
-    // here they are the whole accessible signal.
-    item.createEl('span', { text: view.text });
   }
 
   /**

@@ -51,7 +51,7 @@ export interface PluginInternals {
 }
 
 /** The plugin fields holding the modules under `plugin/` that members moved into. */
-const MODULES = ['conflicts', 'invitations', 'people', 'sendQueue'];
+const MODULES = ['conflicts', 'invitations', 'people', 'sendQueue', 'statusBar'];
 
 /**
  * Reads the plugin as its private surface. One cast, declared once, instead of
