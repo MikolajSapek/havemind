@@ -21,6 +21,7 @@
 
 import type { RemoteEvent } from '../sync/sync-runner';
 import type { RevisionHistoryStore, StoredRevisionHistory } from './revision-history';
+import { isRecord } from './is-record';
 
 export const MAX_HISTORY_SEGMENTS = 64;
 const FORMAT = 1;
@@ -107,8 +108,4 @@ export function createRevisionHistoryStore(
       }
     },
   };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

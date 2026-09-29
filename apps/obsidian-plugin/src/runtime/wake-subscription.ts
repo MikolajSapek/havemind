@@ -26,6 +26,7 @@
 
 import type { SchedulerCancellation, SchedulerFn } from '../sync/sync-runner';
 import type { RequestUrlFn } from './sync-transport';
+import { isRecord } from './is-record';
 
 /** First-failure backoff ceiling; mirrors the runner's five-second loop cadence. */
 const DEFAULT_BASE_BACKOFF_MS = 5000;
@@ -359,8 +360,4 @@ function isAuthDenied(error: unknown): boolean {
     error !== null &&
     (error as { authDenied?: unknown }).authDenied === true
   );
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

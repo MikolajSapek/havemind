@@ -8,6 +8,7 @@ import type {
   DurableOnboardingState,
   OnboardingStorePort,
 } from '../onboarding/controller';
+import { isRecord } from './is-record';
 
 const ONBOARDING_KEY = 'onboarding';
 
@@ -68,8 +69,4 @@ function parsePersisted(raw: unknown): PersistedOnboarding {
     ? (container.state as unknown as DurableOnboardingState)
     : null;
   return { state };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

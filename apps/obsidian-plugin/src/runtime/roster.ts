@@ -18,6 +18,8 @@
  * boundary, which is injected. The rendered rows come from `rejoin-roster.ts`.
  */
 
+import { isRecord } from './is-record';
+
 export type MemberRole = 'owner' | 'editor';
 
 /** A persistent, connected member of the vault (roster row source of truth). */
@@ -66,10 +68,6 @@ const ROSTER_KEY = 'approvedMembersRoster';
 export interface RosterPersistPort {
   load(): Promise<unknown>;
   save(data: Record<string, unknown>): Promise<void>;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 /** Parses one untrusted persisted roster entry, or null if malformed. */

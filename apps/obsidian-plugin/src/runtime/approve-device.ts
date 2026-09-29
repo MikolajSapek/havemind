@@ -11,6 +11,7 @@
  */
 
 import type { RequestUrlFn } from './sync-transport';
+import { isRecord } from './is-record';
 
 export interface ApproveDeviceOptions {
   readonly requestUrl: RequestUrlFn;
@@ -152,8 +153,4 @@ function describeFailure(status: number, json: unknown): ApproveDeviceError {
     return new ApproveDeviceError(known);
   }
   return new ApproveDeviceError(`Approval returned HTTP ${status}.`);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

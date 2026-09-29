@@ -1,3 +1,5 @@
+import { isRecord } from '../runtime/is-record';
+
 export const INVITE_ENVELOPE_VERSION = 1 as const;
 
 const ENVELOPE_PREFIX = 'v1.';
@@ -163,8 +165,4 @@ function decodeBase64Url(value: string): Uint8Array {
   const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
   if (encodeBase64Url(bytes) !== value) throw new InviteFormatError();
   return bytes;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

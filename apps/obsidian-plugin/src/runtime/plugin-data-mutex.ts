@@ -13,13 +13,11 @@
  * to one key can never overwrite a concurrent save to another.
  */
 
+import { isRecord } from './is-record';
+
 export interface PluginDataAccess {
   loadData(): Promise<unknown>;
   saveData(data: unknown): Promise<void>;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 export class PluginDataMutex {

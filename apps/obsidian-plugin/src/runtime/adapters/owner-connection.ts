@@ -21,7 +21,7 @@ import {
   withCorruptSidecar,
 } from './plugin-data-keys';
 import { createClientInstanceRepo } from './plugin-data-ports';
-import { isRecord } from './shared';
+import { isRecord } from '../is-record';
 
 export interface StoredConnection {
   readonly apiBaseUrl: string;

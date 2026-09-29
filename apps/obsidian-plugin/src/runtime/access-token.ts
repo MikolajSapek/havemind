@@ -36,6 +36,7 @@
  */
 
 import type { RequestUrlFn } from './sync-transport';
+import { isRecord } from './is-record';
 
 const EXPIRY_SKEW_MS = 30_000;
 
@@ -262,8 +263,4 @@ export class RefreshTokenAccessProvider {
       console.error('Havemind: pending-rotation clear failed.');
     }
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

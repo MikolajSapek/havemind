@@ -8,6 +8,7 @@
  */
 
 import type { RequestUrlFn } from './sync-transport';
+import { isRecord } from './is-record';
 
 export type ConnectInputKind = 'pairing' | 'envelope' | 'unknown';
 
@@ -80,8 +81,4 @@ export async function pairOwnerDevice(
       ? { memberId: json.membershipId }
       : {}),
   };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

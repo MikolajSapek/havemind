@@ -5,6 +5,7 @@
  */
 
 import type { RequestUrlFn } from './sync-transport';
+import { isRecord } from './is-record';
 
 export interface PendingApproval {
   readonly invitationId: string;
@@ -65,8 +66,4 @@ function parsePendingApproval(value: unknown): PendingApproval {
     ...(value.intendedRole === undefined ? {} : { intendedRole: value.intendedRole }),
     invitationId: value.invitationId,
   };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

@@ -10,6 +10,7 @@
 
 import { buildInviteEnvelope } from '../onboarding/invite';
 import type { RequestUrlFn } from './sync-transport';
+import { isRecord } from './is-record';
 
 export interface CreateInvitationOptions {
   readonly requestUrl: RequestUrlFn;
@@ -92,8 +93,4 @@ export async function createVaultInvitation(
     expiresAt: json.expiresAt,
     invitationId: json.invitationId,
   };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

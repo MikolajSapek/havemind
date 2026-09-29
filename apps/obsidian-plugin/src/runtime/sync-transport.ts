@@ -21,6 +21,7 @@ import type {
   SyncTransport,
 } from '../sync/sync-runner';
 import type { TransportEnvelope } from './sync-state';
+import { isRecord } from './is-record';
 
 export type { TransportEnvelope };
 
@@ -353,8 +354,4 @@ function parsePullResponse(response: RequestUrlResponseLike): PullResult {
 
 function malformed(detail: string): RequestUrlTransportError {
   return new RequestUrlTransportError('malformed-response', detail);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

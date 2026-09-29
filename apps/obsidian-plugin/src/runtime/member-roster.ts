@@ -17,6 +17,7 @@
 
 import type { MemberRole, RosterMember } from './roster';
 import type { RequestUrlFn } from './sync-transport';
+import { isRecord } from './is-record';
 
 const REFRESH_TOKEN_HEADER = 'x-havemind-refresh-token';
 
@@ -33,10 +34,6 @@ export interface FetchMemberRosterOptions {
 
 export class MemberRosterError extends Error {
   override readonly name = 'MemberRosterError';
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function parseMember(value: unknown, selfMembershipId: string | null): RosterMember {

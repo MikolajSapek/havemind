@@ -10,7 +10,7 @@
 import type { FileStat, LocalFileMapping } from '../../obsidian/vault-adapter';
 import type { ProducerState } from '../../sync/outbox-repository';
 
-import { isRecord } from './shared';
+import { isRecord } from '../is-record';
 
 /**
  * Outcome of parsing the untrusted persisted PRODUCER blob (GAP-3, the producer

@@ -22,6 +22,7 @@ import type {
   RemoteEvent,
   SyncStatePort,
 } from '../sync/sync-runner';
+import { isRecord } from './is-record';
 
 /** The subset of an envelope the transport needs to reconstruct a push body. */
 export interface TransportEnvelope {
@@ -1799,8 +1800,4 @@ function parseRemoteEvent(value: unknown): RemoteEvent | null {
       contentHash: revision.contentHash,
     },
   };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

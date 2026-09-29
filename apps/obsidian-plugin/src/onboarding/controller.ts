@@ -2,6 +2,7 @@ import {
   parseInviteEnvelope,
   type InviteEnvelope,
 } from './invite';
+import { isRecord } from '../runtime/is-record';
 
 const CLIENT_PROTOCOL = Object.freeze({
   major: 1,
@@ -1058,10 +1059,6 @@ function hasExactKeys(
     keys.length === expectedKeys.length &&
     expectedKeys.every((key) => Object.hasOwn(value, key))
   );
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function parseInviteEnvelopeSafely(value: string): InviteEnvelope {

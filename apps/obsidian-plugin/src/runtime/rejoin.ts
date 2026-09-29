@@ -24,6 +24,7 @@
  */
 
 import type { RequestUrlFn } from './sync-transport';
+import { isRecord } from './is-record';
 
 /** How often the invitee re-attempts redemption while its panel is open. */
 export const REJOIN_POLL_INTERVAL_MS = 30_000;
@@ -207,8 +208,4 @@ export class RejoinController {
       vaultId: body.vaultId,
     };
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
