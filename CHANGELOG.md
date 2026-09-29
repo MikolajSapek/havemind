@@ -5,6 +5,32 @@ All notable changes to this project are documented here. The format is based on
 follows independent [Semantic Versioning](https://semver.org) for the plugin
 and the server.
 
+## [Unreleased]
+
+### Fixed
+
+- Plugin: a change queued while the plugin was still starting up could drop
+  out of the queue, so that edit never reached the server.
+- Plugin: an attachment deleted on another device is now deleted here too.
+  It used to stay, with an empty conflict copy next to it.
+- Plugin: a server whose responses carry fields this version does not know no
+  longer stops a device from joining.
+- Plugin: stored copies of queued changes no longer pile up in the device's
+  local database, and Reset connection deletes the database it leaves behind.
+
+### Changed
+
+- Plugin: opening the app no longer reads and hashes every file. A file whose
+  size and modification time match what the last start saw is skipped.
+- Server: `HAVEMIND_TRUSTED_PROXIES` (empty by default) names the proxy in
+  front of the server, such as `tailscale serve`, so each client gets its own
+  pre-login rate limit instead of all of them sharing one.
+- Which paths sync is decided in one place, the protocol package, so the
+  plugin can no longer queue a path the server would refuse.
+- Plugin (internal): notes and attachments share one apply flow, `main.ts` is
+  split into modules, and duplicated helpers and eight-parameter functions
+  are gone.
+
 ## [1.5.7], 2026-09-29
 
 ### Fixed
