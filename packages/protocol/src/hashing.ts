@@ -99,9 +99,8 @@ export async function sha256Hex(
   input: string | Uint8Array,
 ): Promise<string> {
   const bytes = typeof input === 'string' ? new TextEncoder().encode(input) : input;
-  const digestInput = new Uint8Array(bytes.byteLength);
-  digestInput.set(bytes);
-  const digest = await crypto.subtle.digest('SHA-256', digestInput);
+  // No copy: `digest` snapshots the view itself. The cast is for the type checker.
+  const digest = await crypto.subtle.digest('SHA-256', bytes as Uint8Array<ArrayBuffer>);
   return bytesToHex(new Uint8Array(digest));
 }
 

@@ -1,4 +1,4 @@
-import { describe, expect, expectTypeOf, it } from 'vitest';
+import { afterEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
 
 import type { BlobHash, PlaintextHash } from './hashing.js';
 import {
@@ -10,9 +10,33 @@ import {
 } from './hashing.js';
 
 describe('hashing', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('matches the standard SHA-256 vector for abc', async () => {
     await expect(sha256Hex('abc')).resolves.toBe(
       'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad',
+    );
+  });
+
+  it('hands the caller\'s bytes to the digest as they are, without copying them first', async () => {
+    // An attachment can be 25 MB, and a copy of it is a second 25 MB.
+    const bytes = new Uint8Array(1024).fill(7);
+    const digest = vi.spyOn(crypto.subtle, 'digest');
+
+    await sha256Hex(bytes);
+
+    expect(digest.mock.calls[0]?.[1]).toBe(bytes);
+  });
+
+  it('hashes only the window a subarray views, not the buffer behind it', async () => {
+    const window = new TextEncoder().encode('abc');
+    const behind = new Uint8Array(64).fill(9);
+    behind.set(window, 10);
+
+    await expect(sha256Hex(behind.subarray(10, 13))).resolves.toBe(
+      await sha256Hex('abc'),
     );
   });
 
