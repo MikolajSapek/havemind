@@ -2,6 +2,7 @@ import { base64ToBytes } from '@havemind/protocol';
 import { decodeRevisionPayload, type DecodedRevisionPayload } from '@havemind/sync-core';
 import type { RemoteEvent, SyncTransport } from '../sync/sync-runner';
 import type { DurableSyncState } from './sync-state';
+import { isRecord } from './is-record';
 
 /**
  * Note payloads kept for reuse within a connection (P13). Merges read the
@@ -259,10 +260,6 @@ function parseStoredEvent(raw: unknown): RemoteEvent | null {
       ...(authorMembershipId === undefined ? {} : { authorMembershipId }),
     },
   };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 export function ancestors(graph: ReadonlyMap<string, RemoteEvent>, start: string): Set<string> {
