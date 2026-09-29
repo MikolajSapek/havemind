@@ -300,6 +300,9 @@ export interface VaultApplyAdapterOptions {
   readonly onConflictWritten?: () => void;
 }
 
+/** A note's text, or an attachment's raw bytes (F9). */
+type Content = string | Uint8Array;
+
 export class VaultApplyAdapter implements VaultApplyPort {
   private readonly files: VaultFilePort;
   private readonly conflictFolder: string;
@@ -421,74 +424,67 @@ export class VaultApplyAdapter implements VaultApplyPort {
     fileId: string,
     origin: RemoteAppliedOrigin,
   ): Promise<RemoteApplyOutcome> {
-    if (decoded.operation === 'delete') {
-      // Only remove a file this revision actually owns.
-      if (this.files.fileIdAtPath(decoded.path) === fileId) {
-        // Owning the path is not enough to destroy it (rule 3, P1). A file
-        // edited on THIS device while closed holds an unsent local change; a
-        // remote tombstone must not take it with no copy left behind. Same
-        // shape as the rename branch below: read the path, hash it, compare to
-        // the recorded base, and divert the incoming revision to a conflict
-        // artifact when they diverge (a null base cannot prove the file clean,
-        // so it diverts too). An allowlisted `.obsidian/` settings file keeps
-        // resolving by recency and is deleted regardless.
-        if (!resolvesLastWriterWins(decoded.path)) {
-          const onDisk = decoded.kind === 'binary'
-            ? await this.files.readBinaryByPath(decoded.path)
-            : await this.files.readByPath(decoded.path);
-          if (onDisk !== null) {
-            const base = this.files.baseHashFor(fileId);
-            const onDiskHash = typeof onDisk === 'string'
-              ? await this.hashContent(onDisk) : await hashBlob(onDisk);
-            if ((base === null || onDiskHash !== base) &&
-              await this.cleanCausalHash(fileId, event, onDiskHash) === null) {
-              await this.writeConflict(event, decoded);
-              return 'conflict';
-            }
-          }
-        }
-        // Forget the producer mapping BEFORE the delete so the reflected vault
-        // 'delete' event finds no mapping and is not re-pushed as a local
-        // tombstone (re-entrancy guard).
-        await this.producerSync?.onRemoteDelete({ fileId, path: decoded.path });
-        await this.files.deleteByPath(decoded.path);
-        await this.files.forgetPath(decoded.path);
-        await this.files.forgetBaseHash(fileId);
-        // Forget the base CONTENT too (F3): the local-delete path already does
-        // this (`forgetLocalMaterialization`); omitting it here leaked one
-        // baseContents entry per remote delete, growing data.json unbounded.
-        await this.files.forgetBaseContent(fileId);
-        this.onRemoteApplied?.({
-          revisionId: event.revision.revisionId,
-          fileId,
-          path: decoded.path,
-          operation: decoded.operation,
-          origin,
-          ...(event.revision.authorMembershipId === undefined
-            ? {}
-            : { authorMembershipId: event.revision.authorMembershipId }),
-        });
-      }
-      return 'applied';
-    }
-
-    // Binary attachments (F9) are whole-file byte replaces: a separate path that
-    // compares/hashes RAW bytes (never `canonicalizeMarkdown`, which is
-    // markdown-only) and writes through the byte vault API. It preserves every
-    // data-safety invariant of the markdown path below, divergent on-disk bytes
-    // become a conflict artifact (with the original extension), never an
-    // overwrite; the base advances only on a clean apply or convergence.
-    if (decoded.kind === 'binary') {
-      return this.applyRemoteBinary(event, decoded, fileId, origin);
-    }
-
-    const text = decoded.content ?? '';
-
     // An allowlisted `.obsidian/` settings file resolves a divergence by recency
     // rather than by a conflict copy (see `resolvesLastWriterWins`). Every guard
-    // below is unchanged for notes; for a settings file the diversion is skipped
-    // and the incoming (later) revision is written.
+    // below is unchanged for notes and attachments; for a settings file the
+    // diversion is skipped and the incoming (later) revision is written.
     const lastWriterWins = resolvesLastWriterWins(decoded.path);
+    if (decoded.operation === 'delete') {
+      // Only remove a file this revision actually owns.
+      if (this.files.fileIdAtPath(decoded.path) !== fileId) return 'applied';
+      // Owning the path is not enough to destroy it (rule 3, P1). A file
+      // edited on THIS device while closed holds an unsent local change; a
+      // remote tombstone must not take it with no copy left behind. Same
+      // shape as the rename source check below. An allowlisted `.obsidian/`
+      // settings file keeps resolving by recency and is deleted regardless.
+      const onDisk = lastWriterWins ? null : await this.read(decoded, decoded.path);
+      if (onDisk !== null && await this.holdsLocalEdit(fileId, event, onDisk)) {
+        return this.writeConflict(event, decoded);
+      }
+      // Forget the producer mapping BEFORE the delete so the reflected vault
+      // 'delete' event finds no mapping and is not re-pushed as a local
+      // tombstone (re-entrancy guard).
+      await this.producerSync?.onRemoteDelete({ fileId, path: decoded.path });
+      await this.files.deleteByPath(decoded.path);
+      await this.files.forgetPath(decoded.path);
+      await this.files.forgetBaseHash(fileId);
+      // Forget the base CONTENT too (F3): the local-delete path already does
+      // this (`forgetLocalMaterialization`); omitting it here leaked one
+      // baseContents entry per remote delete, growing data.json unbounded.
+      await this.files.forgetBaseContent(fileId);
+      return this.reportApplied(event, decoded, origin);
+    }
+
+    // Notes and binary attachments (F9) share this flow. Reading, comparing,
+    // hashing and writing follow the content kind: an attachment is compared
+    // and hashed as RAW bytes (never `canonicalizeMarkdown`, which is
+    // markdown-only), is mapped as base64 (the form the observer stores),
+    // records no base content and never merges. The two decisions that still
+    // differ by kind are marked where they are taken.
+    const incoming = incomingContent(decoded);
+    const text = typeof incoming === 'string' ? incoming : null;
+    const incomingHash = await this.hash(incoming);
+    // Adopting the incoming fileId+content into the producer mapping keeps it in
+    // lockstep with the vault: the event a write triggers is deduped (content
+    // already matches) instead of being re-pushed, re-attributed to the local
+    // member, or given a fresh random fileId.
+    const adopt = async (): Promise<void> => {
+      await this.producerSync?.onRemoteWrite({
+        fileId,
+        path: decoded.path,
+        content: typeof incoming === 'string' ? incoming : bytesToBase64(incoming),
+        contentHash: incomingHash,
+        contentKind: decoded.kind ?? 'markdown',
+        revisionId: event.revision.revisionId,
+      });
+    };
+    // Both sides already hold the incoming content: advance the base and adopt
+    // it, skipping the write entirely (never a destructive rewrite).
+    const converge = async (): Promise<'noop'> => {
+      await this.files.recordApplied(fileId, decoded.path, incomingHash, text);
+      await adopt();
+      return 'noop';
+    };
 
     // A rename moves the owned previous path before writing the new one. The
     // base hash is keyed by fileId, so it survives the move unchanged. But the
@@ -501,15 +497,10 @@ export class VaultApplyAdapter implements VaultApplyPort {
       decoded.previousPath !== null &&
       this.files.fileIdAtPath(decoded.previousPath) === fileId
     ) {
-      const previousOnDisk = await this.files.readByPath(decoded.previousPath);
-      if (previousOnDisk !== null && !lastWriterWins) {
-        const base = this.files.baseHashFor(fileId);
-        const previousHash = await this.hashContent(previousOnDisk);
-        if ((base === null || previousHash !== base) &&
-          await this.cleanCausalHash(fileId, event, previousHash) === null) {
-          await this.writeConflict(event, decoded);
-          return 'conflict';
-        }
+      const previousOnDisk = await this.read(decoded, decoded.previousPath);
+      if (previousOnDisk !== null && !lastWriterWins &&
+        await this.holdsLocalEdit(fileId, event, previousOnDisk)) {
+        return this.writeConflict(event, decoded);
       }
       // Destination collision, checked BEFORE the source is destroyed (P2).
       // Ownership of the TARGET used to be read only after this delete, so a
@@ -521,10 +512,9 @@ export class VaultApplyAdapter implements VaultApplyPort {
       // target is not a collision, it is the F3 adopt path, which converges in
       // place below and must still vacate the source.
       if (!lastWriterWins) {
-        const destinationOnDisk = await this.files.readByPath(decoded.path);
-        if (destinationOnDisk !== null && !contentMatches(destinationOnDisk, text)) {
-          await this.writeConflict(event, decoded);
-          return 'conflict';
+        const destinationOnDisk = await this.read(decoded, decoded.path);
+        if (destinationOnDisk !== null && !contentMatches(destinationOnDisk, incoming)) {
+          return this.writeConflict(event, decoded);
         }
       }
       // Move the producer mapping off the OLD path BEFORE deleting it, exactly as
@@ -547,70 +537,46 @@ export class VaultApplyAdapter implements VaultApplyPort {
 
     // Read the on-disk content once; both the F3 adoption check below and the
     // rule-3 overwrite guard consume it.
-    const onDisk = await this.files.readByPath(decoded.path);
-
+    const onDisk = await this.read(decoded, decoded.path);
+    const converged = onDisk !== null && contentMatches(onDisk, incoming);
     const owner = this.files.fileIdAtPath(decoded.path);
     if (owner !== null && owner !== fileId) {
       // Content-addressed reconciliation on connect (F3). Two devices that
       // already held the SAME note each minted an independent random fileId for
       // it, so the incoming revision's canonical path is "owned" by a fileId that
-      // is not this revision's. If the on-disk content is byte-identical to the
+      // is not this revision's. If the on-disk content is identical to the
       // incoming revision it is genuinely the same logical file: adopt the remote
       // fileId for this path and seed the shared base (a REMOTE convergence, the
       // only safe moment to seed a base, never on a local push). Both peers
       // already hold the content, so this converges in place with no write and no
-      // conflict artifact.
-      if (onDisk !== null && contentMatches(onDisk, text)) {
-        if (this.history !== undefined && owner < fileId && (await this.history.heads(owner)).length > 0) return 'noop';
-        const contentHash = await this.hashContent(text);
-        // The path is switching from the superseded local fileId (`owner`) to
-        // the incoming remote fileId. Forget the superseded fileId's state
-        // FIRST, its producer mapping/head (keyed by fileId, not path) and its
-        // apply-side base hash, so exactly one fileId ends up owning this path
-        // and no orphaned heads[owner]/baseHashes[owner] survives the adopt.
-        // Order matters: this must run before onRemoteWrite below, since that
-        // call's own upsert would otherwise be undone by a later same-collision
-        // -key forget targeting the old owner.
-        await this.producerSync?.onRemoteDelete({ fileId: owner, path: decoded.path });
-        await this.files.forgetBaseHash(owner);
-        // Forget the superseded owner's base CONTENT too (F3): only its base hash
-        // was being cleared, leaking one baseContents entry per adoption.
-        await this.files.forgetBaseContent(owner);
-        // Persist the base CONTENT too (not just its hash): both sides already
-        // hold `text` as the adopted content, so it is a valid three-way merge
-        // ancestor. Without this, `baseContentFor(fileId)` stays null after
-        // adoption and the next concurrent edit falls through `tryMergeApply`
-        // straight to a conflict copy even though a clean merge was possible.
-        await this.files.recordApplied(fileId, decoded.path, contentHash, text);
-        // Adopt the remote fileId into the producer mapping too (no disk write
-        // fires here, but a later LOCAL edit must push under the shared fileId,
-        // never the old random one this device minted for the same note).
-        await this.producerSync?.onRemoteWrite({
-          fileId,
-          path: decoded.path,
-          content: text,
-          contentHash,
-          contentKind: 'markdown',
-          revisionId: event.revision.revisionId,
-        });
-        return 'noop';
-      }
-      // The path holds genuinely different content, a real divergence. Never
-      // overwrite it and never claim ownership: preserve both via a conflict
-      // artifact (the F2 conflict path). No shared ancestor exists across two
-      // independently-minted fileIds, so a three-way merge is not attempted here.
-      if (!lastWriterWins) {
-        await this.writeConflict(event, decoded);
-        return 'conflict';
-      }
-      // A SETTINGS file instead resolves by recency: the incoming revision is the
-      // later writer, so it takes the path over. Retire the superseded fileId's
-      // state FIRST (same ordering requirement as the convergence branch above:
-      // a later same-path forget would otherwise undo the adoption below), then
-      // fall through to the ordinary write.
+      // conflict artifact. The seeded base CONTENT is a valid three-way merge
+      // ancestor, so the next concurrent edit can merge instead of conflicting.
+      if (converged && this.history !== undefined && owner < fileId &&
+        (await this.history.heads(owner)).length > 0) return 'noop';
+      // Different content is a real divergence. Never overwrite it and never
+      // claim ownership: preserve both via a conflict artifact (the F2 conflict
+      // path). No shared ancestor exists across two independently-minted
+      // fileIds, so a three-way merge is not attempted here. A SETTINGS file
+      // instead resolves by recency: the incoming revision is the later writer,
+      // so it takes the path over and falls through to the ordinary write.
+      if (!converged && !lastWriterWins) return this.writeConflict(event, decoded);
+      // The path is switching from the superseded fileId (`owner`) to the
+      // incoming one. Forget the superseded fileId's state FIRST, its producer
+      // mapping/head (keyed by fileId, not path) and its apply-side base hash and
+      // content, so exactly one fileId ends up owning this path and no orphaned
+      // heads[owner]/baseHashes[owner] survives the adopt. Order matters: this
+      // must run before onRemoteWrite, since that call's own upsert would
+      // otherwise be undone by a later same-collision-key forget targeting the
+      // old owner.
       await this.producerSync?.onRemoteDelete({ fileId: owner, path: decoded.path });
       await this.files.forgetBaseHash(owner);
-      await this.files.forgetBaseContent(owner);
+      // Differs by kind: an attachment adopted by identical bytes keeps the old
+      // owner's base content (attachments record none), as the former separate
+      // binary flow did.
+      if (!converged || decoded.kind !== 'binary') await this.files.forgetBaseContent(owner);
+      // A later LOCAL edit must push under the adopted shared fileId, never the
+      // old random one this device minted for the same file.
+      if (converged) return converge();
     }
 
     // On-disk overwrite guard (rule 3, zero silent overwrites). The runner's
@@ -630,70 +596,35 @@ export class VaultApplyAdapter implements VaultApplyPort {
     // three-way merge (MRG-01, `tryMergeApply`): non-overlapping edits are
     // combined in place and only a genuinely overlapping change becomes a
     // conflict copy.
-    const cleanCausalHash = onDisk === null ? null : await this.cleanCausalHash(
-      fileId, event, await this.hashContent(onDisk),
+    const onDiskHash = onDisk === null ? null : await this.hash(onDisk);
+    const cleanCausalHash = onDiskHash === null ? null : await this.cleanCausalHash(
+      fileId, event, onDiskHash,
     );
-    if (onDisk !== null) {
-      if (contentMatches(onDisk, text)) {
-        // Both sides already hold the incoming content: advance the base and
-        // skip the write entirely (test: on-disk == incoming → no write).
-        const contentHash = await this.hashContent(text);
-        await this.files.recordApplied(fileId, decoded.path, contentHash, text);
-        await this.producerSync?.onRemoteWrite({
-          fileId,
-          path: decoded.path,
-          content: text,
-          contentHash,
-          contentKind: 'markdown',
-          revisionId: event.revision.revisionId,
-        });
-        return 'noop';
-      }
-      const base = this.files.baseHashFor(fileId);
-      const onDiskHash = await this.hashContent(onDisk);
-      // A divergence is either: on-disk drifted from the shared base, OR on-disk
-      // still equals the base but the incoming revision is not a provable causal
-      // fast-forward (the 7b22b61 concurrent-overwrite window). Both cases take
-      // the same path: try to merge, else preserve both in a conflict copy,
-      // never a silent overwrite (rule 3).
-      const diverged = base === null || onDiskHash !== base;
-      if (cleanCausalHash === null && (diverged || !(await this.isCausalFastForward(fileId, event)))) {
-        const merged = await this.tryMergeApply(
-          event,
-          decoded,
-          fileId,
-          onDisk,
-          text,
-          base,
-          origin,
-        );
-        if (merged !== null) {
-          return merged;
-        }
-        // A settings file has no conflict copy: the incoming revision is the
-        // later writer, so fall through to the write below and let it win.
-        if (!lastWriterWins) {
-          await this.writeConflict(event, decoded);
-          return 'conflict';
-        }
-      }
+    if (converged) return converge();
+    const base = this.files.baseHashFor(fileId);
+    // A divergence is either: on-disk drifted from the shared base, OR on-disk
+    // still equals the base but the incoming revision is not a provable causal
+    // fast-forward (the 7b22b61 concurrent-overwrite window). Both cases take
+    // the same path: try to merge, else preserve both in a conflict copy,
+    // never a silent overwrite (rule 3). Differs by kind: a note whose disk holds
+    // exactly the version the revision was built on (`cleanCausalHash`) needs
+    // neither check, while an attachment is still held to the fast-forward, as
+    // the former separate binary flow was.
+    if (onDisk !== null && (cleanCausalHash === null || decoded.kind === 'binary') &&
+      ((cleanCausalHash === null && onDiskHash !== base) ||
+        !(await this.isCausalFastForward(fileId, event)))) {
+      const merged = await this.tryMergeApply(event, decoded, onDisk, base, origin);
+      if (merged !== null) return merged;
+      // A settings file has no conflict copy: the incoming revision is the
+      // later writer, so fall through to the write below and let it win.
+      if (!lastWriterWins) return this.writeConflict(event, decoded);
     }
 
-    const contentHash = await this.hashContent(text);
-    // Adopt the incoming fileId+content into the producer mapping BEFORE the
-    // vault write, so the 'modify'/'create' event that write triggers is deduped
-    // by the producer (content already matches) instead of being re-pushed,
-    // re-attributed to the local member, or given a fresh random fileId.
-    await this.producerSync?.onRemoteWrite({
-      fileId,
-      path: decoded.path,
-      content: text,
-      contentHash,
-      contentKind: 'markdown',
-      revisionId: event.revision.revisionId,
-    });
+    // Adopt BEFORE the vault write, so the 'modify'/'create' event that write
+    // triggers is deduped by the producer (see `adopt`).
+    await adopt();
     // TOCTOU close (rule 3): re-read the file's CURRENT on-disk content
-    // immediately before the write. The first `readByPath` above happened
+    // immediately before the write. The first read above happened
     // several awaits ago; a local edit to the (closed) file could have landed on
     // disk since, the shared per-file lock keeps OUR producer out, but an
     // external editor save is only caught here. If the disk now diverges from
@@ -701,82 +632,87 @@ export class VaultApplyAdapter implements VaultApplyPort {
     // pre-write producer adoption and merge (or preserve both in a conflict
     // copy) instead of clobbering it. No `await` separates this read from the
     // write below, so nothing can interleave between them.
-    const preWriteOnDisk = await this.files.readByPath(decoded.path);
+    const preWriteOnDisk = await this.read(decoded, decoded.path);
     // A settings file skips the diversion entirely (last-writer-wins): the write
     // below replaces the semantic content whatever landed since the first read.
-    if (
-      preWriteOnDisk !== null &&
-      !lastWriterWins &&
-      !contentMatches(preWriteOnDisk, text)
-    ) {
+    if (preWriteOnDisk !== null && !lastWriterWins && !contentMatches(preWriteOnDisk, incoming)) {
       const preWriteBase = this.files.baseHashFor(fileId);
-      const preWriteHash = await this.hashContent(preWriteOnDisk);
-      if ((preWriteBase === null || preWriteHash !== preWriteBase) && preWriteHash !== cleanCausalHash) {
+      const preWriteHash = await this.hash(preWriteOnDisk);
+      if (preWriteHash !== preWriteBase && preWriteHash !== cleanCausalHash) {
         await this.producerSync?.onRemoteDelete({ fileId, path: decoded.path });
-        const merged = await this.tryMergeApply(
-          event,
-          decoded,
-          fileId,
-          preWriteOnDisk,
-          text,
-          preWriteBase,
-          origin,
-        );
-        if (merged !== null) {
-          return merged;
-        }
-        await this.writeConflict(event, decoded);
-        return 'conflict';
+        const merged = await this.tryMergeApply(event, decoded, preWriteOnDisk, preWriteBase, origin);
+        return merged ?? this.writeConflict(event, decoded);
       }
     }
     try {
-      await this.files.writeByPath(decoded.path, text, lastWriterWins ? undefined : preWriteOnDisk);
+      await (typeof incoming === 'string'
+        ? this.files.writeByPath(decoded.path, incoming, lastWriterWins ? undefined : preWriteOnDisk as string | null)
+        : this.files.writeBinaryByPath(decoded.path, incoming));
     } catch (error) {
-      // A settings file never lands in the conflict folder, so it is not diverted
-      // here either. Config writes go through the DataAdapter, which tolerates an
-      // existing directory and cannot raise this error at all, the guard is kept
-      // so that a future config write path can only ever throw (and be retried),
-      // never quietly deposit a settings file among the conflict copies.
-      if (error instanceof ParentFolderOccupiedError && !lastWriterWins) {
-        // A file occupies an ancestor of the target path, so the parent-folder
-        // hierarchy cannot be created. Roll back the pre-write producer
-        // adoption and preserve the incoming content in a conflict artifact.
-        // Per-item: this single revision is diverted and the pull cycle
-        // continues to the next event, never a cycle-killing throw.
-        await this.producerSync?.onRemoteDelete({ fileId, path: decoded.path });
-        await this.writeConflict(event, decoded);
-        return 'conflict';
-      }
-      throw error;
+      // A file occupies an ancestor of the target path, so the parent-folder
+      // hierarchy cannot be created. Roll back the pre-write producer adoption
+      // and preserve the incoming content in a conflict artifact (an attachment
+      // keeps its extension). Per-item: this single revision is diverted and the
+      // pull cycle continues to the next event, never a cycle-killing throw.
+      // A settings file never lands in the conflict folder, so it is not
+      // diverted here either. Config writes go through the DataAdapter, which
+      // tolerates an existing directory and cannot raise this error at all, the
+      // guard is kept so that a future config write path can only ever throw
+      // (and be retried), never quietly deposit a settings file among the
+      // conflict copies.
+      if (!(error instanceof ParentFolderOccupiedError) || lastWriterWins) throw error;
+      await this.producerSync?.onRemoteDelete({ fileId, path: decoded.path });
+      return this.writeConflict(event, decoded);
     }
     // Persist the base CONTENT too so a later divergence has the ancestor the
     // three-way merge needs (MRG-01).
-    await this.files.recordApplied(fileId, decoded.path, contentHash, text);
+    await this.files.recordApplied(fileId, decoded.path, incomingHash, text);
+    return this.reportApplied(event, decoded, origin);
+  }
+
+  /** Reads `path` as the payload's kind: note text, or an attachment's RAW bytes (F9). */
+  private read(decoded: DecodedRevisionPayload, path: string): Promise<Content | null> {
+    return decoded.kind === 'binary' ? this.files.readBinaryByPath(path) : this.files.readByPath(path);
+  }
+
+  /** Note text through the runtime's SHA-256 helper; an attachment's raw bytes through `hashBlob`. */
+  private hash(content: Content): Promise<string> {
+    return typeof content === 'string' ? this.hashContent(content) : hashBlob(content);
+  }
+
+  /**
+   * Whether `onDisk` may hold a local edit the incoming revision never saw: it
+   * differs from the recorded base (a null base cannot prove the file clean)
+   * and is not the version that revision was built on (`cleanCausalHash`).
+   */
+  private async holdsLocalEdit(
+    fileId: string,
+    event: RemoteEvent,
+    onDisk: Content,
+  ): Promise<boolean> {
+    const base = this.files.baseHashFor(fileId);
+    const onDiskHash = await this.hash(onDisk);
+    return onDiskHash !== base && await this.cleanCausalHash(fileId, event, onDiskHash) === null;
+  }
+
+  /** Reports a revision this adapter genuinely wrote or deleted on disk (FIX 1). */
+  private reportApplied(
+    event: RemoteEvent,
+    decoded: DecodedRevisionPayload,
+    origin: RemoteAppliedOrigin,
+  ): 'applied' {
+    const { revisionId, fileId, authorMembershipId } = event.revision;
     this.onRemoteApplied?.({
-      revisionId: event.revision.revisionId,
+      revisionId,
       fileId,
       path: decoded.path,
       operation: decoded.operation,
       origin,
-      ...(event.revision.authorMembershipId === undefined
-        ? {}
-        : { authorMembershipId: event.revision.authorMembershipId }),
+      ...(authorMembershipId === undefined ? {} : { authorMembershipId }),
     });
     return 'applied';
   }
 
-  /**
-   * Attempts a line-level three-way merge (MRG-01) of a diverged markdown file
-   * before any conflict copy. Returns `'applied'` when it merged and wrote the
-   * combined content in place, or `null` when no merge is possible (no shared
-   * base, the ancestor text is not locally persisted, the stored ancestor no
-   * longer matches the base hash, or the changes overlap), the caller then
-   * writes a conflict copy.
-   *
-   * Keep the ancestor while branches are concurrent. A merged file is not an
-   * accepted remote revision: publish it explicitly, with its resolved parents,
-   * before changing the disk. The observer then deduplicates the reflected write.
-   */
   /**
    * The common ancestor text of this device's head for `fileId` and
    * `revisionId`, from the revision history, when it is a markdown note at
@@ -798,15 +734,27 @@ export class VaultApplyAdapter implements VaultApplyPort {
     return payload.content;
   }
 
+  /**
+   * Attempts a line-level three-way merge (MRG-01) of a diverged markdown file
+   * before any conflict copy. Returns `'applied'` when it merged and wrote the
+   * combined content in place, or `null` when no merge is possible (an
+   * attachment, which never merges (F9), no shared base, the ancestor text is
+   * not locally persisted, the stored ancestor no longer matches the base hash,
+   * or the changes overlap), the caller then writes a conflict copy.
+   *
+   * Keep the ancestor while branches are concurrent. A merged file is not an
+   * accepted remote revision: publish it explicitly, with its resolved parents,
+   * before changing the disk. The observer then deduplicates the reflected write.
+   */
   private async tryMergeApply(
     event: RemoteEvent,
     decoded: DecodedRevisionPayload,
-    fileId: string,
-    onDisk: string,
-    incoming: string,
+    onDisk: Content,
     base: string | null,
     origin: RemoteAppliedOrigin,
   ): Promise<RemoteApplyOutcome | null> {
+    if (typeof onDisk !== 'string') return null;
+    const fileId = event.revision.fileId;
     let ancestor: string | null;
     if (this.history !== undefined) {
       ancestor = await this.mergeAncestor(fileId, event.revision.revisionId, decoded.path);
@@ -816,7 +764,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
       if (ancestor === null || (await this.hashContent(ancestor)) !== base) return null;
     }
     if (ancestor === null) return null;
-    const result = mergeText(ancestor, onDisk, incoming);
+    const result = mergeText(ancestor, onDisk, decoded.content ?? '');
     if (result.status !== 'merged') {
       return null;
     }
@@ -845,17 +793,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
     }
     await this.files.writeByPath(decoded.path, merged, onDisk);
     await this.files.recordPathOwner(fileId, decoded.path);
-    this.onRemoteApplied?.({
-      revisionId: event.revision.revisionId,
-      fileId,
-      path: decoded.path,
-      operation: decoded.operation,
-      origin,
-      ...(event.revision.authorMembershipId === undefined
-        ? {}
-        : { authorMembershipId: event.revision.authorMembershipId }),
-    });
-    return 'applied';
+    return this.reportApplied(event, decoded, origin);
   }
 
   /** Server acceptance alone never proves that an offline peer saw our version. */
@@ -911,177 +849,6 @@ export class VaultApplyAdapter implements VaultApplyPort {
   }
 
   /**
-   * Applies a whole-file binary revision (F9). Structurally mirrors the markdown
-   * `applyRemote` above but operates on RAW bytes: comparison and base hashing
-   * use `hashBlob`/byte-equality (never `canonicalizeMarkdown`), writes go
-   * through the byte vault API, and any conflict artifact keeps the original
-   * file extension. Every data-safety invariant is preserved, diverged on-disk
-   * bytes become a conflict artifact, never an overwrite (rule 3); the base
-   * advances only on a clean apply or convergence, never on a divergence.
-   */
-  private async applyRemoteBinary(
-    event: RemoteEvent,
-    decoded: DecodedRevisionPayload,
-    fileId: string,
-    origin: RemoteAppliedOrigin,
-  ): Promise<RemoteApplyOutcome> {
-    const bytes = decoded.binaryContent ?? new Uint8Array(0);
-    const incomingHash = await hashBlob(bytes);
-    // Producer-mapping content for a binary file is base64 of the raw bytes,
-    // the same form the observer stores, so a reflected vault event dedupes.
-    const incomingBase64 = bytesToBase64(bytes);
-    // A binary appearance asset (a theme's preview image) is still a settings
-    // file: it resolves a divergence by recency, never by a conflict copy (see
-    // `resolvesLastWriterWins`). An ordinary vault attachment is unaffected.
-    const lastWriterWins = resolvesLastWriterWins(decoded.path);
-
-    if (
-      decoded.operation === 'rename' &&
-      decoded.previousPath !== null &&
-      this.files.fileIdAtPath(decoded.previousPath) === fileId
-    ) {
-      const previousOnDisk = await this.files.readBinaryByPath(decoded.previousPath);
-      if (previousOnDisk !== null && !lastWriterWins) {
-        const base = this.files.baseHashFor(fileId);
-        const previousHash = await hashBlob(previousOnDisk);
-        if ((base === null || previousHash !== base) &&
-          await this.cleanCausalHash(fileId, event, previousHash) === null) {
-          await this.writeConflict(event, decoded);
-          return 'conflict';
-        }
-      }
-      // Move the producer mapping off the OLD path before deleting it (F9), so the
-      // reflected vault 'delete' event for the vacated path is not observed as a
-      // local delete that forgets the still-live renamed fileId's base, the same
-      // re-entrancy guard as the markdown rename branch above.
-      const destination = await this.files.readBinaryByPath(decoded.path);
-      if (!lastWriterWins && destination !== null && !bytesEqual(destination, bytes)) {
-        await this.writeConflict(event, decoded);
-        return 'conflict';
-      }
-      await this.producerSync?.onRemoteDelete({
-        fileId,
-        path: decoded.previousPath,
-      });
-      // Source removal is deferred until the destination succeeds in applyRemote.
-    }
-
-    const onDisk = await this.files.readBinaryByPath(decoded.path);
-
-    const owner = this.files.fileIdAtPath(decoded.path);
-    if (owner !== null && owner !== fileId) {
-      if (onDisk !== null && bytesEqual(onDisk, bytes)) {
-        if (this.history !== undefined && owner < fileId && (await this.history.heads(owner)).length > 0) return 'noop';
-        await this.producerSync?.onRemoteDelete({ fileId: owner, path: decoded.path });
-        await this.files.forgetBaseHash(owner);
-        await this.files.recordApplied(fileId, decoded.path, incomingHash, null);
-        await this.producerSync?.onRemoteWrite({
-          fileId,
-          path: decoded.path,
-          content: incomingBase64,
-          contentHash: incomingHash,
-          contentKind: 'binary',
-          revisionId: event.revision.revisionId,
-        });
-        return 'noop';
-      }
-      if (!lastWriterWins) {
-        await this.writeConflict(event, decoded);
-        return 'conflict';
-      }
-      // Settings asset: the incoming revision is the later writer and takes the
-      // path over. Retire the superseded fileId's state before the adoption below.
-      await this.producerSync?.onRemoteDelete({ fileId: owner, path: decoded.path });
-      await this.files.forgetBaseHash(owner);
-      await this.files.forgetBaseContent(owner);
-    }
-
-    const cleanCausalHash = onDisk === null ? null : await this.cleanCausalHash(
-      fileId, event, await hashBlob(onDisk),
-    );
-    if (onDisk !== null) {
-      if (bytesEqual(onDisk, bytes)) {
-        await this.files.recordApplied(fileId, decoded.path, incomingHash, null);
-        await this.producerSync?.onRemoteWrite({
-          fileId,
-          path: decoded.path,
-          content: incomingBase64,
-          contentHash: incomingHash,
-          contentKind: 'binary',
-          revisionId: event.revision.revisionId,
-        });
-        return 'noop';
-      }
-      // A settings asset skips both diversions below: the incoming revision is
-      // the later writer, so the write further down replaces the bytes.
-      const base = this.files.baseHashFor(fileId);
-      const onDiskHash = await hashBlob(onDisk);
-      if (!lastWriterWins && cleanCausalHash === null && (base === null || onDiskHash !== base)) {
-        await this.writeConflict(event, decoded);
-        return 'conflict';
-      }
-      if (!lastWriterWins && !(await this.isCausalFastForward(fileId, event))) {
-        await this.writeConflict(event, decoded);
-        return 'conflict';
-      }
-    }
-
-    await this.producerSync?.onRemoteWrite({
-      fileId,
-      path: decoded.path,
-      content: incomingBase64,
-      contentHash: incomingHash,
-      contentKind: 'binary',
-      revisionId: event.revision.revisionId,
-    });
-    // TOCTOU close (rule 3), binary analogue of the markdown path: re-read the
-    // current on-disk bytes immediately before the write. A local edit that
-    // landed since the first read above (external editor) is caught here,
-    // diverged bytes are preserved in a conflict artifact, never overwritten
-    // (binaries never merge). No `await` separates this read from the write.
-    const preWriteOnDisk = await this.files.readBinaryByPath(decoded.path);
-    if (
-      preWriteOnDisk !== null &&
-      !lastWriterWins &&
-      !bytesEqual(preWriteOnDisk, bytes)
-    ) {
-      const preWriteBase = this.files.baseHashFor(fileId);
-      const preWriteHash = await hashBlob(preWriteOnDisk);
-      if ((preWriteBase === null || preWriteHash !== preWriteBase) && preWriteHash !== cleanCausalHash) {
-        await this.producerSync?.onRemoteDelete({ fileId, path: decoded.path });
-        await this.writeConflict(event, decoded);
-        return 'conflict';
-      }
-    }
-    try {
-      await this.files.writeBinaryByPath(decoded.path, bytes);
-    } catch (error) {
-      if (error instanceof ParentFolderOccupiedError && !lastWriterWins) {
-        // Same per-item divertion as the markdown path, over raw bytes and
-        // preserving the original extension. Never a cycle-killing throw. A
-        // settings asset is never diverted (it cannot reach the conflict folder);
-        // the config write path cannot raise this error in the first place.
-        await this.producerSync?.onRemoteDelete({ fileId, path: decoded.path });
-        await this.writeConflict(event, decoded);
-        return 'conflict';
-      }
-      throw error;
-    }
-    await this.files.recordApplied(fileId, decoded.path, incomingHash, null);
-    this.onRemoteApplied?.({
-      revisionId: event.revision.revisionId,
-      fileId,
-      path: decoded.path,
-      operation: decoded.operation,
-      origin,
-      ...(event.revision.authorMembershipId === undefined
-        ? {}
-        : { authorMembershipId: event.revision.authorMembershipId }),
-    });
-    return 'applied';
-  }
-
-  /**
    * The runner's separate open-BUFFER divergence path: the incoming revision is
    * preserved as a conflict copy without touching the live file. Unreachable for
    * an allowlisted `.obsidian/` settings file, which is why it needs no
@@ -1103,18 +870,13 @@ export class VaultApplyAdapter implements VaultApplyPort {
   private async writeConflict(
     event: RemoteEvent,
     decoded: DecodedRevisionPayload,
-  ): Promise<void> {
-    const isBinary = decoded.kind === 'binary';
+  ): Promise<'conflict'> {
     const existing = this.files.conflictArtifactPathFor(event.revision.revisionId);
     const target = existing ?? (await this.buildConflictPath(event, decoded));
-    if (isBinary) {
-      await this.files.writeBinaryConflictArtifact(
-        target,
-        decoded.binaryContent ?? new Uint8Array(0),
-      );
-    } else {
-      await this.files.writeConflictArtifact(target, decoded.content ?? '');
-    }
+    const content = incomingContent(decoded);
+    await (typeof content === 'string'
+      ? this.files.writeConflictArtifact(target, content)
+      : this.files.writeBinaryConflictArtifact(target, content));
     if (existing === null) {
       await this.files.recordConflictArtifactPath(
         event.revision.revisionId,
@@ -1126,6 +888,7 @@ export class VaultApplyAdapter implements VaultApplyPort {
       // sweep is never re-triggered by an idempotent rewrite of the same copy.
       this.onConflictWritten?.();
     }
+    return 'conflict';
   }
 
   /**
@@ -1176,22 +939,28 @@ function formatConflictTimestamp(date: Date): string {
   );
 }
 
-/** Byte-exact equality for two binary buffers (F9). */
-function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.byteLength !== b.byteLength) return false;
-  for (let index = 0; index < a.byteLength; index += 1) {
-    if (a[index] !== b[index]) return false;
-  }
-  return true;
+/** The revision's content: note text, or an attachment's raw bytes (F9). */
+function incomingContent(decoded: DecodedRevisionPayload): Content {
+  return decoded.kind === 'binary'
+    ? decoded.binaryContent ?? new Uint8Array(0)
+    : decoded.content ?? '';
 }
 
 /**
  * Convergence/noop equality between on-disk content and an incoming revision.
- * Compares the CANONICAL forms (AUD-03): a formatter that only touched line
- * endings, a BOM or trailing newlines after Havemind's last apply must read as
- * "already converged" here, not as a divergence that spawns a conflict artifact
- * or a spurious overwrite. Byte-exact disk content is untouched either way.
+ * Note text compares the CANONICAL forms (AUD-03): a formatter that only
+ * touched line endings, a BOM or trailing newlines after Havemind's last apply
+ * must read as "already converged" here, not as a divergence that spawns a
+ * conflict artifact or a spurious overwrite. Byte-exact disk content is
+ * untouched either way. Attachment bytes compare byte-for-byte (F9).
  */
-function contentMatches(onDisk: string, incoming: string): boolean {
-  return canonicalizeMarkdown(onDisk) === canonicalizeMarkdown(incoming);
+function contentMatches(onDisk: Content, incoming: Content): boolean {
+  if (typeof onDisk === 'string') {
+    return typeof incoming === 'string' && canonicalizeMarkdown(onDisk) === canonicalizeMarkdown(incoming);
+  }
+  if (typeof incoming === 'string' || onDisk.byteLength !== incoming.byteLength) return false;
+  for (let index = 0; index < onDisk.byteLength; index += 1) {
+    if (onDisk[index] !== incoming[index]) return false;
+  }
+  return true;
 }
