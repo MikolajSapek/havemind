@@ -5,7 +5,7 @@ All notable changes to this project are documented here. The format is based on
 follows independent [Semantic Versioning](https://semver.org) for the plugin
 and the server.
 
-## [Unreleased]
+## [1.5.7], 2026-09-29
 
 ### Fixed
 
