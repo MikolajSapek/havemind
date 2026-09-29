@@ -357,6 +357,61 @@ describe('onboarding controller', () => {
     await expect(restarted.resume()).resolves.toEqual({ phase: 'idle' });
   });
 
+  // R11: every server response was parsed with an exact key set, so a server
+  // adding one field (an additive, backward-compatible API change) would stop
+  // every released plugin from joining. Unknown fields are now ignored, and
+  // the approval no longer needs the retired bootstrapCursor.
+  it('joins through a server whose responses carry fields it does not know', async () => {
+    const fixture = createFixture();
+    fixture.remoteApi.enqueue('discover', {
+      body: discoveryBody({
+        future: true,
+        protocol: { future: true, major: 1, maxMinor: 0, minMinor: 0 },
+      }),
+      finalUrl: `${SERVER_ORIGIN}/.well-known/havemind`,
+      status: 200,
+    });
+    fixture.remoteApi.enqueue('review', {
+      body: {
+        expiresAt: '2026-07-15T04:15:00.000Z',
+        future: true,
+        intendedMemberDisplayName: 'Anna',
+        inviterDisplayName: 'Mikolaj',
+        memberId: MEMBER_ID,
+        vaultId: VAULT_ID,
+        vaultName: 'Shared research',
+        version: 1,
+      },
+      finalUrl: `${API_BASE_URL}/invitations/review`,
+      status: 200,
+    });
+    const pending = pendingResponse();
+    fixture.remoteApi.enqueue('redeem', {
+      ...pending,
+      body: { ...(pending.body as Record<string, unknown>), future: true },
+    });
+    fixture.controller.beginFromPastedEnvelope(ENVELOPE);
+    await fixture.controller.loadInvitationReview();
+    await expect(fixture.controller.confirmInvitation('Anna MacBook')).resolves.toMatchObject({
+      phase: 'pending-approval',
+    });
+
+    fixture.remoteApi.enqueue('poll', {
+      body: { future: true, status: 'pending' },
+      finalUrl: `${API_BASE_URL}/devices/${PENDING_DEVICE_ID}/approval`,
+      status: 200,
+    });
+    await expect(fixture.controller.resume()).resolves.toMatchObject({
+      phase: 'pending-approval',
+    });
+
+    fixture.remoteApi.enqueue('poll', {
+      ...approvedResponse(),
+      body: { deviceId: DEVICE_ID, future: true, membershipId: MEMBERSHIP_ID, status: 'approved' },
+    });
+    await expect(fixture.controller.resume()).resolves.toMatchObject({ phase: 'connected' });
+  });
+
   it('resumes pending approval and connects on approval across controller restarts', async () => {
     const fixture = createFixture();
     await createPendingConnection(fixture);

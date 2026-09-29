@@ -583,7 +583,7 @@ function parseDiscoveryResponse(
 ): Discovery {
   const body = parseSuccessfulResponse(response, expectedUrl);
   if (
-    !hasExactKeys(body, [
+    !hasKeys(body, [
       'apiBaseUrl',
       'authMethods',
       'capabilities',
@@ -604,7 +604,7 @@ function parseDiscoveryResponse(
         !CAPABILITY_PATTERN.test(capability),
     ) ||
     !isRecord(body.protocol) ||
-    !hasExactKeys(body.protocol, ['major', 'maxMinor', 'minMinor']) ||
+    !hasKeys(body.protocol, ['major', 'maxMinor', 'minMinor']) ||
     !isNonnegativeInteger(body.protocol.major) ||
     !isNonnegativeInteger(body.protocol.minMinor) ||
     !isNonnegativeInteger(body.protocol.maxMinor) ||
@@ -644,7 +644,7 @@ function parseInvitationReviewResponse(
 > {
   const body = parseSuccessfulResponse(response, expectedUrl);
   if (
-    !hasExactKeys(body, [
+    !hasKeys(body, [
       'expiresAt',
       'intendedMemberDisplayName',
       'inviterDisplayName',
@@ -683,7 +683,7 @@ function parsePendingRedemptionResponse(
 }> {
   const body = parseSuccessfulResponse(response, expectedUrl);
   if (
-    !hasExactKeys(body, [
+    !hasKeys(body, [
       'pendingCredential',
       'pendingDeviceId',
       'status',
@@ -720,23 +720,17 @@ function parseApprovalResponse(
   expectedUrl: string,
 ): ApprovalResponse {
   const body = parseSuccessfulResponse(response, expectedUrl);
-  if (hasExactKeys(body, ['status']) && body.status === 'pending') {
-    return { status: 'pending' };
-  }
-  if (hasExactKeys(body, ['status']) && body.status === 'rejected') {
-    return { status: 'rejected' };
-  }
+  if (body.status === 'pending') return { status: 'pending' };
+  if (body.status === 'rejected') return { status: 'rejected' };
   if (
-    !hasExactKeys(body, ['bootstrapCursor', 'deviceId', 'membershipId', 'status']) ||
     body.status !== 'approved' ||
     !isCanonicalUuid(body.deviceId) ||
-    !isCanonicalUuid(body.membershipId) ||
-    !isCursor(body.bootstrapCursor)
+    !isCanonicalUuid(body.membershipId)
   ) {
     throw new OnboardingError('invalid-response');
   }
-  // The server still sends `bootstrapCursor: null` (R11); it is validated and
-  // ignored, since the retired bootstrap phase was its only reader.
+  // `bootstrapCursor`, still sent for older plugins, is ignored: the retired
+  // bootstrap phase was its only reader.
   return {
     deviceId: body.deviceId,
     membershipId: body.membershipId,
@@ -1040,6 +1034,18 @@ function isApiBaseForOrigin(value: string, origin: string): boolean {
 
 function isNonnegativeInteger(value: unknown): value is number {
   return Number.isSafeInteger(value) && (value as number) >= 0;
+}
+
+/**
+ * A server response must carry these keys; any others are ignored (R11), so a
+ * server can add a field without cutting off every released plugin. Stored
+ * state, which only this plugin writes, still uses {@link hasExactKeys}.
+ */
+function hasKeys(
+  value: unknown,
+  requiredKeys: readonly string[],
+): value is Record<string, unknown> {
+  return isRecord(value) && requiredKeys.every((key) => Object.hasOwn(value, key));
 }
 
 function hasExactKeys(
