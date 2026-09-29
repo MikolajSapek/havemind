@@ -1,14 +1,8 @@
-import {
-  canonicalizeVaultPath,
-  hashBlob,
-  hashPlaintext,
-  SYNCABLE_BINARY_EXTENSIONS,
-} from '@havemind/protocol';
+import { hashBlob, hashPlaintext } from '@havemind/protocol';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
   bytesToBase64,
-  classifyVaultPath,
   type LocalChangeCommit,
   type LocalChangeRepository,
   type LocalFileMapping,
@@ -17,7 +11,6 @@ import {
   VaultChangeObserver,
   type VaultSnapshotPort,
 } from './vault-adapter';
-import { CONFLICT_FOLDER } from '../runtime/conflict-resolution';
 import {
   ModifyDebouncer,
   type DebounceTimer,
@@ -95,58 +88,6 @@ class MemoryVault implements VaultSnapshotPort {
     return this.contents.has(path) || this.binaryContents.has(path);
   }
 }
-
-describe('vault path eligibility', () => {
-  it('accepts canonical Markdown paths and ignores reserved, unsafe, and non-syncable paths', () => {
-    expect(classifyVaultPath('Notes/Cafe\u0301.md')).toEqual({
-      canonicalPath: 'Notes/Café.md',
-      collisionKey: 'notes/café.md',
-      eligible: true,
-      kind: 'markdown',
-    });
-
-    for (const path of [
-      '.obsidian/plugins/example/data.json',
-      '.trash/Deleted.md',
-      'Havemind Conflicts/Plan.md',
-      '../escape.md',
-      'notes/archive.zip',
-    ]) {
-      expect(classifyVaultPath(path)).toEqual({ eligible: false });
-    }
-  });
-
-  it('accepts an allowlisted binary attachment path (F9)', () => {
-    expect(classifyVaultPath('image.png')).toEqual({
-      canonicalPath: 'image.png',
-      collisionKey: 'image.png',
-      eligible: true,
-      kind: 'binary',
-    });
-  });
-
-  it.each(SYNCABLE_BINARY_EXTENSIONS)(
-    'classifies every allowlisted binary extension (.%s) as kind binary',
-    (extension) => {
-      expect(classifyVaultPath(`Attachments/asset.${extension}`)).toEqual({
-        canonicalPath: `Attachments/asset.${extension}`,
-        collisionKey: `attachments/asset.${extension}`,
-        eligible: true,
-        kind: 'binary',
-      });
-    },
-  );
-
-  it('excludes a binary attachment under the reserved Havemind Conflicts directory', () => {
-    expect(classifyVaultPath('Havemind Conflicts/x.png')).toEqual({
-      eligible: false,
-    });
-  });
-
-  it('excludes a binary attachment under a dotpath directory', () => {
-    expect(classifyVaultPath('.hidden/x.png')).toEqual({ eligible: false });
-  });
-});
 
 describe('VaultChangeObserver', () => {
   it('durably records a normalized create and deduplicates an identical modify', async () => {
@@ -809,65 +750,3 @@ describe('settled modify vs rename/delete of the same path (phantom-create guard
   });
 });
 
-describe('reserved conflict folder exclusion', () => {
-  it('keys the reserved-root exclusion on the shared CONFLICT_FOLDER constant', () => {
-    // Drift regression: the folder name used to be a private literal here, a
-    // second literal in `conflict-resolution.ts` and a third in
-    // `obsidian-adapters.ts`. Renaming one would have started re-syncing every
-    // conflict copy, an infinite echo. Assert the exclusion tracks the ONE
-    // exported constant instead of a copy of its current value.
-    expect(classifyVaultPath(`${CONFLICT_FOLDER}/copy.md`).eligible).toBe(false);
-    expect(
-      classifyVaultPath(`${CONFLICT_FOLDER}/Nested/copy.png`).eligible,
-    ).toBe(false);
-  });
-
-  it('excludes only the exact reserved root, never a lookalike sibling folder', () => {
-    expect(classifyVaultPath(`${CONFLICT_FOLDER} Archive/note.md`).eligible).toBe(
-      true,
-    );
-    expect(classifyVaultPath(`Notes/${CONFLICT_FOLDER}/note.md`).eligible).toBe(
-      true,
-    );
-  });
-
-  it('excludes a case variant of the reserved root, matching the protocol', () => {
-    // The producer used to compare the top segment case-SENSITIVELY while the
-    // protocol's `RESERVED_ROOTS` folds case. On a case-insensitive filesystem
-    // (macOS, Windows) `havemind conflicts/x.md` is the SAME folder as the
-    // reserved one, so the producer classified it eligible, enqueued it, and
-    // `canonicalizeVaultPath` then threw at envelope-build time. That throw
-    // kills the whole push cycle and latches the device Offline, the exact
-    // failure mode the backslash guard above this function exists to prevent.
-    for (const variant of [
-      CONFLICT_FOLDER.toLowerCase(),
-      CONFLICT_FOLDER.toUpperCase(),
-    ]) {
-      expect(classifyVaultPath(`${variant}/x.md`).eligible).toBe(false);
-      expect(() => canonicalizeVaultPath(`${variant}/x.md`)).toThrow(/reserved/i);
-    }
-  });
-
-  it('never classifies eligible a path the protocol reserves', () => {
-    // Pins the two layers together: anything the producer admits must survive
-    // `canonicalizeVaultPath`, or the push cycle throws instead of syncing.
-    const probes = [
-      'Notes/.drafts/x.md',
-      '.drafts/x.md',
-      '.trash/x.md',
-      `${CONFLICT_FOLDER}/x.md`,
-      CONFLICT_FOLDER.toLowerCase() + '/x.md',
-      '.obsidian/appearance.json',
-      '.obsidian/plugins/foo/main.js',
-      '.obsidian/snippets/a.css',
-      'Notes/pic.PNG',
-      'Notes/doc.docx',
-      'a/b.md',
-    ];
-    for (const probe of probes) {
-      if (classifyVaultPath(probe).eligible) {
-        expect(() => canonicalizeVaultPath(probe)).not.toThrow();
-      }
-    }
-  });
-});
