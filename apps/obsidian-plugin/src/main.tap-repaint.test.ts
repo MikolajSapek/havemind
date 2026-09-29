@@ -14,15 +14,18 @@
  * today and fails loudly when a tenth path is added.
  */
 
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
-const source = readFileSync(
-  fileURLToPath(new URL('./main.ts', import.meta.url)),
-  'utf8',
-);
+/** The plugin class and the modules under `plugin/` it is composed from. */
+const source = [
+  'main.ts',
+  ...readdirSync(new URL('./plugin', import.meta.url)).map((name) => `plugin/${name}`),
+]
+  .map((path) => readFileSync(fileURLToPath(new URL(`./${path}`, import.meta.url)), 'utf8'))
+  .join('\n');
 
 /**
  * Methods reached from a UI control or a command: a person tapped something and
@@ -43,9 +46,9 @@ const TAP_METHODS = [
 /** The body of a method, from its signature to the next one at the same depth. */
 function methodBody(name: string): string {
   const start = source.search(
-    new RegExp(`\\n {2}private (async )?${name}\\(`),
+    new RegExp(`\\n {2}(private|public) (async )?${name}\\(`),
   );
-  if (start < 0) throw new Error(`method ${name} not found in main.ts`);
+  if (start < 0) throw new Error(`method ${name} not found in the plugin sources`);
   const next = source.slice(start + 1).search(/\n {2}(private|public|override) /);
   return next < 0 ? source.slice(start) : source.slice(start, start + 1 + next);
 }

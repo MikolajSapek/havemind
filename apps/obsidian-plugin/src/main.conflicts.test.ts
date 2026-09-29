@@ -19,6 +19,7 @@ import {
 } from './test/obsidian.mock';
 import { descendants, createContent, asEl } from './test/dom';
 import { manifest } from './test/fixtures';
+import { internals } from './test/plugin-internals';
 
 function newCopy(overrides: Partial<ConflictCopy> = {}): ConflictCopy {
   return {
@@ -328,11 +329,7 @@ describe('HavemindPlugin conflict resolution flow', () => {
     const { vault, modified, deleted } = fakeVaultWithConflict();
     (app as unknown as { vault: unknown }).vault = vault;
 
-    const open = (
-      plugin as unknown as {
-        openConflictModal: (p: string) => Promise<ConflictResolveModal | null>;
-      }
-    ).openConflictModal.bind(plugin);
+    const open = internals(plugin).openConflictModal;
 
     const modal = await open(
       'Havemind Conflicts/Notatka (conflict Magda 2026-07-16 1542).md',
@@ -365,11 +362,9 @@ describe('HavemindPlugin conflict resolution flow', () => {
     const { vault } = fakeVaultWithConflict();
     (app as unknown as { vault: unknown }).vault = vault;
 
-    const modal = await (
-      plugin as unknown as {
-        openConflictModal: (p: string) => Promise<ConflictResolveModal | null>;
-      }
-    ).openConflictModal('Havemind Conflicts/does-not-exist.md');
+    const modal = await internals(plugin).openConflictModal(
+      'Havemind Conflicts/does-not-exist.md',
+    );
     expect(modal).toBeNull();
   });
 });

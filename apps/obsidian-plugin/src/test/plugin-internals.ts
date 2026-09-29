@@ -13,6 +13,7 @@
  */
 
 import type HavemindPlugin from '../main';
+import type { ConflictResolveModal } from '../ui/conflict-modal';
 
 /** The private surface the lifecycle tests drive. Widen as tests need it. */
 export interface PluginInternals {
@@ -24,6 +25,7 @@ export interface PluginInternals {
   handleStatus(status: string, view?: unknown, detail?: string): void;
   loadData(): Promise<unknown>;
   loadRoster(): Promise<void>;
+  openConflictModal(copyPath: string): Promise<ConflictResolveModal | null>;
   pendingApprovals: unknown;
   pollRejoinOnce(): Promise<void>;
   recordRosterMember(member: unknown): Promise<void>;
@@ -43,10 +45,27 @@ export interface PluginInternals {
   refreshLastEdited(): Promise<void>;
 }
 
+/** The plugin fields holding the modules under `plugin/` that members moved into. */
+const MODULES = ['conflicts', 'sendQueue'];
+
 /**
  * Reads the plugin as its private surface. One cast, declared once, instead of
- * an `any` and a lint suppression at every call site.
+ * an `any` and a lint suppression at every call site. A member the plugin no
+ * longer has is found on the module it moved into, and methods come back bound
+ * to their owner, so `this` is never the proxy.
  */
 export function internals(plugin: HavemindPlugin): PluginInternals {
-  return plugin as unknown as PluginInternals;
+  const fields = plugin as unknown as Record<string, object>;
+  const owner = (key: string | symbol): object =>
+    key in plugin
+      ? plugin
+      : (MODULES.map((name) => fields[name] as object).find((module) => key in module) ?? plugin);
+  return new Proxy(plugin, {
+    get: (_plugin, key) => {
+      const holder = owner(key);
+      const value: unknown = Reflect.get(holder, key);
+      return typeof value === 'function' ? value.bind(holder) : value;
+    },
+    set: (_plugin, key, value) => Reflect.set(owner(key), key, value),
+  }) as unknown as PluginInternals;
 }

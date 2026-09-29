@@ -8,29 +8,11 @@ import {
 
 
 import { isSafePassiveJoinProtocolData } from './onboarding/invite';
-import { parseFailedToQueuePath } from './runtime/sync-state';
 import type { DurableSyncState } from './runtime/sync-state';
-import {
-  computeLineDiff,
-  createConflictResolver,
-  createObsidianConflictPort,
-  listConflictCopies,
-  type ConflictVaultPort,
-  type DiffLine,
-  type ResolveAction,
-} from './runtime/conflict-resolution';
-import { CachedConflictList } from './runtime/conflict-cache';
-import {
-  buildSendQueueStatus,
-  selectNewlyQuarantined,
-  type SendQueueStatusView,
-} from './runtime/send-queue-status';
-import { sweepConflictCopies } from './runtime/conflict-sweep';
 import {
   createSerializedDataPort,
   getPluginDataMutex,
 } from './runtime/plugin-data-mutex';
-import { RerunGuard } from './runtime/rerun-guard';
 import { restoreRevision, type RestoreDeps } from './runtime/activity-restore';
 import { lastEditedLabel } from './runtime/last-edited';
 import {
@@ -79,11 +61,9 @@ import {
   copyTextToClipboard,
 } from './runtime/clipboard';
 
+import { Conflicts } from './plugin/conflicts';
+import { SendQueue } from './plugin/send-queue';
 import { ConfirmModal } from './ui/confirm-modal';
-import {
-  ConflictResolveModal,
-  buildConflictModalModel,
-} from './ui/conflict-modal';
 import {
   HavemindOnboardingView,
   type ConnectReporter,
@@ -97,10 +77,6 @@ import {
   formatActivityTime,
   prefersReducedMotion,
 } from './ui/primitives';
-import {
-  planQuarantineRequeueFallback,
-  planRetryFromDisk,
-} from './ui/retry-plan';
 import { HavemindSettingTab, formatMemberCount } from './ui/setting-tab';
 import { PluginViewRegistry } from './ui/view-registry';
 import type {
@@ -109,16 +85,9 @@ import type {
 } from './ui/settings-model';
 import { HAVEMIND_ONBOARDING_VIEW } from './ui/view-types';
 
-/** Debounce window for the MRG-05 auto-repair sweep, a burst becomes one pass. */
-/** Send-queue row id prefix for a parked incoming change (B2). */
-const PARKED_ROW_PREFIX = 'received:';
-const CONFLICT_SWEEP_DEBOUNCE_MS = 2000;
-
-/** `data.json` key holding the F6 "Show authors" toggle. */
-
 export default class HavemindPlugin extends Plugin {
   private statusItem: HTMLElement | null = null;
-  private connection: ConnectionHandle | null = null;
+  connection: ConnectionHandle | null = null;
   /**
    * Set true in `onunload`. `startConnection` runs on `onLayoutReady` and awaits
    * an async connection build; if the plugin is disabled while that await is in
@@ -149,7 +118,7 @@ export default class HavemindPlugin extends Plugin {
   private lastSyncedAt: number | undefined;
   private connectionError: string | undefined;
   /** Lifecycle-safe bridge between long-lived plugin state and short-lived leaves. */
-  private readonly views = new PluginViewRegistry();
+  readonly views = new PluginViewRegistry();
   /** Live feed behind the Activity view (previously orphaned, now wired). */
   private readonly activityLog = new ActivityLog();
   /** Disposer for the activityLog subscription set up in onload(); torn down in onunload(). */
@@ -173,14 +142,6 @@ export default class HavemindPlugin extends Plugin {
    * so unload tears the poll down. Null when no rejoin is armed.
    */
   private rejoinController: RejoinController | null = null;
-  /**
-   * The conflict scan, cached between vault changes. The pane reads it twice
-   * per render and repaints often; each scan walks the whole vault.
-   */
-  private readonly conflicts = new CachedConflictList(() =>
-    listConflictCopies(this.conflictPort()),
-  );
-
   private rejoinPollTimer: ReturnType<typeof globalThis.setInterval> | null = null;
   /** Guards the post-rejoin restart so it fires exactly once (no double-start). */
   private rejoinRestarted = false;
@@ -210,37 +171,15 @@ export default class HavemindPlugin extends Plugin {
    */
   private resetInFlight = false;
   /**
-   * MRG-03 conflict resolver. Its per-copy guard makes a double-clicked resolve
-   * fire each destructive vault op at most once. Lazily bound to the live vault
-   * port on first use so a headless test never needs a real vault.
-   */
-  private conflictResolver: ReturnType<typeof createConflictResolver> | null = null;
-  /**
    * The live durable sync state (SND-01 + MRG-05), captured from the connection
    * handle. Null when disconnected, the send-queue panel then renders nothing
    * and the sweep is a no-op.
    */
-  private syncState: DurableSyncState | null = null;
-  /**
-   * Quarantine revisionIds already announced with a Notice (SND-01). A Notice
-   * fires only the FIRST time an item enters quarantine, never on every retry.
-   */
-  private notifiedQuarantineIds = new Set<string>();
-  /**
-   * Debounce timer for the MRG-05 auto-repair sweep. A burst of new conflict
-   * copies coalesces into a single pass ~2s after the last write.
-   */
-  private conflictSweepTimer: ReturnType<typeof globalThis.setTimeout> | null = null;
-  /**
-   * Serialises sweep runs AND re-arms one more pass when a trigger arrives
-   * mid-run, so a conflict copy written while a sweep is in flight is not
-   * dropped (MINOR); the guarded no-op used to leave it un-swept.
-   */
-  private readonly conflictSweepGuard = new RerunGuard(() =>
-    this.runConflictSweepOnce(),
-  );
+  syncState: DurableSyncState | null = null;
   /** Status bar item naming who last edited the open note. */
   private lastEditedItem: HTMLElement | null = null;
+  readonly conflicts = new Conflicts(this);
+  readonly sendQueue = new SendQueue(this);
 
   override onload(): void {
     // The pane carries the activity feed as a tab (plans/007 Stage 0) and is the
@@ -284,21 +223,21 @@ export default class HavemindPlugin extends Plugin {
         guestWaitingProvider: () => this.awaitingApproval,
         guestInvalidProvider: () => this.guestInvitationInvalid,
         panelProvider: () => this.connectionPanel(),
-        conflictsProvider: () => this.conflicts.read(),
+        conflictsProvider: () => this.conflicts.list.read(),
         onResolveConflict: (copyPath) => {
-          void this.openConflictModal(copyPath);
+          void this.conflicts.openConflictModal(copyPath);
         },
-        sendQueueProvider: () => this.sendQueueView(),
+        sendQueueProvider: () => this.sendQueue.sendQueueView(),
         recoveryRequiredProvider: () =>
           this.syncState?.isRecoveryRequired() ?? false,
         onRetrySend: (revisionId) => {
-          void this.retrySend(revisionId).catch(() => {
+          void this.sendQueue.retrySend(revisionId).catch(() => {
             new Notice('Havemind: could not retry this queued change.');
             this.views.refreshOnboardingNow();
           });
         },
         onDiscardSend: (revisionId) => {
-          void this.discardSend(revisionId).catch(() => {
+          void this.sendQueue.discardSend(revisionId).catch(() => {
             new Notice('Havemind: could not discard this queued change.');
             this.views.refreshOnboardingNow();
           });
@@ -461,30 +400,11 @@ export default class HavemindPlugin extends Plugin {
       void this.openView(HAVEMIND_ONBOARDING_VIEW);
     });
 
+    this.conflicts.watchVault();
+
     // On layout-ready, resume any stored onboarding to `connected` and start
     // the live sync loop. When there is no connection this reports disconnected
     // and starts nothing, so the loaded-but-disconnected shell stays passive.
-    // The cached conflict scan is invalidated by vault events, never by a
-    // timer: a timer would either rescan too often, which is the cost the cache
-    // exists to remove, or serve a stale list at the moment a conflict appears.
-    // A conflict the user cannot see is the one failure this plugin must not
-    // have (plan/01 rule 4). Rename counts: a copy moving in or out of the
-    // reserved folder changes the list without creating or deleting anything.
-    for (const event of ['create', 'delete', 'rename'] as const) {
-      // Cast on `app`, matching `conflictPort()`: the local typings do not
-      // model `vault`.
-      const { vault } = this.app as unknown as {
-        vault: { on?: (name: string, handler: () => void) => unknown };
-      };
-      const ref = vault.on?.(event, () => {
-        this.conflicts.invalidate();
-        this.views.refreshOnboarding();
-      });
-      if (ref !== undefined && ref !== null) {
-        this.registerEvent(ref as Parameters<typeof this.registerEvent>[0]);
-      }
-    }
-
     this.app.workspace.onLayoutReady(() => {
       void this.startConnection();
     });
@@ -507,10 +427,7 @@ export default class HavemindPlugin extends Plugin {
     // Cancel any in-flight invitee rejoin poll so it never fires after unload.
     this.disarmRejoin();
     // Cancel any pending auto-repair sweep so it never fires after unload.
-    if (this.conflictSweepTimer !== null) {
-      globalThis.clearTimeout(this.conflictSweepTimer);
-      this.conflictSweepTimer = null;
-    }
+    this.conflicts.cancelConflictSweep();
     this.connection?.stop();
     this.connection = null;
     this.syncState = null;
@@ -738,7 +655,7 @@ export default class HavemindPlugin extends Plugin {
     // build), sweep any pre-existing conflict copies that a persisted ancestor
     // can now auto-merge. Scheduled (debounced) so it runs alongside, not
     // ahead of, the first sync cycle.
-    this.scheduleConflictSweep();
+    this.conflicts.scheduleConflictSweep();
     } finally {
       this.connectionAttemptAborters.delete(attempt);
     }
@@ -758,7 +675,7 @@ export default class HavemindPlugin extends Plugin {
       // the other device's edits are no longer invisible.
       onRemoteActivity: (entry) => this.activityLog.record(entry),
       // MRG-05: a new conflict copy schedules a debounced auto-repair sweep.
-      onConflictWritten: () => this.scheduleConflictSweep(),
+      onConflictWritten: () => this.conflicts.scheduleConflictSweep(),
       // MAJOR 1: a successful commit that cleared a stale failed-to-queue row
       // refreshes the panel at once, so the phantom failure disappears.
       onSendQueueChanged: () => this.views.refreshOnboarding(),
@@ -766,7 +683,7 @@ export default class HavemindPlugin extends Plugin {
       // row, so record its id as notified, the panel's quarantine-notice check
       // then skips it, preventing a duplicate Notice for the same event.
       onFailedToQueueNotified: (revisionId) =>
-        this.notifiedQuarantineIds.add(revisionId),
+        this.sendQueue.notifiedQuarantineIds.add(revisionId),
     };
   }
 
@@ -802,101 +719,6 @@ export default class HavemindPlugin extends Plugin {
         `Havemind: could not restore that version, ${error instanceof Error ? error.message : 'unexpected error'}`,
       );
     }
-  }
-
-  /**
-   * The Obsidian-backed conflict vault port. `this.app.vault` is not modelled on
-   * the ambient `App`, so cast through a local shape rather than patching the
-   * shared interface (the port degrades to "no conflicts" for a stub vault).
-   */
-  private conflictPort(): ConflictVaultPort {
-    const app = this.app as unknown as {
-      vault: Parameters<typeof createObsidianConflictPort>[0];
-      workspace?: Parameters<typeof createObsidianConflictPort>[1];
-    };
-    return createObsidianConflictPort(app.vault, app.workspace);
-  }
-
-  /**
-   * Opens the MRG-03 resolve modal for a conflict copy: computes the note-vs-copy
-   * diff (text copies with a known target only), then wires the three actions to
-   * the shared resolver. After a resolve, the panel re-renders so the resolved
-   * row drops out and the section disappears once empty.
-   */
-  private async openConflictModal(
-    copyPath: string,
-  ): Promise<ConflictResolveModal | null> {
-    try {
-      return await this.openConflictModalOnce(copyPath);
-    } catch {
-      new Notice('Havemind: could not open this conflict. Try again.');
-      this.views.refreshOnboarding();
-      return null;
-    }
-  }
-
-  /** The fallible vault read and modal construction behind the safe UI boundary. */
-  private async openConflictModalOnce(
-    copyPath: string,
-  ): Promise<ConflictResolveModal | null> {
-    const port = this.conflictPort();
-    const copy = listConflictCopies(port).find((c) => c.copyPath === copyPath);
-    if (copy === undefined) return null;
-
-    let diff: DiffLine[] | null = null;
-    let diffTooLarge = false;
-    if (copy.targetKnown && !copy.isBinary && copy.targetPath !== null) {
-      const [mine, theirs] = await Promise.all([
-        port.readText(copy.targetPath),
-        port.readText(copy.copyPath),
-      ]);
-      // MINOR 6: a null read means one side is absent; show no diff rather than
-      // diffing against a phantom empty string.
-      if (mine !== null && theirs !== null) {
-        diff = computeLineDiff(mine, theirs);
-        diffTooLarge = diff === null;
-      }
-    }
-
-    if (this.conflictResolver === null) {
-      this.conflictResolver = createConflictResolver(port);
-    }
-    const resolver = this.conflictResolver;
-    const run = (action: ResolveAction, modal: ConflictResolveModal): void => {
-      void resolver.resolve(copy, action).then(
-        (outcome) => {
-          // The auto-sweep may have resolved and deleted this copy while the modal
-          // was open. keepTheirs aborts as 'vanished' rather than blanking the
-          // already-merged note; tell the user and refresh the stale panel/modal.
-          if (outcome === 'vanished') {
-            new Notice('This conflict was already auto-resolved.');
-          }
-          if (outcome === 'target-missing') {
-            new Notice('The note was moved or deleted, so the conflict copy was kept.');
-          }
-          modal.close();
-          this.views.refreshOnboarding();
-        },
-        () => {
-          new Notice('Havemind: could not resolve this conflict. Try again.');
-          this.views.refreshOnboarding();
-        },
-      );
-    };
-
-    const modal: ConflictResolveModal = new ConflictResolveModal(
-      this.app,
-      buildConflictModalModel(copy, diff, { diffTooLarge }),
-      {
-        onKeepMine: () => run('keepMine', modal),
-        ...(copy.targetKnown && !copy.isBinary
-          ? { onKeepTheirs: () => run('keepTheirs', modal) }
-          : {}),
-        onKeepBoth: () => run('keepBoth', modal),
-      },
-    );
-    modal.open();
-    return modal;
   }
 
   /** Records the local member into the roster once the connection knows it. */
@@ -1053,7 +875,7 @@ export default class HavemindPlugin extends Plugin {
       // P3: pull the server-authoritative roster for this freshly paired vault.
       void this.refreshRoster();
       // MRG-05: sweep any pre-existing conflict copies now that a base is loaded.
-      this.scheduleConflictSweep();
+      this.conflicts.scheduleConflictSweep();
     }
     } finally {
       this.connectionAttemptAborters.delete(attempt);
@@ -1150,223 +972,8 @@ export default class HavemindPlugin extends Plugin {
     }
     // SND-01: fire a Notice the first time each item enters quarantine (never on
     // a retry). Runs on every status change, the point sends are dead-lettered.
-    this.checkQuarantineNotices();
+    this.sendQueue.checkQuarantineNotices();
     this.setStatus(view);
-    this.views.refreshOnboarding();
-  }
-
-  /**
-   * SND-01 send-queue view for the panel, or null when disconnected (no state).
-   * Reads outbox ages + quarantine straight from the persisted sync state and
-   * resolves each quarantined fileId back to a vault path where one is known.
-   */
-  private sendQueueView(): SendQueueStatusView | null {
-    const state = this.syncState;
-    if (state === null) return null;
-    return buildSendQueueStatus({
-      outbox: state.outboxAges(),
-      quarantine: [
-        ...state.quarantineSnapshot(),
-        // Incoming changes this device could not apply (B2) share the same rows.
-        ...state.parkedSnapshot().map((item) => ({
-          ...item,
-          revisionId: `${PARKED_ROW_PREFIX}${item.revisionId}`,
-          reason: `Could not be received: ${item.reason}`,
-        })),
-      ].map((item) => {
-        const path = state.pathForFileId(item.fileId);
-        return {
-          revisionId: item.revisionId,
-          fileId: item.fileId,
-          reason: item.reason,
-          ...(path === null ? {} : { path }),
-        };
-      }),
-      now: Date.now(),
-    });
-  }
-
-  /**
-   * Retry a quarantined send. A server-rejected send (SND-01) re-enqueues its
-   * stashed envelope through the outbox. A failed-to-queue row (SND-02, MAJOR 2)
-   * has no envelope, it never reached the outbox, so Retry re-runs the commit
-   * chain for the path against the current on-disk content; if the file has
-   * since been deleted, surface a Notice and drop the stale row instead of
-   * pushing a phantom empty create for a vanished file.
-   */
-  private async retrySend(revisionId: string): Promise<void> {
-    if (revisionId.startsWith(PARKED_ROW_PREFIX)) {
-      await this.retryParked(revisionId.slice(PARKED_ROW_PREFIX.length));
-      return;
-    }
-    // Failed-to-queue synthetic row (SND-02): never had an envelope. Leave the
-    // row in place on a successful re-trigger, onCommitSuccess (MAJOR 1) clears
-    // it once the commit actually goes through.
-    const failedPath = parseFailedToQueuePath(revisionId);
-    if (failedPath !== null) {
-      await this.retryFromDisk(revisionId, failedPath, { discardOnRetrigger: false });
-      return;
-    }
-    // Server-rejected send (SND-01): re-enqueue the stashed envelope. When the
-    // stash was evicted under the byte budget (MAJOR 4) the requeue is inert, so
-    // fall back to re-committing the file from disk (source of truth) and drop
-    // the superseded dead-letter row. FINDING 2: when the fileId no longer
-    // resolves to a path there is nothing to re-commit, so surface a Notice and
-    // discard the dead-letter row rather than leaving Retry a silent no-op.
-    const requeued = (await this.syncState?.requeueQuarantined(revisionId)) ?? false;
-    const fallback = planQuarantineRequeueFallback(
-      requeued,
-      this.pathForQuarantineRow(revisionId),
-    );
-    if (fallback.kind === 'retry-from-disk') {
-      await this.retryFromDisk(revisionId, fallback.path, {
-        discardOnRetrigger: true,
-      });
-      return;
-    }
-    if (fallback.kind === 'discard-dead-letter') {
-      new Notice(fallback.notice);
-      await this.syncState?.discardQuarantined(revisionId);
-    }
-    this.views.refreshOnboarding();
-  }
-
-  /** The vault path a quarantine row's fileId resolves to, or null. */
-  private pathForQuarantineRow(revisionId: string): string | null {
-    const state = this.syncState;
-    if (state === null) return null;
-    const row = state
-      .quarantineSnapshot()
-      .find((item) => item.revisionId === revisionId);
-    return row === undefined ? null : state.pathForFileId(row.fileId);
-  }
-
-  /**
-   * Re-run the commit chain for `path` from disk (the MAJOR 2 recovery for a row
-   * with no usable stashed envelope). FINDING 1: the retry outcome is tri-state.
-   * Only a CONFIRMED-missing file drops the row; `unavailable` (debouncer
-   * disposed) and a null/uncallable connection, the common state for a durable
-   * row after a restart, before reconnect, keep the row and tell the user to
-   * reconnect, so a real unsynced change is never silently discarded.
-   * `discardOnRetrigger` drops the row immediately after a real re-trigger for a
-   * superseded server-rejected row (MAJOR 4); a failed-to-queue row keeps its
-   * row until the commit lands.
-   */
-  private async retryFromDisk(
-    revisionId: string,
-    path: string,
-    options: { readonly discardOnRetrigger: boolean },
-  ): Promise<void> {
-    const outcome = this.connection?.retryFailedCommit?.(path);
-    const effect = planRetryFromDisk(outcome, path, options.discardOnRetrigger);
-    if (effect.notice !== null) new Notice(effect.notice);
-    if (effect.discard) await this.syncState?.discardQuarantined(revisionId);
-    this.views.refreshOnboardingNow();
-  }
-
-  /** Permanently discard a quarantined send (SND-01). */
-  /** Applies a parked incoming change again (B2). */
-  private async retryParked(revisionId: string): Promise<void> {
-    try {
-      const done = (await this.connection?.retryParked?.(revisionId)) ?? false;
-      if (!done) {
-        new Notice('Havemind: the note is open with unsaved changes, or you are not connected. Try again later.');
-      }
-    } catch (error) {
-      new Notice(
-        `Havemind: still cannot apply this change, ${error instanceof Error ? error.message : 'unexpected error'}`,
-      );
-    }
-    this.views.refreshOnboardingNow();
-  }
-
-  private async discardSend(revisionId: string): Promise<void> {
-    if (revisionId.startsWith(PARKED_ROW_PREFIX)) {
-      await this.syncState?.unparkRemote(revisionId.slice(PARKED_ROW_PREFIX.length));
-      this.views.refreshOnboardingNow();
-      return;
-    }
-    await this.syncState?.discardQuarantined(revisionId);
-    this.views.refreshOnboardingNow();
-  }
-
-  /**
-   * SND-01: emit one Notice per item the FIRST time it enters quarantine. A
-   * retry that re-quarantines the same revision is silent, its id is already in
-   * `notifiedQuarantineIds`. Discarding then re-quarantining a NEW revision for
-   * the same file does notify, which is correct: it is a distinct failed send.
-   */
-  private checkQuarantineNotices(): void {
-    const state = this.syncState;
-    if (state === null) return;
-    const quarantine = state.quarantineSnapshot().map((item) => ({
-      revisionId: item.revisionId,
-      fileId: item.fileId,
-      reason: item.reason,
-      ...(state.pathForFileId(item.fileId) === null
-        ? {}
-        : { path: state.pathForFileId(item.fileId) as string }),
-    }));
-    const { fresh, next } = selectNewlyQuarantined(
-      this.notifiedQuarantineIds,
-      quarantine,
-    );
-    this.notifiedQuarantineIds = new Set(next);
-    for (const item of fresh) {
-      const label = item.path ?? item.fileId;
-      new Notice(
-        `A change to ${label} could not be sent, see the Havemind panel.`,
-      );
-    }
-  }
-
-  /**
-   * MRG-05: schedule a single debounced auto-repair sweep. A burst of new
-   * conflict copies (or a start-up call plus a runtime write) collapses into one
-   * pass ~2s after the last trigger. The sweep only writes notes (outside the
-   * reserved folder) and deletes resolved copies (inside it), and the trigger
-   * keys off NEW copy writes only, so a sweep never re-schedules itself.
-   */
-  private scheduleConflictSweep(): void {
-    if (this.conflictSweepTimer !== null) {
-      globalThis.clearTimeout(this.conflictSweepTimer);
-    }
-    this.conflictSweepTimer = globalThis.setTimeout(() => {
-      this.conflictSweepTimer = null;
-      void this.runConflictSweep().catch(() => {
-        new Notice('Havemind: automatic conflict repair could not finish.');
-        this.views.refreshOnboarding();
-      });
-    }, CONFLICT_SWEEP_DEBOUNCE_MS);
-  }
-
-  /**
-   * Runs one auto-repair pass (MRG-05). The merge ancestor comes from the
-   * connection's revision history; a copy with none is left untouched for the
-   * manual modal. A guard prevents overlapping runs. Refreshes
-   * the panel afterwards so a resolved conflict's row drops out.
-   */
-  private async runConflictSweep(): Promise<void> {
-    if (this.syncState === null) return;
-    // The guard serialises passes and re-arms one more run if a copy is written
-    // mid-sweep, so a mid-run trigger is never silently dropped (MINOR).
-    await this.conflictSweepGuard.trigger();
-  }
-
-  /** One sweep pass. Called only via {@link conflictSweepGuard}. */
-  private async runConflictSweepOnce(): Promise<void> {
-    const state = this.syncState;
-    if (state === null) return;
-    await sweepConflictCopies({
-      port: this.conflictPort(),
-      fileIdAtPath: (path) => state.fileIdAtPath(path),
-      fileIdForCopy: (path) => state.fileIdForConflictCopy(path),
-      ancestorFor: async (copyPath, fileId, targetPath) =>
-        (await this.connection?.conflictAncestor?.(copyPath, fileId, targetPath)) ?? null,
-      notify: (message) => {
-        new Notice(`Havemind: ${message}`);
-      },
-    });
     this.views.refreshOnboarding();
   }
 
@@ -1669,7 +1276,7 @@ export default class HavemindPlugin extends Plugin {
       this.rejoinWaiting = new Set<string>();
       this.pendingInvitation = null;
       this.pendingApprovals = [];
-      this.notifiedQuarantineIds = new Set<string>();
+      this.sendQueue.notifiedQuarantineIds = new Set<string>();
       this.awaitingApproval = null;
       this.guestInvitationInvalid = false;
       this.connectionActive = false;

@@ -1368,7 +1368,7 @@ describe('conflict scanning is cached', () => {
     let scans = 0;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const anyPlugin = plugin as any;
-    anyPlugin.conflicts = {
+    anyPlugin.conflicts.list = {
       read: () => {
         scans += 1;
         return [];
