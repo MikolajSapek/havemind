@@ -20,10 +20,7 @@ import {
 } from '@havemind/protocol';
 import { mergeText, type DecodedRevisionPayload } from '@havemind/sync-core';
 
-import {
-  bytesToBase64,
-  classifyVaultPath,
-} from '../obsidian/vault-adapter';
+import { classifyVaultPath } from '../obsidian/vault-adapter';
 
 import { withKeys, KeyedMutex, type KeyedLock } from './keyed-mutex';
 
@@ -135,13 +132,13 @@ export interface RemoteAppliedEvent {
 
 /**
  * Keeps the push producer's fileId↔path↔content map in lockstep with what apply
- * writes: adopting the incoming fileId + content BEFORE a write dedupes its vault
+ * writes: adopting the incoming fileId and hash BEFORE a write dedupes its vault
  * event, which would otherwise be re-pushed as a local revision, recorded as
  * LOCAL activity and (for a remote-only create) given a new random fileId.
  */
 export interface RemoteApplyProducerSync {
   checkpointApply?(fileId: string, paths: readonly string[]): Promise<(() => Promise<void>) & { complete?: () => Promise<void> }>;
-  /** Adopt `fileId`/`content` for `path`, parenting future local edits on
+  /** Adopt `fileId` and the content's hash for `path`, parenting future local edits on
    * `revisionId`. `contentHash` is the SHA-256 hex of the note text, or the
    * raw-byte hash of a binary. `contentKind` keeps the binary/markdown
    * discriminator (else a RECEIVED binary would be persisted as markdown and
@@ -149,7 +146,6 @@ export interface RemoteApplyProducerSync {
   onRemoteWrite(input: {
     readonly fileId: string;
     readonly path: string;
-    readonly content: string;
     readonly contentHash: string;
     readonly revisionId: string;
     readonly contentKind?: SyncContentKind;
@@ -364,7 +360,6 @@ export class VaultApplyAdapter implements VaultApplyPort {
       await this.producerSync?.onRemoteWrite({
         fileId,
         path: decoded.path,
-        content: typeof incoming === 'string' ? incoming : bytesToBase64(incoming),
         contentHash: incomingHash,
         contentKind: decoded.kind ?? 'markdown',
         revisionId: event.revision.revisionId,

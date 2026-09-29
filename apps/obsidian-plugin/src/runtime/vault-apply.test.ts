@@ -944,14 +944,13 @@ describe('VaultApplyAdapter', () => {
     ): {
       adapter: VaultApplyAdapter;
       files: FakeFiles;
-      writes: Array<{ fileId: string; path: string; content: string; revisionId: string }>;
+      writes: Array<{ fileId: string; path: string; revisionId: string }>;
       deletes: Array<{ fileId: string; path: string }>;
     } {
       const files = new FakeFiles();
       const writes: Array<{
         fileId: string;
         path: string;
-        content: string;
         revisionId: string;
       }> = [];
       const deletes: Array<{ fileId: string; path: string }> = [];
@@ -965,7 +964,6 @@ describe('VaultApplyAdapter', () => {
             writes.push({
               fileId: input.fileId,
               path: input.path,
-              content: input.content,
               revisionId: input.revisionId,
             });
           },
@@ -984,7 +982,6 @@ describe('VaultApplyAdapter', () => {
         {
           fileId: 'remote-file',
           path: 'Notes/new.md',
-          content: 'A\n',
           revisionId: 'rev-1',
         },
       ]);

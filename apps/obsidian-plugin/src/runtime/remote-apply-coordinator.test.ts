@@ -41,7 +41,6 @@ describe('createRemoteApplyProducerSync', () => {
     await sync.onRemoteWrite({
       fileId: 'remote-file',
       path: 'Notes/Shared.md',
-      content: 'SHARED\n',
       contentHash: 'hash-s',
       revisionId: 'rev-1',
     });
@@ -76,7 +75,6 @@ describe('createRemoteApplyProducerSync', () => {
       sync.onRemoteWrite({
         fileId: 'f',
         path: 'Notes/a.md',
-        content: 'A\n',
         contentHash: 'h',
         revisionId: 'r',
       }),
@@ -93,7 +91,6 @@ describe('createRemoteApplyProducerSync', () => {
     await sync.onRemoteWrite({
       fileId: 'f',
       path: 'Havemind Conflicts/x.md',
-      content: 'X\n',
       contentHash: 'h',
       revisionId: 'r',
     });
@@ -108,7 +105,6 @@ describe('createRemoteApplyProducerSync', () => {
     await sync.onRemoteWrite({
       fileId: 'bin',
       path: 'Images/pic.png',
-      content: 'YmFzZTY0Ynl0ZXM=',
       contentHash: 'raw-byte-hash',
       revisionId: 'r-bin',
       contentKind: 'binary',
@@ -138,7 +134,6 @@ describe('createRemoteApplyProducerSync', () => {
     await sync.onRemoteWrite({
       fileId: 'bin',
       path: 'Images/pic.png',
-      content: 'YmFzZTY0Ynl0ZXM=',
       contentHash: 'raw-byte-hash',
       revisionId: 'r-bin',
       contentKind: 'binary',
