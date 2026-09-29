@@ -383,6 +383,25 @@ describe('VaultChangeObserver binary attachments (F9)', () => {
     expect(identical).toBeNull();
   });
 
+  it('does not base64-encode an attachment that did not change', async () => {
+    // The event a remote apply's own write fires is a modify of a file that
+    // already matches its mapping. Encoding a 25 MB attachment only to throw the
+    // result away costs a 33 MB string and seconds of blocked thread on a phone.
+    const vault = new MemoryVault();
+    vault.binaryContents.set('image.png', new Uint8Array([0x01, 0x02, 0x03]));
+    const repository = new MemoryRepository();
+    const observer = createObserver(vault, repository);
+    await observer.observeCreate('image.png');
+    const btoaSpy = vi.spyOn(globalThis, 'btoa');
+
+    const unchanged = await observer.observeModify('image.png');
+
+    const encoded = btoaSpy.mock.calls.length;
+    btoaSpy.mockRestore();
+    expect(unchanged).toBeNull();
+    expect(encoded).toBe(0);
+  });
+
   it('excludes a binary attachment over MAX_BINARY_FILE_BYTES from create (no commit)', async () => {
     const vault = new MemoryVault();
     const oversized = new Uint8Array(MAX_BINARY_FILE_BYTES + 1);

@@ -1,5 +1,5 @@
-import { expect, it } from 'vitest';
-import { hashPlaintext } from '@havemind/protocol';
+import { expect, it, vi } from 'vitest';
+import { hashBlob, hashPlaintext } from '@havemind/protocol';
 import { bootstrapIdentities } from './bootstrap-identities';
 import { RevisionHistory } from './revision-history';
 import { DurableSyncState, type PersistedSyncState, type SyncStatePersistPort } from './sync-state';
@@ -44,6 +44,37 @@ it('completes identity adoption after an interrupted shared-base write', async (
   expect((raw as PersistedSyncState).baseHashes[fileId]).toBe(await hashPlaintext(content));
   expect((raw as PersistedSyncState).baseContents[fileId]).toBe(content);
   expect(await reopened.state.listOutbox()).toEqual([]);
+});
+
+it('adopts a matching attachment without base64-encoding it', async () => {
+  // Adopting an attachment needs its hash, not a base64 copy: for a 25 MB file
+  // that copy is 33 MB of string built and dropped.
+  const fileId = '00000000-0000-4000-8000-000000000020';
+  const bytes = new Uint8Array([0, 255, 13, 10, 7]);
+  let producerRaw: ProducerState = { mappings: [], heads: {} };
+  const state = new DurableSyncState({ persist: { load: async () => null, loadBackup: async () => null,
+    preserveCorrupt: async () => undefined, save: async () => undefined } });
+  const producer = new OutboxLocalChangeRepository({
+    identity: { vaultId: 'vault', memberId: 'member', deviceId: 'device' },
+    store: { load: async () => producerRaw, save: async (next) => { producerRaw = structuredClone(next); } },
+    recovery: state, generateRevisionId: () => 'unused',
+  });
+  const history = new RevisionHistory({ state,
+    transport: { pull: async (after) => ({ cursor: 1, events: after === 0 ? [
+      { serverSequence: 1, revision: { fileId, revisionId: 'rev-pic', contentHash: 'envelope-hash', parentRevisionIds: [] } },
+    ] : [] }) },
+    resolveRevision: async () => ({ operation: 'create', kind: 'binary', path: 'pic.png', previousPath: null, content: null, binaryContent: bytes }),
+  });
+  const vault = { exists: async () => true, readText: async () => '', readBinary: async () => bytes,
+    listSyncablePaths: async () => ['pic.png'], listAllPaths: async () => ['pic.png'] };
+  const btoaSpy = vi.spyOn(globalThis, 'btoa');
+
+  await bootstrapIdentities({ state, producer, history, vault });
+
+  const encoded = btoaSpy.mock.calls.length;
+  btoaSpy.mockRestore();
+  expect(producerRaw.mappings).toMatchObject([{ fileId, path: 'pic.png', contentKind: 'binary', contentHash: await hashBlob(bytes) }]);
+  expect(encoded).toBe(0);
 });
 
 // A connected device restarts with every local file already mapped. Downloading

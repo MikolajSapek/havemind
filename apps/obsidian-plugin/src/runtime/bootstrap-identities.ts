@@ -1,5 +1,5 @@
 import { canonicalizeMarkdown, hashBlob, hashPlaintext } from '@havemind/protocol';
-import { bytesToBase64, classifyVaultPath, type VaultSnapshotPort } from '../obsidian/vault-adapter';
+import { classifyVaultPath, type VaultSnapshotPort } from '../obsidian/vault-adapter';
 import type { OutboxLocalChangeRepository } from '../sync/outbox-repository';
 import type { DurableSyncState } from './sync-state';
 import type { RevisionHistory } from './revision-history';
@@ -40,14 +40,13 @@ export async function bootstrapIdentities(options: {
     blocked.add(path.collisionKey);
     // Existing queued work is left to its original identity and journal.
     if (pending.length > 0 || counts.get(head.revision.fileId) !== 1) continue;
-    let content: string;
+    let content: string | null = null; // the note text; a binary file has none
     let contentHash: string;
     if (remote.kind === 'binary') {
       if (vault.readBinary === undefined) continue;
       const bytes = await vault.readBinary(remote.path);
       contentHash = await hashBlob(bytes);
       if (remote.binaryContent == null || contentHash !== await hashBlob(remote.binaryContent)) continue;
-      content = bytesToBase64(bytes);
     } else {
       content = canonicalizeMarkdown(await vault.readText(remote.path));
       if (content !== remote.content) continue;
@@ -58,7 +57,7 @@ export async function bootstrapIdentities(options: {
     // skipping this path merely because its producer mapping already exists.
     await state.recordPathOwner(head.revision.fileId, path.canonicalPath);
     await state.recordBaseHash(head.revision.fileId, contentHash);
-    if (remote.kind !== 'binary') await state.recordBaseContent(head.revision.fileId, content);
+    if (content !== null) await state.recordBaseContent(head.revision.fileId, content);
     await producer.adoptRemoteMapping({ fileId: head.revision.fileId, path: path.canonicalPath,
       collisionKey: path.collisionKey, contentHash,
       ...(remote.kind === 'binary' ? { contentKind: 'binary' } : {}),

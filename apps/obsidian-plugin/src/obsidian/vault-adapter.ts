@@ -325,7 +325,8 @@ export class VaultChangeObserver {
    * path first, falling back to the original (FINDING 3). Returns `null` when the
    * file resolves at neither path (a genuine miss, never push a phantom '') or
    * when a binary file is over {@link MAX_BINARY_FILE_BYTES} (excluded, not an
-   * error).
+   * error). A binary file's `content` is encoded when it is first read, so a
+   * caller that finds the file unchanged never pays for a 33 MB string.
    */
   private async readContentForKind(
     canonicalPath: string,
@@ -337,7 +338,7 @@ export class VaultChangeObserver {
     if (kind === 'binary') {
       const bytes = await this.options.vault.readBinary(readPath);
       if (bytes.byteLength > MAX_BINARY_FILE_BYTES) return null;
-      return { content: bytesToBase64(bytes), contentHash: await hashBlob(bytes) };
+      return { get content() { return bytesToBase64(bytes); }, contentHash: await hashBlob(bytes) };
     }
     // A config file with machine-local VIEW STATE syncs only its semantic part
     // (`config-normalize.ts`): `.obsidian/graph.json` carries the graph view's
@@ -425,11 +426,11 @@ export class VaultChangeObserver {
       classified.kind,
     );
     if (read === null) return null;
-    const { content, contentHash } = read;
+    const { contentHash } = read;
     if (!force && contentHash === mapping.contentHash) return null;
 
     const operation = this.buildOperation({
-      content,
+      content: read.content,
       contentHash,
       contentKind: classified.kind,
       fileId: mapping.fileId,
