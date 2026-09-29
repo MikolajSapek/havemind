@@ -468,6 +468,40 @@ describe('createVaultFilePort binary attachments (F9)', () => {
     expect(read).toEqual(bytes);
   });
 
+  it('hands a whole-buffer attachment to the vault as that buffer, not a copy of it', async () => {
+    // A decoded attachment is an array over exactly its own buffer, so copying
+    // it for the write is a second 25 MB for nothing.
+    const { createVaultFilePort } = await import('./obsidian-adapters');
+    const { TFile, TFolder } = await import('obsidian');
+    const vault = new FakeVault(TFile, TFolder);
+    const port = createVaultFilePort({
+      vault: vault as never,
+      state: noopState as never,
+    });
+
+    const bytes = new Uint8Array([0x00, 0xff, 0x80, 10, 20, 30]);
+    await port.writeBinaryByPath('Attachments/img.png', bytes);
+
+    expect(vault.binaryContentAt('Attachments/img.png')).toBe(bytes.buffer);
+  });
+
+  it('ships only the window a subarray views, never the bytes around it', async () => {
+    const { createVaultFilePort } = await import('./obsidian-adapters');
+    const { TFile, TFolder } = await import('obsidian');
+    const vault = new FakeVault(TFile, TFolder);
+    const port = createVaultFilePort({
+      vault: vault as never,
+      state: noopState as never,
+    });
+
+    const behind = new Uint8Array([9, 9, 1, 2, 3, 9, 9]);
+    await port.writeBinaryByPath('Attachments/window.png', behind.subarray(2, 5));
+
+    expect(new Uint8Array(vault.binaryContentAt('Attachments/window.png') as ArrayBuffer)).toEqual(
+      new Uint8Array([1, 2, 3]),
+    );
+  });
+
   it('returns null from readBinaryByPath when no file exists at the path', async () => {
     const { createVaultFilePort } = await import('./obsidian-adapters');
     const { TFile, TFolder } = await import('obsidian');

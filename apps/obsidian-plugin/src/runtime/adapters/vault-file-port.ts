@@ -115,11 +115,15 @@ async function resolveConflictTarget(
 }
 
 /**
- * Exact ArrayBuffer view of `bytes`, copies only the used region, so a
- * Uint8Array that is a subview of a larger buffer never ships trailing bytes to
- * `createBinary`/`modifyBinary` (F9).
+ * Exactly the bytes of `bytes` as an ArrayBuffer, so a Uint8Array that is a
+ * subview of a larger buffer never ships trailing bytes to `createBinary`/
+ * `modifyBinary` (F9). An array over its whole buffer (every decoded attachment)
+ * is passed as that buffer: a copy of a 25 MB file is a second 25 MB.
  */
 function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  if (bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength) {
+    return bytes.buffer as ArrayBuffer;
+  }
   return bytes.buffer.slice(
     bytes.byteOffset,
     bytes.byteOffset + bytes.byteLength,
