@@ -50,8 +50,10 @@ interface CapturedTimer {
   readonly timer: BackupTimer;
   readonly state: {
     intervalMs: number | null;
+    firstDelayMs: number | null;
     handler: (() => Promise<void>) | null;
     cleared: number;
+    sets: number;
   };
 }
 
@@ -86,16 +88,20 @@ async function writeArtifactAt(
 function captureTimer(): CapturedTimer {
   const state: CapturedTimer['state'] = {
     cleared: 0,
+    firstDelayMs: null,
     handler: null,
     intervalMs: null,
+    sets: 0,
   };
   const timer: BackupTimer = {
     clear: () => {
       state.cleared += 1;
     },
-    set: (handler, intervalMs) => {
+    set: (handler, intervalMs, firstDelayMs) => {
       state.handler = handler;
       state.intervalMs = intervalMs;
+      state.firstDelayMs = firstDelayMs ?? intervalMs;
+      state.sets += 1;
       return 'test-handle';
     },
   };
@@ -375,6 +381,51 @@ describe('startBackupScheduler', () => {
     scheduler.stop();
   });
 
+  // A restart 23 h after the last artifact used to wait a whole fresh interval,
+  // a 47 h gap. The first run now lands when the newest artifact turns 24 h.
+  it('keeps the cadence across a restart by arming the first run for the remaining time', async () => {
+    const seed = await seedInstance();
+    const backupsRoot = join(makeDir(), 'backups');
+    const captured = captureTimer();
+    await writeArtifactAt(backupsRoot, 'backup-recent', '2026-09-19T01:00:00.000Z');
+
+    const scheduler = startBackupScheduler({
+      backupsRoot,
+      database: seed.database,
+      dataDir: seed.dataDir,
+      intervalMs: 86_400_000,
+      keep: 7,
+      now: () => new Date('2026-09-20T00:00:00.000Z'),
+      timer: captured.timer,
+    });
+    await scheduler.started;
+
+    expect(captured.state.intervalMs).toBe(86_400_000);
+    expect(captured.state.firstDelayMs).toBe(3_600_000);
+    scheduler.stop();
+  });
+
+  it('does not re-arm a scheduler stopped before its startup check settled', async () => {
+    const seed = await seedInstance();
+    const backupsRoot = join(makeDir(), 'backups');
+    const captured = captureTimer();
+    await writeArtifactAt(backupsRoot, 'backup-recent', '2026-09-19T01:00:00.000Z');
+
+    const scheduler = startBackupScheduler({
+      backupsRoot,
+      database: seed.database,
+      dataDir: seed.dataDir,
+      intervalMs: 86_400_000,
+      keep: 7,
+      now: () => new Date('2026-09-20T00:00:00.000Z'),
+      timer: captured.timer,
+    });
+    scheduler.stop();
+    await scheduler.started;
+
+    expect(captured.state.sets).toBe(1);
+  });
+
   it('runs immediately at startup when no artifact exists at all', async () => {
     // A fresh install currently protects nothing until the first interval
     // elapses, and the activation checklist has to be run by hand to cover it.
@@ -476,6 +527,25 @@ describe('SYSTEM_BACKUP_TIMER', () => {
     SYSTEM_BACKUP_TIMER.clear(handle);
     await vi.advanceTimersByTimeAsync(720 * hour);
     expect(runs).toBe(2);
+  });
+
+  it('waits only the first delay before the first run, then the full interval', async () => {
+    vi.useFakeTimers();
+    let runs = 0;
+    const handle = SYSTEM_BACKUP_TIMER.set(() => {
+      runs += 1;
+      return Promise.resolve();
+    }, 1_000, 250);
+
+    await vi.advanceTimersByTimeAsync(249);
+    expect(runs).toBe(0);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(runs).toBe(1);
+    await vi.advanceTimersByTimeAsync(999);
+    expect(runs).toBe(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(runs).toBe(2);
+    SYSTEM_BACKUP_TIMER.clear(handle);
   });
 
   it('still fires on a short interval and stops once cleared', async () => {

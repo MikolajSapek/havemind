@@ -156,9 +156,11 @@ export type BackupTimerHandle = unknown;
  * verified without any wall-clock waiting.
  */
 export interface BackupTimer {
+  /** `firstDelayMs` (default: the interval) is the wait before the first run. */
   readonly set: (
     handler: () => Promise<void>,
     intervalMs: number,
+    firstDelayMs?: number,
   ) => BackupTimerHandle;
   readonly clear: (handle: BackupTimerHandle) => void;
 }
@@ -203,7 +205,7 @@ export const SYSTEM_BACKUP_TIMER: BackupTimer = {
     chained.cleared = true;
     clearTimeout(chained.timeout);
   },
-  set: (handler, intervalMs) => {
+  set: (handler, intervalMs, firstDelayMs = intervalMs) => {
     const chained: ChainedTimerHandle = { cleared: false, timeout: undefined };
     const wait = (remainingMs: number): void => {
       if (chained.cleared) {
@@ -219,7 +221,7 @@ export const SYSTEM_BACKUP_TIMER: BackupTimer = {
         void handler();
       }, stepMs);
     };
-    wait(intervalMs);
+    wait(firstDelayMs);
     return chained;
   },
 };
@@ -230,10 +232,9 @@ const SILENT_LOGGER: BackupSchedulerLogger = {
 };
 
 /**
- * Starts the periodic backup timer and returns a disposer. The first run happens
- * one interval after start (never at boot, so a restart loop cannot spam the
- * disk); the activation checklist runs `havemind backup --to /backups` once by
- * hand to seed the first artifact.
+ * Starts the periodic backup timer and returns a disposer. At boot it runs only
+ * when the newest artifact is a whole interval old (so a restart loop cannot
+ * spam the disk), and otherwise schedules the first run for when it will be.
  *
  * A failing cycle is logged and swallowed: a backup must never take the sync
  * server down, and it must never leave an unhandled rejection behind. Overlapping
@@ -273,7 +274,7 @@ export function startBackupScheduler(
     }
   };
 
-  const handle = timer.set(tick, options.intervalMs);
+  let handle = timer.set(tick, options.intervalMs);
 
   /**
    * Startup catch-up. Skipping the run at boot is still the right default (a
@@ -286,12 +287,15 @@ export function startBackupScheduler(
    * So the same guard is expressed in terms of ELAPSED TIME instead. A backup
    * taken within the interval means there is nothing to catch up on, and a
    * restart loop still mints nothing. Anything older, or no artifact at all,
-   * means a backup is already overdue and runs now.
+   * means a backup is already overdue and runs now. A recent artifact re-arms
+   * the timer for the time it has left, so a restart keeps the cadence instead
+   * of waiting a whole fresh interval (a 47 h gap after a restart at 23 h).
    *
    * A failure here is logged, never thrown: startup must not depend on it.
    */
   const started = (async (): Promise<void> => {
     let overdue: boolean;
+    let remainingMs: number | null = null;
     try {
       const [newest] = await listBackups(options.backupsRoot);
       if (newest === undefined) {
@@ -300,9 +304,11 @@ export function startBackupScheduler(
         const age =
           (options.now?.() ?? new Date()).getTime() -
           new Date(newest.createdAt).getTime();
-        // An unparseable or future-dated stamp reads as NOT overdue, so a bad
-        // manifest can never turn startup into a backup-per-restart loop.
+        // An unparseable or future-dated stamp reads as NOT overdue and keeps
+        // the full interval, so a bad manifest can never turn startup into a
+        // backup-per-restart loop.
         overdue = Number.isFinite(age) && age >= options.intervalMs;
+        if (!overdue && Number.isFinite(age) && age >= 0) remainingMs = options.intervalMs - age;
       }
     } catch (error) {
       logger.error(
@@ -311,6 +317,10 @@ export function startBackupScheduler(
         }`,
       );
       return;
+    }
+    if (remainingMs !== null && !stopped) {
+      timer.clear(handle);
+      handle = timer.set(tick, options.intervalMs, remainingMs);
     }
     if (overdue) {
       await tick();

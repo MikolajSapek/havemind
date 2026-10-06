@@ -5,6 +5,15 @@ All notable changes to this project are documented here. The format is based on
 follows independent [Semantic Versioning](https://semver.org) for the plugin
 and the server.
 
+## [Unreleased]
+
+### Fixed
+
+- Server: a restart no longer pushes the next scheduled backup a whole
+  interval out. When the newest backup is recent, the first run is armed for
+  the time it has left, so backups stay daily across deploys instead of
+  leaving a gap of up to 47 hours.
+
 ## [1.6.0], 2026-10-06
 
 ### Fixed
