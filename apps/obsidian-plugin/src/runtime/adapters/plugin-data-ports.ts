@@ -35,8 +35,10 @@ import {
   PERSIST_KEY,
   PERSIST_PRODUCER_CORRUPT_PREFIX,
   PERSIST_STAGING_KEY,
+  PUSH_PRODUCER_KEY,
   withCorruptSidecar,
 } from './plugin-data-keys';
+import { parseProducerStateResult } from './producer-state';
 
 /**
  * Durable state persistence over `Plugin.saveData`/`loadData`. Only the
@@ -64,6 +66,9 @@ export function createPersistPort(plugin: Plugin): SyncStatePersistPort {
         if (priorPrimary !== undefined) next[PERSIST_BAK_KEY] = priorPrimary;
         next[PERSIST_KEY] = state;
         delete next[PERSIST_STAGING_KEY];
+        // A1: the producer now travels in the sync state. Drop the old key in
+        // the first write that carries it (Jev: delete_now, p 0.80).
+        if (state.producer !== undefined) delete next[PUSH_PRODUCER_KEY];
         return next;
       });
     },
@@ -73,6 +78,24 @@ export function createPersistPort(plugin: Plugin): SyncStatePersistPort {
       await mutex.update((base) =>
         withCorruptSidecar(base, PERSIST_CORRUPT_PREFIX, timestamp, raw),
       );
+    },
+    async loadLegacyProducer() {
+      const raw = (await mutex.load())[PUSH_PRODUCER_KEY] ?? null;
+      if (raw === null) return null;
+      const result = parseProducerStateResult(raw);
+      // GAP-3: unreadable producer bytes go to a sidecar before the import, so
+      // a lost mapping can be recovered by hand instead of silently forking a
+      // duplicate fileId. A failed sidecar write never blocks the load.
+      try {
+        if (result.status === 'corrupt') {
+          await preserveCorruptProducerState(plugin, raw, Date.now());
+        } else if (result.quarantinedMappings.length > 0) {
+          await preserveCorruptProducerState(plugin, { mappings: result.quarantinedMappings }, Date.now());
+        }
+      } catch {
+        console.warn('Havemind: failed to preserve corrupt producer state to a sidecar.');
+      }
+      return result.state;
     },
   };
 }

@@ -47,7 +47,6 @@ import {
   forgetLocalMaterialization,
 } from '../local-base-lifecycle';
 import { ModifyDebouncer } from '../modify-debounce';
-import { getPluginDataMutex } from '../plugin-data-mutex';
 import {
   failedToQueueRevisionId,
   type DurableSyncState,
@@ -57,9 +56,6 @@ import {
   CONFIG_POLL_INTERVAL_MS,
   createConfigPollTick,
 } from './config-poll';
-import { PUSH_PRODUCER_KEY } from './plugin-data-keys';
-import { preserveCorruptProducerState } from './plugin-data-ports';
-import { parseProducerStateResult } from './producer-state';
 import type { RuntimeHooks } from './runtime-hooks';
 import type { AppWithVault } from './shared';
 import { registerVaultChangeListeners } from './vault-change-listeners';
@@ -115,38 +111,11 @@ export interface PushProducerWiring {
 export function startPushProducer(plugin: Plugin, wiring: PushProducerWiring): PushProducerHandle {
   const { state, identity, triggerSync, producerRef, hooks, fileApplyLock, initializeIdentities } = wiring;
   const vault = (plugin.app as unknown as AppWithVault).vault;
+  // A1: the producer's files live in the sync state, so a commit and the queue
+  // entry it writes share one document. The pre-1.6.0 key is imported on load.
   const store: ProducerStorePort = {
-    async load() {
-      const data = await getPluginDataMutex(plugin).load();
-      const raw = data[PUSH_PRODUCER_KEY] ?? null;
-      const result = parseProducerStateResult(raw);
-      // GAP-3: preserve unparseable producer bytes to a sidecar so a lost mapping
-      // can't silently fork a duplicate fileId. Connect-safety: the persist may
-      // fail (loadData/mutex), but that must NEVER abort producer setup, degrade
-      // defensively and fall through to the (empty-or-partial) parsed state.
-      try {
-        if (result.status === 'corrupt') {
-          await preserveCorruptProducerState(plugin, raw, Date.now());
-        } else if (result.quarantinedMappings.length > 0) {
-          await preserveCorruptProducerState(
-            plugin,
-            { mappings: result.quarantinedMappings },
-            Date.now(),
-          );
-        }
-      } catch {
-        console.warn(
-          'Havemind: failed to preserve corrupt producer state to a sidecar.',
-        );
-      }
-      return result.state;
-    },
-    async save(next) {
-      await getPluginDataMutex(plugin).update((base) => ({
-        ...base,
-        [PUSH_PRODUCER_KEY]: next,
-      }));
-    },
+    load: () => state.loadProducer(),
+    save: (next) => state.saveProducer(next),
   };
 
   const repository = new OutboxLocalChangeRepository({

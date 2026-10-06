@@ -7,7 +7,9 @@
  */
 
 import { validRecovery, type ProducerRecovery } from './producer-recovery';
+import { parseProducerStateResult } from './adapters/producer-state';
 
+import type { ProducerState } from '../sync/outbox-repository';
 import type {
   PushReceipt,
   PushRevision,
@@ -77,6 +79,12 @@ export interface QuarantinedRevision {
 }
 
 export interface PersistedSyncState {
+  /**
+   * A1: the producer's files (path, fileId, local hash) and heads, in the same
+   * document as the queue and the bases, so one write covers all three. Absent
+   * only in a file written before 1.6.0, which the load imports once.
+   */
+  readonly producer?: ProducerState;
   readonly producerRecovery?: readonly ProducerRecovery[];
   /** Envelopes a recovery discarded, inline, kept {@link BACKUP_RETENTION_MS}. */
   readonly reconciliationBackups?: Readonly<Record<string, readonly OutboxEnvelope[]>>;
@@ -124,6 +132,11 @@ export interface SyncStatePersistPort {
    * sidecar is never clobbered. `timestamp` is the caller's (no clock in parse).
    */
   preserveCorrupt(raw: unknown, timestamp: number): Promise<void>;
+  /**
+   * A1: the producer state from its pre-1.6.0 key (null when there is none),
+   * read once when the sync state carries no producer yet.
+   */
+  loadLegacyProducer?(): Promise<ProducerState | null>;
 }
 
 export interface DurableSyncStateOptions {
@@ -173,6 +186,13 @@ export function parseFailedToQueuePath(revisionId: string): string | null {
   if (!revisionId.startsWith(FAILED_TO_QUEUE_PREFIX)) return null;
   const path = revisionId.slice(FAILED_TO_QUEUE_PREFIX.length);
   return path.length === 0 ? null : path;
+}
+
+const EMPTY_PRODUCER: ProducerState = { mappings: [], heads: {} };
+
+/** The stored producer, or nothing when absent; unreadable degrades to empty. */
+function parseProducerField(value: unknown): { producer?: ProducerState } {
+  return value === undefined ? {} : { producer: parseProducerStateResult(value).state };
 }
 
 function emptyState(): PersistedSyncState {
@@ -319,6 +339,41 @@ export class DurableSyncState implements SyncStatePort {
       });
       return true;
     });
+  }
+
+  /** The producer's files and heads (A1); empty before the first commit. */
+  async loadProducer(): Promise<ProducerState> {
+    return (await this.ensureLoaded()).producer ?? EMPTY_PRODUCER;
+  }
+
+  async saveProducer(producer: ProducerState): Promise<void> {
+    await this.runExclusive(async () => {
+      const state = await this.ensureLoaded();
+      await this.mutate({ ...state, producer });
+    });
+  }
+
+  /**
+   * A1, part of the load: keeps the bytes of an unreadable stored producer in a
+   * sidecar (GAP-3), or imports the pre-1.6.0 key once. The save that carries
+   * the import is the one that drops the old key.
+   */
+  private async settleProducer(raw: unknown): Promise<void> {
+    const stored = isRecord(raw) ? raw.producer : undefined;
+    if (stored !== undefined) {
+      const parsed = parseProducerStateResult(stored);
+      if (parsed.status === 'corrupt') {
+        await this.persist.preserveCorrupt({ producer: stored }, this.now());
+      } else if (parsed.quarantinedMappings.length > 0) {
+        await this.persist.preserveCorrupt({ producer: { mappings: parsed.quarantinedMappings } }, this.now());
+      }
+      return;
+    }
+    const state = this.cache;
+    if (state === null || state.producer !== undefined || this.persist.loadLegacyProducer === undefined) return;
+    const next = { ...state, producer: (await this.persist.loadLegacyProducer()) ?? EMPTY_PRODUCER };
+    await this.persist.save(this.toDiskForm(next));
+    this.cache = next;
   }
 
   /** Inline copies for a reconciliation backup, stamped for the 7-day prune. */
@@ -898,7 +953,11 @@ export class DurableSyncState implements SyncStatePort {
     if (this.loadPromise === null) {
       this.loadPromise = this.persist
         .load()
-        .then((raw) => this.hydrate(raw))
+        .then(async (raw) => {
+          const clean = await this.hydrate(raw);
+          await this.settleProducer(raw);
+          return clean;
+        })
         // Arch P1: once the cache is settled (GAP-1 recovery included), reconcile
         // payloads with the store; part of the shared in-flight load, so every
         // concurrent caller sees a settled cache.
@@ -1329,6 +1388,7 @@ function strictParse(raw: unknown): PersistedSyncState | null {
   return {
     version: 1,
     cursor: cursor as number,
+    ...parseProducerField(raw.producer),
     ...(raw.producerRecovery === undefined ? {} : { producerRecovery: raw.producerRecovery as ProducerRecovery[] }),
     ...(raw.reconciliationBackups === undefined ? {} : { reconciliationBackups: raw.reconciliationBackups as Record<string, OutboxEnvelope[]> }),
     outbox: parsedOutbox,
@@ -1376,6 +1436,7 @@ function salvageState(raw: unknown): PersistedSyncState | null {
   return {
     version: 1,
     cursor,
+    ...parseProducerField(raw.producer),
     ...(raw.producerRecovery === undefined ? {} : { producerRecovery: raw.producerRecovery as ProducerRecovery[] }),
     ...(raw.reconciliationBackups === undefined ? {} : { reconciliationBackups: raw.reconciliationBackups as Record<string, OutboxEnvelope[]> }),
     outbox: parsedOutbox,

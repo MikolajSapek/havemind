@@ -86,6 +86,16 @@ crash-consistency risk.
 - **2e. Release 1.6.0.** Mac first (replay its real file before installing),
   then the phone, then Hubert.
 
-Open decisions for Jev when stage 2 starts: whether 2c keeps `pathOwners` for
-paths that have a base but no mapping (conflict copies, received-only files),
-and whether the old `pushProducer` key is deleted in 1.6.0 or 1.6.1.
+### Decisions (Jev, jev-1.13.0, 2026-10-06)
+
+- Scope: **2b and 2d**, p = 0.87 (2b only 0.08, all three 0.05). Stage 2c is
+  dropped: `pathOwners` stays stored.
+- Old key: **delete it in the write that imports it**, p = 0.80 (keep one
+  release 0.11, sidecar 0.09). An older version that finds the key absent
+  re-adopts identities from the server through its bootstrap; a stale key
+  would be trusted instead.
+
+### Cost noted during 2b
+
+`syncState` now carries the producer (~42 KB on the Mac), and its `.bak` copy
+does too, so each save writes ~42 KB more than before. Step 1 removed ~470 KB.

@@ -61,7 +61,9 @@ describe('client state investigation', () => {
     });
     try {
       await handle.initialize();
-      expect((data.pushProducer as { heads: unknown }).heads).toEqual({ file: 'head' });
+      // A1: imported into the sync state, the old key gone, the head kept.
+      expect((data.syncState as { producer: { heads: unknown } }).producer.heads).toEqual({ file: 'head' });
+      expect(data.pushProducer).toBeUndefined();
       expect(data.unrelated).toBe('preserve');
       expect(await state.listOutbox()).toEqual([]);
     } finally { handle.dispose(); }

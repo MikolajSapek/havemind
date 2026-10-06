@@ -812,6 +812,42 @@ describe('createPersistPort atomic write + backup (GAP-1)', () => {
     expect(writes).toBe(1);
   });
 
+  // A1: the producer files moved into the sync state. The old key goes in the
+  // first write that carries them, never before.
+  it('drops the old producer key only in a write that carries the producer', async () => {
+    const { createPersistPort } = await import('./obsidian-adapters');
+    const legacy = { mappings: [], heads: {} };
+    const disk = { value: { pushProducer: legacy } as Record<string, unknown> };
+    const port = createPersistPort(fakePlugin(disk));
+    const base = {
+      version: 1 as const, cursor: 1, outbox: [], locallyAuthored: [], deferred: [], quarantine: [],
+      pathOwners: {}, baseHashes: {}, baseContents: {}, conflictArtifacts: {}, quarantinedEnvelopes: {},
+    };
+
+    await port.save(base);
+    expect(disk.value.pushProducer).toEqual(legacy);
+
+    await port.save({ ...base, producer: { mappings: [], heads: {} } });
+    expect(disk.value.pushProducer).toBeUndefined();
+  });
+
+  it('reads the old producer key, keeping unreadable bytes in a sidecar', async () => {
+    const { createPersistPort } = await import('./obsidian-adapters');
+    const mapping = { fileId: 'f', path: 'a.md', collisionKey: 'a.md', contentHash: 'h' };
+    const read = (value: Record<string, unknown>) => {
+      const disk = { value };
+      return { disk, result: createPersistPort(fakePlugin(disk)).loadLegacyProducer?.() };
+    };
+    expect(await read({ pushProducer: { mappings: [mapping], heads: { f: 'r' } } }).result)
+      .toEqual({ mappings: [mapping], heads: { f: 'r' } });
+    expect(await read({}).result).toBeNull();
+
+    const { disk, result } = read({ pushProducer: 'garbage' });
+    expect(await result).toEqual({ mappings: [], heads: {} });
+    expect(Object.entries(disk.value).filter(([key]) => key.startsWith('pushProducerCorrupt.')).map(([, v]) => v))
+      .toEqual(['garbage']);
+  });
+
   it('preserves a corrupt blob under a timestamped sidecar without clobbering an existing one', async () => {
     const { createPersistPort } = await import('./obsidian-adapters');
     const disk = { value: {} as Record<string, unknown> };

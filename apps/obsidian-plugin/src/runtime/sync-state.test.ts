@@ -12,6 +12,7 @@ import {
   type PersistedSyncState,
   type SyncStatePersistPort,
 } from './sync-state';
+import type { ProducerState } from '../sync/outbox-repository';
 import type { RemoteEvent } from '../sync/sync-runner';
 
 class MemoryPersist implements SyncStatePersistPort {
@@ -19,6 +20,8 @@ class MemoryPersist implements SyncStatePersistPort {
   backup: unknown = null;
   corrupt: Array<{ raw: unknown; timestamp: number }> = [];
   saveCalls = 0;
+  /** The pre-1.6.0 `pushProducer` key, when the test models one. */
+  loadLegacyProducer?: () => Promise<ProducerState | null>;
 
   constructor(initial: unknown = null) {
     this.saved = initial;
@@ -99,6 +102,55 @@ describe('DurableSyncState', () => {
     expect(await reloaded.isLocallyAuthored('local-merge')).toBe(false);
     // The server holds the same text, so a retired merge keeps no inline copy.
     expect((persist.saved as PersistedSyncState).reconciliationBackups?.['accepted-merge']).toBeUndefined();
+  });
+
+  describe('producer files in the sync document (A1)', () => {
+    const producer: ProducerState = {
+      mappings: [{ fileId: 'file-1', path: 'Notes/a.md', collisionKey: 'notes/a.md', contentHash: 'h1' }],
+      heads: { 'file-1': 'rev-1' },
+    };
+    const EMPTY: ProducerState = { mappings: [], heads: {} };
+
+    it('starts with no producer files', async () => {
+      expect(await state.loadProducer()).toEqual(EMPTY);
+    });
+
+    it('persists the producer files and heads inside the sync state', async () => {
+      await state.saveProducer(producer);
+      expect((persist.saved as PersistedSyncState).producer).toEqual(producer);
+      expect(await new DurableSyncState({ persist }).loadProducer()).toEqual(producer);
+    });
+
+    it('imports the old producer key once, inside the load every caller waits for', async () => {
+      await state.saveCursor(4);
+      let reads = 0;
+      persist.loadLegacyProducer = async () => {
+        reads += 1;
+        return producer;
+      };
+      const migrated = new DurableSyncState({ persist });
+      expect(await migrated.loadCursor()).toBe(4);
+      expect((persist.saved as PersistedSyncState).producer).toEqual(producer);
+      expect(await migrated.loadProducer()).toEqual(producer);
+
+      await new DurableSyncState({ persist }).loadCursor();
+      expect(reads).toBe(1);
+    });
+
+    it('records an empty producer when there is no old key', async () => {
+      persist.loadLegacyProducer = async () => null;
+      await state.loadCursor();
+      expect((persist.saved as PersistedSyncState).producer).toEqual(EMPTY);
+    });
+
+    it('keeps the queue and preserves the bytes when the stored producer is corrupt', async () => {
+      await state.enqueue(envelope());
+      persist.saved = { ...(persist.saved as PersistedSyncState), producer: { mappings: 'broken' } };
+      const reloaded = new DurableSyncState({ persist, now: () => 5 });
+      expect(await reloaded.loadProducer()).toEqual(EMPTY);
+      expect((await reloaded.listOutbox()).map((item) => item.revisionId)).toEqual(['rev-1']);
+      expect(persist.corrupt).toEqual([{ raw: { producer: { mappings: 'broken' } }, timestamp: 5 }]);
+    });
   });
 
   describe('reconciliation backups', () => {
