@@ -70,18 +70,17 @@ function makeHarness() {
   let fileCounter = 0;
   let opCounter = 0;
 
+  const store = new MemoryProducerStore();
   const repository = new OutboxLocalChangeRepository({
     identity: IDENTITY,
-    store: new MemoryProducerStore(),
+    store,
     recovery: memoryRecovery(async (envelope) => {
       enqueued.push(envelope);
-    }),
+    }, store),
     generateRevisionId: () => {
       revCounter += 1;
       return `00000000-0000-4000-8000-00000000000${revCounter}`;
     },
-    onLocalMaterialized: async () => undefined,
-    onLocalForgotten: async () => undefined,
   });
 
   const observer = new VaultChangeObserver({

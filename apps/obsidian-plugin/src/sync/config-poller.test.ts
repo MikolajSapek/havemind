@@ -84,15 +84,14 @@ function makeHarness(adapter: ConfigAdapterPort) {
   let rev = 0;
   let file = 0;
   let op = 0;
+  const store = new MemoryProducerStore();
   const repository = new OutboxLocalChangeRepository({
     identity: IDENTITY,
-    store: new MemoryProducerStore(),
+    store,
     recovery: memoryRecovery(async (envelope) => {
       enqueued.push(envelope);
-    }),
+    }, store),
     generateRevisionId: () => `00000000-0000-4000-8000-${String(++rev).padStart(12, '0')}`,
-    onLocalMaterialized: async () => undefined,
-    onLocalForgotten: async () => undefined,
   });
   const observer = new VaultChangeObserver({
     clock: () => 1,

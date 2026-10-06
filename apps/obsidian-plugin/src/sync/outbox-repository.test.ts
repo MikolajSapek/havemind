@@ -12,6 +12,7 @@ import {
   MAX_BINARY_PAYLOAD_BYTES,
   OutboxLocalChangeRepository,
 } from './outbox-repository';
+import type { ProducerRecovery } from '../runtime/producer-recovery';
 import { memoryRecovery } from '../test/memory-recovery';
 import { MemoryProducerStore } from '../test/fixtures';
 
@@ -45,38 +46,36 @@ function decode(envelope: OutboxEnvelope): string {
   return Buffer.from(envelope.payloadBase64, 'base64').toString('utf8');
 }
 
-interface Materialized {
-  fileId: string;
-  path: string;
-  contentHash: string;
-  previousPath: string | null;
+interface Commit {
+  record: ProducerRecovery;
+  envelope: OutboxEnvelope | undefined;
 }
 
 function makeRepo(maxPayloadBytes?: number) {
   const store = new MemoryProducerStore();
   const enqueued: OutboxEnvelope[] = [];
-  const materialized: Materialized[] = [];
-  const forgotten: Array<{ fileId: string; path: string }> = [];
+  const commits: Commit[] = [];
+  const inner = memoryRecovery(async (envelope) => {
+    enqueued.push(envelope);
+  }, store);
   let counter = 0;
   const repo = new OutboxLocalChangeRepository({
     identity: IDENTITY,
     store,
-    recovery: memoryRecovery(async (envelope) => {
-      enqueued.push(envelope);
-    }),
+    recovery: {
+      ...inner,
+      commitProducerChange: async (record, envelope) => {
+        commits.push({ record, envelope });
+        return inner.commitProducerChange(record, envelope);
+      },
+    },
     generateRevisionId: () => {
       counter += 1;
       return `00000000-0000-4000-8000-00000000000${counter}`;
     },
-    onLocalMaterialized: async (m) => {
-      materialized.push(m);
-    },
-    onLocalForgotten: async (m) => {
-      forgotten.push(m);
-    },
     ...(maxPayloadBytes === undefined ? {} : { maxPayloadBytes }),
   });
-  return { repo, store, enqueued, materialized, forgotten };
+  return { repo, store, enqueued, commits };
 }
 
 describe('OutboxLocalChangeRepository', () => {
@@ -88,6 +87,7 @@ describe('OutboxLocalChangeRepository', () => {
       generateRevisionId: () => '00000000-0000-4000-8000-000000000001',
       recovery: {
         startProducerRecovery: async () => false,
+        commitProducerChange: async () => false,
         pendingProducerRecoveries: async () => [],
         recoverProducerQueue: async () => undefined,
         completeProducerRecovery: async () => undefined,
@@ -269,9 +269,9 @@ describe('OutboxLocalChangeRepository', () => {
     expect(await repo.listMappings()).toHaveLength(0);
   });
 
-  describe('shared apply-store seeding (FIX 1)', () => {
+  describe('single-write commit record (A1; replaces apply-store seeding hooks)', () => {
     it('seeds ownership+base for a locally authored create', async () => {
-      const { repo, materialized, forgotten } = makeRepo();
+      const { repo, commits } = makeRepo();
       await repo.commitLocalChange({
         operation: makeOperation(),
         removeFileId: null,
@@ -282,20 +282,45 @@ describe('OutboxLocalChangeRepository', () => {
           path: 'Notes/a.md',
         },
       });
-      expect(materialized).toEqual([
+      // One call carries the envelope and the record the port turns into
+      // producer files, heads, owners and the merge-ancestor base.
+      expect(commits).toHaveLength(1);
+      const { record, envelope } = commits[0] as Commit;
+      expect(envelope?.fileId).toBe(FILE_ID);
+      expect(record.fileIds).toEqual([FILE_ID]);
+      expect(record.state.mappings).toEqual([
         {
+          collisionKey: 'notes/a.md',
+          content: 'Hello\n',
+          contentHash: 'hash-1',
           fileId: FILE_ID,
           path: 'Notes/a.md',
-          contentHash: 'hash-1',
-          content: 'Hello\n',
-          previousPath: null,
         },
       ]);
-      expect(forgotten).toEqual([]);
+      expect(record.state.heads).toEqual({ [FILE_ID]: envelope?.revisionId });
     });
 
-    it('carries the previous path on a rename so the stale owner can be forgotten', async () => {
-      const { repo, materialized } = makeRepo();
+    // An upsert replaces any mapping on the same collision key. The file it
+    // displaces must leave the producer in the same write, not linger as a
+    // second identity for the path.
+    it('covers a file displaced on the same path in the same record', async () => {
+      const { repo, commits, store } = makeRepo();
+      const OTHER = '33333333-3333-4333-8333-333333333333';
+      store.state = {
+        mappings: [{ collisionKey: 'notes/a.md', contentHash: 'old', fileId: OTHER, path: 'Notes/A.md' }],
+        heads: {},
+      };
+      await repo.commitLocalChange({
+        operation: makeOperation(),
+        removeFileId: null,
+        upsertMapping: { collisionKey: 'notes/a.md', contentHash: 'hash-1', fileId: FILE_ID, path: 'Notes/a.md' },
+      });
+      expect([...(commits[0] as Commit).record.fileIds].sort()).toEqual([FILE_ID, OTHER].sort());
+      expect(store.state.mappings.map((m) => m.fileId)).toEqual([FILE_ID]);
+    });
+
+    it('commits a rename as one record that replaces the old path with the new one', async () => {
+      const { repo, commits, store } = makeRepo();
       // Seed a head so the rename is not demoted to a create.
       await repo.commitLocalChange({
         operation: makeOperation(),
@@ -323,17 +348,19 @@ describe('OutboxLocalChangeRepository', () => {
           path: 'Notes/b.md',
         },
       });
-      expect(materialized[1]).toEqual({
-        fileId: FILE_ID,
-        path: 'Notes/b.md',
-        contentHash: 'hash-1',
-        content: 'Hello\n',
-        previousPath: 'Notes/a.md',
-      });
+      expect(commits).toHaveLength(2);
+      const { record, envelope } = commits[1] as Commit;
+      expect(envelope).toBeDefined();
+      expect(record.fileIds).toEqual([FILE_ID]);
+      expect(record.state.mappings.map((m) => [m.fileId, m.path, m.content])).toEqual([
+        [FILE_ID, 'Notes/b.md', 'Hello\n'],
+      ]);
+      // The old path is gone from the producer, so the port can forget its owner.
+      expect(store.state.mappings.map((m) => m.path)).toEqual(['Notes/b.md']);
     });
 
-    it('forgets ownership+base on a delete of a pushed file', async () => {
-      const { repo, forgotten } = makeRepo();
+    it('commits a delete of a pushed file as a record with no mapping and no head', async () => {
+      const { repo, commits, store } = makeRepo();
       await repo.commitLocalChange({
         operation: makeOperation(),
         removeFileId: null,
@@ -354,7 +381,12 @@ describe('OutboxLocalChangeRepository', () => {
         removeFileId: FILE_ID,
         upsertMapping: null,
       });
-      expect(forgotten).toEqual([{ fileId: FILE_ID, path: 'Notes/a.md' }]);
+      expect(commits).toHaveLength(2);
+      const { record, envelope } = commits[1] as Commit;
+      expect(envelope?.fileId).toBe(FILE_ID);
+      expect(record.fileIds).toEqual([FILE_ID]);
+      expect(record.state).toEqual({ mappings: [], heads: {} });
+      expect(store.state).toEqual({ mappings: [], heads: {} });
     });
   });
 

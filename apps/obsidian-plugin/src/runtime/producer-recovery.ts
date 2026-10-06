@@ -20,10 +20,21 @@ export interface ProducerRecovery {
 }
 export interface ProducerRecoveryPort {
   startProducerRecovery(record: ProducerRecovery, replacement?: OutboxEnvelope): Promise<boolean>;
+  /** A1: the queue swap, producer files and apply-side owners/bases in one write. */
+  commitProducerChange(record: ProducerRecovery, replacement?: OutboxEnvelope): Promise<boolean>;
   pendingProducerRecoveries(): Promise<readonly ProducerRecovery[]>;
   recoverProducerQueue(id: string): Promise<void>;
   completeProducerRecovery(id: string): Promise<void>;
   enqueueAutomaticMerge(envelope: OutboxEnvelope): Promise<void>;
+}
+
+/** A producer mapping without the note text a journal record may carry. */
+export function mappingMetadata(m: ProducerState['mappings'][number] & { readonly content?: string }): ProducerState['mappings'][number] {
+  return {
+    fileId: m.fileId, path: m.path, collisionKey: m.collisionKey, contentHash: m.contentHash,
+    ...(m.contentKind === undefined ? {} : { contentKind: m.contentKind }),
+    ...(m.stat === undefined ? {} : { stat: m.stat }),
+  };
 }
 
 export function validRecovery(value: unknown): value is ProducerRecovery {

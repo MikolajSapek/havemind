@@ -12,6 +12,7 @@ import {
   type PersistedSyncState,
   type SyncStatePersistPort,
 } from './sync-state';
+import type { ProducerRecovery } from './producer-recovery';
 import type { ProducerState } from '../sync/outbox-repository';
 import type { RemoteEvent } from '../sync/sync-runner';
 
@@ -143,6 +144,22 @@ describe('DurableSyncState', () => {
       expect((persist.saved as PersistedSyncState).producer).toEqual(EMPTY);
     });
 
+    // The .bak right after the upgrade predates the producer, and the old key
+    // is gone: recovering the rest of the state must not drop every mapping.
+    it('keeps a readable producer when a corrupt primary is recovered from a .bak without one', async () => {
+      await state.saveCursor(2);
+      persist.backup = persist.saved;
+      persist.saved = { version: 1, cursor: 'torn', outbox: [], locallyAuthored: [], deferred: [], producer };
+      persist.loadLegacyProducer = async () => null;
+      expect(await new DurableSyncState({ persist }).loadProducer()).toEqual(producer);
+      expect((persist.saved as PersistedSyncState).producer).toEqual(producer);
+    });
+
+    it('keeps a readable producer when the queue itself is unreadable', async () => {
+      persist.saved = { version: 1, cursor: 0, outbox: 'broken', locallyAuthored: [], deferred: [], producer };
+      expect(await new DurableSyncState({ persist }).loadProducer()).toEqual(producer);
+    });
+
     it('keeps the queue and preserves the bytes when the stored producer is corrupt', async () => {
       await state.enqueue(envelope());
       persist.saved = { ...(persist.saved as PersistedSyncState), producer: { mappings: 'broken' } };
@@ -150,6 +167,87 @@ describe('DurableSyncState', () => {
       expect(await reloaded.loadProducer()).toEqual(EMPTY);
       expect((await reloaded.listOutbox()).map((item) => item.revisionId)).toEqual(['rev-1']);
       expect(persist.corrupt).toEqual([{ raw: { producer: { mappings: 'broken' } }, timestamp: 5 }]);
+    });
+  });
+
+  describe('one-write producer commits (A1, 2d)', () => {
+    const FILE = 'file-1';
+    const note = { fileId: FILE, path: 'Notes/a.md', collisionKey: 'notes/a.md', contentHash: 'h1' };
+    const commit = (overrides: Partial<ProducerRecovery> = {}): ProducerRecovery => ({
+      id: 'commit-1', kind: 'resolution', fileIds: [FILE], discardRevisionIds: [],
+      state: { mappings: [{ ...note, content: 'text' }], heads: { [FILE]: 'rev-1' } },
+      ...overrides,
+    });
+
+    it('queues the change, records the file and seeds its owner and base in one write', async () => {
+      await state.loadCursor();
+      const before = persist.saveCalls;
+      expect(await state.commitProducerChange(commit(), envelope())).toBe(true);
+      expect(persist.saveCalls).toBe(before + 1);
+      const saved = persist.saved as PersistedSyncState;
+      expect(saved.outbox.map((e) => e.revisionId)).toEqual(['rev-1']);
+      expect(saved.producer).toEqual({ mappings: [note], heads: { [FILE]: 'rev-1' } });
+      expect(saved.pathOwners).toEqual({ 'Notes/a.md': FILE });
+      expect(saved.baseHashes).toEqual({ [FILE]: 'h1' });
+      expect(saved.producerRecovery ?? []).toEqual([]);
+    });
+
+    it('never advances an existing base and moves the owner on a rename', async () => {
+      await state.commitProducerChange(commit(), envelope());
+      const renamed = { ...note, path: 'Notes/b.md', contentHash: 'h2' };
+      await state.commitProducerChange(commit({ id: 'commit-2', state: { mappings: [renamed], heads: { [FILE]: 'rev-2' } } }),
+        envelope({ revisionId: 'rev-2', operationId: 'op-2', idempotencyKey: 'idem-2' }));
+      const saved = persist.saved as PersistedSyncState;
+      expect(saved.pathOwners).toEqual({ 'Notes/b.md': FILE });
+      expect(saved.baseHashes).toEqual({ [FILE]: 'h1' });
+      expect(saved.producer?.mappings).toEqual([renamed]);
+    });
+
+    it('forgets the owner, base and file on a delete', async () => {
+      await state.commitProducerChange(commit(), envelope());
+      await state.commitProducerChange(commit({ id: 'commit-2', state: { mappings: [], heads: {} } }));
+      const saved = persist.saved as PersistedSyncState;
+      expect(saved.pathOwners).toEqual({});
+      expect(saved.baseHashes).toEqual({});
+      expect(saved.producer).toEqual({ mappings: [], heads: {} });
+    });
+
+    it('swaps the pending queue for a head resolution, backing up what it replaces', async () => {
+      await state.enqueue(envelope({ revisionId: 'pending' }));
+      const replacement = envelope({ revisionId: 'resolved', operationId: 'op-r', idempotencyKey: 'idem-r' });
+      expect(await state.commitProducerChange(commit({ discardRevisionIds: ['pending'] }), replacement)).toBe(true);
+      const saved = persist.saved as PersistedSyncState;
+      expect(saved.outbox.map((e) => e.revisionId)).toEqual(['resolved']);
+      expect(saved.reconciliationBackups?.['commit-1']?.map((e) => e.revisionId)).toEqual(['pending']);
+    });
+
+    it('writes nothing when a replaced revision is no longer queued', async () => {
+      await state.loadCursor();
+      const before = persist.saveCalls;
+      expect(await state.commitProducerChange(commit({ discardRevisionIds: ['gone'] }), envelope())).toBe(false);
+      expect(persist.saveCalls).toBe(before);
+    });
+
+    it('finishes an interrupted journal entry, producer included, in one write', async () => {
+      await state.startProducerRecovery(commit({ id: 'legacy' }), envelope());
+      const before = persist.saveCalls;
+      await state.recoverProducerQueue('legacy');
+      expect(persist.saveCalls).toBe(before + 1);
+      const saved = persist.saved as PersistedSyncState;
+      expect(saved.producer).toEqual({ mappings: [note], heads: { [FILE]: 'rev-1' } });
+      expect(saved.pathOwners).toEqual({ 'Notes/a.md': FILE });
+      expect(saved.producerRecovery ?? []).toEqual([]);
+    });
+
+    it('rolls an interrupted apply back to the producer files it saved', async () => {
+      await state.saveProducer({ mappings: [note], heads: { [FILE]: 'rev-1' } });
+      await state.startProducerRecovery({ id: 'apply-1', kind: 'apply', fileIds: [FILE], discardRevisionIds: [],
+        state: { mappings: [note], heads: { [FILE]: 'rev-1' } } });
+      await state.saveProducer({ mappings: [{ ...note, contentHash: 'remote' }], heads: { [FILE]: 'remote-rev' } });
+      await state.recoverProducerQueue('apply-1');
+      const saved = persist.saved as PersistedSyncState;
+      expect(saved.producer).toEqual({ mappings: [note], heads: { [FILE]: 'rev-1' } });
+      expect(saved.producerRecovery ?? []).toEqual([]);
     });
   });
 
@@ -977,6 +1075,20 @@ describe('DurableSyncState outbox payload externalization (arch P1)', () => {
     expect(disk.outbox[0]?.payloadExternalized).toBe(true);
     // The runner-facing envelope still resolves the real bytes from the cache.
     expect((await state.getEnvelope('rev-1'))?.payloadBase64).toBe('PAYLOAD64');
+    expect(state.peekEnvelope('rev-1')?.payloadBase64).toBe('PAYLOAD64');
+  });
+
+  // A local commit used to go through the producer journal, which wrote the
+  // envelope inline: a 25 MiB attachment sat in data.json until it was sent.
+  it('keeps the payload of a committed local change out of data.json', async () => {
+    const state = new DurableSyncState({ persist, payloadStore: store });
+    await state.commitProducerChange({
+      id: 'commit-1', kind: 'resolution', fileIds: ['file-1'], discardRevisionIds: [],
+      state: { mappings: [{ fileId: 'file-1', path: 'a.pdf', collisionKey: 'a.pdf', contentHash: 'h', contentKind: 'binary' }], heads: { 'file-1': 'rev-1' } },
+    }, envelope({ payloadBase64: 'PAYLOAD64' }));
+
+    expect(store.map.get('rev-1')).toBe('PAYLOAD64');
+    expect(diskState(persist).outbox[0]).toMatchObject({ payloadBase64: '', payloadExternalized: true });
     expect(state.peekEnvelope('rev-1')?.payloadBase64).toBe('PAYLOAD64');
   });
 

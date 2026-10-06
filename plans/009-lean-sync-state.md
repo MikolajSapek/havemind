@@ -95,6 +95,41 @@ crash-consistency risk.
   re-adopts identities from the server through its bootstrap; a stale key
   would be trusted instead.
 
+### What 2d became
+
+- `DurableSyncState.commitProducerChange(record, envelope?)` does a local commit
+  or head resolution in one `mutate`: queue swap, producer files and heads,
+  owners and bases (`rolledForward`: a base is seeded on first authorship only).
+  No journal entry is written for it. The record covers every file whose
+  mapping or head changes, because an upsert on a shared collision key
+  displaces another file.
+- `recoverProducerQueue` finishes a journal entry, producer included, and drops
+  it in one write. Only `checkpointApply` still journals ('apply', an undo log
+  around the remote apply whose disk write is necessarily separate); legacy
+  'resolution' entries from 1.5.9 still replay.
+- Deleted: `local-base-lifecycle.ts`, the `onLocalMaterialized` /
+  `onLocalForgotten` seams, `seedSharedState`, the producer replay in
+  `recoverLocked`.
+- Found on the way: the journal path wrote every local change's payload inline
+  in `data.json` (it bypassed the arch P1 payload store), so a queued 25 MiB
+  attachment sat in the file until it was sent. The one-write commit stores
+  the payload in IndexedDB first, as `enqueue` always did.
+
+### Review (Sonnet reviewer, 2026-10-06)
+
+- Fixed: a corrupt primary recovered from a `.bak` that predates the producer
+  (the window right after the upgrade), or an unreadable queue that resets to
+  an empty state, dropped every mapping, because the old key was already gone.
+  The load now keeps the producer the raw primary still carries.
+- Accepted: a hand downgrade to 1.5.9 finds no `pushProducer` and starts
+  empty; 1.5.9 drops the unknown `producer` field on its next save, so a
+  re-upgrade imports what 1.5.9 wrote. The catalogue never downgrades.
+- Accepted: a file displaced from its path by a local upsert now loses its
+  owner and base in the same write. Its next remote edit becomes a conflict
+  copy, never a silent overwrite.
+- Accepted: the producer store's load now throws when the sync state is
+  corrupt with recovery data; sync is paused in that case anyway.
+
 ### Cost noted during 2b
 
 `syncState` now carries the producer (~42 KB on the Mac), and its `.bak` copy

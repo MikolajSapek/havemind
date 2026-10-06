@@ -42,23 +42,23 @@ describe('metadata-only producer mappings', () => {
       exists: async (candidate) => candidate === path,
       readText: async () => content, readBinary: async () => bytes,
     };
-    let stored: ProducerState = { mappings: [], heads: {} };
+    const box = { state: { mappings: [], heads: {} } as ProducerState };
     let counter = 0;
     const repository = new OutboxLocalChangeRepository({
       identity: { vaultId: '00000000-0000-4000-8000-000000000001', memberId: '00000000-0000-4000-8000-000000000002', deviceId: '00000000-0000-4000-8000-000000000003' },
-      store: { load: async () => stored, save: async (next) => { stored = structuredClone(next); } },
-      recovery: memoryRecovery(async () => {}),
+      store: { load: async () => box.state, save: async (next) => { box.state = structuredClone(next); } },
+      recovery: memoryRecovery(async () => {}, box),
       generateRevisionId: () => `00000000-0000-4000-8000-${String(++counter).padStart(12, '0')}`,
     });
     const observer = new VaultChangeObserver({ repository, vault, clock: () => 1,
       generateFileId: () => '00000000-0000-4000-8000-000000000004', generateOperationId: () => 'operation' });
     await observer.observeCreate(path);
-    expect(stored.mappings[0]).not.toHaveProperty('content');
-    expect(stored.mappings[0]?.contentHash).toBe(kind === 'binary' ? await hashBlob(bytes) : await hashPlaintext(content));
+    expect(box.state.mappings[0]).not.toHaveProperty('content');
+    expect(box.state.mappings[0]?.contentHash).toBe(kind === 'binary' ? await hashBlob(bytes) : await hashPlaintext(content));
     expect(await reconcileVaultState({ repository, observer, vault })).toMatchObject({ unchanged: 1, skipped: 0, updated: 0 });
     path = `renamed-${originalPath}`;
     expect(await reconcileVaultState({ repository, observer, vault })).toMatchObject({ renamed: 1, created: 0, deleted: 0 });
-    expect(stored.mappings[0]).toMatchObject({ fileId: '00000000-0000-4000-8000-000000000004', path });
-    expect(stored.mappings[0]).not.toHaveProperty('content');
+    expect(box.state.mappings[0]).toMatchObject({ fileId: '00000000-0000-4000-8000-000000000004', path });
+    expect(box.state.mappings[0]).not.toHaveProperty('content');
   });
 });

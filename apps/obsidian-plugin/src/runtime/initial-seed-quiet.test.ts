@@ -7,21 +7,16 @@ import type { DecodedRevisionPayload } from '@havemind/sync-core';
 import {
   VaultChangeObserver,
   type LocalChangeOperation,
-  type LocalFileMapping,
   type VaultSnapshotPort,
 } from '../obsidian/vault-adapter';
 import { OutboxLocalChangeRepository } from '../sync/outbox-repository';
 import { reconcileVaultState } from '../sync/reconciliation';
 import { createVaultFilePort } from './obsidian-adapters';
-import {
-  applyLocalMaterialization,
-  forgetLocalMaterialization,
-} from './local-base-lifecycle';
 import { createRemoteApplyProducerSync } from './remote-apply-coordinator';
-import { DurableSyncState, type PersistedSyncState } from './sync-state';
+import type { ProducerRecoveryPort } from './producer-recovery';
+import { DurableSyncState, type OutboxEnvelope, type PersistedSyncState } from './sync-state';
 import { VaultApplyAdapter, type RemoteAppliedEvent } from './vault-apply';
 import type { RemoteEvent } from '../sync/sync-runner';
-import { memoryRecovery } from '../test/memory-recovery';
 import { realSha256 } from '../test/fixtures';
 
 const VAULT_ID = '11111111-1111-4111-8111-111111111111';
@@ -101,38 +96,47 @@ function makeMemoryPersist() {
  * change wires reconciliation into the Activity feed, the zero-row assertions
  * below fail and flag the regression.
  */
+/**
+ * The production recovery port (the DurableSyncState) with a tap on every
+ * envelope it queues, so the harness can count and inspect pushes synchronously.
+ */
+function observeQueue(state: DurableSyncState, seen: (envelope: OutboxEnvelope) => void): ProducerRecoveryPort {
+  return {
+    startProducerRecovery: async (record, replacement) => {
+      const ok = await state.startProducerRecovery(record, replacement);
+      if (ok && replacement !== undefined) seen(replacement);
+      return ok;
+    },
+    commitProducerChange: async (record, replacement) => {
+      const ok = await state.commitProducerChange(record, replacement);
+      if (ok && replacement !== undefined) seen(replacement);
+      return ok;
+    },
+    pendingProducerRecoveries: () => state.pendingProducerRecoveries(),
+    recoverProducerQueue: (id) => state.recoverProducerQueue(id),
+    completeProducerRecovery: (id) => state.completeProducerRecovery(id),
+    enqueueAutomaticMerge: async (envelope) => {
+      await state.enqueueAutomaticMerge(envelope);
+      seen(envelope);
+    },
+  };
+}
+
 describe('owner initial seed is quiet in the Activity feed', () => {
   function makeHarness() {
     const vault = new InMemoryVault();
     const state = new DurableSyncState({ persist: makeMemoryPersist() });
-
-    let producerState: {
-      mappings: LocalFileMapping[];
-      heads: Record<string, string>;
-    } = { mappings: [], heads: {} };
 
     const outbox: string[] = [];
     const localActivity: LocalChangeOperation[] = [];
 
     const repository = new OutboxLocalChangeRepository({
       identity: { vaultId: VAULT_ID, memberId: MEMBER_ID, deviceId: DEVICE_ID },
-      store: {
-        async load() {
-          return producerState;
-        },
-        async save(next) {
-          producerState = {
-            mappings: [...next.mappings],
-            heads: { ...next.heads },
-          };
-        },
-      },
-      recovery: memoryRecovery(async (envelope) => {
+      store: { load: () => state.loadProducer(), save: (next) => state.saveProducer(next) },
+      recovery: observeQueue(state, (envelope) => {
         outbox.push(envelope.revisionId);
       }),
       generateRevisionId: () => globalThis.crypto.randomUUID(),
-      onLocalMaterialized: (m) => applyLocalMaterialization(state, m),
-      onLocalForgotten: (f) => forgetLocalMaterialization(state, f),
     });
 
     const snapshot: VaultSnapshotPort = {
@@ -197,8 +201,8 @@ describe('owner initial seed is quiet in the Activity feed', () => {
       remoteApplied,
       resolved,
       adapter,
-      producerMappings: () => producerState.mappings,
-      headFor: (fileId: string) => producerState.heads[fileId],
+      producerMappings: async () => (await state.loadProducer()).mappings,
+      headFor: async (fileId: string) => (await state.loadProducer()).heads[fileId],
     };
   }
 
@@ -218,15 +222,15 @@ describe('owner initial seed is quiet in the Activity feed', () => {
     // Sync is intact: every pre-existing file is enumerated and enqueued.
     expect(result.created).toBe(N);
     expect(h.outbox).toHaveLength(N);
-    expect(h.producerMappings()).toHaveLength(N);
+    expect((await h.producerMappings())).toHaveLength(N);
 
     // The seed is silent: reconciliation records ZERO Activity entries.
     expect(h.localActivity).toHaveLength(0);
 
     // The owner's own revisions echoing back through the pull are no-ops, so the
     // remote-apply Activity hook never fires for the baseline either.
-    for (const mapping of h.producerMappings()) {
-      const revisionId = h.headFor(mapping.fileId);
+    for (const mapping of (await h.producerMappings())) {
+      const revisionId = (await h.headFor(mapping.fileId));
       if (revisionId === undefined) continue;
       h.resolved.set(revisionId, {
         operation: 'create',

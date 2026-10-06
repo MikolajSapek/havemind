@@ -6,7 +6,7 @@
  * a malformed one degrades to a clean empty state, so it never wedges startup.
  */
 
-import { validRecovery, type ProducerRecovery } from './producer-recovery';
+import { mappingMetadata, validRecovery, type ProducerRecovery } from './producer-recovery';
 import { parseProducerStateResult } from './adapters/producer-state';
 
 import type { ProducerState } from '../sync/outbox-repository';
@@ -190,6 +190,46 @@ export function parseFailedToQueuePath(revisionId: string): string | null {
 
 const EMPTY_PRODUCER: ProducerState = { mappings: [], heads: {} };
 
+/** `producer` with `record`'s files replaced by the ones it carries. */
+function withProducerFiles(producer: ProducerState, record: ProducerRecovery): ProducerState {
+  const ids = new Set(record.fileIds);
+  return {
+    mappings: [...producer.mappings.filter((m) => !ids.has(m.fileId)), ...record.state.mappings.map(mappingMetadata)],
+    heads: { ...Object.fromEntries(Object.entries(producer.heads).filter(([id]) => !ids.has(id))), ...record.state.heads },
+  };
+}
+
+/**
+ * `state` with `record` applied forward: its files in the producer, each one's
+ * owner moved to its path, a base seeded on first authorship only (a local edit
+ * never advances the common ancestor, rule 3), a deleted file forgotten, and
+ * the record itself gone from the journal.
+ */
+function rolledForward(state: PersistedSyncState, record: ProducerRecovery): PersistedSyncState {
+  const pathOwners = { ...state.pathOwners };
+  const baseHashes = { ...state.baseHashes };
+  const baseContents = { ...state.baseContents };
+  for (const fileId of record.fileIds) {
+    const mapping = record.state.mappings.find((m) => m.fileId === fileId);
+    for (const [path, owner] of Object.entries(pathOwners)) {
+      if (owner === fileId && path !== mapping?.path) delete pathOwners[path];
+    }
+    if (mapping === undefined) {
+      delete baseHashes[fileId];
+      delete baseContents[fileId];
+    } else {
+      pathOwners[mapping.path] = fileId;
+      baseHashes[fileId] ??= mapping.contentHash;
+      if (mapping.contentKind !== 'binary' && mapping.content !== undefined && baseContents[fileId] === undefined &&
+        baseHashes[fileId] === mapping.contentHash) baseContents[fileId] = mapping.content;
+    }
+  }
+  return { ...state, pathOwners, baseHashes, baseContents,
+    producer: withProducerFiles(state.producer ?? EMPTY_PRODUCER, record),
+    producerRecovery: (state.producerRecovery ?? []).filter((r) => r.id !== record.id),
+  };
+}
+
 /** The stored producer, or nothing when absent; unreadable degrades to empty. */
 function parseProducerField(value: unknown): { producer?: ProducerState } {
   return value === undefined ? {} : { producer: parseProducerStateResult(value).state };
@@ -317,16 +357,9 @@ export class DurableSyncState implements SyncStatePort {
   async startProducerRecovery(record: ProducerRecovery, replacement?: OutboxEnvelope): Promise<boolean> {
     return this.runExclusive(async () => {
       const state = await this.ensureLoaded();
-      if ((state.producerRecovery ?? []).some((r) => r.fileIds.some((id) => record.fileIds.includes(id)))) {
-        throw new Error('Producer recovery must finish before another transaction.');
-      }
-      const ids = new Set(record.discardRevisionIds);
-      const originals = state.outbox.filter((e) => ids.has(e.revisionId));
-      if (originals.length !== ids.size || this.hasUncoveredChildren(state, ids)) return false;
-      if (replacement !== undefined && (ids.has(replacement.revisionId) ||
-        parentIdsFromHeader(replacement.header).some((id) => ids.has(id)))) return false;
-      await this.mutate({ ...state,
-        outbox: [...state.outbox.filter((e) => !ids.has(e.revisionId)), ...(replacement === undefined ? [] : [{ ...replacement, enqueuedAt: this.now() }])],
+      const swapped = await this.swapQueue(state, record, replacement);
+      if (swapped === null) return false;
+      await this.mutate({ ...swapped,
         producerRecovery: [...(state.producerRecovery ?? []), record.kind === 'apply' ? {
           ...record,
           applyState: {
@@ -335,10 +368,55 @@ export class DurableSyncState implements SyncStatePort {
             baseContents: Object.fromEntries(Object.entries(state.baseContents).filter(([id]) => record.fileIds.includes(id))),
           },
         } : record],
-        ...(originals.length === 0 ? {} : { reconciliationBackups: { ...state.reconciliationBackups, [record.id]: this.backedUp(originals) } }),
       });
       return true;
     });
+  }
+
+  /**
+   * A1: a local commit or head resolution in ONE write: the queue swap, the
+   * producer's file and head, and the owner and base the apply side reads. It
+   * needs no journal entry, since there is no second write to recover from.
+   */
+  async commitProducerChange(record: ProducerRecovery, replacement?: OutboxEnvelope): Promise<boolean> {
+    return this.runExclusive(async () => {
+      const state = await this.ensureLoaded();
+      const swapped = await this.swapQueue(state, record, replacement);
+      if (swapped === null) return false;
+      await this.mutate(rolledForward(swapped, record));
+      return true;
+    });
+  }
+
+  /**
+   * The queue with `record`'s discarded revisions backed up and `replacement`
+   * queued, its payload in the store when there is one (arch P1). Null when the
+   * swap would lose or orphan queued work.
+   */
+  private async swapQueue(
+    state: PersistedSyncState,
+    record: ProducerRecovery,
+    replacement: OutboxEnvelope | undefined,
+  ): Promise<PersistedSyncState | null> {
+    if ((state.producerRecovery ?? []).some((r) => r.fileIds.some((id) => record.fileIds.includes(id)))) {
+      throw new Error('Producer recovery must finish before another transaction.');
+    }
+    const ids = new Set(record.discardRevisionIds);
+    const originals = state.outbox.filter((e) => ids.has(e.revisionId));
+    if (originals.length !== ids.size || this.hasUncoveredChildren(state, ids)) return null;
+    if (replacement !== undefined && (ids.has(replacement.revisionId) ||
+      parentIdsFromHeader(replacement.header).some((id) => ids.has(id)))) return null;
+    if (replacement !== undefined) {
+      if (await this.safePutPayload(replacement.revisionId, replacement.payloadBase64)) {
+        this.externalized.add(replacement.revisionId);
+      } else {
+        this.externalized.delete(replacement.revisionId);
+      }
+    }
+    return { ...state,
+      outbox: [...state.outbox.filter((e) => !ids.has(e.revisionId)), ...(replacement === undefined ? [] : [{ ...replacement, enqueuedAt: this.now() }])],
+      ...(originals.length === 0 ? {} : { reconciliationBackups: { ...state.reconciliationBackups, [record.id]: this.backedUp(originals) } }),
+    };
   }
 
   /** The producer's files and heads (A1); empty before the first commit. */
@@ -354,24 +432,28 @@ export class DurableSyncState implements SyncStatePort {
   }
 
   /**
-   * A1, part of the load: keeps the bytes of an unreadable stored producer in a
-   * sidecar (GAP-3), or imports the pre-1.6.0 key once. The save that carries
-   * the import is the one that drops the old key.
+   * A1, part of the load. Keeps the bytes of an unreadable stored producer in a
+   * sidecar (GAP-3). When the loaded state has no producer, it takes the one
+   * the raw primary still carries (a `.bak` or an empty state replaced a
+   * corrupt primary, and right after the upgrade the `.bak` predates the
+   * producer), else imports the pre-1.6.0 key once. The save that carries it
+   * is the one that drops the old key.
    */
   private async settleProducer(raw: unknown): Promise<void> {
     const stored = isRecord(raw) ? raw.producer : undefined;
-    if (stored !== undefined) {
-      const parsed = parseProducerStateResult(stored);
-      if (parsed.status === 'corrupt') {
-        await this.persist.preserveCorrupt({ producer: stored }, this.now());
-      } else if (parsed.quarantinedMappings.length > 0) {
-        await this.persist.preserveCorrupt({ producer: { mappings: parsed.quarantinedMappings } }, this.now());
-      }
-      return;
+    const parsed = stored === undefined ? null : parseProducerStateResult(stored);
+    if (parsed?.status === 'corrupt') {
+      await this.persist.preserveCorrupt({ producer: stored }, this.now());
+    } else if (parsed !== null && parsed.quarantinedMappings.length > 0) {
+      await this.persist.preserveCorrupt({ producer: { mappings: parsed.quarantinedMappings } }, this.now());
     }
     const state = this.cache;
-    if (state === null || state.producer !== undefined || this.persist.loadLegacyProducer === undefined) return;
-    const next = { ...state, producer: (await this.persist.loadLegacyProducer()) ?? EMPTY_PRODUCER };
+    if (state === null || state.producer !== undefined) return;
+    const producer = parsed?.status === 'ok'
+      ? parsed.state
+      : this.persist.loadLegacyProducer === undefined ? undefined : (await this.persist.loadLegacyProducer()) ?? EMPTY_PRODUCER;
+    if (producer === undefined) return;
+    const next = { ...state, producer };
     await this.persist.save(this.toDiskForm(next));
     this.cache = next;
   }
@@ -387,47 +469,34 @@ export class DurableSyncState implements SyncStatePort {
       !ids.has(e.revisionId) && parentIdsFromHeader(e.header).some((id) => ids.has(id)));
   }
 
+  /**
+   * Finishes an interrupted journal entry in one write and drops it: a
+   * 'resolution' (only written before 1.6.0) rolls forward, an 'apply' rolls
+   * the producer, owners and bases back to its snapshot and drops what it
+   * queued.
+   */
   async recoverProducerQueue(id: string): Promise<void> {
     await this.runExclusive(async () => {
       const state = await this.ensureLoaded();
       const record = state.producerRecovery?.find((r) => r.id === id);
       if (record === undefined) return;
       if (record.kind === 'resolution') {
-        // Finish shared materialization with the producer replay: a local commit
-        // can stop before any callback or between saving base hash and content,
-        // and the mapping alone loses the ownership/base a remote edit needs.
-        const pathOwners = { ...state.pathOwners };
-        const baseHashes = { ...state.baseHashes };
-        const baseContents = { ...state.baseContents };
-        for (const fileId of record.fileIds) {
-          const mapping = record.state.mappings.find((m) => m.fileId === fileId);
-          for (const [path, owner] of Object.entries(pathOwners)) {
-            if (owner === fileId && path !== mapping?.path) delete pathOwners[path];
-          }
-          if (mapping === undefined) {
-            delete baseHashes[fileId];
-            delete baseContents[fileId];
-          } else {
-            pathOwners[mapping.path] = fileId;
-            // Local updates must never advance an existing common ancestor.
-            baseHashes[fileId] ??= mapping.contentHash;
-            if (mapping.contentKind !== 'binary' && mapping.content !== undefined && baseContents[fileId] === undefined &&
-              baseHashes[fileId] === mapping.contentHash) baseContents[fileId] = mapping.content;
-          }
-        }
-        await this.mutate({ ...state, pathOwners, baseHashes, baseContents });
+        await this.mutate(rolledForward(state, record));
         return;
       }
       const ids = new Set(record.discardRevisionIds);
       if (this.hasUncoveredChildren(state, ids)) throw new Error('Recovery would orphan pending work.');
       const originals = state.outbox.filter((e) => ids.has(e.revisionId));
       const undo = record.applyState;
+      const other = (fileId: string): boolean => !record.fileIds.includes(fileId);
       await this.mutate({ ...state,
         ...(undo === undefined ? {} : {
-          pathOwners: { ...Object.fromEntries(Object.entries(state.pathOwners).filter(([, fileId]) => !record.fileIds.includes(fileId))), ...undo.pathOwners },
-          baseHashes: { ...Object.fromEntries(Object.entries(state.baseHashes).filter(([fileId]) => !record.fileIds.includes(fileId))), ...undo.baseHashes },
-          baseContents: { ...Object.fromEntries(Object.entries(state.baseContents).filter(([fileId]) => !record.fileIds.includes(fileId))), ...undo.baseContents },
+          pathOwners: { ...Object.fromEntries(Object.entries(state.pathOwners).filter(([, fileId]) => other(fileId))), ...undo.pathOwners },
+          baseHashes: { ...Object.fromEntries(Object.entries(state.baseHashes).filter(([fileId]) => other(fileId))), ...undo.baseHashes },
+          baseContents: { ...Object.fromEntries(Object.entries(state.baseContents).filter(([fileId]) => other(fileId))), ...undo.baseContents },
         }),
+        producer: withProducerFiles(state.producer ?? EMPTY_PRODUCER, record),
+        producerRecovery: (state.producerRecovery ?? []).filter((r) => r.id !== id),
         outbox: state.outbox.filter((e) => !ids.has(e.revisionId)),
         ...(originals.length === 0 ? {} : { reconciliationBackups: { ...state.reconciliationBackups,
           [id]: [...(state.reconciliationBackups?.[id] ?? []), ...this.backedUp(originals)] } }),

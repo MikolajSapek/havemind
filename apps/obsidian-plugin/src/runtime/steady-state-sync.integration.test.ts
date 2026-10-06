@@ -18,22 +18,17 @@ import { protectedRevisionHeaderSchema } from '@havemind/protocol';
 import {
   VaultChangeObserver,
   type LocalChangeOperation,
-  type LocalFileMapping,
 } from '../obsidian/vault-adapter';
 import { OutboxLocalChangeRepository } from '../sync/outbox-repository';
 import { createVaultFilePort } from './obsidian-adapters';
-import {
-  applyLocalMaterialization,
-  forgetLocalMaterialization,
-} from './local-base-lifecycle';
 import { createRemoteApplyProducerSync } from './remote-apply-coordinator';
+import type { ProducerRecoveryPort } from './producer-recovery';
 import {
   DurableSyncState,
   type OutboxEnvelope,
 } from './sync-state';
 import { VaultApplyAdapter } from './vault-apply';
 import type { RemoteEvent } from '../sync/sync-runner';
-import { memoryRecovery } from '../test/memory-recovery';
 import { realSha256, makeMemoryPersist } from '../test/fixtures';
 
 const VAULT_ID = '11111111-1111-4111-8111-111111111111';
@@ -129,10 +124,6 @@ function makeHarness() {
   const state = new DurableSyncState({ persist: makeMemoryPersist() });
 
   // Producer store (in-memory).
-  let producerState: {
-    mappings: LocalFileMapping[];
-    heads: Record<string, string>;
-  } = { mappings: [], heads: {} };
 
   const outbox: string[] = [];
   // Full pushed envelopes, so a test can assert the shape of the revision DAG
@@ -151,19 +142,9 @@ function makeHarness() {
       memberId: MEMBER_ID,
       deviceId: DEVICE_ID,
     },
-    store: {
-      async load() {
-        return producerState;
-      },
-      async save(next) {
-        producerState = {
-          mappings: [...next.mappings],
-          heads: { ...next.heads },
-        };
-      },
-    },
+    store: { load: () => state.loadProducer(), save: (next) => state.saveProducer(next) },
     hasAuthoredRevision: async (revisionId) => outbox.includes(revisionId),
-    recovery: memoryRecovery(async (envelope) => {
+    recovery: observeQueue(state, (envelope) => {
       outbox.push(envelope.revisionId);
       pushed.push(envelope);
     }),
@@ -171,12 +152,6 @@ function makeHarness() {
       const n = (revisionCounter += 1);
       return `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
     },
-    // The SAME base-lifecycle logic production wires (obsidian-adapters.ts), so
-    // this integration test can never go false-green against a differently-
-    // modelled base: seed on first authorship only, never advance on a push.
-    onLocalMaterialized: (materialization) =>
-      applyLocalMaterialization(state, materialization),
-    onLocalForgotten: (forget) => forgetLocalMaterialization(state, forget),
   });
 
   const observer = new VaultChangeObserver({
@@ -267,8 +242,8 @@ function makeHarness() {
   }
 
   /** The producer's current head revisionId for a file (for causal parenting). */
-  function localHead(fileId: string): string | undefined {
-    return producerState.heads[fileId];
+  async function localHead(fileId: string): Promise<string | undefined> {
+    return (await state.loadProducer()).heads[fileId];
   }
 
   function setRemote(
@@ -314,7 +289,33 @@ function makeHarness() {
     userCreate,
     localHead,
     mintedCount: () => mintedFileIds,
-    producerMappings: () => producerState.mappings,
+    producerMappings: async () => (await state.loadProducer()).mappings,
+  };
+}
+
+/**
+ * The production recovery port (the DurableSyncState) with a tap on every
+ * envelope it queues, so the harness can count and inspect pushes synchronously.
+ */
+function observeQueue(state: DurableSyncState, seen: (envelope: OutboxEnvelope) => void): ProducerRecoveryPort {
+  return {
+    startProducerRecovery: async (record, replacement) => {
+      const ok = await state.startProducerRecovery(record, replacement);
+      if (ok && replacement !== undefined) seen(replacement);
+      return ok;
+    },
+    commitProducerChange: async (record, replacement) => {
+      const ok = await state.commitProducerChange(record, replacement);
+      if (ok && replacement !== undefined) seen(replacement);
+      return ok;
+    },
+    pendingProducerRecoveries: () => state.pendingProducerRecoveries(),
+    recoverProducerQueue: (id) => state.recoverProducerQueue(id),
+    completeProducerRecovery: (id) => state.completeProducerRecovery(id),
+    enqueueAutomaticMerge: async (envelope) => {
+      await state.enqueueAutomaticMerge(envelope);
+      seen(envelope);
+    },
   };
 }
 
@@ -427,7 +428,7 @@ describe('two-person steady-state sync (integration)', () => {
     expect(h.localActivity).toEqual([]);
 
     // The producer adopted the incoming fileId for the path (no duplicate id).
-    const mappings = h.producerMappings();
+    const mappings = (await h.producerMappings());
     expect(mappings).toHaveLength(1);
     expect(mappings[0]?.fileId).toBe(REMOTE_FILE);
     expect(mappings[0]?.path).toBe('Notes/peer.md');

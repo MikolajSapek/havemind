@@ -51,7 +51,7 @@ export interface VaultFilePortOptions {
  * Binds the runner's `VaultFilePort` to the live Vault, resolving ownership from
  * the SHARED apply store (`DurableSyncState.pathOwners`). That store is now
  * seeded for both files RECEIVED from the peer (on remote apply) AND files this
- * device authored/pushed (via the producer's `onLocalMaterialized` seam), so a
+ * device authored/pushed (in the same write as its queue entry, A1), so a
  * peer edit to a locally-authored file resolves to its real fileId and updates
  * in place. A path with no owner resolves to `null`: a genuinely remote-only
  * file then materializes cleanly, and any pre-existing physical content there is

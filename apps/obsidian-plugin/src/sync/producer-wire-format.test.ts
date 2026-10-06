@@ -87,7 +87,7 @@ function createProducer(vault: VaultSnapshotPort, maxPayloadBytes?: number) {
     store,
     recovery: memoryRecovery(async (envelope) => {
       enqueued.push(envelope);
-    }),
+    }, store),
     generateRevisionId: () => {
       revisionCounter += 1;
       return `00000000-0000-4000-8000-00000000000${revisionCounter}`;

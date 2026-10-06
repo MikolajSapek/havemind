@@ -69,15 +69,10 @@ import { RefreshTokenAccessProvider } from '../../apps/obsidian-plugin/src/runti
 import { RequestUrlTransport, type RequestUrlFn } from '../../apps/obsidian-plugin/src/runtime/sync-transport.js';
 import { DurableSyncState } from '../../apps/obsidian-plugin/src/runtime/sync-state.js';
 import { VaultApplyAdapter, type VaultFilePort } from '../../apps/obsidian-plugin/src/runtime/vault-apply.js';
-import {
-  applyLocalMaterialization,
-  forgetLocalMaterialization,
-} from '../../apps/obsidian-plugin/src/runtime/local-base-lifecycle.js';
 import { createRemoteApplyProducerSync } from '../../apps/obsidian-plugin/src/runtime/remote-apply-coordinator.js';
 import { buildConnectionResolvers } from '../../apps/obsidian-plugin/src/runtime/connection.js';
 import {
   OutboxLocalChangeRepository,
-  type ProducerState,
   type ProducerStorePort,
 } from '../../apps/obsidian-plugin/src/sync/outbox-repository.js';
 import {
@@ -440,14 +435,10 @@ class DeviceRuntime {
       random: () => 0,
     });
 
-    let producerBlob: ProducerState = { mappings: [], heads: {} };
+    // The producer's files live in the sync state, as in production (A1).
     const store: ProducerStorePort = {
-      async load() {
-        return producerBlob;
-      },
-      async save(next) {
-        producerBlob = next;
-      },
+      load: () => this.state.loadProducer(),
+      save: (next) => this.state.saveProducer(next),
     };
     this.producer = new OutboxLocalChangeRepository({
       recovery: this.state,
@@ -459,13 +450,6 @@ class DeviceRuntime {
       store,
       hasAuthoredRevision: (revisionId) => this.state.hasAuthoredRevision(revisionId),
       generateRevisionId: () => randomUUID(),
-      // Seed the SHARED apply-store ownership+base for every file this device
-      // authors/pushes, exactly as the production `startPushProducer` wiring
-      // does (obsidian-adapters). Without it a locally-authored file's base is
-      // never seeded, so a concurrent peer edit to it can't be classified,
-      // the very case the divergence regression below exercises.
-      onLocalMaterialized: (m) => applyLocalMaterialization(this.state, m),
-      onLocalForgotten: (f) => forgetLocalMaterialization(this.state, f),
     });
     this.observer = new VaultChangeObserver({
       clock: () => 0,

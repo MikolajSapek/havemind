@@ -50,19 +50,14 @@ import { protectedRevisionHeaderSchema } from '@havemind/protocol';
 import {
   VaultChangeObserver,
   type LocalChangeOperation,
-  type LocalFileMapping,
 } from '../obsidian/vault-adapter';
 import { OutboxLocalChangeRepository } from '../sync/outbox-repository';
 import { createVaultFilePort } from './obsidian-adapters';
-import {
-  applyLocalMaterialization,
-  forgetLocalMaterialization,
-} from './local-base-lifecycle';
 import { createRemoteApplyProducerSync } from './remote-apply-coordinator';
+import type { ProducerRecoveryPort } from './producer-recovery';
 import { DurableSyncState, type OutboxEnvelope } from './sync-state';
 import { VaultApplyAdapter } from './vault-apply';
 import type { RemoteEvent } from '../sync/sync-runner';
-import { memoryRecovery } from '../test/memory-recovery';
 import { realSha256, makeMemoryPersist } from '../test/fixtures';
 
 const VAULT_ID = '11111111-1111-4111-8111-111111111111';
@@ -227,11 +222,6 @@ function makeDevice(tag: DeviceTag) {
   const vault = new InMemoryVault();
   const state = new DurableSyncState({ persist: makeMemoryPersist() });
 
-  let producerState: {
-    mappings: LocalFileMapping[];
-    heads: Record<string, string>;
-  } = { mappings: [], heads: {} };
-
   const localActivity: LocalChangeOperation[] = [];
   const outbox: OutboxEnvelope[] = [];
   let revisionCounter = 0;
@@ -240,28 +230,15 @@ function makeDevice(tag: DeviceTag) {
 
   const repository = new OutboxLocalChangeRepository({
     identity: { vaultId: VAULT_ID, memberId: MEMBER_ID, deviceId: `${revPrefix.slice(0, 4)}0000-0000-4000-8000-000000000001` },
-    store: {
-      async load() {
-        return producerState;
-      },
-      async save(next) {
-        producerState = {
-          mappings: [...next.mappings],
-          heads: { ...next.heads },
-        };
-      },
-    },
+    store: { load: () => state.loadProducer(), save: (next) => state.saveProducer(next) },
     hasAuthoredRevision: async (id) => outbox.some((entry) => entry.revisionId === id),
-    recovery: memoryRecovery(async (envelope) => {
+    recovery: observeQueue(state, (envelope) => {
       outbox.push(envelope);
     }),
     generateRevisionId: () => {
       const n = (revisionCounter += 1);
       return `${revPrefix}-0000-4000-8000-${String(n).padStart(12, '0')}`;
     },
-    onLocalMaterialized: (materialization) =>
-      applyLocalMaterialization(state, materialization),
-    onLocalForgotten: (forget) => forgetLocalMaterialization(state, forget),
   });
 
   const observer = new VaultChangeObserver({
@@ -379,8 +356,8 @@ function makeDevice(tag: DeviceTag) {
     outboxLength: () => outbox.length,
     setRemote: (revisionId: string, payload: DecodedRevisionPayload) =>
       resolved.set(revisionId, payload),
-    localHead: (fileId: string): string | undefined => producerState.heads[fileId],
-    producerMappings: () => producerState.mappings,
+    localHead: async (fileId: string): Promise<string | undefined> => (await state.loadProducer()).heads[fileId],
+    producerMappings: async () => (await state.loadProducer()).mappings,
   };
 }
 
@@ -767,8 +744,8 @@ function runScenario(seed: number, ops: number): { run: () => Promise<void> } {
         expect(dev.state.baseHashFor(fileId)).toBeNull();
         expect(dev.state.baseContentFor(fileId)).toBeNull();
         expect(dev.state.fileIdAtPath(path)).toBeNull();
-        expect(dev.localHead(fileId)).toBeUndefined();
-        expect(dev.producerMappings().some((m) => m.fileId === fileId)).toBe(false);
+        expect((await dev.localHead(fileId))).toBeUndefined();
+        expect((await dev.producerMappings()).some((m) => m.fileId === fileId)).toBe(false);
       }
     }
 
@@ -777,6 +754,32 @@ function runScenario(seed: number, ops: number): { run: () => Promise<void> } {
     expect(wire.B).toHaveLength(0);
     for (const [, count] of inFlight) expect(count).toBeLessThanOrEqual(0);
   }
+}
+
+/**
+ * The production recovery port (the DurableSyncState) with a tap on every
+ * envelope it queues, so the harness can count and inspect pushes synchronously.
+ */
+function observeQueue(state: DurableSyncState, seen: (envelope: OutboxEnvelope) => void): ProducerRecoveryPort {
+  return {
+    startProducerRecovery: async (record, replacement) => {
+      const ok = await state.startProducerRecovery(record, replacement);
+      if (ok && replacement !== undefined) seen(replacement);
+      return ok;
+    },
+    commitProducerChange: async (record, replacement) => {
+      const ok = await state.commitProducerChange(record, replacement);
+      if (ok && replacement !== undefined) seen(replacement);
+      return ok;
+    },
+    pendingProducerRecoveries: () => state.pendingProducerRecoveries(),
+    recoverProducerQueue: (id) => state.recoverProducerQueue(id),
+    completeProducerRecovery: (id) => state.completeProducerRecovery(id),
+    enqueueAutomaticMerge: async (envelope) => {
+      await state.enqueueAutomaticMerge(envelope);
+      seen(envelope);
+    },
+  };
 }
 
 describe('randomized two-device convergence (integration)', () => {

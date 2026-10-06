@@ -42,10 +42,6 @@ import {
   type RetryFailedCommitOutcome,
 } from '../commit-recovery';
 import { withKeys, type KeyedMutex } from '../keyed-mutex';
-import {
-  applyLocalMaterialization,
-  forgetLocalMaterialization,
-} from '../local-base-lifecycle';
 import { ModifyDebouncer } from '../modify-debounce';
 import {
   failedToQueueRevisionId,
@@ -125,20 +121,6 @@ export function startPushProducer(plugin: Plugin, wiring: PushProducerWiring): P
     hasAuthoredRevision: (revisionId) => state.hasAuthoredRevision(revisionId),
     quarantinedParents: (revisionId) => state.quarantinedParents(revisionId),
     generateRevisionId: () => globalThis.crypto.randomUUID(),
-    // FIX 1: seed the SHARED apply store for every file this device authors or
-    // pushes, so a later peer edit to a locally-authored file resolves to its
-    // real fileId and updates in place instead of forever forking to a conflict
-    // artifact. A rename also forgets the stale owner of the previous path.
-    //
-    // DATA-SAFETY (rule 3): the base is SEEDED only on first authorship and is
-    // NEVER advanced by a local push, advancing it here reopened the silent-
-    // overwrite window (a concurrent peer revision matching the just-authored
-    // base slips past the on-disk guard). The single source of truth for that
-    // rule lives in `local-base-lifecycle.ts`, shared with the integration
-    // harness so a regression can't hide behind a differently-modelled test.
-    onLocalMaterialized: (materialization) =>
-      applyLocalMaterialization(state, materialization),
-    onLocalForgotten: (forget) => forgetLocalMaterialization(state, forget),
   });
   // Bind the late-bound coordinator so the apply adapter can adopt remote
   // fileIds into this producer's mapping (FIX 2).

@@ -30,7 +30,7 @@ import type {
 } from '../obsidian/vault-adapter';
 import type { OutboxEnvelope } from '../runtime/sync-state';
 import { KeyedMutex } from '../runtime/keyed-mutex';
-import type { ProducerRecovery, ProducerRecoveryPort } from '../runtime/producer-recovery';
+import { mappingMetadata, type ProducerRecovery, type ProducerRecoveryPort } from '../runtime/producer-recovery';
 
 /**
  * Effective per-payload ceiling for a BINARY attachment (F9). A 25 MiB file
@@ -63,27 +63,6 @@ export interface ProducerStorePort {
   save(state: ProducerState): Promise<void>;
 }
 
-/** A file this device authored/pushed, seeded into the shared apply store. */
-export interface LocalMaterialization {
-  readonly fileId: string;
-  readonly path: string;
-  /** SHA-256 hex of the normalized note text (the apply-side base hash). */
-  readonly contentHash: string;
-  /**
-   * The canonical markdown text (the merge ancestor to seed, MRG-01), or null for
-   * a binary file, which never merges and records no base content.
-   */
-  readonly content: string | null;
-  /** The prior path on a rename, so its stale ownership can be forgotten. */
-  readonly previousPath: string | null;
-}
-
-/** A file this device deleted, so its shared ownership+base can be forgotten. */
-export interface LocalForget {
-  readonly fileId: string;
-  readonly path: string;
-}
-
 export interface OutboxLocalChangeRepositoryOptions {
   /** The durable journal every queue write goes through with its mapping. */
   readonly recovery: ProducerRecoveryPort;
@@ -105,19 +84,6 @@ export interface OutboxLocalChangeRepositoryOptions {
    * limit).
    */
   readonly maxPayloadBytes?: number;
-  /**
-   * Seeds the SHARED apply-side ownership+base for a file this device authored
-   * or pushed. Without this the apply store (`pathOwners`/`baseHashes`) only ever
-   * learns about files RECEIVED from the peer, so a remote edit to a
-   * locally-authored file finds no owner, is treated as a foreign collision, and
-   * is diverted to a conflict artifact forever. Seeding it here unifies the
-   * producer and apply stores onto one fileId↔path↔base truth, so a peer edit to
-   * a locally-authored file updates IN PLACE (base match) and only genuine
-   * divergence becomes a conflict. Called on create/update/rename commits.
-   */
-  readonly onLocalMaterialized?: (m: LocalMaterialization) => Promise<void>;
-  /** Forgets the shared ownership+base when this device deletes a file. */
-  readonly onLocalForgotten?: (m: LocalForget) => Promise<void>;
 }
 
 const OPERATION_BY_KIND: Readonly<
@@ -141,13 +107,8 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
   }
 
   private async saveState(state: ProducerState): Promise<void> {
-    // Whitelist metadata, including when replaying a legacy journal or when
-    // a merge caller supplies a transient snapshot along with its mapping.
-    await this.options.store.save({ ...state, mappings: state.mappings.map((m) => ({
-      fileId: m.fileId, path: m.path, collisionKey: m.collisionKey, contentHash: m.contentHash,
-      ...(m.contentKind === undefined ? {} : { contentKind: m.contentKind }),
-      ...(m.stat === undefined ? {} : { stat: m.stat }),
-    })) });
+    // Metadata only: a merge caller supplies its mapping with the note text.
+    await this.options.store.save({ ...state, mappings: state.mappings.map(mappingMetadata) });
   }
 
   /**
@@ -176,17 +137,10 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
   }
 
   private async recoverLocked(): Promise<void> {
+    // Each entry is finished, producer included, and dropped in one write.
     for (const record of await this.options.recovery.pendingProducerRecoveries()) {
       if (this.activeApplies.has(record.id)) continue;
       await this.options.recovery.recoverProducerQueue(record.id);
-      const current = await this.options.store.load();
-      const ids = new Set(record.fileIds);
-      const heads = Object.fromEntries(Object.entries(current.heads).filter(([id]) => !ids.has(id)));
-      await this.saveState({
-        mappings: [...current.mappings.filter((m) => !ids.has(m.fileId)), ...record.state.mappings],
-        heads: { ...heads, ...record.state.heads },
-      });
-      await this.options.recovery.completeProducerRecovery(record.id);
     }
   }
 
@@ -235,7 +189,7 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
         fileIds: [input.mapping.fileId], discardRevisionIds: input.pendingIds,
         state: { mappings: [input.mapping], heads: { [input.mapping.fileId]: revisionId } },
       };
-      if (await recovery.startProducerRecovery(record, replacement)) await this.recoverLocked();
+      await recovery.commitProducerChange(record, replacement);
     });
   }
 
@@ -313,47 +267,39 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
   }
 
   /**
-   * Publishes a local change so the queue entry and the producer mapping can
-   * never be observed apart. The journal records the producer state this commit
-   * INTENDS, alongside the envelope, in a single durable write; `recoverLocked`
-   * then replays that state on the next call, before any scan can look for a
-   * mapping and fail to find one.
-   *
-   * `kind: 'resolution'` (not `'apply'`) because there is nothing to roll back:
-   * this is a new local edit, so recovery must finish it forwards rather than
-   * restore a previous state.
+   * Publishes a local change in ONE write (A1): the queue entry, the producer's
+   * files and heads, and the owners and bases the apply side reads. Written
+   * apart, a failure between them left a queued revision whose file had no
+   * mapping, and the next scan minted a second identity for it (2026-09-19:
+   * seven file ids for three blobs). The record covers every file the commit
+   * changes, since an upsert can displace another file on the same path.
    */
-  private async commitWithRecovery(
-    envelope: OutboxEnvelope,
+  private async commitAtomically(
+    before: ProducerState,
     next: ProducerState,
     operation: LocalChangeOperation,
+    envelope?: OutboxEnvelope,
   ): Promise<void> {
-    const recovery = this.options.recovery;
+    const fileIds = [...new Set([operation.fileId, ...changedFiles(before, next)])];
+    const ids = new Set(fileIds);
+    const text = operation.contentKind === 'binary' || operation.content === null ? undefined : operation.content;
     const record: ProducerRecovery = {
       id: this.options.generateRevisionId(),
       kind: 'resolution',
-      fileIds: [operation.fileId],
+      fileIds,
       state: {
-        mappings: next.mappings.filter((m) => m.fileId === operation.fileId).map((m) => ({
-          ...m,
-          ...(operation.contentKind === 'binary' || operation.content === null ? {} : { content: operation.content }),
-        })),
-        heads: Object.fromEntries(
-          Object.entries(next.heads).filter(([id]) => id === operation.fileId),
-        ),
+        // The note text seeds the merge ancestor on first authorship.
+        mappings: next.mappings.filter((m) => ids.has(m.fileId)).map((m) =>
+          m.fileId === operation.fileId && text !== undefined ? { ...m, content: text } : m),
+        heads: Object.fromEntries(Object.entries(next.heads).filter(([id]) => ids.has(id))),
       },
       discardRevisionIds: [],
     };
-    // A refused transaction must retry through the observer's existing error
-    // recovery. Falling back to separate writes would reopen the crash window
-    // this journal exists to close. The user's file is still on disk.
-    const started = await recovery.startProducerRecovery(record, envelope);
-    if (!started) {
+    // A refused commit retries through the observer's error recovery; the
+    // user's file is still on disk.
+    if (!(await this.options.recovery.commitProducerChange(record, envelope))) {
       throw new Error('Local commit recovery transaction was refused.');
     }
-    await this.saveState(next);
-    await this.seedSharedState(operation);
-    await recovery.completeProducerRecovery(record.id);
   }
 
   /**
@@ -449,18 +395,7 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
           isDelete: kind === 'delete',
         });
 
-        // The queue entry and the identity mapping must land together. Written
-        // separately, a failure between them leaves a queued revision whose
-        // file has no mapping, and the next scan mints a SECOND identity for
-        // the same file: the duplicate-identity failure observed in production
-        // on 2026-09-19 (three blob hashes shared by seven file ids).
-        //
-        // `startProducerRecovery` persists the replacement envelope and the
-        // journal record in one `mutate`, and `recoverLocked` replays the
-        // recorded producer state before any later scan can run. So an
-        // interruption either leaves nothing, or leaves an entry that replays
-        // to exactly this state. There is no window in between.
-        await this.commitWithRecovery(envelope, next, operation);
+        await this.commitAtomically(state, next, operation, envelope);
         // The real, server-facing revision id, never `operation.operationId`
         // (a client-only idempotency key). Callers (the Activity feed) must
         // record this id so a local push and its later remote echo collapse by
@@ -469,41 +404,12 @@ export class OutboxLocalChangeRepository implements LocalChangeRepository {
       }
 
       // Delete of a never-pushed file: drop the local mapping without a revision.
-      await this.saveState(
-        applyCommit(state, commit, {
-          fileId: operation.fileId,
-          revisionId: null,
-          isDelete: true,
-        }),
-      );
-      await this.seedSharedState(operation);
-      return null;
-    });
-  }
-
-  /**
-   * Mirrors a committed local change into the SHARED apply-side ownership+base
-   * so a later remote edit to a locally-authored file updates in place instead
-   * of forever diverting to a conflict artifact. A create/update/rename seeds the
-   * owner+base (and forgets the prior path on a rename); a delete forgets both.
-   */
-  private async seedSharedState(operation: LocalChangeCommit['operation']): Promise<void> {
-    if (operation.kind === 'delete') {
-      await this.options.onLocalForgotten?.({
+      await this.commitAtomically(state, applyCommit(state, commit, {
         fileId: operation.fileId,
-        path: operation.path,
-      });
-      return;
-    }
-    if (operation.contentHash === null) return;
-    await this.options.onLocalMaterialized?.({
-      fileId: operation.fileId,
-      path: operation.path,
-      contentHash: operation.contentHash,
-      // Seed the merge ancestor from the authored markdown text; a binary file
-      // (base64 in `content`) never merges, so it passes null.
-      content: operation.contentKind === 'binary' ? null : operation.content,
-      previousPath: operation.previousPath,
+        revisionId: null,
+        isDelete: true,
+      }), operation);
+      return null;
     });
   }
 
@@ -583,6 +489,16 @@ function applyCommit(
     heads[head.fileId] = head.revisionId;
   }
   return { mappings, heads };
+}
+
+/** Every file whose mapping or head differs between two producer states. */
+function changedFiles(before: ProducerState, after: ProducerState): string[] {
+  const shape = (state: ProducerState) =>
+    new Map(state.mappings.map((m) => [m.fileId, JSON.stringify(mappingMetadata(m))]));
+  const was = shape(before);
+  const now = shape(after);
+  const ids = new Set([...was.keys(), ...now.keys(), ...Object.keys(before.heads), ...Object.keys(after.heads)]);
+  return [...ids].filter((id) => was.get(id) !== now.get(id) || before.heads[id] !== after.heads[id]);
 }
 
 function nextMappings(
