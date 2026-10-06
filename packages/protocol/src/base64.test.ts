@@ -65,15 +65,20 @@ describe('bytesToBase64', () => {
     // fails under a loaded suite, which makes it a flake rather than a guard.
     // Both encoders run here, on the same machine at the same moment, so the
     // comparison holds whatever else is running.
+    // The best of five interleaved runs each: one GC pause or busy core during
+    // a single sample flipped the comparison under a loaded suite (2026-10-06).
     const bytes = new Uint8Array(4 * 1024 * 1024).map((_, i) => i % 256);
-
-    const naiveStart = performance.now();
-    naive(bytes);
-    const naiveMs = performance.now() - naiveStart;
-
-    const chunkedStart = performance.now();
-    bytesToBase64(bytes);
-    const chunkedMs = performance.now() - chunkedStart;
+    const time = (encode: (b: Uint8Array) => string): number => {
+      const start = performance.now();
+      encode(bytes);
+      return performance.now() - start;
+    };
+    let naiveMs = Infinity;
+    let chunkedMs = Infinity;
+    for (let run = 0; run < 5; run += 1) {
+      naiveMs = Math.min(naiveMs, time(naive));
+      chunkedMs = Math.min(chunkedMs, time(bytesToBase64));
+    }
 
     // Measured roughly 2x on a laptop; 0.8 leaves room for noise while still
     // failing outright if the per-byte concatenation comes back.
