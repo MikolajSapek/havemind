@@ -5,6 +5,33 @@ All notable changes to this project are documented here. The format is based on
 follows independent [Semantic Versioning](https://semver.org) for the plugin
 and the server.
 
+## [1.6.0], 2026-10-06
+
+### Fixed
+
+- Plugin: a queued local change, including a 25 MiB attachment, used to sit
+  inside data.json until the server accepted it. It now goes to the device's
+  local database first, as intended, so data.json stays small.
+- Plugin: a local change is now saved in one write instead of four. A crash or
+  a full disk in the middle of a save can no longer leave a queued change
+  without its file identity or the saved state half-recorded. A recovery
+  journal covered most of these gaps since the duplicate file ids of
+  2026-09-19; the delete of a never-sent file was not covered.
+- Plugin: a corrupt sync state recovered from its backup right after the
+  upgrade can no longer drop the list of files.
+
+### Changed
+
+- Plugin: the list of files the plugin tracks now lives inside the sync state
+  instead of a separate `pushProducer` entry in data.json. On first start the
+  old entry is moved over once and removed. Nothing to do on your side.
+  Devices on 1.5.9 and 1.6.0 sync with each other normally. No server change
+  and no deploy needed.
+- Plugin: internal cleanup. The glue between the two stores
+  (local-base-lifecycle and the seed hooks) is gone, a test now replays a real,
+  anonymised 1.5.9 data.json through the migration, and a timing test in the
+  protocol package no longer flakes.
+
 ## [1.5.9], 2026-10-06
 
 ### Fixed
