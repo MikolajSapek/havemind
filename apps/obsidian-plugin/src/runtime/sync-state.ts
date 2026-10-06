@@ -39,6 +39,8 @@ export interface OutboxEnvelope extends TransportEnvelope {
    * the bytes ARE inline (legacy or fallback).
    */
   readonly payloadExternalized?: boolean;
+  /** When a reconciliation backup took this copy; it is dropped 7 days later. */
+  readonly backedUpAt?: number;
 }
 
 /** Out-of-band store for large outbox payloads (arch P1); best-effort, else inline. */
@@ -76,7 +78,7 @@ export interface QuarantinedRevision {
 
 export interface PersistedSyncState {
   readonly producerRecovery?: readonly ProducerRecovery[];
-  /** Full original envelopes retained through recovery; never automatically pruned. */
+  /** Envelopes a recovery discarded, inline, kept {@link BACKUP_RETENTION_MS}. */
   readonly reconciliationBackups?: Readonly<Record<string, readonly OutboxEnvelope[]>>;
   readonly version: 1;
   readonly cursor: number;
@@ -313,10 +315,16 @@ export class DurableSyncState implements SyncStatePort {
             baseContents: Object.fromEntries(Object.entries(state.baseContents).filter(([id]) => record.fileIds.includes(id))),
           },
         } : record],
-        ...(originals.length === 0 ? {} : { reconciliationBackups: { ...state.reconciliationBackups, [record.id]: originals.map((e) => ({ ...e, payloadExternalized: false })) } }),
+        ...(originals.length === 0 ? {} : { reconciliationBackups: { ...state.reconciliationBackups, [record.id]: this.backedUp(originals) } }),
       });
       return true;
     });
+  }
+
+  /** Inline copies for a reconciliation backup, stamped for the 7-day prune. */
+  private backedUp(envelopes: readonly OutboxEnvelope[]): OutboxEnvelope[] {
+    const backedUpAt = this.now();
+    return envelopes.map((e) => ({ ...e, payloadExternalized: false, backedUpAt }));
   }
 
   private hasUncoveredChildren(state: PersistedSyncState, ids: ReadonlySet<string>): boolean {
@@ -367,7 +375,7 @@ export class DurableSyncState implements SyncStatePort {
         }),
         outbox: state.outbox.filter((e) => !ids.has(e.revisionId)),
         ...(originals.length === 0 ? {} : { reconciliationBackups: { ...state.reconciliationBackups,
-          [id]: [...(state.reconciliationBackups?.[id] ?? []), ...originals.map((e) => ({ ...e, payloadExternalized: false }))] } }),
+          [id]: [...(state.reconciliationBackups?.[id] ?? []), ...this.backedUp(originals)] } }),
       });
     });
   }
@@ -440,13 +448,9 @@ export class DurableSyncState implements SyncStatePort {
       });
       if (retired.length === 0) return;
       const ids = new Set(retired.map((entry) => entry.revisionId));
-      // Keep the original envelope for inspection even though the server has
-      // accepted an equivalent merge. Retirement need not delete payload bytes.
-      await this.mutate({ ...state, outbox: state.outbox.filter((entry) => !ids.has(entry.revisionId)),
-        reconciliationBackups: { ...state.reconciliationBackups,
-          [event.revision.revisionId]: [...(state.reconciliationBackups?.[event.revision.revisionId] ?? []),
-            ...retired.map((entry) => ({ ...entry, payloadExternalized: false }))] },
-      });
+      // No backup: the server holds the same text. An inline copy cost ~2x the
+      // note on every later save, forever. The S1 sweep drops the stored bytes.
+      await this.mutate({ ...state, outbox: state.outbox.filter((entry) => !ids.has(entry.revisionId)) });
     });
   }
 
@@ -1124,8 +1128,15 @@ export class DurableSyncState implements SyncStatePort {
       }
     }
 
+    const backups = withoutExpiredBackups(state.reconciliationBackups, this.now());
+    if (backups !== state.reconciliationBackups) {
+      cacheChanged = true;
+      persistNeeded = true;
+    }
+
     const next: PersistedSyncState = {
       ...state,
+      ...(backups === undefined ? {} : { reconciliationBackups: backups }),
       outbox: nextOutbox,
       quarantine: [...state.quarantine, ...addedQuarantine],
       quarantinedEnvelopes: nextStash,
@@ -1231,6 +1242,26 @@ function parsePersistedState(raw: unknown): ParseResult {
     salvage: salvageState(raw),
     outboxAtRisk: outboxAtRisk(raw),
   };
+}
+
+/** How long a reconciliation backup is kept (Jev, plan 009: 7 days, p 0.78). */
+export const BACKUP_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * The backups younger than {@link BACKUP_RETENTION_MS}, or the same object when
+ * none expired. A copy with no time at all predates the stamp and is old.
+ */
+function withoutExpiredBackups(
+  backups: PersistedSyncState['reconciliationBackups'],
+  now: number,
+): PersistedSyncState['reconciliationBackups'] {
+  if (backups === undefined) return undefined;
+  const fresh = (e: OutboxEnvelope): boolean => now - (e.backedUpAt ?? e.enqueuedAt ?? 0) < BACKUP_RETENTION_MS;
+  if (Object.values(backups).every((entries) => entries.every(fresh))) return backups;
+  const kept = Object.entries(backups)
+    .map(([key, entries]) => [key, entries.filter(fresh)] as const)
+    .filter(([, entries]) => entries.length > 0);
+  return Object.fromEntries(kept);
 }
 
 function validRecoveryFields(raw: Record<string, unknown>): boolean {

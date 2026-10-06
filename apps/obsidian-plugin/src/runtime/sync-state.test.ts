@@ -97,7 +97,54 @@ describe('DurableSyncState', () => {
     expect((await reloaded.listOutbox()).some((item) => item.revisionId === 'local-merge'))
       .toBe(scenario !== 'equivalent');
     expect(await reloaded.isLocallyAuthored('local-merge')).toBe(false);
-    if (scenario === 'equivalent') expect((persist.saved as PersistedSyncState).reconciliationBackups?.['accepted-merge']?.[0]?.revisionId).toBe('local-merge');
+    // The server holds the same text, so a retired merge keeps no inline copy.
+    expect((persist.saved as PersistedSyncState).reconciliationBackups?.['accepted-merge']).toBeUndefined();
+  });
+
+  describe('reconciliation backups', () => {
+    const DAY = 24 * 60 * 60 * 1000;
+    const NOW = 1_800_000_000_000;
+
+    it('stamps a backup made by a resolution with the time it was made', async () => {
+      const timed = new DurableSyncState({ persist, now: () => NOW });
+      await timed.enqueue(envelope({ revisionId: 'pending' }));
+      await timed.startProducerRecovery({
+        id: 'resolution-1', kind: 'resolution', fileIds: ['file-1'],
+        state: { mappings: [], heads: {} }, discardRevisionIds: ['pending'],
+      });
+      const backup = (persist.saved as PersistedSyncState).reconciliationBackups?.['resolution-1'];
+      expect(backup?.map((e) => [e.revisionId, e.backedUpAt])).toEqual([['pending', NOW]]);
+    });
+
+    it('drops backups older than seven days on load and keeps the rest of the state', async () => {
+      await state.saveCursor(7);
+      const kept = envelope({ revisionId: 'six-days', backedUpAt: NOW - 6 * DAY });
+      const raw = {
+        ...(persist.saved as PersistedSyncState),
+        reconciliationBackups: {
+          recent: [kept, envelope({ revisionId: 'eight-days', backedUpAt: NOW - 8 * DAY })],
+          legacy: [envelope({ revisionId: 'enqueued-long-ago', enqueuedAt: NOW - 8 * DAY })],
+          undated: [envelope({ revisionId: 'no-time' })],
+        },
+      };
+      persist.saved = raw;
+
+      const reloaded = new DurableSyncState({ persist, now: () => NOW });
+      expect(await reloaded.loadCursor()).toBe(7);
+
+      expect(persist.saved).toEqual({ ...raw, reconciliationBackups: { recent: [kept] } });
+    });
+
+    it('does not rewrite the state when no backup has aged out', async () => {
+      await state.saveCursor(3);
+      persist.saved = {
+        ...(persist.saved as PersistedSyncState),
+        reconciliationBackups: { recent: [envelope({ backedUpAt: NOW - DAY })] },
+      };
+      const calls = persist.saveCalls;
+      await new DurableSyncState({ persist, now: () => NOW }).loadCursor();
+      expect(persist.saveCalls).toBe(calls);
+    });
   });
 
   it('starts empty and defaults the cursor to zero', async () => {
