@@ -5,6 +5,17 @@ All notable changes to this project are documented here. The format is based on
 follows independent [Semantic Versioning](https://semver.org) for the plugin
 and the server.
 
+## [1.5.9], 2026-10-06
+
+### Fixed
+
+- Plugin: when the server had already accepted the same merge from another
+  device, the plugin kept a full copy of the note in its sync state forever,
+  and that file is rewritten on every save, phones included. It no longer
+  keeps that copy, and copies made by a recovery are dropped after 7 days.
+  On one device the file shrinks from about 577 KB to about 110 KB as the
+  old copies age out.
+
 ## [1.5.8], 2026-09-30
 
 ### Fixed
