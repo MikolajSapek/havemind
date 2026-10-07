@@ -4,7 +4,7 @@ import { type EventRef } from 'obsidian';
 
 import type HavemindPlugin from '../main';
 import { lastEditedLabel } from '../runtime/last-edited';
-import { formatStatusBar, type StatusBarView } from '../runtime/status';
+import { formatStatusBar, withCounts, type StatusBarView } from '../runtime/status';
 import { DECORATIVE } from '../ui/primitives';
 
 /** Flat-top hexagon in a 28 x 24 box, and its lower-right half for a conflict. */
@@ -91,7 +91,22 @@ export class StatusBar {
       this.glyph.addClass(`is-${view.status}`);
       this.glyphState = view.status;
     }
-    this.label.setText(view.text);
+    this.label.setText(withCounts(view, this.counts()).text);
+  }
+
+  /** Queue and conflicts, each read on its own guard: a count is never worth a broken bar. */
+  private counts(): { waiting: number; conflicts: number } {
+    const read = (fn: () => number): number => {
+      try {
+        return fn();
+      } catch {
+        return 0;
+      }
+    };
+    return {
+      waiting: read(() => this.plugin.sendQueue.sendQueueView()?.waitingCount ?? 0),
+      conflicts: read(() => this.plugin.conflicts.list.read().length),
+    };
   }
 
   /** Names the last editor of the open note in the status bar. */

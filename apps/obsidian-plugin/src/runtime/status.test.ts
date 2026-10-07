@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  withCounts,
   buildConnectionPanel,
   connectionStatusFromCycle,
   formatStatusBar,
@@ -229,5 +230,21 @@ describe('default timestamp format', () => {
     expect(bar.text).toBe('Havemind: Synced · 16:05');
     expect(bar.status).toBe('synced');
     expect(formatStatusBar({ status: 'offline', lastSyncedAt: 1 }).text).toBe('Havemind: Offline');
+  });
+
+  it('adds the one number that matters to the state that has it (plan 010)', () => {
+    const counts = { waiting: 3, conflicts: 2 };
+    expect(withCounts(formatStatusBar({ status: 'syncing' }), counts).text).toBe('Havemind: Syncing · 3 to send');
+    expect(withCounts(formatStatusBar({ status: 'retrying' }), counts).text).toBe('Havemind: Retrying… · 3 to send');
+    expect(withCounts(formatStatusBar({ status: 'offline' }), counts).text).toBe('Havemind: Offline · 3 waiting');
+    expect(withCounts(formatStatusBar({ status: 'conflict' }), counts).text).toBe('Havemind: Conflict · 2 notes');
+    expect(withCounts(formatStatusBar({ status: 'conflict' }), { waiting: 0, conflicts: 1 }).text).toBe(
+      'Havemind: Conflict · 1 note',
+    );
+    // Nothing to count, or a state where the count says nothing: unchanged.
+    expect(withCounts(formatStatusBar({ status: 'offline' }), { waiting: 0, conflicts: 0 }).text).toBe('Havemind: Offline');
+    expect(withCounts(formatStatusBar({ status: 'disconnected' }), counts).text).toBe('Havemind: Disconnected');
+    const synced = formatStatusBar({ status: 'synced', lastSyncedAt: 1, formatTimestamp: () => '16:05' });
+    expect(withCounts(synced, counts)).toEqual(synced);
   });
 });

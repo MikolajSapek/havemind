@@ -121,6 +121,31 @@ export function formatStatusBar(input: StatusBarInput): StatusBarView {
   return { text, tooltip: `${label}, ${lastSync} ${NO_E2EE_NOTE}`, status: input.status };
 }
 
+export interface StatusBarCounts {
+  /** Outbox items still waiting to go out. */
+  readonly waiting: number;
+  /** Open conflict copies. */
+  readonly conflicts: number;
+}
+
+/**
+ * Adds the one number that matters to the state that has it (plan 010):
+ * how much is on its way, how much waits on this device, how many notes have
+ * two versions. Other states, and a zero, read the same as before.
+ */
+export function withCounts(view: StatusBarView, counts: StatusBarCounts): StatusBarView {
+  const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;
+  let suffix = '';
+  if ((view.status === 'syncing' || view.status === 'retrying') && counts.waiting > 0) {
+    suffix = `${counts.waiting} to send`;
+  } else if (view.status === 'offline' && counts.waiting > 0) {
+    suffix = `${counts.waiting} waiting`;
+  } else if (view.status === 'conflict' && counts.conflicts > 0) {
+    suffix = plural(counts.conflicts, 'note', 'notes');
+  }
+  return suffix === '' ? view : { ...view, text: `${view.text} · ${suffix}` };
+}
+
 /**
  * English month abbreviations packed three characters each, indexed by
  * `Date#getMonth()` times three. A fixed table rather than `Intl`: the label is
