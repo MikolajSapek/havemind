@@ -14,6 +14,22 @@ and the server.
   the time it has left, so backups stay daily across deploys instead of
   leaving a gap of up to 47 hours.
 
+## [1.7.1], 2026-10-07
+
+### Changed
+
+- Plugin: the flower's core spins while this device sends and turns green
+  when everything is on the server; a conflict keeps it violet. The status
+  bar hexagon is green when synced too.
+
+### Fixed
+
+- Plugin: the first-run screen opened with the old "Not connected" row and
+  its two network lines above the empty flower. Reconnect and reset keep the
+  row, it carries the way out.
+- Plugin: on the join screen the token and server fields ran 24px past the
+  pane's right edge, and the first line sat on the pane's top edge.
+
 ## [1.7.0], 2026-10-07
 
 ### Changed

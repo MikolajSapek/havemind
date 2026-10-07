@@ -17,7 +17,7 @@ you own passes the changes around and remembers who wrote what.
 Built for people. If you also run Claude, MCP or another local agent in that
 vault, its edits land in the same history.
 
-**Version 1.7.0, desktop and mobile.** A two-week pilot on two devices lost no
+**Version 1.7.1, desktop and mobile.** A two-week pilot on two devices lost no
 data, including through three real incidents.
 
 There is no end-to-end encryption. Your server stores the vault in plaintext,
@@ -133,7 +133,7 @@ The long version, including backups and multiple vaults, is in
 ## What it looks like
 
 <p align="center">
-  <img src="docs/images/01-status-framed.png" alt="The Status tab on a MacBook: the server in the middle, one hexagon per device around it, and In sync" width="100%">
+  <img src="docs/images/01-status-framed.png" alt="The Status tab on a MacBook: the server in the middle, green when in sync, one hexagon per device around it" width="100%">
 </p>
 
 <p align="center">
