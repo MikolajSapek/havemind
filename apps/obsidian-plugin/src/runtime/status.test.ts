@@ -223,4 +223,11 @@ describe('default timestamp format', () => {
       }).tooltip,
     ).toContain('moments ago');
   });
+
+  it('shows the time of the last sync in the bar itself once synced (plan 010)', () => {
+    const bar = formatStatusBar({ status: 'synced', lastSyncedAt: 1, formatTimestamp: () => '16:05' });
+    expect(bar.text).toBe('Havemind: Synced · 16:05');
+    expect(bar.status).toBe('synced');
+    expect(formatStatusBar({ status: 'offline', lastSyncedAt: 1 }).text).toBe('Havemind: Offline');
+  });
 });

@@ -51,6 +51,8 @@ export function renderGuestWaitingScreen(
   }
   content.createDiv({ text: view.liveNote }).addClass('havemind-hint');
 
-  const cancel = content.createEl('button', { text: 'Cancel' });
-  cancel.onClickEvent(() => actions.onCancel?.());
+  // A quiet text action: stopping is allowed, never the thing the screen is for.
+  const stop = content.createEl('button', { text: 'Stop joining' });
+  stop.addClass('havemind-handshake-stop');
+  stop.onClickEvent(() => actions.onCancel?.());
 }

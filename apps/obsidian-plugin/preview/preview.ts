@@ -14,7 +14,6 @@ import {
   renderEntryChooser,
   renderHostPath,
 } from '../src/ui/entry-chooser-section';
-import { renderPaneHeader } from '../src/ui/pane-header';
 
 type Screen = 'chooser' | 'host';
 
@@ -26,15 +25,6 @@ function paint(): void {
   pane.empty();
   pane.className = 'havemind-view';
 
-  // The view renders the header strip unconditionally, before it decides which
-  // screen goes below it, so a first-run pane has chrome above the chooser.
-  // Leaving it out here measured a pane that does not exist.
-  renderPaneHeader(pane, {
-    title: 'Havemind',
-    items: [],
-    menuOpen: false,
-    onToggleMenu: () => undefined,
-  });
 
   if (screen === 'chooser') {
     renderEntryChooser(pane, {

@@ -1,11 +1,15 @@
 /** The status bar: the sync state, as a button that opens the pane, and who last edited the open note. */
 
-import { setIcon, type EventRef } from 'obsidian';
+import { type EventRef } from 'obsidian';
 
 import type HavemindPlugin from '../main';
 import { lastEditedLabel } from '../runtime/last-edited';
 import { formatStatusBar, type StatusBarView } from '../runtime/status';
 import { DECORATIVE } from '../ui/primitives';
+
+/** Flat-top hexagon in a 28 x 24 box, and its lower-right half for a conflict. */
+const HEXAGON = 'M24 12L19 20.7H9L4 12L9 3.3H19Z';
+const SPLIT = 'M20.3 5.7L24 12L19 20.7H9L7.7 18.3Z';
 
 export class StatusBar {
   private statusItem: HTMLElement | null = null;
@@ -62,8 +66,18 @@ export class StatusBar {
     // clobber the glyph, so rebuild the item: glyph first, then the same text
     // in a trailing span. The label string and tooltip are unchanged.
     item.empty();
+    // The smallest flower: one hexagon whose shape is the state (plan 010),
+    // filled when synced, pulsing while syncing, dashed when out of reach,
+    // split on a conflict. Geometry here, look in styles.css.
     const glyph = item.createEl('span', { attr: DECORATIVE });
-    setIcon(glyph, 'hexagon');
+    const svg = glyph.createSvg('svg', {
+      cls: 'havemind-status-glyph',
+      attr: { viewBox: '0 0 28 24', width: '16', height: '14' },
+    });
+    svg.addClass(`is-${view.status}`);
+    svg.createSvg('path', { cls: 'havemind-status-glyph-ring', attr: { d: HEXAGON } });
+    svg.createSvg('path', { cls: 'havemind-status-glyph-hex', attr: { d: HEXAGON } });
+    svg.createSvg('path', { cls: 'havemind-status-glyph-split', attr: { d: SPLIT } });
     // Design 1a proposes cutting this label as a duplicate of the pane. Kept
     // deliberately: with the pane closed the status bar is the ONLY surface
     // showing sync state, and a bare mark plus a colour dot is unreadable to

@@ -14,6 +14,10 @@ interface CreateElOptions {
 }
 
 declare global {
+  interface Element {
+    createSvg(tag: string, options?: CreateElOptions): SVGElement;
+    setText(text: string): void;
+  }
   interface HTMLElement {
     createDiv(options?: CreateElOptions): HTMLElement;
     createEl(tag: string, options?: CreateElOptions): HTMLElement;
@@ -55,6 +59,29 @@ HTMLElement.prototype.onClickEvent = function onClickEvent(
 
 HTMLElement.prototype.addClass = function addClass(name: string): void {
   this.classList.add(name);
+};
+
+/** Obsidian's `createSvg`: an element in the SVG namespace (the flower). */
+Element.prototype.createSvg = function createSvg(
+  tag: string,
+  options?: CreateElOptions,
+): SVGElement {
+  const child = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  this.appendChild(child);
+  if (options?.cls !== undefined) child.setAttribute('class', options.cls);
+  for (const [key, value] of Object.entries(options?.attr ?? {})) {
+    child.setAttribute(key, value);
+  }
+  return child;
+};
+(SVGElement.prototype as unknown as { addClass(name: string): void }).addClass = function addClass(
+  this: SVGElement,
+  name: string,
+): void {
+  this.classList.add(name);
+};
+Element.prototype.setText = function setText(text: string): void {
+  this.textContent = text;
 };
 
 HTMLElement.prototype.empty = function empty(): void {

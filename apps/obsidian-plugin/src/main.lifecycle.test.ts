@@ -24,9 +24,7 @@ import { manifest } from './test/fixtures';
 function chooseInvitationPath(view: { containerEl: unknown }): void {
   const root = view.containerEl as unknown as MockElement;
   const option = descendants(root).find(
-    (el) =>
-      el.tag === 'button' &&
-      descendants(el).some((child) => /sent me an invitation/i.test(child.text ?? '')),
+    (el) => el.tag === 'button' && /sent me an invitation/i.test(el.text ?? ''),
   );
   if (option === undefined) throw new Error('entry chooser option not rendered');
   // The click re-renders on its own; calling onOpen() again would wipe it.

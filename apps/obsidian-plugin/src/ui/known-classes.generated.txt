@@ -26,6 +26,7 @@ havemind-conflict-diff
 havemind-conflict-header
 havemind-conflict-hint
 havemind-conflict-icon
+havemind-conflict-legend
 havemind-conflict-line
 havemind-conflict-line-
 havemind-conflict-line-added
@@ -42,10 +43,10 @@ havemind-empty
 havemind-entry-back
 havemind-entry-head
 havemind-entry-option
-havemind-entry-option-title
 havemind-entry-options
 havemind-entry-primary
 havemind-entry-subheading
+havemind-entry-title
 havemind-flower
 havemind-flower-core
 havemind-flower-core-dot
@@ -59,6 +60,7 @@ havemind-getting-started
 havemind-getting-started-requirement
 havemind-handshake-code
 havemind-handshake-lead
+havemind-handshake-stop
 havemind-handshake-warning
 havemind-hero
 havemind-hero-sub
@@ -79,7 +81,6 @@ havemind-onboarding
 havemind-pane-header
 havemind-pane-mark
 havemind-pane-more
-havemind-pane-title
 havemind-pending-credential
 havemind-pending-row
 havemind-refresh-token
@@ -107,6 +108,10 @@ havemind-status-bar
 havemind-status-detail
 havemind-status-dot
 havemind-status-dot-idle
+havemind-status-glyph
+havemind-status-glyph-hex
+havemind-status-glyph-ring
+havemind-status-glyph-split
 havemind-status-line
 havemind-status-spin
 havemind-status-time

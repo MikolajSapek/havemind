@@ -6,15 +6,15 @@
  * each row gets a full line for its title and a second for its price.
  */
 
-import { setIcon } from 'obsidian';
-
 import type {
   EntryChooserViewModel,
   EntryChoice,
   HostViewModel,
 } from '../runtime/entry-choice';
 
-import { DECORATIVE } from './primitives';
+import { buildFlowerModel } from '../runtime/flower-model';
+
+import { renderFlower } from './flower';
 
 export interface EntryChooserOptions {
   readonly model: EntryChooserViewModel;
@@ -26,36 +26,26 @@ export function renderEntryChooser(
   options: EntryChooserOptions,
 ): void {
   const { model } = options;
-
+  // The empty flower: no server yet, this device waiting for a seat (plan 010).
   const head = content.createDiv();
   head.addClass('havemind-entry-head');
-  const mark = head.createEl('span', { attr: DECORATIVE });
-  mark.addClass('havemind-pane-mark');
-  setIcon(mark, 'hexagon');
-  head.createEl('span', { text: model.heading, cls: 'havemind-pane-title' });
-
-  content
-    .createDiv({ text: model.subheading })
-    .addClass('havemind-entry-subheading');
-  content.createDiv({ text: model.question }).addClass('havemind-hint');
+  renderFlower(head, buildFlowerModel({ members: [], status: 'disconnected' }));
+  content.createDiv({ text: model.subheading }).addClass('havemind-entry-title');
 
   // The pane becomes its own scroll box on this screen: there is no tab body
   // to scroll, and without it the last line sat flush on the pane's edge.
   content.addClass('havemind-view-scrolls');
 
+  // One primary way in, the other as a quieter text button. The hosting path
+  // shows its cost on the next screen, where it can be read in full.
   const list = content.createDiv();
   list.addClass('havemind-entry-options');
-  for (const option of model.options) {
-    const row = list.createEl('button');
+  model.options.forEach((option, index) => {
+    const row = list.createEl('button', { text: option.title });
     row.addClass('havemind-entry-option');
-    row
-      .createDiv({ text: option.title })
-      .addClass('havemind-entry-option-title');
-    // The cost sits on its own line so a wrong pick is visibly expensive
-    // *before* it is made, not after fifteen minutes in a terminal.
-    row.createDiv({ text: option.cost }).addClass('havemind-hint');
+    if (index === 0) row.addClass('mod-cta');
     row.onClickEvent(() => options.onChoose(option.id));
-  }
+  });
 
   content.createDiv({ text: model.footnote }).addClass('havemind-hint');
 }
@@ -77,7 +67,7 @@ export function renderHostPath(
   back.addClass('havemind-entry-back');
   back.onClickEvent(() => options.onBack());
 
-  content.createEl('h4', { text: model.heading });
+  content.createDiv({ text: model.heading }).addClass('havemind-entry-title');
   content
     .createDiv({ text: model.subheading })
     .addClass('havemind-entry-subheading');

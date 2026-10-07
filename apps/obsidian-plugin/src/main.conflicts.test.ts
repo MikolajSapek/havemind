@@ -126,7 +126,7 @@ describe('renderConflictModalBody', () => {
     expect(all.some((e) => e.classes.includes('havemind-conflict-line-added'))).toBe(true);
     expect(all.some((e) => e.classes.includes('havemind-conflict-line-removed'))).toBe(true);
 
-    const keepBoth = all.find((e) => e.text === 'Keep both (close)');
+    const keepBoth = all.find((e) => e.text === 'Keep both');
     keepBoth?.triggerClick();
     expect(calls).toEqual(['both']);
   });
@@ -177,7 +177,7 @@ describe('renderConflictModalBody', () => {
     const all = descendants(container);
     expect(all.some((e) => e.text === 'Keep theirs')).toBe(false);
     expect(all.some((e) => e.text === 'Keep mine')).toBe(true);
-    expect(all.some((e) => e.text === 'Keep both (close)')).toBe(true);
+    expect(all.some((e) => e.text === 'Keep both')).toBe(true);
   });
 });
 
@@ -191,7 +191,7 @@ describe('ConflictResolveModal', () => {
     modal.open();
     expect((modal as unknown as { opened: boolean }).opened).toBe(true);
     const all = descendants(modal.contentEl as unknown as MockElement);
-    expect(all.some((e) => e.text === 'Keep both (close)')).toBe(true);
+    expect(all.some((e) => e.text === 'Keep both')).toBe(true);
   });
 });
 

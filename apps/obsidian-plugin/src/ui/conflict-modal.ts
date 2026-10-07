@@ -90,6 +90,11 @@ export function renderConflictModalBody(
   }
 
   if (model.diff !== null) {
+    // Which side is which, in words: the diff is computeLineDiff(mine, theirs).
+    const legend = container.createDiv({
+      text: `− your version · + ${model.author ?? 'the other version'}`,
+    });
+    legend.addClass('havemind-conflict-legend');
     const diffBox = container.createDiv({ text: '' });
     diffBox.addClass('havemind-conflict-diff');
     for (const line of model.diff) {
@@ -122,8 +127,10 @@ export function renderConflictModalBody(
       actions.onKeepTheirs,
     );
   }
-  const keepBoth = buttons.createEl('button', { text: 'Keep both (close)' });
+  // The safe choice is the primary one: nothing is lost, the copy stays.
+  const keepBoth = buttons.createEl('button', { text: 'Keep both' });
   keepBoth.addClass('havemind-conflict-action');
+  keepBoth.addClass('mod-cta');
   keepBoth.onClickEvent(() => actions.onKeepBoth());
 }
 

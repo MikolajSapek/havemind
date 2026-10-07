@@ -782,9 +782,7 @@
   justify-content: center;
   width: 1.4em;
   height: 1.4em;
-  border: 1px solid var(--havemind-accent);
-  border-radius: 50%;
-  color: var(--havemind-accent);
+  color: var(--text-muted);
   font-size: var(--font-ui-smaller);
   font-weight: var(--font-medium);
   line-height: 1;
@@ -856,11 +854,55 @@
   font-variant-numeric: tabular-nums;
 }
 
-.havemind-status-bar .svg-icon {
-  width: 12px;
-  height: 12px;
-  color: var(--havemind-accent);
-  stroke-width: 1.9;
+/* The smallest flower (plan 010): one hexagon, the same alphabet as the pane.
+   Filled when in sync, a pulsing ring while syncing, dashed when out of
+   reach, split on a conflict, a red outline when the pairing needs repair.
+   The words beside it stay: colour and shape are never the only signal. */
+.havemind-status-glyph {
+  display: block;
+  width: 16px;
+  height: 14px;
+  overflow: visible;
+}
+.havemind-status-glyph-hex { fill: var(--havemind-flower-core); }
+.havemind-status-glyph-ring {
+  fill: none;
+  stroke: var(--havemind-flower-line);
+  stroke-width: 1.6;
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.havemind-status-glyph-split {
+  fill: var(--color-red);
+  display: none;
+}
+.havemind-status-glyph.is-syncing .havemind-status-glyph-ring,
+.havemind-status-glyph.is-retrying .havemind-status-glyph-ring {
+  animation: havemind-flower-pulse 1.6s ease-out infinite;
+}
+.havemind-status-glyph.is-offline .havemind-status-glyph-hex {
+  fill: none;
+  stroke: var(--havemind-flower-line);
+  stroke-width: 2.6;
+  stroke-dasharray: 4 3;
+  animation: havemind-flower-march 1.6s linear infinite;
+}
+.havemind-status-glyph.is-conflict .havemind-status-glyph-split { display: block; }
+.havemind-status-glyph.is-reconnect-required .havemind-status-glyph-hex,
+.havemind-status-glyph.is-reset-required .havemind-status-glyph-hex {
+  fill: none;
+  stroke: var(--text-error);
+  stroke-width: 2.6;
+}
+.havemind-status-glyph.is-disconnected .havemind-status-glyph-hex {
+  fill: none;
+  stroke: var(--text-muted);
+  stroke-width: 2.2;
+  stroke-dasharray: 3 3;
+}
+@media (prefers-reduced-motion: reduce) {
+  .havemind-status-glyph * { animation: none !important; }
 }
 
 /* =========================================================================
@@ -995,6 +1037,11 @@
 .havemind-conflict-modal-meta {
   margin-bottom: var(--size-4-3);
   color: var(--havemind-quiet);
+  font-size: var(--font-ui-smaller);
+}
+
+.havemind-conflict-legend {
+  color: var(--text-muted);
   font-size: var(--font-ui-smaller);
 }
 
@@ -1193,6 +1240,7 @@
 .havemind-view > .havemind-status-detail,
 .havemind-view > .havemind-hint,
 .havemind-view > .havemind-entry-head,
+.havemind-view > .havemind-entry-title,
 .havemind-view > .havemind-entry-subheading,
 .havemind-view > .havemind-entry-options,
 .havemind-view > .havemind-host-steps,
@@ -1272,13 +1320,27 @@
 .havemind-view > .havemind-alarm { margin: 0; }
 
 /* =========================================================================
-   The entry chooser (design 1d)
-   Stacked rows, not side-by-side cards: at 300px a card is 140px and both
-   titles wrap, which turns a two-word choice into a puzzle.
+   The entry chooser (design 1d, plan 010)
+   The empty flower, one sentence, then one primary way in and a quieter one.
    ========================================================================= */
 
-.havemind-entry-head { display: flex; align-items: center; gap: 7px; }
-.havemind-entry-subheading { color: var(--havemind-quiet); margin-bottom: var(--havemind-gap); }
+.havemind-entry-head {
+  display: flex;
+  justify-content: center;
+  padding-top: var(--size-4-8);
+}
+.havemind-entry-title {
+  color: var(--text-normal);
+  font-size: var(--havemind-hero-title-size);
+  font-weight: var(--havemind-hero-title-weight);
+  line-height: var(--line-height-tight);
+}
+/* On the chooser the title sits under the flower, centred like the Status tab. */
+.havemind-entry-head + .havemind-entry-title {
+  margin-bottom: var(--havemind-gap);
+  text-align: center;
+}
+.havemind-entry-subheading { color: var(--text-muted); margin-bottom: var(--havemind-gap); }
 
 .havemind-entry-options {
   display: flex;
@@ -1293,36 +1355,48 @@
 .havemind-view button.havemind-entry-option {
   display: block;
   width: 100%;
-  text-align: left;
-  padding: 10px 12px;
-  border: 1px solid var(--havemind-hairline);
-  border-radius: 6px;
+  padding: 7px 12px;
+  border: none;
+  border-radius: var(--button-radius, var(--radius-s));
+  box-shadow: none;
   background: none;
-  color: var(--text-normal);
+  color: var(--text-accent);
   font: inherit;
+  font-weight: var(--font-medium);
+  text-align: center;
   cursor: pointer;
-  /* Obsidian gives every <button> a fixed height and `white-space: nowrap`.
-     Both are wrong here: this button holds two lines (title + cost), so the
-     fixed height clipped the second line behind the next card and nowrap ran
-     the text past the pane's right edge. Height comes from the content, and
-     the cost line wraps. */
+  /* Obsidian gives every <button> a fixed height and `white-space: nowrap`;
+     a long title on a narrow pane has to wrap instead of running past the
+     edge, so the height comes from the content. */
   height: auto;
   min-height: 0;
   white-space: normal;
   overflow-wrap: anywhere;
 }
-.havemind-entry-option:hover { background: var(--background-modifier-hover); }
-.havemind-entry-option-title { font-weight: 500; margin-bottom: 2px; }
+/* The chooser is centred, so its closing hint is too. */
+.havemind-entry-options + .havemind-hint { text-align: center; }
 
-.havemind-entry-back {
-  background: none;
+/* The first way in is the primary action in the theme accent. */
+.havemind-view button.havemind-entry-option.mod-cta {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+.havemind-view button.havemind-entry-option:hover { background: var(--background-modifier-hover); }
+.havemind-view button.havemind-entry-option.mod-cta:hover { background: var(--interactive-accent-hover); }
+
+.havemind-entry-back,
+.havemind-view button.havemind-entry-back {
+  display: block;
+  padding: var(--size-4-2) 0;
   border: none;
-  padding: 0 0 8px;
-  color: var(--havemind-quiet);
+  box-shadow: none;
+  background: none;
+  color: var(--text-accent);
   font: inherit;
+  text-align: left;
   cursor: pointer;
 }
-.havemind-entry-back:hover { color: var(--text-normal); }
+.havemind-view button.havemind-entry-back:hover { color: var(--interactive-accent-hover); }
 
 .havemind-host-steps { margin: var(--havemind-gap) 0; }
 /* A command is rendered as code, not prose: prose invites paraphrase, and a
@@ -1346,15 +1420,21 @@
    to tell you what to do with them.
    ========================================================================= */
 
-.havemind-handshake-lead { margin-bottom: var(--havemind-gap); }
+.havemind-handshake-lead {
+  margin-bottom: var(--havemind-gap);
+  color: var(--text-normal);
+  font-size: var(--havemind-hero-title-size);
+  font-weight: var(--havemind-hero-title-weight);
+  line-height: var(--line-height-tight);
+}
 
 .havemind-handshake-code {
   display: flex;
   gap: 14px;
   justify-content: center;
-  margin: 6px 0 var(--havemind-gap);
+  margin: var(--size-4-6) 0 var(--havemind-gap);
   font-family: var(--font-monospace);
-  font-size: 34px;
+  font-size: 40px;
   font-weight: 600;
   letter-spacing: 0.06em;
   color: var(--text-normal);
@@ -1367,6 +1447,17 @@
   font-size: 0.9em;
   margin-bottom: var(--havemind-gap);
 }
+
+.havemind-handshake-stop,
+.havemind-view button.havemind-handshake-stop {
+  padding: 0;
+  border: none;
+  box-shadow: none;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.havemind-view button.havemind-handshake-stop:hover { color: var(--text-normal); }
 
 /* =========================================================================
    Urgency (design 1a / 1g)

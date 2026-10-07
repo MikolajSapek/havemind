@@ -101,16 +101,24 @@ export interface StatusBarInput {
 export interface StatusBarView {
   readonly text: string;
   readonly tooltip: string;
+  /** Drives the hexagon's shape in the status bar (plan 010). */
+  readonly status: ConnectionStatus;
 }
 
 export function formatStatusBar(input: StatusBarInput): StatusBarView {
-  const text = `Havemind: ${LABELS[input.status]}`;
+  const label = `Havemind: ${LABELS[input.status]}`;
   const format = input.formatTimestamp ?? defaultFormatTimestamp;
   const lastSync =
     input.lastSyncedAt === undefined
       ? 'Last sync: not yet.'
       : `Last sync: ${format(input.lastSyncedAt)}.`;
-  return { text, tooltip: `${text}, ${lastSync} ${NO_E2EE_NOTE}` };
+  // With the pane closed the bar is the only status surface, so "synced" says
+  // when; every other state already says what is wrong.
+  const text =
+    input.status === 'synced' && input.lastSyncedAt !== undefined
+      ? `${label} · ${format(input.lastSyncedAt)}`
+      : label;
+  return { text, tooltip: `${label}, ${lastSync} ${NO_E2EE_NOTE}`, status: input.status };
 }
 
 /**

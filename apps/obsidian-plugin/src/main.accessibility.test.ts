@@ -73,6 +73,20 @@ describe('status bar item accessibility', () => {
     resetObsidianMock();
   });
 
+  it('draws its state as a hexagon the stylesheet styles, next to the words', async () => {
+    const plugin = new HavemindPlugin(new App(), manifest);
+    await plugin.onload();
+
+    const status = registrationState.statusItems[0];
+    const glyph = status?.children[0];
+    expect(glyph?.attrs['aria-hidden']).toBe('true');
+    const svg = glyph?.children[0];
+    expect(svg?.tag).toBe('svg');
+    expect(svg?.classes).toContain('havemind-status-glyph');
+    expect(svg?.classes).toContain('is-disconnected');
+    expect(status?.children[1]?.text).toBe('Havemind: Disconnected');
+  });
+
   it('announces itself as a named button and joins the tab order', async () => {
     const plugin = new HavemindPlugin(new App(), manifest);
     await plugin.onload();

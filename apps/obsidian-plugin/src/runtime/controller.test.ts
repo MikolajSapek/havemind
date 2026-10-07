@@ -138,10 +138,7 @@ describe('HavemindSyncController', () => {
   it('reports syncing then the resolved connection status on a manual sync', async () => {
     const { controller, statuses } = build();
     await controller.syncNow();
-    expect(statuses.map((view) => view.text)).toEqual([
-      'Havemind: Syncing',
-      'Havemind: Synced',
-    ]);
+    expect(statuses.map((view) => view.status)).toEqual(['syncing', 'synced']);
   });
 
   it('maps a conflict cycle onto the Conflict status', async () => {
@@ -302,7 +299,7 @@ const OFFLINE: SyncCycleResult = { ...CLEAN, status: 'offline' };
     const { controller, statuses } = build();
     controller.observeCycle(OFFLINE);
     controller.observeCycle(CLEAN);
-    expect(statuses.at(-1)?.text).toBe('Havemind: Synced');
+    expect(statuses.at(-1)?.status).toBe('synced');
   });
 
   it('recovers to Synced from a sustained Offline once a later cycle succeeds', () => {
@@ -314,7 +311,7 @@ const OFFLINE: SyncCycleResult = { ...CLEAN, status: 'offline' };
     controller.observeCycle(OFFLINE);
     expect(statuses.at(-1)?.text).toBe('Havemind: Offline');
     controller.observeCycle(CLEAN);
-    expect(statuses.at(-1)?.text).toBe('Havemind: Synced');
+    expect(statuses.at(-1)?.status).toBe('synced');
   });
 
   it('shows Offline only after several consecutive failures', () => {
@@ -329,11 +326,11 @@ const OFFLINE: SyncCycleResult = { ...CLEAN, status: 'offline' };
   it('ignores a stale duplicate cycle so status follows the latest outcome', () => {
     const { controller, statuses } = build();
     controller.observeCycle({ ...CLEAN, cycleId: 5 });
-    expect(statuses.at(-1)?.text).toBe('Havemind: Synced');
+    expect(statuses.at(-1)?.status).toBe('synced');
     // A late, lower-id cycle (e.g. a coalesced/backoff duplicate) must not
     // override the newer outcome.
     controller.observeCycle({ ...OFFLINE, cycleId: 4 });
-    expect(statuses.at(-1)?.text).toBe('Havemind: Synced');
+    expect(statuses.at(-1)?.status).toBe('synced');
   });
 
   it('halts the loop on an unauthenticated cycle, no 401 retry storm', async () => {
