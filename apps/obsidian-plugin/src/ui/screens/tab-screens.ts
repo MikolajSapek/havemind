@@ -14,12 +14,12 @@ import { renderActivityRows } from '../activity-section';
 import { renderGettingStarted } from '../getting-started-section';
 import { renderRejoinRoster } from '../roster-section';
 
-import { renderConnectionControls } from './connection-controls';
 import type { ConnectDraft, ConnectLiveInputs } from './connect-form';
 import { renderInviteComposer } from './invite-composer';
 import { renderPeopleTab } from './people-tab';
 import { renderConflicts, renderSendQueue } from './alarms';
 import { renderStatusIndicator } from './status-indicator';
+import { renderStatusHero } from './status-hero';
 import type { TabBodyScreens } from './tab-body';
 
 export interface TabScreensContext {
@@ -37,11 +37,8 @@ export interface TabScreensContext {
 export function buildTabScreens(context: TabScreensContext): TabBodyScreens {
   const { options } = context;
   return {
-    renderStatus: (target, panel) => {
-      renderStatusIndicator(target, panel, {
-        onRetry: options.onRetry,
-        onReset: options.onReset,
-      });
+    renderStatus: (target, panel, composer) => {
+      renderStatusHero(target, panel, options, composer?.pending.length ?? 0);
       if (context.helpOpen) {
         renderGettingStarted(target, buildGettingStartedViewModel());
       }
@@ -52,14 +49,6 @@ export function buildTabScreens(context: TabScreensContext): TabBodyScreens {
         ...(options.onRestore ? { onRestore: options.onRestore } : {}),
       });
     },
-    renderConnect: (target, panel) =>
-      renderConnectionControls(target, panel, context.helpOpen, {
-        onSyncNow: options.onSyncNow,
-        onRetry: options.onRetry,
-        onReset: options.onReset,
-        onDisconnect: options.onDisconnect,
-        onToggleHelp: context.onToggleHelp,
-      }),
     renderPeople: (target, model: CreateConnectionViewModel | null) =>
       renderPeopleTab(target, model, {
         renderRoster: (rosterTarget) => {

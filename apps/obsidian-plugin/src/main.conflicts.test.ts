@@ -271,7 +271,7 @@ describe('HavemindOnboardingView per-section render isolation (MAJOR 5)', () => 
     // Status and the tab strip still render despite the conflicts throw. The
     // strip matters most here: it is built before the guarded sections, so an
     // unguarded read inside it would blank the pane rather than one section.
-    expect(all.some((e) => e.classes.includes('havemind-status'))).toBe(true);
+    expect(all.some((e) => e.classes.includes('havemind-hero'))).toBe(true);
     expect(all.some((e) => e.attrs['role'] === 'tab')).toBe(true);
     // The failed section degrades to an inline English fallback, not a blank pane.
     const fallback = all.find((e) =>

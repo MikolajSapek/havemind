@@ -194,7 +194,9 @@ export default class HavemindPlugin extends Plugin {
             this.views.refreshOnboardingNow();
           });
         },
-        onDisconnect: () => this.disconnect(),
+        onDisconnect: () => this.confirmDisconnect(),
+        // Stopping a join that has not been approved yet ends nothing worth asking about.
+        onCancelJoin: () => this.disconnect(),
         onRetry: () => {
           void this.retryConnection();
         },
@@ -623,6 +625,21 @@ export default class HavemindPlugin extends Plugin {
   }
 
   /**
+   * Every entry point to Disconnect asks first (plan 010): it stops syncing on
+   * this device, and the one-word menu item gave no hint of that.
+   */
+  private confirmDisconnect(): void {
+    new ConfirmModal(this.app, {
+      title: 'Disconnect this device?',
+      body: 'Syncing stops here until you connect again. Your notes stay.',
+      confirmLabel: 'Disconnect',
+      onConfirm: () => {
+        this.disconnect();
+      },
+    }).open();
+  }
+
+  /**
    * U2: every entry point to Reset connection asks first. It wipes the pairing
    * and the sync state, and only the owner's approval brings the device back.
    */
@@ -715,7 +732,7 @@ export default class HavemindPlugin extends Plugin {
         void this.syncNow();
       },
       disconnect: () => {
-        this.disconnect();
+        this.confirmDisconnect();
       },
       resetConnection: () => {
         this.confirmResetConnection();

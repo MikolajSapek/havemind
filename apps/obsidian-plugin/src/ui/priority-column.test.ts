@@ -18,6 +18,7 @@ import { buildRejoinRosterView } from '../runtime/rejoin-roster';
 import { buildConnectionPanel } from '../runtime/status';
 import {
   WorkspaceLeaf,
+  registrationState,
   type MockElement,
 } from '../test/obsidian.mock';
 
@@ -29,24 +30,19 @@ function texts(root: MockElement): string[] {
 }
 
 describe('connection controls', () => {
-  it('makes connection management a visible tab', () => {
+  it('keeps connection management one click away in More options', () => {
     const root = syncedPane({
       panelProvider: () =>
         buildConnectionPanel({ status: 'synced', serverName: 'sap.ts.net' }),
       onSyncNow: () => {},
       onDisconnect: () => {},
     });
-    const connect = flatten(root).find(
-      (el) => el.attrs['role'] === 'tab' && /connect/i.test(el.attrs['aria-label'] ?? ''),
-    );
-
-    expect(connect).toBeDefined();
-    connect?.triggerClick();
-
-    const visible = texts(root).join(' ');
-    expect(visible).toContain('sap.ts.net');
-    expect(visible).toContain('Sync now');
-    expect(visible).toContain('Disconnect and change server');
+    flatten(root)
+      .find((el) => el.attrs['aria-label'] === 'More options')
+      ?.triggerClick();
+    const titles = registrationState.menus.at(-1)?.items.map((item) => item.title) ?? [];
+    expect(titles).toContain('Sync now');
+    expect(titles).toContain('Disconnect…');
   });
 });
 
@@ -56,13 +52,13 @@ describe('priority column, calm state', () => {
     // reads the same as one that stopped updating three days ago. The calm
     // state keeps a detail line under the status word, recency when there is
     // any, and always the honest note about what the server can read.
-    const root = syncedPane();
-    const detail = flatten(root).find((el) =>
-      el.classes.includes('havemind-status-detail'),
-    );
+    const root = syncedPane({
+      panelProvider: () => buildConnectionPanel({ status: 'synced', lastSyncedAt: Date.now() }),
+    });
+    const detail = flatten(root).find((el) => el.classes.includes('havemind-hero-sub'));
 
     expect(detail).toBeDefined();
-    expect(flatten(detail as MockElement).map((el) => el.text).join('')).not.toBe('');
+    expect(detail?.text).toMatch(/last sync/);
   });
 
   it('renders no uppercase section captions', () => {

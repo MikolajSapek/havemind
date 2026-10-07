@@ -56,6 +56,6 @@ describe('activity in the pane', () => {
     const texts = flatten(view.containerEl as unknown as MockElement).map(
       (el) => el.text,
     );
-    expect(texts.some((t) => /no activity yet/i.test(t))).toBe(true);
+    expect(texts.some((t) => /no changes since obsidian opened/i.test(t))).toBe(true);
   });
 });

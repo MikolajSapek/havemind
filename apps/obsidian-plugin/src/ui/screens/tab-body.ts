@@ -12,9 +12,12 @@ import { assertNever } from '../../runtime/view-state';
 import type { CreateConnectionViewModel } from '../onboarding-types';
 
 export interface TabBodyScreens {
-  readonly renderStatus: (body: HTMLElement, panel: ConnectionPanelView) => void;
+  readonly renderStatus: (
+    body: HTMLElement,
+    panel: ConnectionPanelView,
+    composer: CreateConnectionViewModel | null,
+  ) => void;
   readonly renderActivity: (body: HTMLElement) => void;
-  readonly renderConnect: (body: HTMLElement, panel: ConnectionPanelView) => void;
   readonly renderPeople: (
     body: HTMLElement,
     composer: CreateConnectionViewModel | null,
@@ -30,13 +33,10 @@ export function renderTabBody(
 ): void {
   switch (tab) {
     case 'status':
-      screens.renderStatus(body, panel);
+      screens.renderStatus(body, panel, composer);
       return;
     case 'activity':
       screens.renderActivity(body);
-      return;
-    case 'connect':
-      screens.renderConnect(body, panel);
       return;
     case 'people':
       screens.renderPeople(body, composer);

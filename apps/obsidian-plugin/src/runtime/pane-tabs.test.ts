@@ -8,15 +8,14 @@ const base: PaneTabsInput = {
 };
 
 describe('pane tabs', () => {
-  it('offers the same four tabs to everyone', () => {
-    // Connection management must remain visible in the pane: hiding the server
-    // and recovery actions behind an overflow menu makes a connected vault
-    // look like it has no way to change or repair its connection.
+  it('offers the same three tabs to everyone', () => {
+    // Connection management (Sync now, Disconnect, Reset) lives in the native
+    // More options menu, one click from every tab (plan 010), so it no longer
+    // costs a tab of its own.
     expect(buildPaneTabs(base).tabs.map((t) => t.id)).toEqual([
       'status',
       'activity',
       'people',
-      'connect',
     ]);
   });
 

@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  activityDayLabel,
   buildActivityViewModel,
+  clockLabel,
 } from './activity-render';
 import {
   authorColorToken,
@@ -35,7 +37,7 @@ describe('buildActivityViewModel', () => {
     ]);
     expect(model.rows[0]?.label).toBe('edit · Notes/b.md · Alice');
     // Two-line presentation: `author verb` headline over the vault path.
-    expect(model.rows[0]?.headline).toBe('Alice edit');
+    expect(model.rows[0]?.headline).toBe('Alice edited');
     expect(model.rows[0]?.pathLabel).toBe('Notes/b.md');
     expect(model.rows[0]?.canRestore).toBe(true);
   });
@@ -72,5 +74,37 @@ describe('buildActivityViewModel', () => {
     ]);
     expect(model.rows[0]?.canRestore).toBe(false);
     expect(buildActivityViewModel([]).empty).toBe(true);
+  });
+});
+
+describe('minimal rows (plan 010)', () => {
+  it('leads with the note name and says who did what in the past tense', () => {
+    const rows = buildActivityViewModel([
+      record({ revisionId: 'a', path: 'Reunion/Venue.md', kind: 'edit', timestamp: 5 }),
+      record({ revisionId: 'b', path: 'pliki/plan.pdf', kind: 'create', timestamp: 4 }),
+      record({ revisionId: 'c', path: 'Oferty.md', kind: 'rename', timestamp: 3 }),
+      record({ revisionId: 'd', path: 'old.md', kind: 'delete', content: null, timestamp: 2 }),
+      record({ revisionId: 'e', path: 'Venue.md', kind: 'conflict', timestamp: 1 }),
+    ]).rows;
+    expect(rows.map((row) => [row.title, row.meta])).toEqual([
+      ['Venue', 'Alice edited'],
+      ['plan.pdf', 'Alice created it'],
+      ['Oferty', 'Alice renamed it'],
+      ['old', 'Alice deleted it'],
+      ['Venue', 'Both versions kept'],
+    ]);
+  });
+
+  it('names the initial import without inventing an author', () => {
+    const rows = buildActivityViewModel([record({ actor: { kind: 'initial-import' } })]).rows;
+    expect(rows[0]?.meta).toBe('Initial import');
+  });
+
+  it('labels days the way a person reads them', () => {
+    const now = new Date(2026, 9, 7, 9, 30).getTime();
+    expect(activityDayLabel(new Date(2026, 9, 7, 0, 5).getTime(), now)).toBe('Today');
+    expect(activityDayLabel(new Date(2026, 9, 6, 23, 59).getTime(), now)).toBe('Yesterday');
+    expect(activityDayLabel(new Date(2026, 9, 3, 12, 0).getTime(), now)).toBe('3 Oct');
+    expect(clockLabel(new Date(2026, 9, 7, 6, 2).getTime())).toBe('06:02');
   });
 });

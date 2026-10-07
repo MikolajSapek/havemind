@@ -193,12 +193,13 @@ describe('stylesheet, the resize ladder measures something other than itself', (
 });
 
 describe('stylesheet, activity rows stay inside the sidebar', () => {
-  it('makes the activity copy the only shrinkable, wrapping column', () => {
-    const copyRule = css.match(/\.havemind-activity-copy\s*\{([^}]*)\}/)?.[1] ?? '';
+  it('makes the text column the only shrinkable one, and ellipsises the name', () => {
+    const mainRule = css.match(/\.havemind-activity-main\s*\{([^}]*)\}/)?.[1] ?? '';
+    const titleRule = css.match(/\.havemind-activity-title\s*\{([^}]*)\}/)?.[1] ?? '';
 
-    expect(copyRule).toContain('flex: 1 1 0');
-    expect(copyRule).toContain('min-width: 0');
-    expect(copyRule).toContain('overflow-wrap: anywhere');
+    expect(mainRule).toContain('flex: 1 1 0');
+    expect(mainRule).toContain('min-width: 0');
+    expect(titleRule).toContain('text-overflow: ellipsis');
   });
 });
 

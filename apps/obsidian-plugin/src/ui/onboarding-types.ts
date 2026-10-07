@@ -180,6 +180,8 @@ export interface OnboardingViewOptions {
   ) => void;
   /** Stop the live sync loop so the paste form returns. */
   readonly onDisconnect?: () => void;
+  /** Stops an unapproved join from the guest waiting screen; does not ask. */
+  readonly onCancelJoin?: () => void;
   /**
    * Force an immediate reconnect from a non-synced backoff/terminal state
    * (offline or reconnect-required), instead of waiting out the sync runner's

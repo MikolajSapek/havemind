@@ -56,6 +56,15 @@ export function renderStatusIndicator(
       }
     }
 
+    if (includeRecovery) renderRecoveryActions(content, panel, actions);
+}
+
+/** The one recovery action the current state allows, if any (see the module). */
+export function renderRecoveryActions(
+  content: HTMLElement,
+  panel: ConnectionPanelView,
+  actions: StatusIndicatorActions,
+): void {
     // A "Retry now" affordance for the non-synced backoff/terminal states
     // (offline waiting on the sync runner's backoff, or a terminal
     // reconnect-required). It lets the user force an immediate reconnect rather
@@ -63,7 +72,6 @@ export function renderStatusIndicator(
     // retry) or conflict/disconnected (retry cannot help those). Lives in the
     // panel, not the status bar, since setText clobbers status-bar children.
     if (
-      includeRecovery &&
       actions.onRetry !== undefined &&
       (panel.status === 'offline' || panel.status === 'reconnect-required')
     ) {
@@ -79,7 +87,6 @@ export function renderStatusIndicator(
     // which sync is provably dead, so the button can never be an accidental
     // click on a healthy connection.
     if (
-      includeRecovery &&
       actions.onReset !== undefined &&
       panel.status === 'reset-required'
     ) {

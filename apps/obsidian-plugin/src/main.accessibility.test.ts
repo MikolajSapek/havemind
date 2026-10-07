@@ -178,9 +178,11 @@ describe('panel glyph accessibility', () => {
     const decorative = glyphs(content).filter(
       (glyph) => (glyph.attrs['aria-label'] ?? '') === '',
     );
-    // The panel does draw glyphs (title hexagon, status icon, roster dots),
-    // otherwise this test would pass vacuously.
-    expect(decorative.length).toBeGreaterThan(2);
+    // The one picture, the flower, is an image with a name rather than
+    // decoration; the loop below still covers any glyph that is decoration.
+    const flower = descendants(content).find((el) => el.classes.includes('havemind-flower'));
+    expect(flower?.attrs['role']).toBe('img');
+    expect(flower?.attrs['aria-label']).toMatch(/devices/);
     for (const glyph of decorative) {
       expect(glyph.attrs['aria-hidden']).toBe('true');
     }
@@ -216,12 +218,10 @@ describe('panel glyph accessibility', () => {
     const content = (view.containerEl as unknown as MockElement)
       .children[1] as MockElement;
     const all = descendants(content);
-    const dot = all.find((element) =>
-      element.classes.includes('havemind-roster-dot'),
-    );
-    expect(dot?.attrs['aria-hidden']).toBe('true');
+    // No colour dot to hide any more (plan 010): the name and role are the row.
+    expect(all.some((element) => element.classes.includes('havemind-roster-dot'))).toBe(false);
     expect(all.some(({ text }) => text === 'Magda')).toBe(true);
-    expect(all.some(({ text }) => text === 'editor')).toBe(true);
+    expect(all.some(({ text }) => text === 'Editor')).toBe(true);
   });
 
   it('keeps the icon-only help toggle labelled and its glyph hidden', async () => {
@@ -234,19 +234,18 @@ describe('panel glyph accessibility', () => {
 
     const content = (view.containerEl as unknown as MockElement)
       .children[1] as MockElement;
-    // Getting started moved into the header overflow menu (round 2): read once
-    // and then never again is exactly what an overflow menu is for. It must
-    // still be reachable, and its label must state what pressing it will do.
+    // Getting started lives in the native More options menu: read once and
+    // then never again is exactly what an overflow menu is for. It must still
+    // be reachable, and its label must state what pressing it will do.
     const more = descendants(content).find(
       (element) => element.attrs['aria-label'] === 'More options',
     );
     expect(more).toBeDefined();
     more?.triggerClick();
-    await view.onOpen();
 
-    const entry = descendants(
-      view.containerEl as unknown as MockElement,
-    ).find(({ text }) => /show getting started/i.test(text));
+    const entry = registrationState.menus
+      .at(-1)
+      ?.items.find(({ title }) => /show getting started/i.test(title));
     expect(entry).toBeDefined();
   });
 

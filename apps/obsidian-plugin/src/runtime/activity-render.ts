@@ -10,6 +10,8 @@
 
 import {
   buildActivityFeed,
+  type ActivityEntry,
+  type ActivityKind,
   type RevisionRecord,
 } from '../activity/activity';
 import {
@@ -37,6 +39,11 @@ export interface ActivityRowView {
    */
   readonly colorToken: string;
   readonly canRestore: boolean;
+  /** The note's name without `.md` (attachments keep their extension). */
+  readonly title: string;
+  /** Who did what, in words: "Hubert edited", "Both versions kept". */
+  readonly meta: string;
+  readonly kind: ActivityKind;
 }
 
 export interface ActivityViewModel {
@@ -75,7 +82,7 @@ export function buildActivityViewModel(
       revisionId: entry.revisionId,
       fileId: entry.fileId,
       label: `${entry.kind} · ${entry.path} · ${entry.actorLabel}`,
-      headline: `${entry.actorLabel} ${entry.kind}`,
+      headline: metaLine(entry),
       pathLabel: entry.path,
       timestamp: entry.timestamp,
       timeLabel: format(entry.timestamp),
@@ -84,7 +91,50 @@ export function buildActivityViewModel(
           ? INITIAL_IMPORT_COLOR_TOKEN
           : authorColorToken(entry.actorId),
       canRestore: entry.canRestore,
+      title: noteTitle(entry.path),
+      meta: metaLine(entry),
+      kind: entry.kind,
     }),
   );
   return { empty: rows.length === 0, rows };
+}
+
+/** An edit needs no object; the others read better with one ("created it"). */
+const VERBS: Readonly<Record<ActivityKind, string>> = {
+  edit: 'edited',
+  create: 'created it',
+  rename: 'renamed it',
+  delete: 'deleted it',
+  conflict: 'kept both versions',
+};
+
+function metaLine(entry: ActivityEntry): string {
+  if (entry.kind === 'conflict') return 'Both versions kept';
+  if (entry.actorId === null) return entry.actorLabel;
+  return `${entry.actorLabel} ${VERBS[entry.kind]}`;
+}
+
+function noteTitle(path: string): string {
+  const name = path.split('/').pop() ?? path;
+  return name.endsWith('.md') ? name.slice(0, -3) : name;
+}
+
+const MONTHS = 'JanFebMarAprMayJunJulAugSepOctNovDec';
+const twoDigits = (n: number): string => (n < 10 ? `0${n}` : String(n));
+
+/** "Today", "Yesterday", else "3 Oct": the Activity tab's day headers. */
+export function activityDayLabel(timestamp: number, now: number = Date.now()): string {
+  const at = new Date(timestamp);
+  const today = new Date(now);
+  const startOfDay = (d: Date): number => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const days = Math.round((startOfDay(today) - startOfDay(at)) / 86_400_000);
+  if (days === 0) return 'Today';
+  if (days === 1) return 'Yesterday';
+  return `${at.getDate()} ${MONTHS.slice(at.getMonth() * 3, at.getMonth() * 3 + 3)}`;
+}
+
+/** Local 24-hour clock, "06:02": the time beside a row under its day header. */
+export function clockLabel(timestamp: number): string {
+  const at = new Date(timestamp);
+  return `${twoDigits(at.getHours())}:${twoDigits(at.getMinutes())}`;
 }

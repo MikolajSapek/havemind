@@ -65,12 +65,12 @@ describe('the shell survives a throwing provider', () => {
     const root = pane({ ...HEALTHY, ...override });
     const all = flatten(root);
 
-    // The header is the pane's way back: it holds the overflow menu with
-    // Disconnect and Reset. Losing it strands the user with no recovery.
-    expect(
-      all.some((el) => el.classes.includes('havemind-pane-header')),
-      'the header must survive any provider failure',
-    ).toBe(true);
+    // The pane keeps a way back: with tabs, the strip's More options holds
+    // Disconnect and Reset; without them, the connect form is the way back.
+    // Losing both strands the user with no recovery.
+    const hasTabs = all.some((el) => el.attrs['role'] === 'tab');
+    const hasMore = all.some((el) => el.attrs['aria-label'] === 'More options');
+    expect(hasTabs ? hasMore : all.length > 3, 'the pane must keep a way back').toBe(true);
     expect(all.length).toBeGreaterThan(3);
   });
 });
@@ -87,10 +87,8 @@ describe('the tab body survives a throwing provider', () => {
 
     // The strip is how the user leaves a broken tab for a working one.
     const tabs = all.filter((el) => el.attrs['role'] === 'tab');
-    expect(tabs).toHaveLength(4);
-    expect(all.some((el) => el.classes.includes('havemind-pane-header'))).toBe(
-      true,
-    );
+    expect(tabs).toHaveLength(3);
+    expect(all.some((el) => el.attrs['aria-label'] === 'More options')).toBe(true);
   });
 });
 

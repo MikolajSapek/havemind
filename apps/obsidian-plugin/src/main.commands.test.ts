@@ -184,7 +184,14 @@ describe('command palette actions', () => {
 
     command('disconnect').checkCallback?.(false);
     await flush();
+    // Disconnect asks first (plan 010): nothing stops until the user confirms.
+    expect(spy.stops).toBe(0);
+    expect(
+      (registrationState.modals.at(-1)?.contentEl as unknown as MockElement | undefined)?.children.map((c) => c.text),
+    ).toContain('Disconnect this device?');
 
+    clickButton(registrationState.modals.at(-1)?.contentEl, 'Disconnect');
+    await flush();
     expect(spy.stops).toBe(1);
     // Nothing is connected any more, so the command greys itself out again.
     expect(command('disconnect').checkCallback?.(true)).toBe(false);

@@ -4,12 +4,12 @@
  */
 
 import type { RevisionRecord } from '../activity/activity';
-import { buildActivityViewModel } from '../runtime/activity-render';
+import { activityDayLabel, buildActivityViewModel, clockLabel } from '../runtime/activity-render';
 
 import { formatActivityTime } from './primitives';
 
 export const EMPTY_ACTIVITY_TEXT =
-  'No activity yet. Connect to a vault to see changes as they happen.';
+  'No changes since Obsidian opened.';
 
 /** Data and actions an activity surface needs. */
 /**
@@ -27,6 +27,8 @@ export interface ActivitySectionOptions {
   readonly onRestore?: (revisionId: string) => void;
   /** Cap on rendered rows; omit for the full feed. */
   readonly limit?: number;
+  /** "Now" for the day headers; tests pin it, the pane uses the clock. */
+  readonly now?: number;
 }
 
 /**
@@ -37,6 +39,7 @@ export function renderActivityRows(
   content: HTMLElement,
   options: ActivitySectionOptions,
 ): number {
+  const now = options.now ?? Date.now();
   const model = buildActivityViewModel(options.feed, {
     formatTimestamp: formatActivityTime,
     limit: options.limit ?? DEFAULT_ACTIVITY_ROW_LIMIT,
@@ -47,28 +50,26 @@ export function renderActivityRows(
     return 0;
   }
 
-  const rows =
-    model.rows;
-
-  for (const row of rows) {
+  let day = '';
+  for (const row of model.rows) {
+    // Day headers instead of a date on every row: "Today", "Yesterday", "3 Oct".
+    const rowDay = activityDayLabel(row.timestamp, now);
+    if (rowDay !== day) {
+      day = rowDay;
+      content.createDiv({ text: rowDay }).addClass('havemind-activity-day');
+    }
     const entry = content.createDiv();
     entry.addClass('havemind-activity-row');
-    // Two-line row: `author verb` headline over the vault path. The full
-    // `kind · path · actor` string still lives on `row.label` for anything
-    // that reads it; nothing about the data changes.
+    entry.addClass(`is-${row.kind}`);
+    // The note's name over who did what; the full path stays on the tooltip.
     const text = entry.createDiv();
     text.addClass('havemind-activity-main');
-    text.addClass('havemind-activity-copy');
-    text.createDiv({ text: row.headline }).addClass('havemind-activity-who');
-    const path = text.createDiv({ text: row.pathLabel });
-    path.addClass('havemind-hint');
-    path.addClass('havemind-activity-path');
-    // Author colour as a left accent, paired with the author name already in
-    // the headline, colour is never the only signal (accessibility rule).
-    entry.style.setProperty('--havemind-row-color', `var(${row.colorToken})`);
-    // The trailing column owns the compact timestamp and Restore action. It is
-    // deliberately a non-shrinking sibling of the wrapping text column, so a
-    // long vault path can never push either control beyond the sidebar edge.
+    const title = text.createDiv({ text: row.title });
+    title.addClass('havemind-activity-title');
+    title.setAttribute('title', row.pathLabel);
+    text.createDiv({ text: row.meta }).addClass('havemind-activity-meta');
+    // Time and Restore in a non-shrinking column, so a long name can never push
+    // either past the sidebar edge.
     const trail = entry.createDiv();
     trail.addClass('havemind-activity-trail');
     if (row.canRestore && options.onRestore) {
@@ -76,8 +77,7 @@ export function renderActivityRows(
       restore.addClass('havemind-activity-action');
       restore.onClickEvent(() => options.onRestore?.(row.revisionId));
     }
-    const time = trail.createEl('span', { text: row.timeLabel });
-    time.addClass('havemind-activity-time');
+    trail.createEl('span', { text: clockLabel(row.timestamp) }).addClass('havemind-activity-time');
   }
 
   return model.rows.length;

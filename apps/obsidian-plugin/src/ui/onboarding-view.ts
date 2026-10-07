@@ -9,7 +9,7 @@
  * error boundary so one failing provider can never blank the pane.
  */
 
-import { ItemView, type WorkspaceLeaf } from 'obsidian';
+import { ItemView, Platform, type Menu, type WorkspaceLeaf } from 'obsidian';
 
 import { renderGuestWaitingScreen } from './screens/guest-waiting';
 import { captureDrafts, renderConnectForm } from './screens/connect-form';
@@ -17,7 +17,7 @@ import { renderConnectedBodyFor } from './screens/connected-body-wiring';
 import { RepaintScheduler } from './screens/repaint-scheduler';
 import { renderGuestInvalid } from './screens/guest-invalid';
 import { readPaneState } from './screens/pane-state';
-import { renderPaneChromeFor } from './screens/pane-chrome';
+import { buildHeaderMenuItems, fillPaneMenu, showPaneMenu, type PaneMenuItem } from './screens/header-menu';
 
 import type { EntryChoice } from '../runtime/entry-choice';
 import type { PaneTabId } from '../runtime/pane-tabs';
@@ -59,8 +59,6 @@ export class HavemindOnboardingView extends ItemView {
    * behind a small help button so it is discoverable without nagging.
    */
   private helpOpen = false;
-  /** Whether the header overflow menu is open. */
-  private menuOpen = false;
   /** Which tab the connected pane is showing. */
   private activeTab: PaneTabId = 'status';
   /**
@@ -107,6 +105,26 @@ export class HavemindOnboardingView extends ItemView {
 
   override onOpen(): void {
     this.render();
+  }
+
+  /** The view header's More options, which is the only one a phone shows. */
+  override onPaneMenu(menu: Menu, source: 'more-options' | 'tab-header' | string): void {
+    super.onPaneMenu(menu, source);
+    const panel = this.options.panelProvider?.();
+    if (source !== 'more-options' || panel === undefined) return;
+    fillPaneMenu(menu, this.menuItems(panel));
+  }
+
+  private menuItems(panel: Parameters<typeof buildHeaderMenuItems>[0]): PaneMenuItem[] {
+    return buildHeaderMenuItems(panel, this.helpOpen, {
+      onSyncNow: this.options.onSyncNow,
+      onDisconnect: this.options.onDisconnect,
+      onReset: this.options.onReset,
+      onToggleHelp: () => {
+        this.helpOpen = !this.helpOpen;
+        this.render();
+      },
+    });
   }
 
   override onClose(): void {
@@ -167,26 +185,10 @@ export class HavemindOnboardingView extends ItemView {
 
     if (state.kind === 'awaiting') {
       renderGuestWaitingScreen(content, state.waiting, {
-        onCancel: this.options.onDisconnect,
+        onCancel: this.options.onCancelJoin ?? this.options.onDisconnect,
       });
       return;
     }
-
-    renderPaneChromeFor(
-      content,
-      panel,
-      this.options,
-      { menuOpen: this.menuOpen, helpOpen: this.helpOpen },
-      {
-        setMenuOpen: (open) => {
-          this.menuOpen = open;
-        },
-        setHelpOpen: (open) => {
-          this.helpOpen = open;
-        },
-        repaint: () => this.render(),
-      },
-    );
 
     const { focusTabOnRender } = renderConnectedBodyFor(
       content,
@@ -200,6 +202,11 @@ export class HavemindOnboardingView extends ItemView {
         helpOpen: this.helpOpen,
         activeTab: this.activeTab,
         focusTabOnRender: this.focusTabOnRender,
+        // A phone shows Obsidian's view header and its More options, which
+        // `onPaneMenu` fills; a second button would be the old double header.
+        ...(Platform.isPhone
+          ? {}
+          : { onMore: (event: MouseEvent) => showPaneMenu(event, this.menuItems(panel)) }),
       },
       {
         setEntryChoice: (choice) => {

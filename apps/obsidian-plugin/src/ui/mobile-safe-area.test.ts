@@ -80,12 +80,12 @@ describe('coarse-pointer touch targets', () => {
   });
 
   it('leaves the desktop strip at its designed height', () => {
-    // The 32px declaration must survive outside the coarse block, or the
-    // desktop sidebar inherits a phone-sized strip.
+    // The 36px declaration (plan 010) must survive outside the coarse block,
+    // or the desktop sidebar inherits a phone-sized strip.
     const beforeCoarse = stylesheet.slice(
       0,
       stylesheet.indexOf('@media (pointer: coarse)'),
     );
-    expect(beforeCoarse).toMatch(/--havemind-tab-height:\s*32px/);
+    expect(beforeCoarse).toMatch(/--havemind-tab-height:\s*36px/);
   });
 });

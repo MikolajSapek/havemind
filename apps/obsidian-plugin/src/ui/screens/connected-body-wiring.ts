@@ -29,6 +29,8 @@ export interface BodyContext {
   readonly helpOpen: boolean;
   readonly activeTab: PaneTabId;
   readonly focusTabOnRender: boolean;
+  /** Opens the options menu; the view leaves it out on a phone. */
+  readonly onMore?: ((event: MouseEvent) => void) | undefined;
 }
 
 /** What selecting something in the body has to be able to change. */
@@ -105,6 +107,7 @@ export function renderConnectedBodyFor(
         }),
       ),
     onSelectTab: callbacks.setActiveTab,
+    onMore: context.onMore,
   });
 
   return { focusTabOnRender: state.focusTabOnRender };

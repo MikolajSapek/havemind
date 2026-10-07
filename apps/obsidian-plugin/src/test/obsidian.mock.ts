@@ -26,6 +26,8 @@ export type MockElement = {
   ) => void;
   createDiv: (options?: { text?: string }) => MockElement;
   createEl: (tag: string, options?: CreateElOptions) => MockElement;
+  /** Obsidian's `createSvg`: the same element tree, tagged with the SVG tag name. */
+  createSvg: (tag: string, options?: { attr?: Record<string, string>; cls?: string }) => MockElement;
   disabled: boolean;
   empty: () => void;
   iconName: string;
@@ -73,6 +75,8 @@ export type RegistrationState = {
   editorExtensions: EditorExtension[];
   /** Every `Modal` opened since the last reset, in order. */
   modals: Modal[];
+  /** Every `Menu` shown since the last reset, in order. */
+  menus: Menu[];
   markdownPostProcessors: Array<
     (element: HTMLElement, context: MarkdownPostProcessorContext) => unknown
   >;
@@ -138,6 +142,63 @@ export class Modal {
 }
 
 /** Minimal stand-ins for the vault file classes used in `instanceof` checks. */
+/** Obsidian's `MenuItem`: records what the plugin set, so a test can read the menu. */
+export class MenuItem {
+  title = '';
+  warning = false;
+  section = '';
+  icon = '';
+  private callback: Callback = () => undefined;
+  setTitle(title: string): this {
+    this.title = title;
+    return this;
+  }
+  setWarning(warning: boolean): this {
+    this.warning = warning;
+    return this;
+  }
+  setSection(section: string): this {
+    this.section = section;
+    return this;
+  }
+  setIcon(icon: string): this {
+    this.icon = icon;
+    return this;
+  }
+  onClick(callback: Callback): this {
+    this.callback = callback;
+    return this;
+  }
+  click(): unknown {
+    return this.callback();
+  }
+}
+
+/** Obsidian's `Menu`: items in order, and where it was shown. */
+export class Menu {
+  readonly items: MenuItem[] = [];
+  addItem(build: (item: MenuItem) => unknown): this {
+    const item = new MenuItem();
+    build(item);
+    this.items.push(item);
+    return this;
+  }
+  addSeparator(): this {
+    return this;
+  }
+  showAtMouseEvent(): this {
+    registrationState.menus.push(this);
+    return this;
+  }
+  showAtPosition(): this {
+    registrationState.menus.push(this);
+    return this;
+  }
+  hide(): this {
+    return this;
+  }
+}
+
 export class TAbstractFile {
   path = '';
 }
@@ -206,6 +267,12 @@ export function createMockElement(): MockElement {
       }
       children.push(child);
       return child;
+    },
+    createSvg(tag: string, options?: { attr?: Record<string, string>; cls?: string }): MockElement {
+      return element.createEl(tag, {
+        ...(options?.attr === undefined ? {} : { attr: options.attr }),
+        ...(options?.cls === undefined ? {} : { cls: options.cls }),
+      });
     },
     empty(): void {
       children.splice(0, children.length);
@@ -386,6 +453,7 @@ export const registrationState: RegistrationState = {
   commands: [],
   editorExtensions: [],
   modals: [],
+  menus: [],
   markdownPostProcessors: [],
   notices: [],
   protocolHandlers: new Map(),
@@ -400,6 +468,7 @@ export function resetObsidianMock(): void {
   registrationState.commands.splice(0);
   registrationState.editorExtensions.splice(0);
   registrationState.modals.splice(0);
+  registrationState.menus.splice(0);
   registrationState.markdownPostProcessors.splice(0);
   registrationState.notices.splice(0);
   registrationState.protocolHandlers.clear();
@@ -537,6 +606,9 @@ export class ItemView {
     this.containerEl.createDiv();
     this.containerEl.createDiv();
   }
+
+  /** Obsidian adds its own items here; the mock has none to add. */
+  onPaneMenu(): void {}
 
   getDisplayText(): string {
     return '';

@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Havemind minimal pane, design handoff</title>
+<!--
+  The approved design is the "Zywy kwiat" page of the design canvas
+  (claude.ai artifact 9oyQaGugFE2eDbVgze2TCy), plan 010. That canvas is inline
+  styled, so the numbers the pane's geometry rests on are restated here as the
+  same --havemind-* custom properties styles.css declares.
+  scripts/extract-design-tokens.mjs reads them into tokens.json, and
+  src/ui/design-tokens.test.ts fails when styles.css disagrees.
+  Desktop sizes follow Obsidian 1.14.4 (13px UI text, 20px large, 36px rows);
+  touch sizes follow its phone header (44px).
+-->
+<style>
+    :root {
+      --havemind-tab-height: 36px;
+      --havemind-tab-height-touch: 44px;
+      --havemind-tab-label-size: 13px;
+      --havemind-tab-label-weight: 400;
+      --havemind-tab-active-weight: 600;
+      --havemind-tab-active-rule: 2px solid var(--interactive-accent);
+      --havemind-tab-gap: 18px;
+      --havemind-tabs-pad: 0 8px 0 16px;
+      --havemind-hero-pad: 44px 16px 16px;
+      --havemind-hero-gap: 6px;
+      --havemind-hero-flower-gap: 12px;
+      --havemind-hero-title-size: var(--font-ui-large);
+      --havemind-hero-title-weight: 600;
+      --havemind-hero-sub-size: var(--font-ui-small);
+      --havemind-flower-max: 202px;
+      --havemind-status-size: 13.5px;
+      --havemind-status-weight: 600;
+      --havemind-status-gap: 8px;
+      --havemind-status-dot-size: 8px;
+      --havemind-status-detail-indent: 22px;
+      --havemind-status-detail-size: 11.5px;
+      --havemind-status-detail-gap: 4px;
+      --havemind-body-pad: 14px 12px 16px;
+      --havemind-roster-row-height: 44px;
+      --havemind-activity-row-pad: 9px 0;
+      --havemind-row-time-size: 11px;
+      --havemind-dot-size: 8px;
+    }
+</style>
+</head>
+<body>
+<p>Token sheet for the minimal pane. See plans/010-minimal-pane.md.</p>
+</body>
+</html>

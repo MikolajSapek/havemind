@@ -252,6 +252,22 @@ declare module 'obsidian' {
     unload(): void;
   }
 
+  export class Menu {
+    addItem(callback: (item: MenuItem) => unknown): this;
+    addSeparator(): this;
+    showAtMouseEvent(evt: MouseEvent): this;
+    showAtPosition(position: { x: number; y: number }): this;
+    hide(): this;
+  }
+
+  export class MenuItem {
+    setTitle(title: string): this;
+    setIcon(icon: string | null): this;
+    setSection(section: string): this;
+    setWarning(isWarning: boolean): this;
+    onClick(callback: (evt: MouseEvent | KeyboardEvent) => unknown): this;
+  }
+
   export abstract class ItemView {
     readonly app: App;
     readonly containerEl: HTMLElement;
@@ -264,6 +280,8 @@ declare module 'obsidian' {
     abstract getViewType(): string;
     onClose(): Promise<void> | void;
     onOpen(): Promise<void> | void;
+    /** Fills the view header's More options (and the tab header's) menu. */
+    onPaneMenu(menu: Menu, source: 'more-options' | 'tab-header' | string): void;
   }
 
   export abstract class PluginSettingTab {

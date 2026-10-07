@@ -43,6 +43,8 @@ export interface ConnectedBodyScreens {
     composer: CreateConnectionViewModel | null,
   ) => void;
   readonly onSelectTab: (id: PaneTabId, viaKeyboard: boolean) => void;
+  /** Opens the options menu from the strip; absent on a phone (see the strip). */
+  readonly onMore?: ((event: MouseEvent) => void) | undefined;
 }
 
 export function renderConnectedBody(
@@ -110,6 +112,7 @@ export function renderConnectedBody(
         // focus flag is set there too so the two cannot drift apart.
         onSelect: (id: PaneTabId) => screens.onSelectTab(id, true),
         ...(focusActive ? { focusActive: true } : {}),
+        ...(screens.onMore === undefined ? {} : { onMore: screens.onMore }),
       });
     });
 

@@ -16,8 +16,6 @@ import { setIcon } from 'obsidian';
 
 import type { PaneTab, PaneTabId, PaneTabsView } from '../runtime/pane-tabs';
 
-import { DECORATIVE } from './primitives';
-
 export interface PaneTabsOptions {
   readonly view: PaneTabsView;
   readonly onSelect: (id: PaneTabId) => void;
@@ -29,6 +27,12 @@ export interface PaneTabsOptions {
    * is still on the old one.
    */
   readonly focusActive?: boolean;
+  /**
+   * Opens the pane's options menu. Desktop hides Obsidian's view header, so the
+   * strip carries "More options" at its end; a phone shows the view header and
+   * its own More options, so the caller leaves this out there.
+   */
+  readonly onMore?: (event: MouseEvent) => void;
 }
 
 /** The id of the panel the strip drives, shared with the view that renders it. */
@@ -98,10 +102,6 @@ export function renderPaneTabs(
     if (active) button.addClass('is-active');
     if (tab.needsAttention === true) button.addClass('needs-attention');
 
-    const icon = button.createEl('span', { attr: DECORATIVE });
-    icon.addClass('havemind-tab-icon');
-    setIcon(icon, tab.icon);
-
     button.createEl('span', { text: tab.label }).addClass('havemind-tab-label');
 
     if (tab.count !== undefined) {
@@ -116,5 +116,13 @@ export function renderPaneTabs(
     // one in the NEW tree, not the button that was pressed, which no longer
     // exists by the time this runs.
     if (active && options.focusActive === true) button.focus();
+  }
+
+  if (options.onMore !== undefined) {
+    const onMore = options.onMore;
+    const more = strip.createEl('button', { attr: { 'aria-label': 'More options' } });
+    more.addClass('havemind-tabs-more');
+    setIcon(more, 'more-horizontal');
+    more.onClickEvent((event) => onMore(event));
   }
 }

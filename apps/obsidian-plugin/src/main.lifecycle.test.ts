@@ -189,7 +189,7 @@ describe('plugin lifecycle', () => {
     const container = await openActivityTab(plugin);
     expect(
       descendants(container).some(({ text }) =>
-        text === 'No activity yet. Connect to a vault to see changes as they happen.'),
+        text === 'No changes since Obsidian opened.'),
     ).toBe(true);
 
     registrationState.settingsTabs[0]?.display();
@@ -236,9 +236,6 @@ describe('plugin lifecycle', () => {
     await view?.onOpen();
     const container = view?.containerEl as unknown as MockElement;
     const kids = container.children[1]?.children ?? [];
-    // The header strip names the plugin, not one of its screens: the pane holds
-    // connecting, activity, people and conflicts (design 1a).
-    expect(descendants(container).some(({ text }) => text === 'Havemind')).toBe(true);
     expect(kids.some(({ tag }) => tag === 'textarea')).toBe(true);
     expect(kids.some(({ text }) => text === 'Connect')).toBe(true);
   });
@@ -773,10 +770,10 @@ describe('plugin lifecycle', () => {
     const row = descendants(view.containerEl as unknown as MockElement).find(({ classes }) =>
       classes.includes('havemind-activity-row'),
     );
-    // Two-line row: `author verb` headline over the vault path (in a text block).
+    // Two-line row (plan 010): the note's name over who did what.
     const textBlock = row?.children[0];
-    expect(textBlock?.children[0]?.text).toBe('Alice edit');
-    expect(textBlock?.children[1]?.text).toBe('Notes/a.md');
+    expect(textBlock?.children[0]?.text).toBe('a');
+    expect(textBlock?.children[1]?.text).toBe('Alice edited');
 
     const restoreButton = descendants(row as MockElement).find(({ classes }) =>
       classes.includes('havemind-activity-action'),
@@ -1047,53 +1044,20 @@ describe('plugin lifecycle', () => {
       false,
     );
 
-    // Disconnect moved into the header overflow menu (design 1a): a standing
+    // Disconnect lives in the native More options menu (plan 010): a standing
     // button spent a line on the action a connected user least wants to hit.
     const more = descendants(root).find(
       (el) => el.attrs['aria-label'] === 'More options',
     );
     expect(more).toBeDefined();
     more?.triggerClick();
-    await view.onOpen();
 
-    const disconnect = descendants(view.containerEl as unknown as MockElement).find(
-      ({ text }) => text === 'Disconnect',
-    );
-    expect(disconnect).toBeDefined();
-    disconnect?.triggerClick();
+    const disconnect = registrationState.menus
+      .at(-1)
+      ?.items.find((item) => item.title === 'Disconnect…');
+    expect(disconnect?.warning).toBe(true);
+    disconnect?.click();
     expect(disconnected).toBe(1);
-  });
-
-  it('places the server address below every overflow-menu action', async () => {
-    const view = new HavemindOnboardingView(new WorkspaceLeaf(), {
-      panelProvider: () =>
-        buildConnectionPanel({ status: 'synced', serverName: 'sap.ts.net' }),
-      onSyncNow: () => undefined,
-      onDisconnect: () => undefined,
-      onReset: () => undefined,
-    });
-    await view.onOpen();
-
-    const root = view.containerEl as unknown as MockElement;
-    descendants(root)
-      .find((element) => element.attrs['aria-label'] === 'More options')
-      ?.triggerClick();
-    await view.onOpen();
-
-    const menuEntries = descendants(view.containerEl as unknown as MockElement)
-      .filter(
-        (element) =>
-          element.classes.includes('havemind-pane-menu-item') ||
-          element.classes.includes('havemind-pane-menu-note'),
-      )
-      .map(({ text }) => text);
-    expect(menuEntries).toEqual([
-      'Sync now',
-      'Show getting started',
-      'Disconnect',
-      'Reset connection',
-      'Server: sap.ts.net',
-    ]);
   });
 
   it('renders a "Retry now" button in the status section when offline', async () => {
@@ -1212,12 +1176,32 @@ describe('plugin lifecycle', () => {
 
     const content = (view.containerEl as unknown as MockElement).children[1];
     const all = descendants(content as MockElement);
-    expect(all.some(({ text }) => text === 'owner · you')).toBe(true);
-    expect(all.some(({ text }) => text === 'editor')).toBe(true);
+    expect(all.some(({ text }) => text === 'Owner · this device')).toBe(true);
+    expect(all.some(({ text }) => text === 'Editor')).toBe(true);
     // No invented presence: the server reports none.
     expect(all.some(({ text }) => /connected/.test(text ?? ''))).toBe(false);
     expect(all.some(({ text }) => text === 'Mark offline')).toBe(false);
     expect(all.filter(({ text }) => text === 'Rejoin')).toHaveLength(1);
+  });
+
+  it('shows Rejoin and Remove to the owner only (an editor gets an error from both)', async () => {
+    const view = new HavemindOnboardingView(new WorkspaceLeaf(), {
+      panelProvider: () => buildConnectionPanel({ status: 'synced' }),
+      rejoinRosterProvider: () =>
+        buildRejoinRosterView([
+          { membershipId: 'm-owner', displayName: 'Mikołaj', role: 'owner', self: false },
+          { membershipId: 'm-me', displayName: 'You', role: 'editor', self: true },
+        ]),
+      rejoinWaitingProvider: () => new Set<string>(),
+      onRejoin: () => undefined,
+      onRemove: () => undefined,
+    });
+    await view.onOpen();
+    openTab(view, /People/);
+
+    const all = descendants((view.containerEl as unknown as MockElement).children[1] as MockElement);
+    expect(all.some(({ text }) => text === 'Rejoin')).toBe(false);
+    expect(all.some(({ text }) => text === 'Remove')).toBe(false);
   });
 
   it('forwards the membership id when Rejoin is clicked on a dead contact', async () => {
@@ -1227,7 +1211,7 @@ describe('plugin lifecycle', () => {
         buildConnectionPanel({ status: 'synced', serverName: 'sap.ts.net' }),
       rejoinRosterProvider: () =>
         buildRejoinRosterView(
-          [{ membershipId: 'm-magda', displayName: 'Magda', role: 'editor', self: false }],
+          [{ membershipId: 'm-owner', displayName: 'You', role: 'owner', self: true }, { membershipId: 'm-magda', displayName: 'Magda', role: 'editor', self: false }],
         ),
       rejoinWaitingProvider: () => new Set<string>(),
       onRejoin: (membershipId) => rejoined.push(membershipId),
@@ -1249,7 +1233,7 @@ describe('plugin lifecycle', () => {
         buildConnectionPanel({ status: 'synced', serverName: 'sap.ts.net' }),
       rejoinRosterProvider: () =>
         buildRejoinRosterView(
-          [{ membershipId: 'm-magda', displayName: 'Magda', role: 'editor', self: false }],
+          [{ membershipId: 'm-owner', displayName: 'You', role: 'owner', self: true }, { membershipId: 'm-magda', displayName: 'Magda', role: 'editor', self: false }],
         ),
       rejoinWaitingProvider: () => new Set<string>(['m-magda']),
       onRejoin: () => undefined,
@@ -1298,7 +1282,7 @@ describe('plugin lifecycle', () => {
         buildConnectionPanel({ status: 'synced', serverName: 'sap.ts.net' }),
       rejoinRosterProvider: () =>
         buildRejoinRosterView([
-          { membershipId: 'm-magda', displayName: 'Magda', role: 'editor', self: false },
+          { membershipId: 'm-owner', displayName: 'You', role: 'owner', self: true }, { membershipId: 'm-magda', displayName: 'Magda', role: 'editor', self: false },
         ]),
       rejoinWaitingProvider: () => new Set<string>(),
       onRemove: (membershipId) => removed.push(membershipId),

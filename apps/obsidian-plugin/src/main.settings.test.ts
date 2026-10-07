@@ -244,7 +244,16 @@ describe('HavemindSettingTab actions (FINDING 7)', () => {
 
     button('Disconnect').trigger();
     await flush();
+    expect(spy.stops).toBe(0);
 
+    const modal = registrationState.modals.at(-1);
+    const confirm = modal === undefined
+      ? undefined
+      : descendants(modal.contentEl).find(
+          (node) => node.tag === 'button' && node.text === 'Disconnect',
+        );
+    confirm?.triggerClick();
+    await flush();
     expect(spy.stops).toBe(1);
   });
 

@@ -38,7 +38,7 @@ const tokens: Record<string, DesignToken> = JSON.parse(
   readFileSync(
     fileURLToPath(
       new URL(
-        '../../../../design/status-line-ui-mockups/tokens.json',
+        '../../../../design/minimal-pane/tokens.json',
         import.meta.url,
       ),
     ),

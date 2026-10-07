@@ -1,13 +1,10 @@
 /**
- * The People roster and the owner actions on each row (Rejoin, Remove). Drawn
- * in both the owner composer and the connected panel. Every colour dot is
- * paired with the member's name and role, so colour is never the only signal.
- * The server reports no presence, so no connected/disconnected state is shown.
+ * The People roster: a name and a role per member (plan 010), plus the owner's
+ * Rejoin and Remove. The server reports no presence, so no
+ * connected/disconnected state is shown.
  */
 
 import type { RejoinRosterView } from '../runtime/rejoin-roster';
-
-import { DECORATIVE } from './primitives';
 
 /** Owner actions attached to each rejoin-aware roster row. */
 export interface RejoinRosterActions {
@@ -24,7 +21,6 @@ export function renderRejoinRoster(
   roster: RejoinRosterView,
   actions: RejoinRosterActions,
 ): void {
-  content.createEl('h4', { text: 'Members' });
   if (roster.empty) {
     const empty = content.createDiv({
       text: 'No members yet. Approved devices appear here.',
@@ -32,26 +28,18 @@ export function renderRejoinRoster(
     empty.addClass('havemind-empty');
     return;
   }
+  // Rejoin and Remove are owner actions; the server refuses both from an editor.
+  const ownerView = roster.rows.some((row) => row.self && row.role === 'owner');
   for (const row of roster.rows) {
     const item = content.createDiv({ text: '' });
     item.addClass('havemind-roster-row');
-    // Colour dot in the member's stable token, paired with name and role.
-    const dot = item.createEl('span', { attr: DECORATIVE });
-    dot.addClass('havemind-roster-dot');
-    // The owner's own row uses the theme accent; other members keep their stable
-    // author colour.
-    dot.style.setProperty(
-      'color',
-      row.self ? 'var(--interactive-accent)' : `var(${row.colorToken})`,
-    );
     const text = item.createDiv();
     text.addClass('havemind-roster-copy');
     text.createDiv({ text: row.displayName }).addClass('havemind-roster-name');
-    const meta = text.createDiv({
-      text: row.self ? `${row.role} · you` : row.role,
-    });
-    meta.addClass('havemind-hint');
+    const role = row.role === 'owner' ? 'Owner' : 'Editor';
+    const meta = text.createDiv({ text: row.self ? `${role} · this device` : role });
     meta.addClass('havemind-roster-meta');
+    if (!ownerView) continue;
 
     if (row.rejoinable && actions.onRejoin) {
       if (actions.waiting.has(row.membershipId)) {

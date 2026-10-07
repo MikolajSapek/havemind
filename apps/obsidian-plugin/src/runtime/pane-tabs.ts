@@ -16,14 +16,12 @@
  * Pure: no DOM, no Obsidian import.
  */
 
-export type PaneTabId = 'status' | 'activity' | 'people' | 'connect';
+export type PaneTabId = 'status' | 'activity' | 'people';
 
 export interface PaneTab {
   readonly id: PaneTabId;
   /** Short enough to survive a 300px strip without truncating. */
   readonly label: string;
-  /** Lucide icon name. */
-  readonly icon: string;
   /** Count shown beside the label, when the tab has one. */
   readonly count?: number;
   /**
@@ -54,7 +52,6 @@ export function buildPaneTabs(input: PaneTabsInput): PaneTabsView {
     {
       id: 'status',
       label: 'Status',
-      icon: 'activity',
       ...(input.attentionCount > 0
         ? { count: input.attentionCount, needsAttention: true }
         : {}),
@@ -63,9 +60,8 @@ export function buildPaneTabs(input: PaneTabsInput): PaneTabsView {
     // "2 connected" are facts nobody can act on, and three competing numbers in
     // a 300px strip turn the one number that matters, the conflict count,
     // into noise. Counts in the strip went 3 → 1.
-    { id: 'activity', label: 'Activity', icon: 'history' },
-    { id: 'people', label: 'People', icon: 'users' },
-    { id: 'connect', label: 'Connect', icon: 'link' },
+    { id: 'activity', label: 'Activity' },
+    { id: 'people', label: 'People' },
   ];
 
   // Three tabs for everyone. Inviting used to be a fourth, owner-only tab,

@@ -51,7 +51,7 @@ describe('UI-02, a healthy panel is nearly empty', () => {
     });
 
     // The status row is the one thing that always renders.
-    expect(texts(root).some((t) => /synced/i.test(t))).toBe(true);
+    expect(texts(root).some((t) => /in sync/i.test(t))).toBe(true);
 
     // Nothing else spends the attention budget. Asserted on the alarm BLOCK,
     // not just its rows: an empty conflicts section still draws its border,
