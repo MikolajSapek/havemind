@@ -17,7 +17,7 @@ you own passes the changes around and remembers who wrote what.
 Built for people. If you also run Claude, MCP or another local agent in that
 vault, its edits land in the same history.
 
-**Version 1.6.0, desktop and mobile.** A two-week pilot on two devices lost no
+**Version 1.7.0, desktop and mobile.** A two-week pilot on two devices lost no
 data, including through three real incidents.
 
 There is no end-to-end encryption. Your server stores the vault in plaintext,
@@ -72,10 +72,10 @@ Two paths, depending on whether you are the one running the server.
    ```
 
    It prints a single-use pairing token (`hm_pt_...`).
-5. **Connect the plugin.** Open the Havemind pane in Obsidian, go to the
-   Connect tab, and enter your server's full address
-   (`https://something.tailnet-name.ts.net`) together with that pairing token. The
-   Status tab turns green when it is working.
+5. **Connect the plugin.** Open the Havemind pane in Obsidian, choose
+   **I'll run the server**, then **I've done this, connect**, and enter your
+   server's full address (`https://something.tailnet-name.ts.net`) together
+   with that pairing token. The Status tab says **In sync** when it is working.
 6. **Invite the other person.** People tab, then Invite someone. Send them the
    invitation; it works once.
 7. **Approve their device.** They read a 6-digit code aloud to you, you type
@@ -102,8 +102,8 @@ The long version, including backups and multiple vaults, is in
 - **Nothing is overwritten silently.** Edits that do not overlap merge on their
   own. When two people change the same lines, both versions survive and a copy
   lands in `Havemind Conflicts/`.
-- **You can see who wrote what.** Every change in the Activity panel carries a
-  name and a colour when the member can be resolved. The author identity comes
+- **You can see who wrote what.** Every change in the Activity panel carries
+  its author's name when the member can be resolved. The author identity comes
   from the server with the revision; unknown authors keep a neutral label.
   The Activity feed holds up to 200 entries in memory and resets when the
   plugin reloads. Restore on an entry puts that note back to the text it had
@@ -133,11 +133,11 @@ The long version, including backups and multiple vaults, is in
 ## What it looks like
 
 <p align="center">
-  <img src="docs/images/01-status-framed.png" alt="The Status tab on a MacBook, connected and synced" width="100%">
+  <img src="docs/images/01-status-framed.png" alt="The Status tab on a MacBook: the server in the middle, one hexagon per device around it, and In sync" width="100%">
 </p>
 
 <p align="center">
-  <img src="docs/images/03-people-framed.png" alt="The People tab listing the owner and two connected editors" width="100%">
+  <img src="docs/images/03-people-framed.png" alt="The People tab listing the owner and two editors" width="100%">
 </p>
 
 <p align="center">

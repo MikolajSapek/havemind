@@ -272,7 +272,8 @@ every address (`0.0.0.0/0`) is refused.
 1. Install the Havemind Obsidian plugin: Settings, then Community plugins,
    then Browse, and search for **Havemind**. Needs Obsidian 1.11.4 or newer.
 2. Open the vault, open the Havemind panel (ribbon icon or command palette →
-   **Havemind: Connect to Havemind**).
+   **Havemind: Connect to Havemind**), choose **I'll run the server**, then
+   **I've done this, connect**.
 3. Paste the Server URL (`https://your-server.your-tailnet.ts.net`) and the
    pairing token from step (c) or (d), then click **Connect**.
 4. The status bar settles on `Havemind: Synced` once the initial bootstrap

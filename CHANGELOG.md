@@ -14,6 +14,32 @@ and the server.
   the time it has left, so backups stay daily across deploys instead of
   leaving a gap of up to 47 hours.
 
+## [1.7.0], 2026-10-07
+
+### Changed
+
+- Plugin: a new, quieter pane (plan 010). Three text tabs, Status, Activity
+  and People, with no header strip and no Connect tab. Sync now, Getting
+  started, Disconnect and Reset connection moved into the More options menu,
+  which on a phone is the view's own menu.
+- Plugin: the Status tab draws the vault as a flower: the server in the
+  middle, one hexagon per device, initials for the others. Its shape is the
+  state: filled in sync, dashed when this device cannot reach the server,
+  split in red on the other side of a conflict, "?" for a device waiting for
+  approval, "+N" past six devices. One title and one line say the rest.
+- Plugin: Activity groups changes by day and leads with the note's name, then
+  who changed it and when.
+- Plugin: the status bar shows the state as a small hexagon and counts what
+  waits: "3 to send" while syncing, "3 waiting" offline, "2 notes" in
+  conflict.
+- Plugin: the first-run screen leads with the empty flower and two choices.
+
+### Added
+
+- Plugin: a device waiting for approval shows as a card in People, with a
+  button that opens the code entry.
+- Plugin: Disconnect asks first and names the server it stops syncing with.
+
 ## [1.6.0], 2026-10-06
 
 ### Fixed
