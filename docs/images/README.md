@@ -10,7 +10,7 @@ the repository that README lives in.
 | `01-status.png` | Status tab, connected and synced |
 | `02-activity.png` | Activity feed |
 | `03-people.png` | People tab: owner and two editors |
-| `04-mobile.png` | The pane full screen on an iPhone |
+| `04-mobile.png` | The pane on an iPhone, cropped to the sidebar it opens in |
 | `*-framed.png` | The same captures composited into Apple device bezels; these are what the catalogue README uses |
 
 ## Rules for a new capture

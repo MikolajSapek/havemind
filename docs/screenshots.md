@@ -23,7 +23,7 @@ delay that is the whole product, so the hero is a loop: a note typed on a
 laptop appearing on a phone about a second later. LiveSync, the closest
 comparable plugin, leads with a GIF for the same reason.
 
-Keep it under 5 MB. The current file is 0.8 MB at 1400x903, 15 fps.
+Keep it under 5 MB. The current file is 0.3 MB at 1400x903, 12 fps, 15.6 s.
 
 ## How the hero was recorded
 
@@ -40,7 +40,23 @@ seconds:
 One vault.  /  Every device.  /  Your server.  /  About a second.
 ```
 
-Record both screens, then composite with `scripts/frame-gif.py`.
+How the 1.7.1 hero was shot, so the timing on screen is the real one:
+
+1. The Obsidian window out of full screen, sized to the MacBook screen's
+   1.549 ratio, with the iPhone Mirroring window beside it, both on one
+   display. The note is in reading view, so no `#` shows on the cursor's line,
+   and the pane is on Status, where the core spins while it sends and turns
+   green when done.
+2. One `screencapture -v -V 18` of the whole display, while a shell appends
+   the four lines to the note on disk three seconds apart. One recording means
+   the laptop and the phone share one clock.
+3. Crop the laptop and the phone (below the iOS status bar) into frames with
+   ffmpeg, composite them with `scripts/compose-hero.py`, and build the GIF
+   with ffmpeg's `palettegen`. The script blacks out the Mirroring window's
+   rounder bottom corners and masks the screen to the bezel's radius.
+
+`scripts/frame-gif.py` composites into any mock-up with white screens and is
+still the quicker path when the two recordings come from separate devices.
 
 ## Rules for any capture
 

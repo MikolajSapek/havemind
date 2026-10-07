@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img src="design/brand/havemind-hero.gif" alt="A note typed on a MacBook appearing on an iPhone seconds later, the Havemind pane visible on both" width="100%">
+  <img src="design/brand/havemind-hero.gif" alt="A note written on a MacBook appears on an iPhone about a second later; on the MacBook the Havemind flower spins while it sends and turns green when done" width="100%">
 </p>
 
 # Havemind
@@ -141,7 +141,7 @@ The long version, including backups and multiple vaults, is in
 </p>
 
 <p align="center">
-  <img src="docs/images/04-mobile-framed.png" alt="The Havemind pane filling the screen on an iPhone" width="49%">
+  <img src="docs/images/04-mobile-framed.png" alt="The Havemind pane on an iPhone: the flower with a green core, and In sync" width="49%">
 </p>
 
 ## What it will not do
