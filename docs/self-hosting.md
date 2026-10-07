@@ -20,6 +20,8 @@ server and a connected Obsidian plugin.
 - [f. Connect the plugin](#f-connect-the-plugin)
 - [g. Invite people](#g-invite-people)
 - [h. Safety notes](#h-safety-notes)
+- [i. Backups](#i-backups)
+- [j. Update the server](#j-update-the-server)
 
 ---
 
@@ -37,10 +39,10 @@ server and a connected Obsidian plugin.
 
 ## b. Stand up the server
 
-From the repo root, on the box that will run the server:
+On the box that will run the server:
 
 ```bash
-git clone https://github.com/<your-fork>/havemind.git
+git clone https://github.com/MikolajSapek/havemind.git
 cd havemind
 cp deploy/.env.example deploy/.env
 ```
@@ -58,8 +60,10 @@ HAVEMIND_API_BASE_URL=https://your-server.your-tailnet.ts.net
 There is no database key to generate: the live database and blob store are
 plaintext on the volume (see [h. Safety notes](#h-safety-notes)).
 
-Before starting the container, prepare its writable storage. The shipped
-Compose service runs as uid 1000 and cannot repair ownership itself:
+Before starting the container, prepare its writable storage, once. The shipped
+Compose service runs as uid 1000 with every capability dropped, so it cannot
+change ownership from the inside, and Docker creates a fresh volume and a missing
+bind-mount directory owned by root:
 
 ```bash
 docker volume create havemind_havemind-data
@@ -87,33 +91,13 @@ docker compose -f deploy/compose.yaml ps
 # STATUS should read "Up (healthy)" within about 40 seconds
 ```
 
-`havemind doctor` checks the rest of the deployment (the key file and its
-permissions, the data directory, the configured base URL) and prints no secret
-values:
+`havemind doctor` checks the configuration (including the base URL) and the
+data directory, and prints no secret values:
 
 ```bash
 docker compose -f deploy/compose.yaml exec havemind-server \
   node apps/server/bin/havemind.js doctor
 ```
-
-### One-time volume ownership fix
-
-The server's data (SQLite database + attachment blobs) lives in the named
-Docker volume `havemind_havemind-data`, mounted at `/data` inside the
-container. Docker creates a **fresh** named volume owned by `root`. The
-container, however, runs as an unprivileged, non-root user (uid `1000`, the
-stock `node` user baked into the image) with `cap_drop: [ALL]`, so it has no
-capability to `chown` its own data directory from the inside. Fix the
-ownership once, from the outside, using a disposable helper container that
-mounts the same volume:
-
-```bash
-docker run --rm -v havemind_havemind-data:/data alpine chown -R 1000:1000 /data
-```
-
-You only need to do this once, right after the volume is first created (before
-or after the first `up -d`, either order works, but the server will not be
-able to write its database until the ownership is fixed).
 
 ## c. Become the owner
 
@@ -201,6 +185,20 @@ https://your-server.your-tailnet.ts.net
 That URL must match `HAVEMIND_API_BASE_URL` in `deploy/.env` exactly. Never
 run `tailscale funnel` for Havemind, that would make it public, which
 defeats the entire model.
+
+### Give people access to the server
+
+Everyone who syncs needs Tailscale on every device they sync from, signed in to
+your tailnet:
+
+1. In the Tailscale admin console, open **Users**, select **Invite external
+   users**, and send the invite by email or as a link.
+2. They open the invite, sign in to Tailscale, and install the Tailscale app on
+   each device, phones included.
+3. From one of their devices, open
+   `https://your-server.your-tailnet.ts.net/.well-known/havemind` in a browser.
+   It should show `"service":"havemind"`. If it does not load, the device is
+   not on your tailnet yet, and the plugin will not connect either.
 
 ### Per-client rate limits behind the proxy (optional)
 
@@ -336,3 +334,38 @@ terminal:
   you consider sensitive, see the "Security model" section of the main
   [README](../README.md) for the current state of encryption in transit and
   at rest.
+
+## i. Backups
+
+The shipped Compose file turns scheduled backups on: every 24 hours the server
+writes a snapshot of its database and blobs to `deploy/backups/` on the host and
+keeps the newest 7. Snapshots are plaintext, like the live data, so encrypt any
+copy you move off the box. To write one now:
+
+```bash
+docker compose -f deploy/compose.yaml exec havemind-server \
+  node apps/server/bin/havemind.js backup --to /backups
+```
+
+Settings, verifying a snapshot and restoring one are in
+[backup and restore](operations/backup-restore.md).
+
+## j. Update the server
+
+The plugin updates itself through Obsidian; the server does not. When the
+[changelog](../CHANGELOG.md) lists a server change, update from the repository
+root, after a fresh backup:
+
+```bash
+docker compose -f deploy/compose.yaml exec havemind-server \
+  node apps/server/bin/havemind.js backup --to /backups
+git pull
+docker compose -f deploy/compose.yaml build
+docker compose -f deploy/compose.yaml up -d
+docker compose -f deploy/compose.yaml ps
+```
+
+`git pull` leaves `deploy/.env`, the data volume and `deploy/backups/` alone,
+since none of them are in the repository, and the server applies its own
+database migrations when it starts. Wait for `Up (healthy)` before syncing
+again.

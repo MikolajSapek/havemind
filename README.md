@@ -73,8 +73,8 @@ Two paths, depending on whether you are the one running the server.
 
    It prints a single-use pairing token (`hm_pt_...`).
 5. **Connect the plugin.** Open the Havemind pane in Obsidian, go to the
-   Connect tab, and enter your server's tailnet address
-   (`something.tailnet-name.ts.net`) together with that pairing token. The
+   Connect tab, and enter your server's full address
+   (`https://something.tailnet-name.ts.net`) together with that pairing token. The
    Status tab turns green when it is working.
 6. **Invite the other person.** People tab, then Invite someone. Send them the
    invitation; it works once.

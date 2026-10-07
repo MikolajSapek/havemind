@@ -66,7 +66,7 @@ docker run --rm -v "$PWD/deploy/backups:/backups" alpine chown -R 1000:1000 /bac
 ```
 
 This is the same one-off fix the named data volume needs, see
-`docs/self-hosting.md`, "One-time volume ownership fix".
+[`docs/self-hosting.md`, "Server preparation"](../self-hosting.md#server-preparation).
 
 ## Operator commands
 
