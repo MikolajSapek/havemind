@@ -122,6 +122,8 @@ export class HavemindOnboardingView extends ItemView {
       onReset: this.options.onReset,
       onToggleHelp: () => {
         this.helpOpen = !this.helpOpen;
+        // The help draws on the Status tab, so that is where opening it goes.
+        if (this.helpOpen) this.activeTab = 'status';
         this.render();
       },
     });

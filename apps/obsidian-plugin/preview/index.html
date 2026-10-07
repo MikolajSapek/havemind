@@ -13,48 +13,60 @@
   /* Obsidian's theme variables, the values the plugin renders against. */
   body.theme-light {
     --background-primary: #ffffff;
-    --background-secondary: #f2f3f5;
-    --background-secondary-alt: #e3e5e8;
-    --background-modifier-border: #e0e0e0;
-    --background-modifier-hover: rgba(0, 0, 0, 0.045);
+    --background-secondary: #f6f6f6;
+    --background-secondary-alt: #fafafa;
+    --background-modifier-border: #e4e4e4;
+    --background-modifier-hover: rgba(0, 0, 0, 0.067);
     --text-normal: #222222;
     --text-muted: #5c5c5c;
-    --text-faint: #999999;
-    --text-error: #c0392b;
-    --text-success: #0a8f3c;
-    --interactive-accent: #7c5cd6;
-    --interactive-accent-hover: #6a4bc4;
-    --color-accent-rgb: 124, 92, 214;
-    --color-green-rgb: 10, 143, 60;
-    --color-green-hsl: 142, 87%, 30%;
-    --color-red-rgb: 192, 57, 43;
-    --color-red-hsl: 6, 63%, 46%;
+    --text-faint: #ababab;
+    --text-error: #e93147;
+    --text-success: #08b94e;
+    --text-accent: #8a5cf5;
+    --text-on-accent: #ffffff;
+    --interactive-accent: #9873f7;
+    --interactive-accent-hover: #a68af9;
+    --color-red: #e93147;
+    --color-accent-rgb: 138, 92, 245;
+    --color-green-rgb: 8, 185, 78;
+    --color-green-hsl: 144, 92%, 38%;
+    --color-red-rgb: 233, 49, 71;
+    --color-red-hsl: 353, 81%, 55%;
     --shell: #e9eaee;
   }
   body.theme-dark {
-    --background-primary: #1e1e1e;
-    --background-secondary: #262626;
-    --background-secondary-alt: #161616;
-    --background-modifier-border: #3a3a3a;
-    --background-modifier-hover: rgba(255, 255, 255, 0.06);
+    --background-primary: #1c1c1c;
+    --background-secondary: #282828;
+    --background-secondary-alt: #232323;
+    --background-modifier-border: #333333;
+    --background-modifier-hover: rgba(255, 255, 255, 0.067);
     --text-normal: #dadada;
-    --text-muted: #999999;
+    --text-muted: #b3b3b3;
     --text-faint: #666666;
-    --text-error: #ff6b6b;
+    --text-error: #fb464c;
     --text-success: #44cf6e;
-    --interactive-accent: #a78bfa;
-    --interactive-accent-hover: #b9a2fb;
-    --color-accent-rgb: 167, 139, 250;
+    --text-accent: #a68af9;
+    --text-on-accent: #ffffff;
+    --interactive-accent: #8a5cf5;
+    --interactive-accent-hover: #a68af9;
+    --color-red: #fb464c;
+    --color-accent-rgb: 138, 92, 245;
     --color-green-rgb: 68, 207, 110;
     --color-green-hsl: 138, 58%, 54%;
-    --color-red-rgb: 255, 107, 107;
-    --color-red-hsl: 0, 100%, 71%;
+    --color-red-rgb: 251, 70, 76;
+    --color-red-hsl: 358, 96%, 63%;
     --shell: #141414;
   }
   body {
     --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     --font-monospace: ui-monospace, SFMono-Regular, Menlo, monospace;
+    --font-ui-large: 20px;
     --font-ui-medium: 15px;
+    --font-interface: var(--font-ui);
+    --font-semibold: 600;
+    --line-height-tight: 1.3;
+    --size-4-6: 24px;
+    --size-4-8: 32px;
     --font-ui-small: 13px;
     --font-ui-smaller: 12px;
     --font-normal: 400;
@@ -134,6 +146,11 @@
     <span class="label">Screen</span>
     <button data-screen="chooser">Chooser</button>
     <button data-screen="host">Host path</button>
+    <button data-screen="status">Status</button>
+    <button data-screen="offline">Offline</button>
+    <button data-screen="activity">Activity</button>
+    <button data-screen="people">People</button>
+    <button data-screen="guest">Guest code</button>
   </div>
   <div class="group">
     <span class="label">Theme</span>

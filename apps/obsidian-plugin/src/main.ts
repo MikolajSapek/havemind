@@ -158,6 +158,7 @@ export default class HavemindPlugin extends Plugin {
         },
         composerProvider: () =>
           this.invitations.connectionActive ? this.invitations.composerModel() : null,
+        pendingApprovalsProvider: () => this.invitations.pendingApprovals,
         guestWaitingProvider: () => this.awaitingApproval,
         guestInvalidProvider: () => this.guestInvitationInvalid,
         panelProvider: () => this.connectionPanel(),
@@ -631,7 +632,10 @@ export default class HavemindPlugin extends Plugin {
   private confirmDisconnect(): void {
     new ConfirmModal(this.app, {
       title: 'Disconnect this device?',
-      body: 'Syncing stops here until you connect again. Your notes stay.',
+      // The pane names the server nowhere else, and this is when it matters.
+      body:
+        `Syncing${this.connection === null ? '' : ` with ${this.connection.serverName}`} ` +
+        'stops here until you connect again. Your notes stay.',
       confirmLabel: 'Disconnect',
       onConfirm: () => {
         this.disconnect();

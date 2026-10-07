@@ -15,6 +15,7 @@ export type MockElement = {
   attrs: Record<string, string>;
   placeholder: string;
   addClass: (cls: string) => void;
+  removeClass: (cls: string) => void;
   /** Records a DOM listener so a test can dispatch it via `triggerEvent`. */
   addEventListener: (
     type: string,
@@ -228,6 +229,9 @@ export function createMockElement(): MockElement {
     styleProperties,
     addClass(cls: string): void {
       classes.push(cls);
+    },
+    removeClass(cls: string): void {
+      for (let i = classes.indexOf(cls); i !== -1; i = classes.indexOf(cls)) classes.splice(i, 1);
     },
     addEventListener(type: string, handler: (event: unknown) => unknown): void {
       const existing = listeners.get(type) ?? [];

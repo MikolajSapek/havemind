@@ -116,6 +116,12 @@ export interface OnboardingViewOptions {
    */
   readonly composerProvider?: () => CreateConnectionViewModel | null;
   /**
+   * Devices waiting for the owner's approval. Kept by the plugin whether or not
+   * the composer is open (it is hydrated after a restart), so the Status flower
+   * and People can show a waiting device without opening anything.
+   */
+  readonly pendingApprovalsProvider?: () => readonly PendingApprovalEntry[];
+  /**
    * Guest-side waiting model; when it returns non-null the "waiting for the
    * owner to approve" screen is shown (carrying the verification phrase) instead
    * of the paste form, so a pane reopen resumes the wait rather than re-prompting.

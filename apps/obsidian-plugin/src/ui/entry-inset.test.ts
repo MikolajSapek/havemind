@@ -53,6 +53,11 @@ const FIRST_RUN_BLOCKS = [
   // list covers it. Measured in a browser at 300px it sat flush against the
   // pane edge while every block above it was 12px in.
   '.havemind-step-link',
+  // The guest's handshake screen mounts straight onto the view too; measured
+  // in the preview its heading and warning sat flush on the pane edge.
+  '.havemind-handshake-lead',
+  '.havemind-handshake-code',
+  '.havemind-handshake-warning',
 ] as const;
 
 /**

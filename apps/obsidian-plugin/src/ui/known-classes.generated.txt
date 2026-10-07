@@ -81,8 +81,11 @@ havemind-onboarding
 havemind-pane-header
 havemind-pane-mark
 havemind-pane-more
+havemind-pending-card
 havemind-pending-credential
+havemind-pending-meta
 havemind-pending-row
+havemind-pending-title
 havemind-refresh-token
 havemind-rejoin-waiting
 havemind-remote
@@ -126,6 +129,7 @@ havemind-tab-body
 havemind-tab-count
 havemind-tab-icon
 havemind-tab-label
+havemind-tablist
 havemind-tabpanel
 havemind-tabs
 havemind-tabs-more

@@ -40,8 +40,7 @@ export function renderStatusHero(
   target: HTMLElement,
   panel: ConnectionPanelView,
   options: OnboardingViewOptions,
-  /** Read once per render by the caller; a second read could disagree with it. */
-  pendingJoins: number,
+  now: number = Date.now(),
 ): void {
   const members = rosterMembers(options);
   const conflicts = guarded(() => options.conflictsProvider?.() ?? [], []);
@@ -56,7 +55,13 @@ export function renderStatusHero(
     members,
     status: panel.status,
     conflictAuthors: conflicts.map((copy) => copy.author),
-    pendingJoins,
+    pendingJoins: guarded(
+      () =>
+        (options.pendingApprovalsProvider?.() ?? []).filter(
+          (entry) => Date.parse(entry.expiresAt) > now,
+        ).length,
+      0,
+    ),
     recentActorIds,
   });
   const text = statusHeroText({

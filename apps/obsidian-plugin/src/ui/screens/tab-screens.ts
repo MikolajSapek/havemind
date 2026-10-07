@@ -37,8 +37,8 @@ export interface TabScreensContext {
 export function buildTabScreens(context: TabScreensContext): TabBodyScreens {
   const { options } = context;
   return {
-    renderStatus: (target, panel, composer) => {
-      renderStatusHero(target, panel, options, composer?.pending.length ?? 0);
+    renderStatus: (target, panel) => {
+      renderStatusHero(target, panel, options);
       if (context.helpOpen) {
         renderGettingStarted(target, buildGettingStartedViewModel());
       }
@@ -73,6 +73,13 @@ export function buildTabScreens(context: TabScreensContext): TabBodyScreens {
             onReject: options.onReject,
           }),
         onOpenComposer: options.onOpenComposer,
+        pending: (() => {
+          try {
+            return options.pendingApprovalsProvider?.() ?? [];
+          } catch {
+            return [];
+          }
+        })(),
       }),
   };
 }

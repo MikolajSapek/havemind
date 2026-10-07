@@ -80,6 +80,32 @@ describe('buildFlowerModel', () => {
     expect(model.seats.slice(0, 2).map((seat) => seat.label)).toEqual(['you', 'Y']);
   });
 
+  it('says "1 device", and counts the hidden members exactly', () => {
+    expect(buildFlowerModel({ members: [me], status: 'synced' }).description).toBe(
+      'Server connected. 1 device: this device.',
+    );
+    const others: RosterMember[] = Array.from({ length: 7 }, (_, i) => ({
+      membershipId: `y${i}`,
+      displayName: `Person ${String.fromCharCode(65 + i)}`,
+      role: 'editor',
+      self: false,
+    }));
+    // No self row (a roster the server has not finished): 7 members, 4 shown.
+    const model = buildFlowerModel({ members: others, status: 'synced' });
+    expect(model.seats[5]).toMatchObject({ kind: 'more', label: '+3' });
+  });
+
+  it('keeps the other side of a conflict visible when the vault outgrows six', () => {
+    const others: RosterMember[] = Array.from({ length: 7 }, (_, i) => ({
+      membershipId: `z${i}`,
+      displayName: `Person ${String.fromCharCode(65 + i)}`,
+      role: 'editor',
+      self: false,
+    }));
+    const model = buildFlowerModel({ members: [me, ...others], status: 'synced', conflictAuthors: ['Person G'] });
+    expect(model.seats.find((seat) => seat.kind === 'conflict')?.label).toBe('PG');
+  });
+
   it('describes itself for a screen reader', () => {
     const model = buildFlowerModel(input({ status: 'offline', conflictAuthors: ['Hubert'] }));
     expect(model.description).toBe(

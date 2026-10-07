@@ -15,6 +15,9 @@ export class StatusBar {
   private statusItem: HTMLElement | null = null;
   /** Status bar item naming who last edited the open note. */
   private lastEditedItem: HTMLElement | null = null;
+  private glyph: SVGSVGElement | null = null;
+  private label: HTMLElement | null = null;
+  private glyphState: StatusBarView['status'] | null = null;
 
   public constructor(private readonly plugin: HavemindPlugin) {}
 
@@ -62,28 +65,33 @@ export class StatusBar {
   public setStatus(view: StatusBarView): void {
     const item = this.statusItem;
     if (item === null) return;
-    // A leading hive-hexagon glyph precedes the stable label. setText would
-    // clobber the glyph, so rebuild the item: glyph first, then the same text
-    // in a trailing span. The label string and tooltip are unchanged.
-    item.empty();
-    // The smallest flower: one hexagon whose shape is the state (plan 010),
-    // filled when synced, pulsing while syncing, dashed when out of reach,
-    // split on a conflict. Geometry here, look in styles.css.
-    const glyph = item.createEl('span', { attr: DECORATIVE });
-    const svg = glyph.createSvg('svg', {
-      cls: 'havemind-status-glyph',
-      attr: { viewBox: '0 0 28 24', width: '16', height: '14' },
-    });
-    svg.addClass(`is-${view.status}`);
-    svg.createSvg('path', { cls: 'havemind-status-glyph-ring', attr: { d: HEXAGON } });
-    svg.createSvg('path', { cls: 'havemind-status-glyph-hex', attr: { d: HEXAGON } });
-    svg.createSvg('path', { cls: 'havemind-status-glyph-split', attr: { d: SPLIT } });
-    // Design 1a proposes cutting this label as a duplicate of the pane. Kept
-    // deliberately: with the pane closed the status bar is the ONLY surface
-    // showing sync state, and a bare mark plus a colour dot is unreadable to
-    // anyone who cannot see the colour. The pane is where words are optional;
-    // here they are the whole accessible signal.
-    item.createEl('span', { text: view.text });
+    // Built once, then updated in place: a rebuilt glyph would restart its
+    // pulse or march on every repaint, which reads as flicker.
+    if (this.glyph === null || this.label === null) {
+      item.empty();
+      // The smallest flower: one hexagon whose shape is the state (plan 010),
+      // filled when synced, pulsing while syncing, dashed when out of reach,
+      // split on a conflict. Geometry here, look in styles.css.
+      const holder = item.createEl('span', { attr: DECORATIVE });
+      const svg = holder.createSvg('svg', {
+        cls: 'havemind-status-glyph',
+        attr: { viewBox: '0 0 28 24', width: '16', height: '14' },
+      });
+      svg.createSvg('path', { cls: 'havemind-status-glyph-ring', attr: { d: HEXAGON } });
+      svg.createSvg('path', { cls: 'havemind-status-glyph-hex', attr: { d: HEXAGON } });
+      svg.createSvg('path', { cls: 'havemind-status-glyph-split', attr: { d: SPLIT } });
+      this.glyph = svg;
+      // Kept deliberately: with the pane closed the status bar is the ONLY
+      // surface showing sync state, and a shape alone is unreadable to anyone
+      // who cannot see it. Here the words are the whole accessible signal.
+      this.label = item.createEl('span');
+    }
+    if (this.glyphState !== view.status) {
+      if (this.glyphState !== null) this.glyph.removeClass(`is-${this.glyphState}`);
+      this.glyph.addClass(`is-${view.status}`);
+      this.glyphState = view.status;
+    }
+    this.label.setText(view.text);
   }
 
   /** Names the last editor of the open note in the status bar. */

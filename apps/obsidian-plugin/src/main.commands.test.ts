@@ -186,9 +186,12 @@ describe('command palette actions', () => {
     await flush();
     // Disconnect asks first (plan 010): nothing stops until the user confirms.
     expect(spy.stops).toBe(0);
-    expect(
-      (registrationState.modals.at(-1)?.contentEl as unknown as MockElement | undefined)?.children.map((c) => c.text),
-    ).toContain('Disconnect this device?');
+    const texts = (registrationState.modals.at(-1)?.contentEl as unknown as MockElement | undefined)?.children.map(
+      (c) => c.text,
+    );
+    expect(texts).toContain('Disconnect this device?');
+    // Which server: the pane shows it nowhere else, and this is the moment it matters.
+    expect(texts?.some((text) => text.includes('server.example'))).toBe(true);
 
     clickButton(registrationState.modals.at(-1)?.contentEl, 'Disconnect');
     await flush();

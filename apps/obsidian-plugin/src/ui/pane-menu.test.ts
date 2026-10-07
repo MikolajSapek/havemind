@@ -40,8 +40,21 @@ describe('pane chrome', () => {
     const tabs = flatten(root).filter((el) => el.attrs.role === 'tab');
     expect(tabs.map((tab) => tab.attrs['aria-label'])).toEqual(['Status', 'Activity', 'People']);
     expect(flatten(root).some((el) => el.classes.includes('havemind-tab-icon'))).toBe(false);
-    const strip = flatten(root).find((el) => el.attrs.role === 'tablist');
-    expect(strip && moreButton(strip)).toBeDefined();
+    // In the same row, but not inside the tablist: a tablist may hold only tabs.
+    const tablist = flatten(root).find((el) => el.attrs.role === 'tablist');
+    expect(tablist && moreButton(tablist)).toBeUndefined();
+    const row = flatten(root).find((el) => el.classes.includes('havemind-tabs'));
+    expect(row && moreButton(row)).toBeDefined();
+  });
+
+  it('opens Getting started on the Status tab, wherever it was chosen', () => {
+    const { root } = open();
+    flatten(root).find((el) => el.attrs.role === 'tab' && el.attrs['aria-label'] === 'Activity')?.triggerClick();
+    moreButton(root)?.triggerClick();
+    registrationState.menus.at(-1)?.items.find((item) => item.title === 'Show getting started')?.click();
+    const selected = flatten(root).find((el) => el.attrs.role === 'tab' && el.attrs['aria-selected'] === 'true');
+    expect(selected?.attrs['aria-label']).toBe('Status');
+    expect(flatten(root).some((el) => /getting started/i.test(el.text))).toBe(true);
   });
 
   it('opens a native menu: actions, then the two that end the connection, in red', () => {

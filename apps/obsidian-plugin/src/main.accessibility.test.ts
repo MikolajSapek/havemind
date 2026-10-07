@@ -17,7 +17,7 @@ import { HavemindOnboardingView } from './ui/onboarding-view';
 import { HAVEMIND_ONBOARDING_VIEW } from './ui/view-types';
 import type { ConflictCopy } from './runtime/conflict-resolution';
 import { buildRejoinRosterView } from './runtime/rejoin-roster';
-import { buildConnectionPanel } from './runtime/status';
+import { buildConnectionPanel, formatStatusBar } from './runtime/status';
 import {
   App,
   type MockElement,
@@ -85,6 +85,14 @@ describe('status bar item accessibility', () => {
     expect(svg?.classes).toContain('havemind-status-glyph');
     expect(svg?.classes).toContain('is-disconnected');
     expect(status?.children[1]?.text).toBe('Havemind: Disconnected');
+
+    // A new state changes the class and the words, never the element: a
+    // rebuilt glyph would restart its animation on every repaint.
+    plugin.statusBar.setStatus(formatStatusBar({ status: 'offline' }));
+    expect(status?.children[0]?.children[0]).toBe(svg);
+    expect(svg?.classes).toContain('is-offline');
+    expect(svg?.classes).not.toContain('is-disconnected');
+    expect(status?.children[1]?.text).toBe('Havemind: Offline');
   });
 
   it('announces itself as a named button and joins the tab order', async () => {

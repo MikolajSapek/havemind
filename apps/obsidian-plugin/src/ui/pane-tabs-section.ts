@@ -55,8 +55,12 @@ export function renderPaneTabs(
   content: HTMLElement,
   options: PaneTabsOptions,
 ): void {
-  const strip = content.createDiv();
-  strip.addClass('havemind-tabs');
+  // The row holds the tablist and, beside it, More options: a tablist may
+  // contain only tabs, so the button cannot live inside it.
+  const row = content.createDiv();
+  row.addClass('havemind-tabs');
+  const strip = row.createDiv();
+  strip.addClass('havemind-tablist');
   strip.setAttribute('role', 'tablist');
 
   const ids = options.view.tabs.map((tab) => tab.id);
@@ -120,7 +124,7 @@ export function renderPaneTabs(
 
   if (options.onMore !== undefined) {
     const onMore = options.onMore;
-    const more = strip.createEl('button', { attr: { 'aria-label': 'More options' } });
+    const more = row.createEl('button', { attr: { 'aria-label': 'More options' } });
     more.addClass('havemind-tabs-more');
     setIcon(more, 'more-horizontal');
     more.onClickEvent((event) => onMore(event));

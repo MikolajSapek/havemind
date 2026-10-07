@@ -315,7 +315,7 @@
    still carries information the rows do not. */
 .havemind-view h4 {
   margin: 0 0 4px;
-  color: var(--text-faint);
+  color: var(--text-muted);
   font-size: var(--font-ui-smaller);
   font-weight: var(--font-medium);
 }
@@ -381,35 +381,9 @@
   background: var(--background-modifier-hover);
   color: var(--text-normal);
 }
-.havemind-action-row,
-.havemind-view button.havemind-action-row {
-  display: flex;
-  align-items: center;
-  width: 100%;
-  min-height: 32px;
-  padding: 4px 0;
-  border: none;
-  background: transparent;
-  box-shadow: none;
-  color: var(--interactive-accent);
-  font: 500 12px/1.5 var(--font-ui);
-  text-align: left;
-  cursor: pointer;
-}
-.havemind-action-row + .havemind-action-row {
-  border-top: 1px solid var(--background-modifier-border);
-}
-.havemind-view button.havemind-action-row:hover {
-  background: transparent;
-  color: var(--interactive-accent-hover);
-}
-.havemind-view button.havemind-action-row.mod-quiet { color: var(--text-muted); }
-.havemind-view button.havemind-action-row.mod-quiet:hover { color: var(--text-normal); }
-.havemind-view button.havemind-action-row.mod-warning { color: var(--text-muted); }
-.havemind-view button.havemind-action-row.mod-warning:hover { color: var(--text-error); }
 
 .havemind-empty {
-  color: var(--text-faint);
+  color: var(--text-muted);
   font-size: var(--font-ui-small);
   line-height: 1.7;
 }
@@ -526,14 +500,6 @@
   }
 }
 
-/* The 6-digit verification phrase: the one place type goes large. */
-.havemind-verification-phrase {
-  font-family: var(--font-monospace);
-  font-size: 1.5em;
-  letter-spacing: 0.24em;
-  text-align: center;
-  padding: var(--size-4-2) 0;
-}
 
 /* =========================================================================
    5. Presence roster rows
@@ -626,9 +592,23 @@
 
 .havemind-rejoin-waiting {
   margin-left: auto;
-  color: var(--text-faint);
+  color: var(--text-muted);
   font-size: var(--font-ui-smaller);
 }
+
+/* A device waiting for the owner, at the top of People (plan 010). */
+.havemind-pending-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--size-4-2);
+  margin-bottom: var(--size-4-3);
+  padding: var(--size-4-3);
+  border-radius: var(--radius-m);
+  background: color-mix(in srgb, var(--interactive-accent) 12%, transparent);
+}
+.havemind-pending-title { color: var(--text-normal); font-weight: var(--font-semibold); }
+.havemind-pending-meta { color: var(--text-muted); font-size: var(--font-ui-smaller); }
 
 /* =========================================================================
    6. Activity feed rows (plan 010)
@@ -1005,7 +985,7 @@
 }
 
 .havemind-conflict-meta {
-  color: var(--text-faint);
+  color: var(--text-muted);
   font-size: var(--havemind-roster-meta-size);
 }
 
@@ -1115,10 +1095,16 @@
   flex: none;
   display: flex;
   align-items: center;
-  gap: var(--havemind-tab-gap);
+  gap: var(--size-4-2);
   padding: var(--havemind-tabs-pad);
   background: var(--background-secondary);
   border-bottom: 1px solid var(--havemind-hairline);
+}
+
+.havemind-tablist {
+  display: flex;
+  min-width: 0;
+  gap: var(--havemind-tab-gap);
 }
 
 /* Desktop only: Obsidian hides the view header there, so the strip carries the
@@ -1196,7 +1182,7 @@
 }
 /* Tabular figures so a changing count never shifts the tab under the cursor. */
 .havemind-tab-count {
-  color: var(--text-faint);
+  color: var(--text-muted);
   font-size: 10px;
   font-variant-numeric: tabular-nums;
 }
@@ -1225,6 +1211,11 @@
   }
   /* A finger has no hover, so Restore is always there on a touch screen. */
   .havemind-view button.havemind-activity-action { opacity: 1; }
+  /* A tablet keeps More options in the strip; give it a finger-sized target. */
+  .havemind-view button.havemind-tabs-more {
+    width: var(--havemind-tab-height-touch);
+    height: var(--havemind-tab-height-touch);
+  }
   /* The last row has to clear the home indicator. `max()` keeps the designed
      16px wherever there is no inset. */
   .havemind-tab-body {
@@ -1239,6 +1230,9 @@
 .havemind-view > .havemind-status,
 .havemind-view > .havemind-status-detail,
 .havemind-view > .havemind-hint,
+.havemind-view > .havemind-handshake-lead,
+.havemind-view > .havemind-handshake-code,
+.havemind-view > .havemind-handshake-warning,
 .havemind-view > .havemind-entry-head,
 .havemind-view > .havemind-entry-title,
 .havemind-view > .havemind-entry-subheading,

@@ -29,6 +29,19 @@ describe('Status tab', () => {
     expect(withClass(hero, 'havemind-hero-sub')[0]?.text).toMatch(/^3 devices · last sync /);
   });
 
+  it('shows a waiting device as a "?" seat, from the pending list, not the composer', () => {
+    const pane = syncedPane({
+      panelProvider: () => buildConnectionPanel({ status: 'synced', lastSyncedAt: Date.now() }),
+      rejoinRosterProvider: () => buildRejoinRosterView(members),
+      pendingApprovalsProvider: () => [
+        { invitationId: 'i1', expiresAt: new Date(Date.now() + 600_000).toISOString(), intendedMemberDisplayName: 'Magda' },
+        { invitationId: 'i2', expiresAt: new Date(Date.now() - 1_000).toISOString() },
+      ],
+    });
+    const labels = withClass(pane, 'havemind-flower-label').map((el) => el.text);
+    expect(labels).toEqual(['you', 'H', 'MI', '?']);
+  });
+
   it('offers Retry now when this device is offline', () => {
     const pane = syncedPane({
       panelProvider: () => buildConnectionPanel({ status: 'offline' }),

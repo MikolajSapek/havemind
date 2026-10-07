@@ -70,8 +70,15 @@ describe('the shell survives a throwing provider', () => {
     // Losing both strands the user with no recovery.
     const hasTabs = all.some((el) => el.attrs['role'] === 'tab');
     const hasMore = all.some((el) => el.attrs['aria-label'] === 'More options');
-    expect(hasTabs ? hasMore : all.length > 3, 'the pane must keep a way back').toBe(true);
-    expect(all.length).toBeGreaterThan(3);
+    // Without tabs the way back is concrete: a way to connect (the entry
+    // chooser or the paste form) or the one recovery button the state allows.
+    const hasConnectPath = all.some(
+      (el) =>
+        el.classes.includes('havemind-entry-option') ||
+        el.tag === 'textarea' ||
+        (el.tag === 'button' && /^(Retry now|Reset connection|Stop joining)$/.test(el.text)),
+    );
+    expect(hasTabs ? hasMore : hasConnectPath, 'the pane must keep a way back').toBe(true);
   });
 });
 

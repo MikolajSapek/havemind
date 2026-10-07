@@ -61,7 +61,7 @@ export function renderConflictSection(
     row.createEl('span', { text: name }).addClass('havemind-conflict-note');
     if (copy.author !== null && copy.timestamp !== null) {
       row.createEl('span', {
-        text: ` · ${copy.author} · ${copy.timestamp}`,
+        text: `${copy.author} · ${copy.timestamp}`,
       }).addClass('havemind-conflict-meta');
     }
     if (copy.manualHint !== null) {

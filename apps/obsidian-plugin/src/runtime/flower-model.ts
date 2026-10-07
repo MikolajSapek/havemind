@@ -63,9 +63,18 @@ const CORE_WORDS: Readonly<Record<FlowerCore, string>> = {
   unreachable: 'Server out of reach.',
 };
 
-/** Others by recent activity first, then roster order; stable for ties. */
-function orderOthers(others: readonly RosterMember[], recent: readonly string[]): RosterMember[] {
+/**
+ * Who keeps a seat once the vault outgrows six: the other side of a conflict
+ * first (the flower must never hide it), then recent activity, then roster
+ * order; stable for ties.
+ */
+function orderOthers(
+  others: readonly RosterMember[],
+  recent: readonly string[],
+  conflicted: ReadonlySet<string>,
+): RosterMember[] {
   const rank = (member: RosterMember): number => {
+    if (conflicted.has(member.displayName)) return -1;
     const index = recent.indexOf(member.membershipId);
     return index === -1 ? Number.MAX_SAFE_INTEGER : index;
   };
@@ -90,7 +99,7 @@ export function buildFlowerModel(input: FlowerInput): FlowerModel {
 
   const overflow = input.members.length > FLOWER_SEATS;
   const shownOthers = overflow
-    ? orderOthers(others, input.recentActorIds ?? []).slice(0, FLOWER_SEATS - 2)
+    ? orderOthers(others, input.recentActorIds ?? [], conflictNames).slice(0, FLOWER_SEATS - 2)
     : others;
 
   const seats: FlowerSeat[] = [];
@@ -106,7 +115,9 @@ export function buildFlowerModel(input: FlowerInput): FlowerModel {
     words.push(conflict ? `${member.displayName} (conflict)` : member.displayName);
   }
   if (overflow) {
-    const hidden = input.members.length - seats.length;
+    // Count members, not seats: the first seat is "you" even before the
+    // roster has a self row.
+    const hidden = input.members.length - shownOthers.length - (self === undefined ? 0 : 1);
     seats.push({ kind: 'more', label: `+${hidden}` });
     words.push(`${hidden} more`);
   } else if ((input.pendingJoins ?? 0) > 0 && seats.length < FLOWER_SEATS) {
@@ -117,6 +128,6 @@ export function buildFlowerModel(input: FlowerInput): FlowerModel {
   const description =
     input.members.length === 0
       ? 'Not connected yet.'
-      : `${CORE_WORDS[core]} ${input.members.length} devices: ${words.join(', ')}.`;
+      : `${CORE_WORDS[core]} ${input.members.length} ${input.members.length === 1 ? 'device' : 'devices'}: ${words.join(', ')}.`;
   return { core, seats, description };
 }
