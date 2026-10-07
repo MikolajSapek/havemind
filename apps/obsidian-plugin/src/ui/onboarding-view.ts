@@ -169,6 +169,8 @@ export class HavemindOnboardingView extends ItemView {
     captureDrafts(this.draft, this.liveInputs);
     content.empty();
     content.addClass('havemind-view');
+    // Each first-run screen sets this again; a connected pane must not keep it.
+    content.removeClass('havemind-view-scrolls');
     this.liveInputs = {};
 
     const { panel, composer, state } = readPaneState(

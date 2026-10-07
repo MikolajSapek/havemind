@@ -69,7 +69,6 @@ export function renderFlower(parent: HTMLElement, model: FlowerModel): SVGSVGEle
     spoke.addClass(`is-${seat.kind}`);
   });
 
-  svg.createSvg('path', { cls: 'havemind-flower-pulse', attr: { d: hexPath(CX, CY, R + 2) } });
   svg.createSvg('path', { cls: 'havemind-flower-core', attr: { d: hexPath(CX, CY, R + 2) } });
   svg.createSvg('circle', { cls: 'havemind-flower-core-dot', attr: { cx: fixed(CX), cy: fixed(CY), r: '5' } });
 

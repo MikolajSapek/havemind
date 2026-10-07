@@ -140,6 +140,14 @@
   --havemind-flower-dot: #ffffff;
 }
 
+/* Done: everything is on the server, in the theme's own green. Declared on the
+   theme classes, not :root: Obsidian sets those and --color-green on <body>,
+   and a var() on :root resolves before that, which drew the dark core black. */
+.theme-light,
+.theme-dark {
+  --havemind-flower-done: var(--color-green);
+}
+
 .theme-dark {
   --havemind-flower-seat: #b69cf5;
   --havemind-flower-ink: #1d1430;
@@ -845,6 +853,7 @@
   overflow: visible;
 }
 .havemind-status-glyph-hex { fill: var(--havemind-flower-core); }
+.havemind-status-glyph.is-synced .havemind-status-glyph-hex { fill: var(--havemind-flower-done); }
 .havemind-status-glyph-ring {
   fill: none;
   stroke: var(--havemind-flower-line);
@@ -1242,12 +1251,15 @@
 .havemind-view > .havemind-empty,
 .havemind-view > .havemind-send-waiting,
 .havemind-view > label,
-.havemind-view > input,
-.havemind-view > textarea,
-.havemind-view > select,
 .havemind-view > button,
 .havemind-view > h4,
 .havemind-view > hr { margin-left: 12px; margin-right: 12px; }
+/* Fields mounted straight on the view (the join form). The view is a flex
+   column, so `width: auto` stretches them to the inset; the generic
+   `width: 100%` plus the inset ran them 24px past the pane edge (1.7.0). */
+.havemind-view > input[type='text'],
+.havemind-view > textarea,
+.havemind-view > select { margin-left: 12px; margin-right: 12px; width: auto; }
 /* The first-run screens scroll, and end with air below.
  *
  * `.havemind-tab-body` owns both on every connected screen: it takes the
@@ -1266,6 +1278,7 @@
  * end of the scroll. */
 .havemind-view.havemind-view-scrolls {
   overflow-y: auto;
+  padding-top: var(--havemind-first-run-pad);
   padding-bottom: var(--havemind-first-run-pad);
 }
 
@@ -1321,7 +1334,7 @@
 .havemind-entry-head {
   display: flex;
   justify-content: center;
-  padding-top: var(--size-4-8);
+  padding-top: var(--size-4-4);
 }
 .havemind-entry-title {
   color: var(--text-normal);
@@ -1529,6 +1542,13 @@
   overflow: visible;
 }
 .havemind-flower-core { fill: var(--havemind-flower-core); }
+/* Sending: the core turns. Sent: it goes green (plan 010, after 1.7.0). */
+.havemind-flower.is-syncing .havemind-flower-core {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: havemind-flower-spin 2.4s linear infinite;
+}
+.havemind-flower.is-done .havemind-flower-core { fill: var(--havemind-flower-done); }
 .havemind-flower-core-dot { fill: var(--havemind-flower-dot); }
 .havemind-flower.is-unreachable .havemind-flower-core {
   fill: none;
@@ -1539,17 +1559,6 @@
   animation: havemind-flower-march 1.6s linear infinite;
 }
 .havemind-flower.is-unreachable .havemind-flower-core-dot { display: none; }
-.havemind-flower-pulse {
-  fill: none;
-  stroke: var(--havemind-flower-line);
-  stroke-width: 1.5;
-  opacity: 0;
-  transform-box: fill-box;
-  transform-origin: center;
-}
-.havemind-flower.is-syncing .havemind-flower-pulse {
-  animation: havemind-flower-pulse 1.6s ease-out infinite;
-}
 .havemind-flower-spoke {
   fill: none;
   stroke: var(--havemind-flower-line);
@@ -1587,6 +1596,9 @@
 
 @keyframes havemind-flower-march {
   to { stroke-dashoffset: -18; }
+}
+@keyframes havemind-flower-spin {
+  to { transform: rotate(360deg); }
 }
 @keyframes havemind-flower-pulse {
   0% { transform: scale(1); opacity: 0.6; }

@@ -11,6 +11,11 @@ interface CreateElOptions {
   readonly text?: string;
   readonly cls?: string;
   readonly attr?: Record<string, string>;
+  // Obsidian's DomElementInfo sets these as attributes; without them a text
+  // field missed every `input[type='text']` rule and drew unstyled.
+  readonly type?: string;
+  readonly placeholder?: string;
+  readonly value?: string;
 }
 
 declare global {
@@ -33,6 +38,9 @@ function apply(element: HTMLElement, options?: CreateElOptions): HTMLElement {
   for (const [key, value] of Object.entries(options?.attr ?? {})) {
     element.setAttribute(key, value);
   }
+  if (options?.type !== undefined) element.setAttribute('type', options.type);
+  if (options?.placeholder !== undefined) element.setAttribute('placeholder', options.placeholder);
+  if (options?.value !== undefined) (element as HTMLInputElement).value = options.value;
   return element;
 }
 

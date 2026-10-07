@@ -53,6 +53,7 @@ havemind-flower-core-dot
 havemind-flower-label
 havemind-flower-pulse
 havemind-flower-seat
+havemind-flower-spin
 havemind-flower-split
 havemind-flower-spoke
 havemind-form-status

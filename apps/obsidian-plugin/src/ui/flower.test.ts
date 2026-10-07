@@ -13,7 +13,7 @@ const members: RosterMember[] = [
   { membershipId: 'm3', displayName: 'Hubert', role: 'editor', self: false },
 ];
 
-function draw(status: 'synced' | 'syncing' | 'offline', extra: { conflictAuthors?: string[] } = {}): MockElement {
+function draw(status: 'synced' | 'syncing' | 'offline' | 'conflict', extra: { conflictAuthors?: string[] } = {}): MockElement {
   const content = createContent();
   renderFlower(asEl(content), buildFlowerModel({ members, status, ...extra }));
   const svg = content.children[0];
@@ -47,7 +47,8 @@ describe('renderFlower', () => {
   });
 
   it('marks the core state with a class the stylesheet animates', () => {
-    expect(draw('synced').classes).toContain('is-alive');
+    expect(draw('synced').classes).toContain('is-done');
+    expect(draw('conflict').classes).toContain('is-alive');
     expect(draw('syncing').classes).toContain('is-syncing');
     expect(draw('offline').classes).toContain('is-unreachable');
     const seats = withClass(draw('offline'), 'havemind-flower-seat');

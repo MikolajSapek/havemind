@@ -70,9 +70,13 @@ export function renderConnectedBody(
     // something to do that is not "connect", and the connect form is not it.
     const composerOpen = composer != null;
     if (panel.showForm && !composerOpen) {
-      renderSection(content, 'status', () =>
-        screens.renderIndicator(content, panel),
-      );
+      // Never connected: the empty flower says it. Every other form state
+      // (reconnect, reset) keeps the row, it carries the way out.
+      if (panel.status !== 'disconnected') {
+        renderSection(content, 'status', () =>
+          screens.renderIndicator(content, panel),
+        );
+      }
       renderSection(content, 'send queue', () => screens.renderSendQueue(content));
       renderSection(content, 'conflicts', () => screens.renderConflicts(content));
       renderSection(content, 'connection', () => screens.renderEntryPath(content));

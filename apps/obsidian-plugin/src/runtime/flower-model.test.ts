@@ -22,10 +22,16 @@ describe('buildFlowerModel', () => {
       ['free', ''],
       ['free', ''],
     ]);
-    expect(model.core).toBe('alive');
+    expect(model.core).toBe('done');
   });
 
-  it('pulses the core while syncing and dashes it when the server is out of reach', () => {
+  it('turns the core green only when everything is in sync, never mid-sync or in a conflict', () => {
+    expect(buildFlowerModel(input({ status: 'synced' })).core).toBe('done');
+    expect(buildFlowerModel(input({ status: 'syncing' })).core).toBe('syncing');
+    expect(buildFlowerModel(input({ status: 'conflict' })).core).toBe('alive');
+  });
+
+  it('spins the core while syncing and dashes it when the server is out of reach', () => {
     expect(buildFlowerModel(input({ status: 'syncing' })).core).toBe('syncing');
     expect(buildFlowerModel(input({ status: 'retrying' })).core).toBe('syncing');
     for (const status of ['offline', 'reconnect-required', 'reset-required', 'disconnected'] as const) {

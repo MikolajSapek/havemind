@@ -13,7 +13,7 @@ import { assignInitials } from './initials';
 
 export const FLOWER_SEATS = 6;
 
-export type FlowerCore = 'alive' | 'syncing' | 'unreachable';
+export type FlowerCore = 'done' | 'alive' | 'syncing' | 'unreachable';
 
 export type FlowerSeatKind = 'member' | 'self-offline' | 'conflict' | 'joining' | 'more' | 'free';
 
@@ -44,6 +44,10 @@ export interface FlowerInput {
 
 function coreFor(status: ConnectionStatus): FlowerCore {
   switch (status) {
+    // Green means everything this device has is on the server. A conflict is
+    // connected but not done, so it stays violet.
+    case 'synced':
+      return 'done';
     case 'syncing':
     case 'retrying':
       return 'syncing';
@@ -58,6 +62,7 @@ function coreFor(status: ConnectionStatus): FlowerCore {
 }
 
 const CORE_WORDS: Readonly<Record<FlowerCore, string>> = {
+  done: 'Server connected.',
   alive: 'Server connected.',
   syncing: 'Syncing with the server.',
   unreachable: 'Server out of reach.',

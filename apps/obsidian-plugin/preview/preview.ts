@@ -11,7 +11,7 @@ import './obsidian-shim';
 
 import type { RevisionRecord } from '../src/activity/activity';
 import type { ConflictCopy } from '../src/runtime/conflict-resolution';
-import { buildEntryChooser, buildHostView } from '../src/runtime/entry-choice';
+import type { EntryChoice } from '../src/runtime/entry-choice';
 import { buildPaneTabs, type PaneTabId } from '../src/runtime/pane-tabs';
 import { buildRejoinRosterView } from '../src/runtime/rejoin-roster';
 import type { RosterMember } from '../src/runtime/roster';
@@ -22,12 +22,12 @@ import { renderRejoinRoster } from '../src/ui/roster-section';
 import { renderConflicts, renderSendQueue } from '../src/ui/screens/alarms';
 import { renderGuestWaitingScreen } from '../src/ui/screens/guest-waiting';
 import { renderStatusHero } from '../src/ui/screens/status-hero';
-import {
-  renderEntryChooser,
-  renderHostPath,
-} from '../src/ui/entry-chooser-section';
+import { renderConnectedBodyFor } from '../src/ui/screens/connected-body-wiring';
 
-type Screen = 'chooser' | 'host' | 'status' | 'offline' | 'activity' | 'people' | 'guest';
+type Screen = 'chooser' | 'host' | 'join' | 'status' | 'syncing' | 'offline' | 'activity' | 'people' | 'guest';
+
+const SCREEN_FOR: Readonly<Record<EntryChoice, Screen>> = { undecided: 'chooser', hosting: 'host', joining: 'join' };
+const CHOICE_FOR: Readonly<Partial<Record<Screen, EntryChoice>>> = { chooser: 'undecided', host: 'hosting', join: 'joining' };
 
 let screen: Screen = 'chooser';
 
@@ -42,32 +42,39 @@ function paint(): void {
     renderGuestWaitingScreen(pane, { verificationPhrase: '482917', ownerName: 'Mikołaj' });
     return;
   }
-  if (screen !== 'chooser' && screen !== 'host') {
+  const choice = CHOICE_FOR[screen];
+  if (choice === undefined) {
     paintConnected(pane, screen);
     return;
   }
-  if (screen === 'chooser') {
-    renderEntryChooser(pane, {
-      model: buildEntryChooser(),
-      onChoose: (choice) => {
-        screen = choice === 'hosting' ? 'host' : 'chooser';
+  // Through the same composition the view uses, so anything it puts around
+  // the entry screens (a status row, the spacing class) shows here too. The
+  // chooser drawn on its own hid both until a real vault showed them (1.7.0).
+  renderConnectedBodyFor(
+    pane,
+    buildConnectionPanel({ status: 'disconnected' }),
+    null,
+    {
+      options: { onConnect: () => undefined },
+      draft: { token: '', server: '', role: '', name: '' },
+      liveInputs: {},
+      entryChoice: choice,
+      helpOpen: false,
+      activeTab: 'status',
+      focusTabOnRender: false,
+    },
+    {
+      setEntryChoice: (next) => {
+        screen = SCREEN_FOR[next];
         paint();
         sync();
       },
-    });
-    return;
-  }
-
-  renderHostPath(pane, {
-    model: buildHostView(),
-    onBack: () => {
-      screen = 'chooser';
-      paint();
-      sync();
+      setHelpOpen: () => undefined,
+      setActiveTab: () => undefined,
+      repaint: paint,
+      openGuide: (url) => window.open(url, '_blank'),
     },
-    onContinue: () => undefined,
-    onOpenGuide: (url) => window.open(url, '_blank'),
-  });
+  );
 }
 
 // Sample data for the connected screens: the same three devices as the design.
@@ -96,7 +103,7 @@ function feed(): RevisionRecord[] {
 
 /** A connected pane as the view lays it out: alarms, the strip, the open tab. */
 function paintConnected(pane: HTMLElement, which: Screen): void {
-  const status: ConnectionStatus = which === 'offline' ? 'offline' : 'synced';
+  const status: ConnectionStatus = which === 'offline' ? 'offline' : which === 'syncing' ? 'syncing' : 'synced';
   const panel = buildConnectionPanel({ status, lastSyncedAt: Date.now() - 4 * 60_000 });
   const conflicts = which === 'offline' ? CONFLICTS : [];
   const options = {

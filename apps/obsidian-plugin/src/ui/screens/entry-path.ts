@@ -86,6 +86,7 @@ export function renderEntryPath(
   }
 
   // The joining path: three fields and one button, with no tutorial above it.
+  content.addClass('havemind-view-scrolls');
   const back = content.createEl('button', { text: 'Back' });
   back.addClass('havemind-entry-back');
   back.onClickEvent(() => actions.onChoose('undecided'));

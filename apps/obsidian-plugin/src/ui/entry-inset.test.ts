@@ -90,6 +90,12 @@ describe('first-run screens scroll and end with air below', () => {
     expect(rule?.[1] ?? '').toMatch(/overflow-y:\s*auto/);
   });
 
+  it('keeps the first line off the top edge', () => {
+    // The header used to give the top its air. With it gone the first block,
+    // "Not connected" then "Back", sat on the pane's top edge (1.7.0).
+    expect(rule?.[1] ?? '').toMatch(/padding-top:\s*var\(--havemind-first-run-pad\)/);
+  });
+
   it('keeps the last line off the bottom edge', () => {
     expect(rule?.[1] ?? '').toMatch(/padding-bottom:\s*var\(--havemind-first-run-pad\)/);
   });
@@ -118,6 +124,49 @@ describe('first-run screens keep the pane inset', () => {
       (selector) => selector === `.havemind-view > ${block}`,
     );
     expect(covered).toBe(true);
+  });
+});
+
+describe('fields mounted on the view stay inside the pane', () => {
+  // The view is a flex column. The generic field rule says `width: 100%`, and
+  // the side inset adds 12px each side on top of it, so on the join screen
+  // the token and server fields ran 24px past the pane's right edge (1.7.0).
+  // Stretched by the column instead, `width: auto` ends at the inset.
+  const rules = [...css.matchAll(/([^{}]*)\{([^}]*)\}/g)].filter(([, selectors]) =>
+    (selectors ?? '').split(',').some((s) => s.trim() === '.havemind-view > textarea'),
+  );
+
+  it('gives the direct-child fields their own width', () => {
+    expect(rules.some(([, , body]) => /width:\s*auto/.test(body ?? ''))).toBe(true);
+  });
+
+  it('covers the text input with a selector that outranks the generic rule', () => {
+    const rule = rules.find(([, , body]) => /width:\s*auto/.test(body ?? ''));
+    expect(rule?.[1]).toContain(".havemind-view > input[type='text']");
+  });
+});
+
+describe('the flower core says when sync is done', () => {
+  it('fills the core green, from the theme, only in the done state', () => {
+    // Declared on the theme classes, which Obsidian sets on <body> together
+    // with --color-green. On :root the var() resolved before the theme had
+    // defined it, and the dark-theme core drew black.
+    const rule = /([^{}]*)\{[^}]*--havemind-flower-done:\s*var\(--color-green\)/.exec(
+      css.replace(/\/\*[\s\S]*?\*\//g, ''),
+    );
+    expect(rule?.[1]?.split(',').map((s) => s.trim())).toEqual(['.theme-light', '.theme-dark']);
+    expect(css).toMatch(/\.havemind-flower\.is-done \.havemind-flower-core\s*\{[^}]*fill:\s*var\(--havemind-flower-done\)/);
+  });
+
+  it('spins the core while it sends, and stops for reduced motion', () => {
+    expect(css).toMatch(/\.havemind-flower\.is-syncing \.havemind-flower-core\s*\{[^}]*animation:[^;]*havemind-flower-spin/);
+    expect(css).toMatch(/@keyframes havemind-flower-spin\s*\{[^}]*rotate\(360deg\)/);
+    // The old ring around the core is gone; its keyframes stay for the status bar.
+    expect(css).not.toMatch(/\.havemind-flower-pulse/);
+  });
+
+  it('gives the status bar hexagon the same green when synced', () => {
+    expect(css).toMatch(/\.havemind-status-glyph\.is-synced \.havemind-status-glyph-hex\s*\{[^}]*fill:\s*var\(--havemind-flower-done\)/);
   });
 });
 
