@@ -207,3 +207,27 @@ describe('the entry cards grow with their text', () => {
     expect(rule).toMatch(pattern);
   });
 });
+
+describe('reduced motion stops every animation without !important', () => {
+  // Obsidian's plugin review flags !important (1.7.2). The reduced-motion
+  // block names each animated selector instead, later in the sheet, so it
+  // wins on source order at equal specificity.
+  const plain = css.replace(/\/\*[\s\S]*?\*\//g, '');
+
+  it('uses no !important', () => {
+    expect(plain).not.toMatch(/!important/);
+  });
+
+  it('turns off each animated rule when motion is reduced', () => {
+    const animated = [...plain.matchAll(/([^{}]+)\{[^{}]*animation:\s*havemind-[^;]*;[^{}]*\}/g)]
+      .flatMap(([, selectors]) => (selectors ?? '').split(',').map((s) => s.trim()))
+      .filter((s) => s.length > 0);
+    const reduced = [...plain.matchAll(/@media \(prefers-reduced-motion: reduce\)\s*\{([\s\S]*?)\n\}/g)]
+      .map(([, block]) => block ?? '')
+      .join('\n');
+    const stopped = [...reduced.matchAll(/([^{}]+)\{[^{}]*animation:\s*none[^{}]*\}/g)]
+      .flatMap(([, selectors]) => (selectors ?? '').split(',').map((s) => s.trim()));
+    expect(animated.length).toBeGreaterThan(0);
+    for (const selector of animated) expect(stopped).toContain(selector);
+  });
+});

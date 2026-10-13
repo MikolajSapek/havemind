@@ -14,6 +14,13 @@ and the server.
   the time it has left, so backups stay daily across deploys instead of
   leaving a gap of up to 47 hours.
 
+## [1.7.3], 2026-10-14
+
+### Fixed
+
+- Plugin: the stylesheet no longer uses `!important`, which the Obsidian
+  plugin review flags. Reduced motion now names each animated rule instead.
+
 ## [1.7.2], 2026-10-13
 
 ### Fixed

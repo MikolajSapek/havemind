@@ -891,7 +891,9 @@
   stroke-dasharray: 3 3;
 }
 @media (prefers-reduced-motion: reduce) {
-  .havemind-status-glyph * { animation: none !important; }
+  .havemind-status-glyph.is-syncing .havemind-status-glyph-ring,
+  .havemind-status-glyph.is-retrying .havemind-status-glyph-ring,
+  .havemind-status-glyph.is-offline .havemind-status-glyph-hex { animation: none; }
 }
 
 /* =========================================================================
@@ -1605,5 +1607,8 @@
   100% { transform: scale(2); opacity: 0; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .havemind-flower * { animation: none !important; }
+  .havemind-flower.is-syncing .havemind-flower-core,
+  .havemind-flower.is-unreachable .havemind-flower-core,
+  .havemind-flower-seat.is-self-offline,
+  .havemind-flower-seat.is-joining { animation: none; }
 }
