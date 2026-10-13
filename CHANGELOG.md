@@ -14,6 +14,16 @@ and the server.
   the time it has left, so backups stay daily across deploys instead of
   leaving a gap of up to 47 hours.
 
+## [1.7.2], 2026-10-13
+
+### Fixed
+
+- Plugin: on a phone the pane's More options (Sync now, Getting started,
+  Disconnect, Reset connection) could not be reached. 1.7.0 left the button
+  to Obsidian's view header, and the sidebar drawer the pane opens in on a
+  phone shows none. The pane now draws its own "..." next to the tabs on
+  every platform.
+
 ## [1.7.1], 2026-10-07
 
 ### Changed

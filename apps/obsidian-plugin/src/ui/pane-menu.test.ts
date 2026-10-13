@@ -77,10 +77,12 @@ describe('pane chrome', () => {
     expect(onDisconnect).toHaveBeenCalledOnce();
   });
 
-  it('on a phone leaves More options to the view header (no second header)', () => {
+  it('on a phone keeps its own More options: the sidebar drawer shows no view header', () => {
+    // 1.7.0 and 1.7.1 left it to Obsidian's view header, which a phone hides in
+    // the drawer the pane opens in, so the menu could not be reached at all.
     Platform.isPhone = true;
     const { view, root } = open();
-    expect(moreButton(root)).toBeUndefined();
+    expect(moreButton(root)).toBeDefined();
     const menu = new Menu();
     view.onPaneMenu(menu as never, 'more-options');
     expect(menu.items.map((item) => item.title)).toEqual([

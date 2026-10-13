@@ -9,7 +9,7 @@
  * error boundary so one failing provider can never blank the pane.
  */
 
-import { ItemView, Platform, type Menu, type WorkspaceLeaf } from 'obsidian';
+import { ItemView, type Menu, type WorkspaceLeaf } from 'obsidian';
 
 import { renderGuestWaitingScreen } from './screens/guest-waiting';
 import { captureDrafts, renderConnectForm } from './screens/connect-form';
@@ -206,11 +206,9 @@ export class HavemindOnboardingView extends ItemView {
         helpOpen: this.helpOpen,
         activeTab: this.activeTab,
         focusTabOnRender: this.focusTabOnRender,
-        // A phone shows Obsidian's view header and its More options, which
-        // `onPaneMenu` fills; a second button would be the old double header.
-        ...(Platform.isPhone
-          ? {}
-          : { onMore: (event: MouseEvent) => showPaneMenu(event, this.menuItems(panel)) }),
+        // Every platform draws its own: on a phone the pane opens in the
+        // sidebar drawer, which shows no view header to carry Obsidian's.
+        onMore: (event: MouseEvent) => showPaneMenu(event, this.menuItems(panel)),
       },
       {
         setEntryChoice: (choice) => {
