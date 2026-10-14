@@ -47,22 +47,22 @@ export function renderInvitationEnvelope(
   if (model.agentJoinCommand !== undefined) {
     content.createEl('code', { text: model.agentJoinCommand, cls: 'havemind-host-command' });
   }
-  const code = content.createEl('code', { text: envelope });
-  code.addClass('havemind-invite-envelope');
-  // A hand-selectable copy for when the clipboard is unavailable or denied.
-  // Genuinely readonly, not merely described as such: Copy sends the ORIGINAL
-  // envelope, so an edited field would hand the owner something other than what
-  // they can see, a silent mismatch in the one string that must be exact.
-  const fallback = content.createEl('textarea', {
-    value: envelope,
-    cls: 'havemind-invite-copy-fallback',
+  // One box: the envelope itself, selectable by hand when the clipboard is
+  // unavailable. Genuinely readonly, not merely described as such: Copy sends
+  // the ORIGINAL envelope, so an edited field would hand the owner something
+  // other than what they can see, a silent mismatch in the one string that
+  // must be exact.
+  const box = content.createEl('textarea', {
+    cls: 'havemind-invite-envelope',
     attr: {
       id: 'havemind-invite-envelope-text',
       readonly: 'true',
+      rows: '6',
       'aria-label': 'Invitation to copy',
     },
   });
-  fallback.setAttribute('readonly', 'true');
+  box.value = envelope;
+  box.setAttribute('readonly', 'true');
   const copyStatus = content.createDiv({ text: '' });
   copyStatus.addClass('havemind-form-status');
   const copy = content.createEl('button', { text: 'Copy' });

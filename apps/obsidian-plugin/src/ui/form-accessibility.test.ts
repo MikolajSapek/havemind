@@ -161,12 +161,38 @@ describe('the minted invitation cannot be edited', () => {
       onCopyInvitation: () => true,
     });
 
-    // The `<code>` element renders the envelope but cannot be typed into; the
-    // editable copy is the fallback textarea, which is what must be readonly.
-    const fallback = flatten(root).find((el) =>
-      el.classes.includes('havemind-invite-copy-fallback'),
-    );
-    expect(fallback).toBeDefined();
-    expect(fallback?.attrs['readonly']).toBe('true');
+    // One box holds the envelope: a readonly textarea, selectable by hand when
+    // the clipboard is denied. A second, empty box under it read as a place to
+    // type something (found by the owner, 2026-10-14).
+    const boxes = flatten(root).filter((el) => el.classes.includes('havemind-invite-envelope'));
+    expect(boxes).toHaveLength(1);
+    expect(boxes[0]?.tag).toBe('textarea');
+    expect(boxes[0]?.value).toBe('v1.abcdef');
+    expect(boxes[0]?.attrs['readonly']).toBe('true');
+    expect(flatten(root).some((el) => el.classes.includes('havemind-invite-copy-fallback'))).toBe(false);
+  });
+});
+
+describe('the connect form asks for a server only when the line lacks one', () => {
+  const serverField = (root: MockElement) =>
+    flatten(root).find((el) => el.classes.includes('havemind-connect-server-field'));
+  const token = (root: MockElement) => flatten(root).find((el) => el.attrs['id'] === 'havemind-connect-token');
+
+  it('hides Server URL for an invitation or an installer line, shows it for a bare pairing token', () => {
+    // An invitation (v1.…) and the installer line (hm_pt_…@https://…) carry the
+    // server; asking for it anyway made a new device look harder to join.
+    const root = pane(CONNECT);
+    expect(serverField(root)?.classes).toContain('havemind-is-hidden');
+    const field = token(root);
+    if (field === undefined) throw new Error('no token field');
+    field.value = 'hm_pt_abc';
+    field.triggerEvent('input');
+    expect(serverField(root)?.classes).not.toContain('havemind-is-hidden');
+    field.value = 'v1.eyJ2ZXJ';
+    field.triggerEvent('input');
+    expect(serverField(root)?.classes).toContain('havemind-is-hidden');
+    field.value = 'hm_pt_abc@https://box.example.ts.net';
+    field.triggerEvent('input');
+    expect(serverField(root)?.classes).toContain('havemind-is-hidden');
   });
 });

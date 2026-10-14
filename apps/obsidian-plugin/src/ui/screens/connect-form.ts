@@ -35,17 +35,30 @@ export function renderConnectForm(
       'textarea',
       { placeholder: 'v1.… or hm_pt_…@https://…', value: draft.token },
     );
+    // Only a bare pairing token (hm_pt_… without @https://…) lacks the server:
+    // an invitation and the installer line carry it, so the field stays hidden.
+    const serverField = content.createDiv();
+    serverField.addClass('havemind-connect-server-field');
     const serverInput = labelledField(
-      content,
+      serverField,
       'havemind-connect-server',
       'Server URL',
       'input',
       {
         type: 'text',
-        placeholder: 'Leave empty for the installer line',
+        placeholder: 'https://your-server.your-tailnet.ts.net',
         value: draft.server,
       },
     );
+    const needsServer = (text: string): boolean => {
+      const value = text.trim();
+      return value.startsWith('hm_pt_') && !value.includes('@');
+    };
+    const showServer = (): void => {
+      serverField.toggleClass('havemind-is-hidden', !needsServer(tokenInput.value) && draft.server.trim() === '');
+    };
+    tokenInput.addEventListener('input', showServer);
+    showServer();
     live.token = tokenInput;
     live.server = serverInput;
     const status = renderFormStatus(content);

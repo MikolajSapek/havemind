@@ -59,6 +59,7 @@ havemind-conflict-modal-meta
 havemind-conflict-note
 havemind-conflict-row
 havemind-connect-server
+havemind-connect-server-field
 havemind-connect-token
 havemind-divider
 havemind-empty
@@ -105,6 +106,7 @@ havemind-invite-envelope-text
 havemind-invite-name
 havemind-invite-role
 havemind-invite-task
+havemind-is-hidden
 havemind-join
 havemind-nav-bar
 havemind-onboarding

@@ -880,10 +880,13 @@
   font-size: var(--font-ui-smaller);
   line-height: 1.6;
   word-break: break-all;
+  width: 100%;
+  box-sizing: border-box;
+  resize: none;
 }
 
-.havemind-invite-copy-fallback {
-  min-height: 2.6rem;
+.havemind-connect-server-field.havemind-is-hidden {
+  display: none;
 }
 
 /* A waiting device is a block of rows, not a card: hairline above, no fill. */
