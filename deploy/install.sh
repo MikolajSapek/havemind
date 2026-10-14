@@ -226,6 +226,10 @@ services:
     init: true
     restart: unless-stopped
     command: ["node", "agent/havemind-agent.mjs", "run"]
+    # Start once the server answers, not before.
+    depends_on:
+      havemind-server:
+        condition: service_healthy
     # A model on this machine (Ollama) is reachable as host.docker.internal.
     extra_hosts: ["host.docker.internal:host-gateway"]
     env_file:
