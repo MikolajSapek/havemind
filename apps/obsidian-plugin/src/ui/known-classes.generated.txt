@@ -10,6 +10,8 @@ havemind-activity-row
 havemind-activity-time
 havemind-activity-title
 havemind-activity-trail
+havemind-agent
+havemind-agents
 havemind-alarm
 havemind-alarm-conflict
 havemind-alarm-rows

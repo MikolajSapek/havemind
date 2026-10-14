@@ -12,6 +12,7 @@
   ],
   "scripts": {
     "build": "node build.mjs",
+    "build:agent": "esbuild src/headless/cli.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist-agent/havemind-agent.mjs",
     "dev": "node build.mjs",
     "dev:preview": "node preview/build.mjs --serve",
     "test": "vitest run --config vitest.config.ts",

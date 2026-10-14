@@ -31,10 +31,17 @@ RUN npm ci
 # Copy the sources needed to build the server and its runtime dependency graph.
 COPY tsconfig.base.json ./
 COPY packages/protocol packages/protocol
+COPY packages/sync-core packages/sync-core
 COPY apps/server apps/server
+# The headless agent client (plan 014) is the plugin's sync code over a folder;
+# it ships in this image as one bundled file, run as its own process.
+COPY apps/obsidian-plugin/src apps/obsidian-plugin/src
 
 RUN npm run build --workspace @havemind/protocol \
-  && npm run build --workspace @havemind/server
+  && npm run build --workspace @havemind/sync-core \
+  && npm run build --workspace @havemind/server \
+  && npx esbuild apps/obsidian-plugin/src/headless/cli.ts --bundle --platform=node \
+       --format=esm --target=node22 --outfile=agent/havemind-agent.mjs
 
 # Prune to production dependencies for the runtime stage.
 RUN npm prune --omit=dev
@@ -58,6 +65,8 @@ COPY --from=build --chown=1000:1000 /app/apps/server/healthcheck.js ./apps/serve
 #   docker compose exec havemind node apps/server/bin/havemind.js setup ...
 #   docker compose exec havemind node apps/server/bin/havemind.js doctor
 COPY --from=build --chown=1000:1000 /app/apps/server/bin ./apps/server/bin
+# AI agents (plan 014): `node agent/havemind-agent.mjs run|join|once|mcp`.
+COPY --from=build --chown=1000:1000 /app/agent ./agent
 
 USER 1000:1000
 EXPOSE 8787

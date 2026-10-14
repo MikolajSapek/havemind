@@ -30,6 +30,7 @@ import { RevisionRepository } from '../../apps/server/src/revision-repository.js
 import { HeadlessAgent, startJoin, type AgentPaths } from '../../apps/obsidian-plugin/src/headless/agent.js';
 import type { ModelPort, ModelRequest } from '../../apps/obsidian-plugin/src/headless/model.js';
 import { runAgentOnce } from '../../apps/obsidian-plugin/src/headless/runner.js';
+import { handleMcpMessage } from '../../apps/obsidian-plugin/src/headless/mcp.js';
 import { approveRedeemedDevice } from '../../apps/obsidian-plugin/src/runtime/approve-device.js';
 import { createVaultInvitation } from '../../apps/obsidian-plugin/src/runtime/create-invitation.js';
 import type { RequestUrlFn } from '../../apps/obsidian-plugin/src/runtime/sync-transport.js';
@@ -211,6 +212,36 @@ describe('headless agent (plan 014)', () => {
       const early = await runAgentOnce({ agent: sorter, model, memory: first.memory, now: 2_000 });
       expect(early.kind).toBe('not-due');
       expect(seen).toHaveLength(2);
+    } finally {
+      await server.app.close();
+      server.database.close();
+    }
+  });
+
+  it('serves Claude Code over MCP through the same scoped write', async () => {
+    const server = startServer();
+    try {
+      const { agent: magda } = await addAgent(server, 'Magda', 'person');
+      const { agent: helper } = await addAgent(server, 'Helper');
+      await magda.writeNote('Havemind/Agents/Helper.md', '---\nmay_write: [Notes]\n---\nHelp with notes.\n');
+      await magda.sync();
+
+      const call = async (id: number, method: string, params?: Record<string, unknown>) =>
+        handleMcpMessage(helper, { jsonrpc: '2.0', id, method, ...(params === undefined ? {} : { params }) });
+      expect(((await call(1, 'initialize'))?.result as { protocolVersion: string }).protocolVersion).toBe('2025-06-18');
+      const tools = ((await call(2, 'tools/list'))?.result as { tools: { name: string }[] }).tools.map((t) => t.name);
+      expect(tools).toEqual(['my_task', 'list_notes', 'read_note', 'write_note']);
+
+      const ok = (await call(3, 'tools/call', { name: 'write_note', arguments: { path: 'Notes/From Claude.md', content: 'Hi\n' } }))?.result as { isError?: boolean };
+      expect(ok.isError).toBeUndefined();
+      const refused = (await call(4, 'tools/call', { name: 'write_note', arguments: { path: 'Elsewhere.md', content: 'x' } }))?.result as { isError?: boolean; content: { text: string }[] };
+      expect(refused.isError).toBe(true);
+      expect(refused.content[0]?.text).toMatch(/outside Notes/u);
+      expect(await handleMcpMessage(helper, { jsonrpc: '2.0', method: 'notifications/initialized' })).toBeNull();
+
+      await magda.sync();
+      expect(await magda.readNote('Notes/From Claude.md')).toBe('Hi\n');
+      expect(await magda.readNote('Elsewhere.md')).toBeNull();
     } finally {
       await server.app.close();
       server.database.close();

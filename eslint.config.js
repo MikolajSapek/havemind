@@ -7,6 +7,8 @@ export default tseslint.config(
     ignores: [
       '**/coverage/**',
       '**/dist/**',
+      // Built headless agent bundle (gitignored, esbuild output), plan 014.
+      '**/dist-agent/**',
       '**/node_modules/**',
       '**/*.d.ts',
       // Built plugin bundle (gitignored, esbuild output), not source.
