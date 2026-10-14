@@ -24,7 +24,9 @@ import type { RevisionHistoryStore, StoredRevisionHistory } from './revision-his
 import { isRecord } from './is-record';
 
 export const MAX_HISTORY_SEGMENTS = 64;
-const FORMAT = 1;
+// 2 since plan 012: events carry `acceptedAt`. A format 1 log reads as absent,
+// so the next connection pulls the log in full once and gets the times.
+const FORMAT = 2;
 const KEY_PREFIX = 'revision-history';
 
 /** The slice of the client database this store needs. */

@@ -322,6 +322,26 @@ describe('RequestUrlTransport', () => {
     expect(result.events[0]?.revision.authorMembershipId).toBe('m-magda');
   });
 
+  it('keeps the time the server accepted each revision (plan 012)', async () => {
+    const { transport } = build(() => ({
+      status: 200,
+      json: {
+        cursor: 12,
+        events: [
+          {
+            type: 'revision-accepted',
+            revisionId: 'rev-2',
+            fileId: 'file-2',
+            serverSequence: 12,
+            receipt: { blobHash: 'blob-2', serverSequence: 12, serverTime: '2026-10-14T16:05:00.000Z' },
+          },
+        ],
+      },
+    }));
+    const result = await transport.pull(5);
+    expect(result.events[0]?.revision.acceptedAt).toBe('2026-10-14T16:05:00.000Z');
+  });
+
   it('leaves the author absent when the receipt carries none', async () => {
     // A revision committed before the field existed, or a non-string value.
     // Never a guess and never an empty string: absent stays absent so the feed

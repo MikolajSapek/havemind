@@ -84,6 +84,18 @@ describe('IndexedDB revision history store (P13)', () => {
     await expect(store.load()).resolves.toBeNull();
   });
 
+  it('reads a log stored before versions carried their time as absent, once (plan 012)', async () => {
+    // Format 1 events have no acceptedAt. Reading it as absent makes the next
+    // connection pull the log in full, which brings the times along.
+    const records = await openRecords(new FakeIndexedDbFactory());
+    await records.putHistoryRecord('revision-history|vault-a', {
+      format: 1, apiBaseUrl: API, vaultId: 'vault-a', epoch: null, cursor: 1, segments: 1,
+    });
+    await records.putHistoryRecord('revision-history|vault-a|0', { format: 1, from: 0, events: log(1) });
+    const store = createRevisionHistoryStore(async () => records, { apiBaseUrl: API, vaultId: 'vault-a' });
+    await expect(store.load()).resolves.toBeNull();
+  });
+
   it('degrades to no history when IndexedDB is unavailable', async () => {
     const store = createRevisionHistoryStore(async () => null, { apiBaseUrl: API, vaultId: 'vault-a' });
     await expect(store.load()).resolves.toBeNull();

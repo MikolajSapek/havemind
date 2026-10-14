@@ -247,17 +247,19 @@ function parseStoredHistory(value: unknown): StoredRevisionHistory | null {
 
 function parseStoredEvent(raw: unknown): RemoteEvent | null {
   if (!isRecord(raw) || !Number.isSafeInteger(raw.serverSequence) || !isRecord(raw.revision)) return null;
-  const { revisionId, fileId, contentHash, parentRevisionIds, authorMembershipId } = raw.revision;
+  const { revisionId, fileId, contentHash, parentRevisionIds, authorMembershipId, acceptedAt } = raw.revision;
   if (typeof revisionId !== 'string' || typeof fileId !== 'string' || typeof contentHash !== 'string') return null;
   if (parentRevisionIds !== undefined
     && !(Array.isArray(parentRevisionIds) && parentRevisionIds.every((id) => typeof id === 'string'))) return null;
   if (authorMembershipId !== undefined && typeof authorMembershipId !== 'string') return null;
+  if (acceptedAt !== undefined && typeof acceptedAt !== 'string') return null;
   return {
     serverSequence: raw.serverSequence as number,
     revision: {
       revisionId, fileId, contentHash,
       ...(parentRevisionIds === undefined ? {} : { parentRevisionIds: parentRevisionIds as string[] }),
       ...(authorMembershipId === undefined ? {} : { authorMembershipId }),
+      ...(acceptedAt === undefined ? {} : { acceptedAt }),
     },
   };
 }

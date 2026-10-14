@@ -334,6 +334,10 @@ function parsePullResponse(response: RequestUrlResponseLike): PullResult {
     // attributing the change to nobody or to a guess.
     const authorMembershipId =
       typeof raw.receipt.memberId === 'string' ? raw.receipt.memberId : undefined;
+    // The server stamps every receipt with the time it accepted the revision;
+    // the note history shows it (plan 012). Absent stays absent.
+    const acceptedAt =
+      typeof raw.receipt.serverTime === 'string' ? raw.receipt.serverTime : undefined;
     return {
       serverSequence: raw.serverSequence as number,
       revision: {
@@ -342,6 +346,7 @@ function parsePullResponse(response: RequestUrlResponseLike): PullResult {
         contentHash: raw.receipt.blobHash,
         ...(parentRevisionIds === undefined ? {} : { parentRevisionIds }),
         ...(authorMembershipId === undefined ? {} : { authorMembershipId }),
+        ...(acceptedAt === undefined ? {} : { acceptedAt }),
       },
     };
   });

@@ -175,6 +175,19 @@ describe('persisted revision history', () => {
     expect(memory.saves.at(-1)).toEqual({ cursor: 4, persisted: 3 });
   });
 
+  it('keeps the accepted time of each revision through the stored log (plan 012)', async () => {
+    const timed = (id: string, sequence: number): RemoteEvent => {
+      const base = node(id, [], sequence);
+      return { ...base, revision: { ...base.revision, acceptedAt: `2026-10-14T16:0${sequence}:00.000Z` } };
+    };
+    const log: Log = { epoch: 'e1', events: [timed('root', 1), timed('a', 2)] };
+    const memory = memoryStore();
+    await connect(log, [], memory.store).refresh();
+    const second = connect(log, [], memory.store);
+    const event = await second.event('root');
+    expect(event?.revision.acceptedAt).toBe('2026-10-14T16:01:00.000Z');
+  });
+
   it('does not save again when nothing new arrived', async () => {
     const log: Log = { events: [node('root', [], 1)] };
     const memory = memoryStore();

@@ -18,6 +18,8 @@ export interface RemoteRevision {
   readonly parentRevisionIds?: readonly string[];
   /** Authoring membership (from the receipt), for the Activity feed; never inferred. */
   readonly authorMembershipId?: string;
+  /** When the server accepted it, ISO 8601, from the receipt (plan 012). */
+  readonly acceptedAt?: string;
 }
 
 export interface RemoteEvent {
