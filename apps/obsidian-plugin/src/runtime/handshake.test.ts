@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest';
 import {
   buildGuestHandshake,
   buildSpentInvitation,
-  formatExpiry,
   groupCode,
 } from './handshake';
 
@@ -21,22 +20,6 @@ describe('groupCode', () => {
     // "7 tiger lamp" as "7tigerlamp", unreadable aloud, which is the one job
     // this screen has.
     expect(groupCode('7 tiger lamp')).toEqual(['7 tiger lamp']);
-  });
-});
-
-describe('formatExpiry', () => {
-  it('counts down in m:ss', () => {
-    expect(formatExpiry(292_000, 0)).toBe('4:52');
-  });
-
-  it('pads the seconds so the width never jumps', () => {
-    expect(formatExpiry(305_000, 0)).toBe('5:05');
-  });
-
-  it('returns null once expired instead of freezing at 0:00', () => {
-    // A countdown stuck at zero reads as a broken screen; null lets the caller
-    // render the dead end, which explains itself.
-    expect(formatExpiry(0, 1_000)).toBeNull();
   });
 });
 

@@ -9,6 +9,7 @@
  * than what they see, a silent mismatch in the one string that must be exact.
  */
 
+import { clockLabel } from '../../runtime/activity-render';
 import type { InviteComposerActions, InviteComposerModel } from './invite-composer';
 
 const COPY_FAILED =
@@ -70,7 +71,7 @@ export function renderInvitationEnvelope(
     );
   });
   content
-    .createDiv({ text: `Expires: ${model.invitation.expiresAt}` })
+    .createDiv({ text: `Expires at ${clockLabel(Date.parse(model.invitation.expiresAt))}` })
     .addClass('havemind-hint');
   // Done clears the envelope display so it is not a permanent dead-end.
   const dismiss = content.createEl('button', { text: 'Done' });

@@ -19,6 +19,8 @@ import type { ConnectionPanelView } from './status';
 export interface GuestWaiting {
   readonly verificationPhrase: string;
   readonly ownerName?: string;
+  /** When the invitation stops being redeemable, ISO 8601. */
+  readonly expiresAt?: string;
 }
 
 /** Everything the decision reads, already resolved to values. */

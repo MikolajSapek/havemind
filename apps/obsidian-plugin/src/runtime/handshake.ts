@@ -30,29 +30,12 @@ export function groupCode(code: string): readonly string[] {
   return [code];
 }
 
-/**
- * Formats the remaining lifetime as `m:ss`. Returns null once expired, so the
- * caller renders the dead end rather than a countdown reading "0:00" forever.
- */
-export function formatExpiry(
-  expiresAt: number,
-  now: number,
-): string | null {
-  const remaining = Math.floor((expiresAt - now) / 1000);
-  if (!Number.isFinite(remaining) || remaining <= 0) return null;
-  const minutes = Math.floor(remaining / 60);
-  const seconds = remaining % 60;
-  return `${minutes}:${String(seconds).padStart(2, '0')}`;
-}
-
 export interface GuestHandshakeView {
   readonly code: readonly string[];
   /** Imperative instruction naming the person on the other end. */
   readonly instruction: string;
   /** What to do when the digits disagree, stated, not implied. */
   readonly mismatchWarning: string;
-  /** `m:ss`, or null when the invitation has expired. */
-  readonly expiryLabel: string | null;
   readonly liveNote: string;
 }
 
@@ -60,8 +43,6 @@ export interface GuestHandshakeInput {
   readonly code: string;
   /** Who invited them, when known, an unnamed owner is still a valid state. */
   readonly ownerName?: string;
-  readonly expiresAt?: number;
-  readonly now?: number;
 }
 
 export function buildGuestHandshake(
@@ -79,10 +60,6 @@ export function buildGuestHandshake(
     instruction,
     mismatchWarning:
       "They will see the same six digits and confirm they match. If they don't match, stop, someone else is trying to join.",
-    expiryLabel:
-      input.expiresAt !== undefined && input.now !== undefined
-        ? formatExpiry(input.expiresAt, input.now)
-        : null,
     liveNote: 'This screen updates itself.',
   };
 }

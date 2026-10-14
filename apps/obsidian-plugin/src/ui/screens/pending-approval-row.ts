@@ -7,6 +7,7 @@
  * the read-aloud check meaningful. Kept small enough to read whole.
  */
 
+import { clockLabel } from '../../runtime/activity-render';
 import { setIcon } from 'obsidian';
 
 import type { PendingApprovalEntry } from '../onboarding-view';
@@ -35,7 +36,7 @@ export function renderPendingRow(
   row.style.setProperty('color', 'var(--text-accent)');
   setIcon(row.createEl('span', { attr: DECORATIVE }), 'user-round-check');
   row.createEl('span', {
-    text: ` ${entry.intendedMemberDisplayName ?? 'Pending device'} · expires ${entry.expiresAt}`,
+    text: ` ${entry.intendedMemberDisplayName ?? 'Pending device'} · expires at ${clockLabel(Date.parse(entry.expiresAt))}`,
   });
   // The owner never sees the code: they type in what the joining device reads
   // aloud, so the human read-aloud check is meaningful (the code travels only

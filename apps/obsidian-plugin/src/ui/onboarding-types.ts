@@ -75,6 +75,8 @@ export interface GuestWaitingViewModel {
    * owner" (design 1e). An unnamed owner is still a valid state.
    */
   readonly ownerName?: string;
+  /** When the invitation stops being redeemable, ISO 8601. */
+  readonly expiresAt?: string;
 }
 
 /** Injected data + actions for the onboarding surface. */

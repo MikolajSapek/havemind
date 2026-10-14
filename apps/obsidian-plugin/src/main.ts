@@ -433,9 +433,9 @@ export default class HavemindPlugin extends Plugin {
       hooks: this.activityHooks(),
       // Durably record the waiting state so a pane reopen resumes the waiting
       // screen (with the code) instead of a blank paste form.
-      onPendingApproval: (verificationPhrase) => {
+      onPendingApproval: (waiting) => {
         if (attempt.signal.aborted || this.unloaded) return;
-        this.awaitingApproval = { verificationPhrase };
+        this.awaitingApproval = waiting;
         this.views.refreshOnboardingNow();
       },
       // The owner rejected the device or the attempt cap was reached: leave the

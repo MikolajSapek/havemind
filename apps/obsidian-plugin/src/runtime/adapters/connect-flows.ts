@@ -114,7 +114,11 @@ export interface ConnectFromInputOptions {
    * waiting state durably so a pane reopen resumes it (never re-redeeming a
    * single-use invitation). The phrase is a second-channel secret, never logged.
    */
-  readonly onPendingApproval?: (verificationPhrase: string) => void;
+  readonly onPendingApproval?: (waiting: {
+    readonly verificationPhrase: string;
+    readonly ownerName: string;
+    readonly expiresAt: string;
+  }) => void;
   /**
    * Called when the server reports the invitation is no longer valid, the owner
    * rejected this device or the 3-attempt cap was reached. Lets the caller move
@@ -237,7 +241,11 @@ async function connectAsInvitee(
       `Ask the owner to approve this phrase: ${pending.verificationPhrase}. Waiting…`,
     );
     // Surface the phrase durably so a pane reopen resumes the waiting screen.
-    options.onPendingApproval?.(pending.verificationPhrase);
+    options.onPendingApproval?.({
+      verificationPhrase: pending.verificationPhrase,
+      ownerName: pending.inviterDisplayName,
+      expiresAt: pending.expiresAt,
+    });
   }
 
   const state = await driveToConnected({

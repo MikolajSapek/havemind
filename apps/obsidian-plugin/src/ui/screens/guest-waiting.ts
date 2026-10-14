@@ -7,6 +7,7 @@
  * leaf, or any of the view's state.
  */
 
+import { clockLabel } from '../../runtime/activity-render';
 import { buildGuestHandshake } from '../../runtime/handshake';
 import type { GuestWaiting } from '../../runtime/view-state';
 
@@ -44,9 +45,11 @@ export function renderGuestWaitingScreen(
     .createDiv({ text: view.mismatchWarning })
     .addClass('havemind-handshake-warning');
 
-  if (view.expiryLabel !== null) {
+  // A clock time, not a countdown: this screen repaints on events, not every
+  // second, so a countdown would sit still.
+  if (model.expiresAt !== undefined) {
     content
-      .createDiv({ text: `Expires in ${view.expiryLabel}` })
+      .createDiv({ text: `Expires at ${clockLabel(Date.parse(model.expiresAt))}` })
       .addClass('havemind-hint');
   }
   content.createDiv({ text: view.liveNote }).addClass('havemind-hint');
