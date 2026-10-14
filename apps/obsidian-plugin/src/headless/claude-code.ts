@@ -33,6 +33,11 @@ export interface CliOptions {
 
 const DEFAULT_TIMEOUT_MS = 5 * 60_000;
 
+const ENV_ALLOWLIST = [
+  'PATH', 'HOME', 'USER', 'SHELL', 'LANG', 'LC_ALL', 'TMPDIR', 'TERM',
+  'HTTPS_PROXY', 'HTTP_PROXY', 'NO_PROXY', 'NODE_EXTRA_CA_CERTS',
+] as const;
+
 export class ClaudeCodeError extends Error {
   override readonly name = 'ClaudeCodeError';
 }
@@ -75,10 +80,13 @@ export function createCliOneShot(provider: CliProvider, options: CliOptions = {}
   const name = NAMES[provider];
   return async (system, prompt) => {
     const cwd = await fs.mkdtemp(join(tmpdir(), 'havemind-agent-'));
-    const env: NodeJS.ProcessEnv = { ...process.env };
-    // Never let a stray API key in the environment win over the chosen login.
-    delete env.ANTHROPIC_API_KEY;
-    delete env.OPENAI_API_KEY;
+    // Only what a CLI needs to run: never the agents service's token, nor a
+    // stray API key that would win over the chosen login.
+    const env: NodeJS.ProcessEnv = {};
+    for (const name of ENV_ALLOWLIST) {
+      const value = process.env[name];
+      if (value !== undefined) env[name] = value;
+    }
     const timeout = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     const model = options.model;
     try {

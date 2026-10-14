@@ -19,9 +19,10 @@ interface Choice {
   readonly detail: string;
 }
 
+// Codex is not offered on the server yet: its read-only sandbox still runs
+// shell commands next to its login file. It returns with a safe setup.
 const CHOICES: readonly Choice[] = [
   { id: 'claude-code', title: 'Claude', detail: 'Your Claude subscription' },
-  { id: 'codex', title: 'Codex', detail: 'Your ChatGPT subscription' },
   { id: 'anthropic', title: 'Anthropic API', detail: 'Billed to an API key' },
   { id: 'openai-compatible', title: 'Other models', detail: 'OpenAI, OpenRouter, Gemini, Ollama' },
   { id: 'local', title: 'This computer', detail: 'Claude Code, Codex or Cursor here' },

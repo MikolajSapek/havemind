@@ -60,9 +60,22 @@ Havemind, on your own server.
 | Choice | What you give, once | Notes |
 |---|---|---|
 | **Claude** | the token from `claude setup-token` (Claude Code, your Claude subscription) | the default |
-| **Codex** | your Codex login, `~/.codex/auth.json` (your ChatGPT subscription) | |
 | **Anthropic API** | an API key (`sk-ant-api03-…`) | billed to the key |
 | **Other models** | an OpenAI-compatible address, a model and a key | OpenRouter (hundreds of models), OpenAI, Google Gemini, or an Ollama on the server (no key) |
+
+Codex (your ChatGPT subscription) comes later: its sandbox still runs shell
+commands next to its login, which is not safe on a server whose agents read
+web clips.
+
+The first time an agent thinks with Claude, your server installs Claude Code
+for it (the pinned version, into `~/havemind-server/agents/.tools`); the
+public Havemind image does not carry it.
+
+**What leaves your server.** Until now nothing in Havemind left your own
+server. A running agent sends the text of the notes people changed, and the
+list of note paths in the vault, to the model you chose (Anthropic, OpenAI,
+OpenRouter, Google...), under that provider's terms. With Ollama on your own
+machine nothing leaves it.
 
 It is sent once to your server and kept there in files only the server and
 the agents service can read (`~/havemind-server/agent-secrets/`), outside the

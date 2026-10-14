@@ -32,6 +32,7 @@ process.stdin.on('end', () => {
   const auth = home ? home + '/auth.json' : '';
   fs.writeFileSync(${JSON.stringify(log)}, JSON.stringify({
     args, token: process.env.CLAUDE_CODE_OAUTH_TOKEN || '', apiKey: process.env.ANTHROPIC_API_KEY || '', stdin,
+    serviceToken: process.env.HAVEMIND_AGENT_SERVICE_TOKEN || '',
     cursorKey: process.env.CURSOR_API_KEY || '',
     codexAuth: auth && fs.existsSync(auth) ? fs.readFileSync(auth, 'utf8') : '',
     codexAuthMode: auth && fs.existsSync(auth) ? fs.statSync(auth).mode & 0o777 : 0 }));
@@ -50,17 +51,20 @@ describe('thinking with Claude Code (plan 016)', () => {
   it('asks once with no tools, our system prompt, and the token only in its environment', async () => {
     const claude = fakeClaude(JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: '{"writes":[]}' }));
     process.env.ANTHROPIC_API_KEY = 'sk-ant-api03-should-not-leak';
+    process.env.HAVEMIND_AGENT_SERVICE_TOKEN = 'hm_svc_should-not-leak';
     try {
       const ask = createClaudeCodeOneShot({ bin: claude.bin, oauthToken: 'sk-ant-oat01-secret' });
       expect(await ask('You are an agent.', 'the notes')).toBe('{"writes":[]}');
     } finally {
       delete process.env.ANTHROPIC_API_KEY;
+      delete process.env.HAVEMIND_AGENT_SERVICE_TOKEN;
     }
     const seen = claude.seen();
     expect(seen.args).toEqual(expect.arrayContaining(['-p', '--tools', '', '--no-session-persistence', '--system-prompt', 'You are an agent.']));
     expect(seen.args.join(' ')).not.toContain('sk-ant-oat01');
     expect(seen.token).toBe('sk-ant-oat01-secret');
     expect(seen.apiKey).toBe('');
+    expect((seen as { serviceToken?: string }).serviceToken).toBe('');
     expect(seen.stdin).toBe('the notes');
   });
 

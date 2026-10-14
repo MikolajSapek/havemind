@@ -363,4 +363,41 @@ describe('headless agent (plan 014)', () => {
       server.database.close();
     }
   });
+
+  it('thinks with Claude Code in one answer, held to the same folders (plan 016)', async () => {
+    const server = startServer();
+    try {
+      const { agent: magda } = await addAgent(server, 'Magda', 'person');
+      const { agent: sorter } = await addAgent(server, 'Inbox sorter');
+      await magda.writeNote('Havemind/Agents/Inbox sorter.md', '---\nmay_write: [Notes]\n---\nFile notes.\n');
+      await magda.writeNote('Inbox/idea.md', 'Buy a Raspberry Pi.\n');
+      await magda.sync();
+
+      const prompts: string[] = [];
+      const ask = async (_system: string, prompt: string) => {
+        prompts.push(prompt);
+        return 'Sure: ' + JSON.stringify({
+          writes: [
+            { path: 'Notes/idea.md', content: 'Buy a Raspberry Pi.\n' },
+            { path: 'Havemind/Agents/Inbox sorter.md', content: 'may_write: [""]' },
+          ],
+          summary: 'Filed 1 note.',
+        });
+      };
+      const outcome = await runAgentOnce({ agent: sorter, brain: { kind: 'one-shot', ask }, memory: { lastRunAt: 0, lastSequence: 0 }, now: 1_000 });
+      expect(outcome.kind).toBe('done');
+      if (outcome.kind !== 'done') return;
+      expect(outcome.writes).toEqual(['Notes/idea.md']);
+      expect(outcome.summary).toContain('refused: Havemind/Agents/Inbox sorter.md');
+      // The changed note went in as data.
+      expect(prompts[0]).toContain('<note path="Inbox/idea.md">');
+      expect(prompts[0]).toContain('Buy a Raspberry Pi.');
+      await magda.sync();
+      expect(await magda.readNote('Notes/idea.md')).toBe('Buy a Raspberry Pi.\n');
+      expect(await magda.readNote('Havemind/Agents/Inbox sorter.md')).toContain('may_write: [Notes]');
+    } finally {
+      await server.app.close();
+      server.database.close();
+    }
+  });
 });

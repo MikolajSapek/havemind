@@ -19,13 +19,16 @@ and the server.
   (Havemind/Agents/<Name>.md) names.
 - Agents are yellow, each with a pixel icon, in the flower, People and
   Activity; the approval card says "As AI agent".
-- How agents think: your Claude subscription (claude setup-token), your
-  ChatGPT subscription (Codex), an Anthropic API key, or any
-  OpenAI-compatible model (OpenRouter, OpenAI, Gemini, Ollama). The login is
-  a 0600 file on your server, never in the database or its backups.
+- How agents think: your Claude subscription (claude setup-token; your
+  server installs Claude Code on first use, it is not in the public image),
+  an Anthropic API key, or any OpenAI-compatible model (OpenRouter, OpenAI,
+  Gemini, Ollama). The login is a 0600 file on your server, never in the
+  database or its backups. A running agent sends the changed notes to that
+  model.
+- Undo only covers what this device's Activity remembers (200 changes).
 - Undo its changes on an agent's row: everything it changed goes back.
 - Server: member kind (migration 008), agent enrollments (009), the agents
-  service in the installer and the image (with Claude Code and Codex), and a
+  service in the installer and the image, and a
   havemind-agent command with an MCP server for Claude Code.
 
 ### Changed

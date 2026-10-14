@@ -175,6 +175,11 @@ dropped.
 
 ## Security model
 
+**AI agents** (optional) are the one exception to "nothing leaves your
+server": a running agent sends the notes people changed, and the vault's note
+paths, to the model provider the owner picked. With a local Ollama nothing
+leaves. See [docs/agents.md](docs/agents.md).
+
 Security here rests on Tailscale, not on encryption inside the app. The server
 answers only on your private tailnet, never the public internet, and Tailscale
 (WireGuard) encrypts everything in transit with per-device authentication.

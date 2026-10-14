@@ -184,13 +184,9 @@ describe('adding an agent with one click (plans 015, 016)', () => {
     expect(added[0]?.[2]).toEqual({ kind: 'server', provider: 'anthropic', secret: 'sk-ant-api03-key' });
   });
 
-  it('uses a ChatGPT subscription through Codex, from its saved login', async () => {
-    const { click, added, els } = await render({ keyNeeded: true });
-    click((el) => el.attrs?.['data-brain'] === 'codex');
-    expect(els().some((el) => el.text === 'cat ~/.codex/auth.json | pbcopy')).toBe(true);
-    (els().find((el) => el.attrs?.['id'] === 'havemind-agent-key') as MockElement).value = '{"tokens":{}}';
-    click(addButton);
-    expect(added[0]?.[2]).toEqual({ kind: 'server', provider: 'codex', secret: '{"tokens":{}}' });
+  it('does not offer Codex on the server until its sandbox is safe there', async () => {
+    const { els } = await render({ keyNeeded: true });
+    expect(els().some((el) => el.attrs?.['data-brain'] === 'codex')).toBe(false);
   });
 
   it('reaches any other model through an OpenAI-compatible service, filled in for the common ones', async () => {

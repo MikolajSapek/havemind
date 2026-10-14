@@ -10,6 +10,11 @@ import type { AgentBrain } from './runner';
 
 export type BrainProvider = 'claude-code' | 'codex' | 'cursor' | 'anthropic' | 'openai-compatible';
 
+export interface BrainOptions {
+  /** Where the CLI lives when it is not on PATH (the agents service installs Claude Code). */
+  readonly bin?: string;
+}
+
 export interface BrainConfig {
   readonly provider: BrainProvider;
   readonly model?: string;
@@ -17,8 +22,11 @@ export interface BrainConfig {
 }
 
 /** Null when the brain cannot run: an API that needs a key has none. */
-export function brainFrom(config: BrainConfig, secret: string | null): AgentBrain | null {
-  const model = config.model === undefined || config.model === '' ? {} : { model: config.model };
+export function brainFrom(config: BrainConfig, secret: string | null, options: BrainOptions = {}): AgentBrain | null {
+  const model = {
+    ...(config.model === undefined || config.model === '' ? {} : { model: config.model }),
+    ...(options.bin === undefined ? {} : { bin: options.bin }),
+  };
   const login = secret === null || secret === '' ? {} : { secret };
   switch (config.provider) {
     case 'claude-code':

@@ -26,6 +26,7 @@ import { serveMcp } from './mcp';
 import { AgentPool } from './pool';
 import { runAgentOnce, type AgentBrain, type RunMemory } from './runner';
 import { brainFrom, parseBrain } from './brains';
+import { ensureClaudeCode } from './tools';
 
 const APPROVAL_POLL_MS = 3_000;
 const APPROVAL_WAIT_MS = 15 * 60_000;
@@ -138,9 +139,12 @@ async function readSecretFile(name: string): Promise<string | null> {
  */
 async function brainOrNull(): Promise<AgentBrain | null> {
   const saved = parseBrain(await readSecretFile('brain.json'));
-  if (saved !== null) return brainFrom(saved, await readSecretFile('brain.secret'));
+  const claude = async () => ({ bin: await ensureClaudeCode(agentsDir()) });
+  if (saved !== null) {
+    return brainFrom(saved, await readSecretFile('brain.secret'), saved.provider === 'claude-code' ? await claude() : {});
+  }
   const token = (await readSecretFile('model.oauth')) ?? (process.env.CLAUDE_CODE_OAUTH_TOKEN?.trim() || null);
-  if (token !== null) return brainFrom({ provider: 'claude-code' }, token);
+  if (token !== null) return brainFrom({ provider: 'claude-code' }, token, await claude());
   const apiKey = await modelKey();
   return apiKey === null ? null : brainFrom({ provider: 'anthropic', ...(process.env.HAVEMIND_AGENT_MODEL ? { model: process.env.HAVEMIND_AGENT_MODEL } : {}) }, apiKey);
 }
