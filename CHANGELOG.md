@@ -7,6 +7,18 @@ and the server.
 
 ## [Unreleased]
 
+## [1.10.2], 2026-10-15
+
+### Fixed
+
+- A new invitation showed the code and, under it, an empty box that read as
+  a place to type. It is one box now.
+- Joining with an invitation or the installer line no longer asks for a
+  server URL; the field appears only for a pairing token without one.
+- The agents service no longer shows as unhealthy: it inherited the
+  server's healthcheck, which calls a port it never opens. Run the installer
+  again (or pull the new compose file) to pick it up.
+
 ## [1.10.1], 2026-10-14
 
 ### Fixed

@@ -336,7 +336,7 @@ describe('plugin lifecycle', () => {
     expect(all.some(({ tag }) => tag === 'select')).toBe(true);
     expect(all.some(({ text }) => text === 'Create invitation')).toBe(true);
     // Minted envelope with the Copy button.
-    expect(all.some(({ text }) => text === 'v1.ABC')).toBe(true);
+    expect(all.some(({ text, value }) => text === 'v1.ABC' || value === 'v1.ABC')).toBe(true);
     expect(all.some(({ text }) => text === 'Copy')).toBe(true);
     // Divider then the live waiting section.
     expect(all.some(({ tag }) => tag === 'hr')).toBe(true);
@@ -480,7 +480,7 @@ describe('plugin lifecycle', () => {
 
     // The top (create) section must still be present after approving.
     const after = descendants(content as MockElement);
-    expect(after.some(({ text }) => text === 'v1.KEEP')).toBe(true);
+    expect(after.some(({ text, value }) => text === 'v1.KEEP' || value === 'v1.KEEP')).toBe(true);
     expect(after.some(({ text }) => text === 'Create invitation')).toBe(true);
   });
 
@@ -744,7 +744,7 @@ describe('plugin lifecycle', () => {
 
     const content = (view.containerEl as unknown as MockElement).children[1];
     const all = descendants(content as MockElement);
-    expect(all.some(({ text }) => text === 'v1.KEEP')).toBe(true);
+    expect(all.some(({ text, value }) => text === 'v1.KEEP' || value === 'v1.KEEP')).toBe(true);
     expect(
       all.some(({ classes }) => classes.includes('havemind-pending-row')),
     ).toBe(false);
@@ -1024,7 +1024,7 @@ describe('plugin lifecycle', () => {
     const content = (view.containerEl as unknown as MockElement).children[1];
     const all = descendants(content as MockElement);
     // The stale envelope is not shown; a recovery message is.
-    expect(all.some(({ text }) => text === 'v1.STALE')).toBe(false);
+    expect(all.some(({ text, value }) => text === 'v1.STALE' || value === 'v1.STALE')).toBe(false);
     expect(all.some(({ text }) => text.includes('expired'))).toBe(true);
     // The Create invitation button remains available as the recovery path.
     expect(all.some(({ text }) => text === 'Create invitation')).toBe(true);
