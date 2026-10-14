@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest';
 const SCRIPT = join(__dirname, '..', 'deploy', 'install.sh');
 const source = readFileSync(SCRIPT, 'utf8');
 
-function dryRun(dockerStub = '#!/bin/sh\nexit 0\n'): string {
+function dryRun(dockerStub = '#!/bin/sh\nexit 0\n', extraEnv: Record<string, string> = {}): string {
   const bin = mkdtempSync(join(tmpdir(), 'hm-install-bin-'));
   for (const [name, body] of [['docker', dockerStub], ['tailscale', '#!/bin/sh\nexit 0\n']] as const) {
     const stub = join(bin, name);
@@ -29,6 +29,7 @@ function dryRun(dockerStub = '#!/bin/sh\nexit 0\n'): string {
       HAVEMIND_DNS_NAME: 'box.your-tailnet.ts.net.',
       HAVEMIND_HOME: mkdtempSync(join(tmpdir(), 'hm-install-home-')),
       HAVEMIND_VERSION: '9.9.9',
+      ...extraEnv,
     },
   });
 }
@@ -72,6 +73,13 @@ describe('install.sh', () => {
 
   it('never rewrites an existing .env, which may hold the model key', () => {
     expect(source).toMatch(/if \[ ! -f "\$\{HOME_DIR\}\/\.env" \]; then/);
+  });
+
+  it('runs an image built on this machine when told to, without pulling', () => {
+    // For testing an unreleased build, or a server with no registry access.
+    const out = dryRun('#!/bin/sh\nexit 0\n', { HAVEMIND_IMAGE: 'havemind-local:test' });
+    expect(out).not.toMatch(/ pull$/m);
+    expect(out).toContain('havemind-local:test');
   });
 
   it('never opens the server to the public internet', () => {

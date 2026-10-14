@@ -18,12 +18,14 @@
 #   HAVEMIND_VAULT     vault name (default: asked)
 #   HAVEMIND_YES=1     answer yes to every question (unattended installs)
 #   HAVEMIND_DRY_RUN=1 print what would run, change nothing (used by the tests)
+#   HAVEMIND_IMAGE     an image already on this machine, used as is and never
+#                      pulled (an unreleased build, or no registry access)
 
 set -euo pipefail
 
 VERSION="${HAVEMIND_VERSION:-__HAVEMIND_VERSION__}"
 [ "$VERSION" = "__HAVEMIND_VERSION__" ] && VERSION="latest"
-IMAGE="ghcr.io/mikolajsapek/havemind-server:${VERSION}"
+IMAGE="${HAVEMIND_IMAGE:-ghcr.io/mikolajsapek/havemind-server:${VERSION}}"
 HOME_DIR="${HAVEMIND_HOME:-$HOME/havemind-server}"
 PORT=8787
 DRY="${HAVEMIND_DRY_RUN:-0}"
@@ -255,7 +257,11 @@ EOF
   fi
   mkdir -p "${HOME_DIR}/backups" "${HOME_DIR}/agents"
 fi
-run $DOCKER compose --project-directory "${HOME_DIR}" pull
+if [ -z "${HAVEMIND_IMAGE:-}" ]; then
+  run $DOCKER compose --project-directory "${HOME_DIR}" pull
+else
+  say "Using the local image ${IMAGE}."
+fi
 # The container runs as uid 1000 with no capabilities, so it cannot chown its
 # data volume or backup folder itself (a fresh volume is root-owned); do it
 # from the same image, as root. Not `compose run`: it keeps cap_drop ALL, and
