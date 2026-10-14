@@ -5,6 +5,7 @@
  * the classes set here, so a theme can restyle it and nothing is inline.
  */
 
+import { renderAgentIcon } from './agent-icon';
 import type { FlowerModel, FlowerSeat } from '../runtime/flower-model';
 
 /** Seat radius in viewBox units; the stylesheet scales the whole image. */
@@ -79,7 +80,15 @@ export function renderFlower(parent: HTMLElement, model: FlowerModel): SVGSVGEle
     if (seat.kind === 'conflict') {
       svg.createSvg('path', { cls: 'havemind-flower-split', attr: { d: splitPath(x, y, R) } });
     }
-    if (seat.label !== '') {
+    if (seat.icon !== undefined) {
+      const size = 16;
+      renderAgentIcon(svg as unknown as SVGElement, seat.icon, 'havemind-flower-agent-icon', {
+        x: fixed(x - size / 2),
+        y: fixed(y - size / 2),
+        width: String(size),
+        height: String(size),
+      });
+    } else if (seat.label !== '') {
       const text = svg.createSvg('text', {
         cls: 'havemind-flower-label',
         attr: { x: fixed(x), y: fixed(y + 4), 'text-anchor': 'middle' },

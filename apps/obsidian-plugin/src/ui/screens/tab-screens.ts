@@ -45,14 +45,14 @@ export function buildTabScreens(context: TabScreensContext): TabBodyScreens {
       }
     },
     renderActivity: (target) => {
-      const agentIds = new Set(
+      const agentIcons = new Map(
         (options.rejoinRosterProvider?.()?.rows ?? [])
           .filter((row) => row.agent)
-          .map((row) => row.membershipId),
+          .map((row) => [row.membershipId, row.icon ?? 'robot'] as const),
       );
       renderActivityRows(target, {
         feed: options.activityFeedProvider?.() ?? [],
-        agentIds,
+        agentIcons,
         ...(options.onRestore ? { onRestore: options.onRestore } : {}),
       });
     },

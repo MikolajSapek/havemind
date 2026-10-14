@@ -16,6 +16,8 @@ export type MockElement = {
   placeholder: string;
   addClass: (cls: string) => void;
   removeClass: (cls: string) => void;
+  /** Obsidian's `toggleClass`: adds the class when `on`, removes it otherwise. */
+  toggleClass: (cls: string, on: boolean) => void;
   /** Records a DOM listener so a test can dispatch it via `triggerEvent`. */
   addEventListener: (
     type: string,
@@ -234,6 +236,13 @@ export function createMockElement(): MockElement {
     },
     removeClass(cls: string): void {
       for (let i = classes.indexOf(cls); i !== -1; i = classes.indexOf(cls)) classes.splice(i, 1);
+    },
+    toggleClass(cls: string, on: boolean): void {
+      if (on) {
+        if (!classes.includes(cls)) classes.push(cls);
+      } else {
+        for (let i = classes.indexOf(cls); i !== -1; i = classes.indexOf(cls)) classes.splice(i, 1);
+      }
     },
     addEventListener(type: string, handler: (event: unknown) => unknown): void {
       const existing = listeners.get(type) ?? [];

@@ -44,8 +44,16 @@ export async function modelKeyConfigured(options: AgentApiOptions): Promise<bool
   return body?.configured === true;
 }
 
-export async function setModelKey(options: AgentApiOptions, key: string): Promise<'saved' | 'invalid' | 'failed'> {
-  const response = await call(options, 'PUT', '/agent-model', { key: key.trim() });
+/** The server's model login: a Claude subscription token or an API key (plan 016). */
+export type ServerLogin = { readonly kind: 'subscription' | 'api-key'; readonly secret: string };
+
+export async function setModelKey(
+  options: AgentApiOptions,
+  key: string | ServerLogin,
+): Promise<'saved' | 'invalid' | 'failed'> {
+  const login: ServerLogin = typeof key === 'string' ? { kind: 'api-key', secret: key } : key;
+  const body = login.kind === 'subscription' ? { oauthToken: login.secret.trim() } : { key: login.secret.trim() };
+  const response = await call(options, 'PUT', '/agent-model', body);
   if (response.status === 204) return 'saved';
   if (response.status === 400) return 'invalid';
   return 'failed';

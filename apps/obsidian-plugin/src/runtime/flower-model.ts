@@ -21,6 +21,8 @@ export interface FlowerSeat {
   readonly kind: FlowerSeatKind;
   /** Initials, "?" for a joining device, "+N" for the overflow seat, "" when free. */
   readonly label: string;
+  /** An agent's pixel icon, drawn instead of its initials (plan 016). */
+  readonly icon?: string;
 }
 
 export interface FlowerModel {
@@ -120,6 +122,7 @@ export function buildFlowerModel(input: FlowerInput): FlowerModel {
     seats.push({
       kind: conflict ? 'conflict' : agent ? 'agent' : 'member',
       label: initials.get(member.membershipId) ?? '?',
+      ...(agent && !conflict ? { icon: member.icon ?? 'robot' } : {}),
     });
     words.push(
       conflict ? `${member.displayName} (conflict)` : agent ? `${member.displayName} (agent)` : member.displayName,

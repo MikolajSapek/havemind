@@ -164,7 +164,7 @@ describe('one-click agents (plan 015)', () => {
     const key = 'sk-ant-api03-' + 'k'.repeat(40);
     const status = () =>
       s.app.inject({ method: 'GET', url: `/vaults/${VAULT}/agent-model`, headers: { authorization: `Bearer ${s.owner}` } });
-    expect((await status()).json()).toEqual({ configured: false });
+    expect((await status()).json()).toEqual({ configured: false, kind: null });
     const put = await s.app.inject({
       method: 'PUT',
       url: `/vaults/${VAULT}/agent-model`,
@@ -173,7 +173,7 @@ describe('one-click agents (plan 015)', () => {
     });
     expect(put.statusCode).toBe(204);
     expect(put.body).toBe('');
-    expect((await status()).json()).toEqual({ configured: true });
+    expect((await status()).json()).toEqual({ configured: true, kind: 'api-key' });
 
     const file = join(s.secretsDir, 'model.key');
     expect(readFileSync(file, 'utf8').trim()).toBe(key);
@@ -188,6 +188,23 @@ describe('one-click agents (plan 015)', () => {
       body: { key },
     });
     expect(editorPut.statusCode).toBe(403);
+  });
+
+  it('takes a Claude subscription token instead of a key, and keeps only one login (plan 016)', async () => {
+    const s = setup();
+    const put = (body: Record<string, string>) =>
+      s.app.inject({ method: 'PUT', url: `/vaults/${VAULT}/agent-model`, headers: { authorization: `Bearer ${s.owner}` }, body });
+    const status = async () =>
+      (await s.app.inject({ method: 'GET', url: `/vaults/${VAULT}/agent-model`, headers: { authorization: `Bearer ${s.owner}` } })).json();
+    expect((await put({ oauthToken: 'sk-ant-oat01-' + 't'.repeat(40) })).statusCode).toBe(204);
+    expect(await status()).toEqual({ configured: true, kind: 'subscription' });
+    const oauthFile = join(s.secretsDir, 'model.oauth');
+    expect(statSync(oauthFile).mode & 0o777).toBe(0o600);
+    expect((await put({ key: 'sk-ant-api03-' + 'k'.repeat(40) })).statusCode).toBe(204);
+    expect(await status()).toEqual({ configured: true, kind: 'api-key' });
+    expect(existsSync(oauthFile)).toBe(false);
+    expect((await put({ oauthToken: 'sk-ant-api03-wrong-kind-' + 'x'.repeat(30) })).statusCode).toBe(400);
+    expect((await put({ key: 'a', oauthToken: 'b' })).statusCode).toBe(400);
   });
 
   it('offers none of it on a server without an agents service', async () => {

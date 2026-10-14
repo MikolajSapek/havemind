@@ -21,6 +21,8 @@ export interface RejoinRosterRowView {
   readonly self: boolean;
   /** An AI agent (plan 014): listed after the people, drawn yellow. */
   readonly agent: boolean;
+  /** Its pixel icon (plan 016); agents only. */
+  readonly icon?: string;
 }
 
 export interface RejoinRosterView {
@@ -51,6 +53,7 @@ export function buildRejoinRosterView(members: readonly RosterMember[]): RejoinR
         role: member.role,
         self: member.self,
         agent: member.kind === 'agent',
+        ...(member.kind === 'agent' ? { icon: member.icon ?? 'robot' } : {}),
       }),
     );
   return { empty: rows.length === 0, rows };

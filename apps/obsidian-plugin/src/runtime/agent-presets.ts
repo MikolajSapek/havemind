@@ -84,6 +84,7 @@ export function taskNoteFor(preset: AgentPreset): string {
     '---',
     `may_write: [${preset.mayWrite.join(', ')}]`,
     `every: ${preset.every}`,
+    `icon: ${preset.id === 'custom' ? 'robot' : preset.id}`,
     '---',
     preset.instructions,
     '',

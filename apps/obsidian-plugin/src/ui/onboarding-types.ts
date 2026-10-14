@@ -8,7 +8,7 @@
  * nothing that imported them has to change.
  */
 
-import type { AddAgentModel } from './screens/add-agent';
+import type { AddAgentModel, AgentLogin } from './screens/add-agent';
 import type { RevisionRecord } from '../activity/activity';
 import type { ConflictCopy } from '../runtime/conflict-resolution';
 import type { CreatedInvitation } from '../runtime/create-invitation';
@@ -113,7 +113,7 @@ export interface OnboardingViewOptions {
   readonly agentNoticeProvider?: () => string | undefined;
   readonly onOpenAddAgent?: () => void;
   readonly onCloseAddAgent?: () => void;
-  readonly onAddAgent?: (presetId: string, name: string, key: string | null, report: ConnectReporter) => void;
+  readonly onAddAgent?: (presetId: string, name: string, login: AgentLogin, report: ConnectReporter) => void;
   /** Forces a sync cycle from the action bar, matching the `sync-now` command. */
   readonly onSyncNow?: () => void;
   /**

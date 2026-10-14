@@ -129,8 +129,8 @@ describe('inviting an AI agent (plan 014)', () => {
   });
 });
 
-describe('adding an agent with one click (plan 015)', () => {
-  async function render(model: { keyNeeded: boolean | null; unsupported?: boolean }) {
+describe('adding an agent with one click (plans 015, 016)', () => {
+  async function render(model: { keyNeeded: boolean | null; unsupported?: boolean; localPossible?: boolean }) {
     const { renderAddAgent } = await import('./screens/add-agent');
     const { createMockElement } = await import('../test/obsidian.mock');
     const root = createMockElement();
@@ -139,30 +139,62 @@ describe('adding an agent with one click (plan 015)', () => {
       onAdd: (...args: unknown[]) => added.push(args),
       onClose: () => undefined,
     });
-    return { els: flatten(root), added };
+    const els = () => flatten(root);
+    const click = (pred: (el: MockElement) => boolean) => els().find(pred)?.triggerClick();
+    return { els, click, added };
   }
+  const addButton = (el: MockElement) => el.text === 'Add agent' && el.tag === 'button';
 
-  it('adds the picked task under its own name, with no code to copy', async () => {
-    const { els, added } = await render({ keyNeeded: false });
-    expect(els.find((el) => el.attrs?.['id'] === 'havemind-agent-key')).toBeUndefined();
-    els.find((el) => el.text === 'Add agent')?.triggerClick();
-    expect(added[0]?.slice(0, 3)).toEqual(['inbox-sorter', 'Inbox sorter', null]);
+  it('shows every task as a tile with its pixel icon, the first one picked', async () => {
+    const { els } = await render({ keyNeeded: false });
+    const tiles = els().filter((el) => (el.classes ?? []).includes('havemind-agent-tile'));
+    expect(tiles.map((t) => t.attrs?.['data-agent'])).toEqual([
+      'inbox-sorter', 'daily-summary', 'link-gardener', 'meeting-to-tasks', 'clip-digester', 'custom',
+    ]);
+    expect(tiles.every((t) => flatten(t).some((el) => el.tag === 'svg'))).toBe(true);
+    expect(tiles[0]?.attrs?.['aria-checked']).toBe('true');
   });
 
-  it('asks for the key once, in a password field, and not without it', async () => {
-    const { els, added } = await render({ keyNeeded: true });
-    const key = els.find((el) => el.attrs?.['id'] === 'havemind-agent-key');
-    expect(key?.attrs?.['type'] ?? (key as { type?: string } | undefined)?.type).toBe('password');
-    els.find((el) => el.text === 'Add agent')?.triggerClick();
+  it('adds the picked task under its own name; a server with a login asks for nothing', async () => {
+    const { click, added, els } = await render({ keyNeeded: false });
+    expect(els().find((el) => el.attrs?.['id'] === 'havemind-agent-key')).toBeUndefined();
+    click((el) => el.attrs?.['data-agent'] === 'daily-summary');
+    click(addButton);
+    expect(added[0]?.slice(0, 3)).toEqual(['daily-summary', 'Daily summary', null]);
+  });
+
+  it('offers the Claude subscription first, with the command to run, and needs its token', async () => {
+    const { click, added, els } = await render({ keyNeeded: true });
+    expect(els().some((el) => el.text === 'claude setup-token')).toBe(true);
+    const field = () => els().find((el) => el.attrs?.['id'] === 'havemind-agent-key') as MockElement;
+    expect(field().attrs?.['type']).toBe('password');
+    click(addButton);
     expect(added).toHaveLength(0);
-    (key as MockElement).value = 'sk-ant-api03-key';
-    els.find((el) => el.text === 'Add agent')?.triggerClick();
-    expect(added[0]?.[2]).toBe('sk-ant-api03-key');
+    field().value = 'sk-ant-oat01-token';
+    click(addButton);
+    expect(added[0]?.[2]).toEqual({ kind: 'subscription', secret: 'sk-ant-oat01-token' });
+  });
+
+  it('takes an API key instead when chosen', async () => {
+    const { click, added, els } = await render({ keyNeeded: true });
+    click((el) => el.attrs?.['data-brain'] === 'api-key');
+    expect(els().some((el) => el.text === 'claude setup-token')).toBe(false);
+    (els().find((el) => el.attrs?.['id'] === 'havemind-agent-key') as MockElement).value = 'sk-ant-api03-key';
+    click(addButton);
+    expect(added[0]?.[2]).toEqual({ kind: 'api-key', secret: 'sk-ant-api03-key' });
+  });
+
+  it('runs on this computer with Claude Code only where that is possible', async () => {
+    expect((await render({ keyNeeded: true })).els().some((el) => el.attrs?.['data-brain'] === 'local')).toBe(false);
+    const { click, added } = await render({ keyNeeded: true, localPossible: true });
+    click((el) => el.attrs?.['data-brain'] === 'local');
+    click(addButton);
+    expect(added[0]?.[2]).toEqual({ kind: 'local' });
   });
 
   it('says so plainly on a server that cannot do it', async () => {
     const { els } = await render({ keyNeeded: null, unsupported: true });
-    expect(els.some((el) => /cannot add agents with one click/u.test(el.text ?? ''))).toBe(true);
-    expect(els.find((el) => el.text === 'Add agent')).toBeUndefined();
+    expect(els().some((el) => /cannot add agents with one click/u.test(el.text ?? ''))).toBe(true);
+    expect(els().find(addButton)).toBeUndefined();
   });
 });

@@ -33,6 +33,8 @@ export interface RosterMember {
   readonly self: boolean;
   /** Present only for an AI agent (plan 014); people carry no kind. */
   readonly kind?: 'agent';
+  /** An agent's pixel icon, read from its task note (plan 016). */
+  readonly icon?: string;
 }
 
 /**
@@ -89,6 +91,7 @@ function parseMember(value: unknown): RosterMember | null {
     role: value.role,
     self: value.self,
     ...(value.kind === 'agent' ? { kind: 'agent' as const } : {}),
+    ...(typeof value.icon === 'string' && /^[a-z-]{1,40}$/u.test(value.icon) ? { icon: value.icon } : {}),
   };
 }
 

@@ -1,8 +1,11 @@
 /** The vault's member roster (P3), and the owner's Rejoin (F9) and Remove on it. */
 
-import { Notice } from 'obsidian';
+import { Notice, type TFile } from 'obsidian';
 
 import type HavemindPlugin from '../main';
+import type { AppWithVault } from '../runtime/adapters/shared';
+import { iconForTaskNote } from '../runtime/agent-icons';
+import { taskNotePath } from '../runtime/agent-presets';
 import { LegacyRosterServerError } from '../runtime/member-roster';
 import {
   fetchMemberRosterForVault,
@@ -80,11 +83,27 @@ export class People {
       // `null` means this device is not connected to a vault, there is nothing
       // authoritative to render, so the existing list stands.
       if (members === null || this.plugin.unloaded) return;
-      this.rosterMembers = await this.rosterStore().replaceMembers(members);
+      this.rosterMembers = await this.rosterStore().replaceMembers(await this.withAgentIcons(members));
       this.plugin.views.refreshOnboarding();
     } catch {
       // Keep the previous list rendered. Never an empty People pane.
     }
+  }
+
+  /** Each agent's pixel icon, from its task note in this vault (plan 016). */
+  private async withAgentIcons(members: readonly RosterMember[]): Promise<RosterMember[]> {
+    const { vault } = this.plugin.app as unknown as AppWithVault;
+    const read = async (path: string): Promise<string | null> => {
+      const file = vault.getAbstractFileByPath(path);
+      return file !== null && 'extension' in file ? vault.read(file as TFile).catch(() => null) : null;
+    };
+    return Promise.all(
+      members.map(async (member) =>
+        member.kind === 'agent'
+          ? { ...member, icon: iconForTaskNote(await read(taskNotePath(member.displayName))) }
+          : member,
+      ),
+    );
   }
 
   /**

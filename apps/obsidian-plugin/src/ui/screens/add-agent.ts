@@ -1,27 +1,74 @@
 /**
- * Add an AI agent with one click (plan 015): pick a task, optionally a name,
- * and, the first time only, the model key. The agents service on the server
- * does the rest; no invitation, no command, no six digits.
+ * Add an AI agent with one click (plans 015, 016): pick what it does from a
+ * grid of tiles, optionally name it, and, the first time only, choose how it
+ * thinks: your Claude subscription or an API key (it then runs on the server,
+ * day and night), or Claude Code on this computer (while Obsidian is open).
+ * No invitation, no command, no six digits.
  */
 
-import { AGENT_PRESETS, CUSTOM_AGENT, presetById } from '../../runtime/agent-presets';
+import { AGENT_PRESETS, CUSTOM_AGENT, presetById, type AgentPreset } from '../../runtime/agent-presets';
+import { renderAgentIcon } from '../agent-icon';
 import { labelledField, renderFormStatus, renderViewTitle } from '../primitives';
 
+import { renderBrains } from './add-agent-login';
+
+export type AgentBrain = 'subscription' | 'api-key' | 'local';
+
 export interface AddAgentModel {
-  /** True: ask for the key; false: the server has one; null: still checking. */
+  /** True: ask how it thinks; false: the server already has a login; null: checking. */
   readonly keyNeeded: boolean | null;
   /** This server cannot add agents with one click. */
   readonly unsupported?: boolean;
+  /** Claude Code on this computer is possible (desktop Obsidian). */
+  readonly localPossible?: boolean;
 }
 
 export interface AddAgentDraft {
   agentTask?: string;
   agentName?: string;
+  agentBrain?: AgentBrain;
 }
 
+/** What the agent thinks with, as the owner chose it; null keeps the server's login. */
+export type AgentLogin =
+  | { readonly kind: 'subscription' | 'api-key'; readonly secret: string }
+  | { readonly kind: 'local' }
+  | null;
+
 export interface AddAgentActions {
-  readonly onAdd: (presetId: string, name: string, key: string | null, report: (message: string) => void) => void;
+  readonly onAdd: (presetId: string, name: string, login: AgentLogin, report: (message: string) => void) => void;
   readonly onClose: () => void;
+}
+
+function renderTiles(content: HTMLElement, draft: AddAgentDraft, onPick: (preset: AgentPreset) => void): void {
+  const grid = content.createEl('div', { attr: { role: 'radiogroup', 'aria-label': 'What the agent does' } });
+  grid.addClass('havemind-agent-tiles');
+  const chosen = draft.agentTask ?? AGENT_PRESETS[0]?.id ?? CUSTOM_AGENT.id;
+  const tiles: HTMLElement[] = [];
+  for (const preset of [...AGENT_PRESETS, CUSTOM_AGENT]) {
+    const tile = grid.createEl('button', {
+      attr: { role: 'radio', 'aria-checked': String(preset.id === chosen), 'data-agent': preset.id },
+    });
+    tile.addClass('havemind-agent-tile');
+    if (preset.id === chosen) tile.addClass('is-selected');
+    const badge = tile.createDiv();
+    badge.addClass('havemind-agent-badge');
+    renderAgentIcon(badge, preset === CUSTOM_AGENT ? 'robot' : preset.id, 'havemind-agent-badge-icon');
+    const copy = tile.createDiv();
+    copy.addClass('havemind-agent-tile-copy');
+    copy.createDiv({ text: preset === CUSTOM_AGENT ? 'Custom' : preset.name }).addClass('havemind-agent-tile-name');
+    copy.createDiv({ text: preset.summary }).addClass('havemind-agent-tile-summary');
+    tile.onClickEvent(() => {
+      draft.agentTask = preset.id;
+      for (const other of tiles) {
+        const on = other === tile;
+        other.toggleClass('is-selected', on);
+        other.setAttribute('aria-checked', String(on));
+      }
+      onPick(preset);
+    });
+    tiles.push(tile);
+  }
 }
 
 export function renderAddAgent(
@@ -46,54 +93,47 @@ export function renderAddAgent(
     return;
   }
 
-  const task = labelledField(content, 'havemind-agent-task', 'Task', 'select') as HTMLElement & { value: string };
-  for (const preset of [...AGENT_PRESETS, CUSTOM_AGENT]) {
-    task.createEl('option', { text: preset === CUSTOM_AGENT ? 'Custom' : preset.name, value: preset.id });
-  }
-  task.value = draft.agentTask ?? AGENT_PRESETS[0]?.id ?? CUSTOM_AGENT.id;
-  const summary = content.createDiv({ text: presetById(task.value).summary });
-  summary.addClass('havemind-hint');
-  task.addEventListener('change', () => {
-    draft.agentTask = task.value;
-    summary.setText(presetById(task.value).summary);
+  const nameRef: { el?: HTMLElement } = {};
+  renderTiles(content, draft, (preset) => {
+    nameRef.el?.setAttribute('placeholder', preset === CUSTOM_AGENT ? 'Agent' : preset.name);
   });
-
+  const current = presetById(draft.agentTask ?? AGENT_PRESETS[0]?.id ?? CUSTOM_AGENT.id);
   const name = labelledField(content, 'havemind-agent-name', 'Name', 'input', {
     type: 'text',
-    placeholder: 'Same as the task',
+    placeholder: current === CUSTOM_AGENT ? 'Agent' : current.name,
     value: draft.agentName ?? '',
   }) as HTMLElement & { value: string };
+  nameRef.el = name;
   name.addEventListener('input', () => {
     draft.agentName = name.value;
   });
 
-  // The key is asked once per server, never kept in the pane's draft.
-  const key =
-    model.keyNeeded === true
-      ? (labelledField(content, 'havemind-agent-key', 'Anthropic API key (once; it stays on your server)', 'input', {
-          type: 'password',
-          placeholder: 'sk-ant-…',
-        }) as HTMLElement & { value: string })
-      : null;
-  key?.setAttribute('type', 'password');
-  key?.setAttribute('autocomplete', 'off');
+  const brain = model.keyNeeded === true ? renderBrains(content, model, draft) : null;
+  if (model.keyNeeded === false) {
+    content.createDiv({ text: 'Thinks with the Claude login already on your server.' }).addClass('havemind-hint');
+  }
 
   const status = renderFormStatus(content);
   const add = content.createEl('button', { text: 'Add agent' });
   add.addClass('mod-cta');
+  add.addClass('havemind-agent-add');
   add.onClickEvent(() => {
-    const preset = presetById(task.value);
-    const keyValue = key?.value.trim() ?? '';
-    if (key !== null && keyValue === '') {
-      status.setText('Paste the API key first; the agent needs it to work.');
-      return;
+    const preset = presetById(draft.agentTask ?? AGENT_PRESETS[0]?.id ?? CUSTOM_AGENT.id);
+    let login: AgentLogin = null;
+    if (brain !== null) {
+      const picked = brain();
+      if (picked.brain === 'local') {
+        login = { kind: 'local' };
+      } else {
+        const secret = picked.secret();
+        if (secret === '') {
+          status.setText(picked.brain === 'subscription' ? 'Paste the token from claude setup-token first.' : 'Paste the API key first.');
+          return;
+        }
+        login = { kind: picked.brain, secret };
+      }
     }
     status.setText('Adding…');
-    actions.onAdd(preset.id, name.value.trim() || preset.name, key === null ? null : keyValue, (message) =>
-      status.setText(message),
-    );
+    actions.onAdd(preset.id, name.value.trim() || preset.name, login, (message) => status.setText(message));
   });
-  content
-    .createDiv({ text: 'It works in the background and appears in yellow within a minute.' })
-    .addClass('havemind-hint');
 }

@@ -6,6 +6,8 @@
 
 import type { RejoinRosterView } from '../runtime/rejoin-roster';
 
+import { renderAgentIcon } from './agent-icon';
+
 /** Owner actions attached to each rejoin-aware roster row. */
 export interface RejoinRosterActions {
   /** Membership ids the owner has already asked to rejoin (awaiting reconnect). */
@@ -34,6 +36,11 @@ export function renderRejoinRoster(
     const item = content.createDiv({ text: '' });
     item.addClass('havemind-roster-row');
     if (row.agent) item.addClass('is-agent');
+    if (row.icon !== undefined) {
+      const badge = item.createDiv();
+      badge.addClass('havemind-agent-badge');
+      renderAgentIcon(badge, row.icon, 'havemind-agent-badge-icon');
+    }
     const text = item.createDiv();
     text.addClass('havemind-roster-copy');
     text.createDiv({ text: row.displayName }).addClass('havemind-roster-name');

@@ -534,10 +534,69 @@
   text-overflow: ellipsis;
 }
 
-/* An AI agent (plan 014): a yellow edge, the same yellow as its flower seat.
-   Colour is not the only signal; the row also says "AI agent". */
-.havemind-roster-row.is-agent,
-.havemind-activity-row.is-agent { box-shadow: inset 3px 0 0 var(--havemind-flower-agent); }
+/* AI agents (plans 014, 016): a small yellow square with the agent's pixel
+   icon, the same yellow as its flower seat. Never the only signal: the row
+   also says "AI agent", or carries the agent's name. */
+.havemind-agent-badge {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-s);
+  background: var(--havemind-flower-agent);
+  color: var(--havemind-flower-ink);
+}
+.havemind-agent-badge-icon { width: 14px; height: 14px; }
+.havemind-activity-row .havemind-agent-badge { width: 18px; height: 18px; }
+.havemind-activity-row .havemind-agent-badge-icon { width: 12px; height: 12px; }
+.havemind-flower-agent-icon { color: var(--havemind-flower-ink); }
+
+/* Add agent (plan 016): tiles to pick what it does, then how it thinks. */
+.havemind-agent-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: var(--size-4-2);
+  margin: var(--size-4-2) 0 var(--size-4-3);
+}
+.havemind-agent-tile,
+.havemind-agent-brain {
+  display: flex;
+  align-items: flex-start;
+  height: auto;
+  padding: var(--size-4-2) var(--size-4-3);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  background: var(--background-primary);
+  box-shadow: none;
+  text-align: start;
+  white-space: normal;
+  cursor: pointer;
+}
+.havemind-agent-tile:hover,
+.havemind-agent-brain:hover { border-color: var(--interactive-accent); }
+.havemind-agent-tile.is-selected,
+.havemind-agent-brain.is-selected {
+  border-color: var(--havemind-flower-agent);
+  box-shadow: inset 0 0 0 1px var(--havemind-flower-agent);
+}
+.havemind-agent-tile-copy { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.havemind-agent-tile-name,
+.havemind-agent-brain-title { font-weight: var(--font-semibold); color: var(--text-normal); }
+.havemind-agent-tile-summary,
+.havemind-agent-brain-sub { font-size: var(--font-ui-smaller); color: var(--text-muted); line-height: 1.35; }
+.havemind-agent-section {
+  margin: var(--size-4-3) 0 var(--size-4-1);
+  font-size: var(--font-ui-small);
+  font-weight: var(--font-semibold);
+  color: var(--text-muted);
+}
+.havemind-agent-brains { display: flex; flex-direction: column; gap: var(--size-4-1); }
+.havemind-agent-tile { gap: var(--size-4-2); }
+.havemind-agent-brain { flex-direction: column; }
+.havemind-agent-brain-detail { margin-top: var(--size-4-2); }
+.havemind-agent-add { margin-top: var(--size-4-3); width: 100%; }
 
 .havemind-roster-name {
   color: var(--text-normal);

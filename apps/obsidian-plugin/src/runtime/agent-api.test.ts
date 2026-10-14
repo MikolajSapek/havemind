@@ -46,4 +46,10 @@ describe('adding an agent with one click (plan 015)', () => {
     expect(JSON.parse(calls[0]?.body ?? '{}')).toEqual({ key: 'sk-ant-api03-abcdefghijklmnopqrstuvwxyz' });
     expect(await setModelKey(api(400).options, 'nope')).toBe('invalid');
   });
+
+  it('sends a Claude subscription token under its own name (plan 016)', async () => {
+    const { calls, options } = api(204);
+    expect(await setModelKey(options, { kind: 'subscription', secret: 'sk-ant-oat01-abc' })).toBe('saved');
+    expect(JSON.parse(calls[0]?.body ?? '{}')).toEqual({ oauthToken: 'sk-ant-oat01-abc' });
+  });
 });

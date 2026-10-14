@@ -3,7 +3,7 @@
 import type HavemindPlugin from '../main';
 import { addAgent, modelKeyConfigured, setModelKey } from '../runtime/agent-api';
 import { agentApiForOwner } from '../runtime/obsidian-adapters';
-import type { AddAgentModel } from '../ui/screens/add-agent';
+import type { AddAgentModel, AgentLogin } from '../ui/screens/add-agent';
 
 import { writeTaskNote } from './invitations';
 
@@ -43,18 +43,28 @@ export class Agents {
     this.plugin.views.refreshOnboardingNow();
   }
 
-  public async add(presetId: string, name: string, key: string | null, report: (message: string) => void): Promise<void> {
+  public async add(presetId: string, name: string, login: AgentLogin, report: (message: string) => void): Promise<void> {
     const api = await agentApiForOwner(this.plugin);
     if (api === null) {
       report('Connect as the vault owner first.');
       return;
     }
     try {
-      if (key !== null) {
-        const saved = await setModelKey(api, key);
+      if (login?.kind === 'local') {
+        report('Claude Code on this computer is not available yet in this build.');
+        return;
+      }
+      if (login !== null) {
+        const saved = await setModelKey(api, login);
         if (saved !== 'saved') {
-          // Never the key itself in a message.
-          report(saved === 'invalid' ? 'That does not look like an Anthropic API key (sk-ant-…).' : 'Could not save the key on the server.');
+          // Never the secret itself in a message.
+          report(
+            saved === 'invalid'
+              ? login.kind === 'subscription'
+                ? 'That does not look like a token from claude setup-token (sk-ant-oat01-…).'
+                : 'That does not look like an Anthropic API key (sk-ant-api03-…).'
+              : 'Could not save it on the server.',
+          );
           return;
         }
       }

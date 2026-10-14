@@ -134,6 +134,7 @@ describe('agents in the flower (plan 014)', () => {
 
   it('gives an agent a seat of its own kind, so it draws yellow, and says so in words', () => {
     const model = buildFlowerModel(input({ members: [me, phone, sorter] }));
+    expect(model.seats[2]?.icon).toBe('robot');
     expect(model.seats.map((seat) => [seat.kind, seat.label]).slice(0, 3)).toEqual([
       ['member', 'you'],
       ['member', 'MI'],

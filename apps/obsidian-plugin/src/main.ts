@@ -164,8 +164,8 @@ export default class HavemindPlugin extends Plugin {
         agentNoticeProvider: () => this.agents.notice,
         onOpenAddAgent: () => this.agents.open(),
         onCloseAddAgent: () => this.agents.close(),
-        onAddAgent: (presetId, name, key, report) => {
-          void this.agents.add(presetId, name, key, report);
+        onAddAgent: (presetId, name, login, report) => {
+          void this.agents.add(presetId, name, login, report);
         },
         onSyncNow: () => {
           void this.syncNow();

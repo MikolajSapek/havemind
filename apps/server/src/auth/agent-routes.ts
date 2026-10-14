@@ -29,10 +29,15 @@ export interface AgentRoutesDeps {
 
 export const AGENT_SERVICE_HEADER = 'x-havemind-agent-service-token';
 const MODEL_KEY_FILE = 'model.key';
+/** A Claude subscription login from `claude setup-token` (plan 016). */
+const MODEL_OAUTH_FILE = 'model.oauth';
 
 const vaultParams = z.object({ vaultId: z.string().uuid() });
 const enrollBody = z.object({ name: z.string().trim().min(1).max(80) }).strict();
-const modelKeyBody = z.object({ key: z.string().trim().regex(/^sk-ant-[A-Za-z0-9_-]{20,300}$/u) }).strict();
+const modelLoginBody = z.union([
+  z.object({ key: z.string().trim().regex(/^sk-ant-api[0-9]{2}-[A-Za-z0-9_-]{20,300}$/u) }).strict(),
+  z.object({ oauthToken: z.string().trim().regex(/^sk-ant-oat[0-9]{2}-[A-Za-z0-9_-]{20,400}$/u) }).strict(),
+]);
 const claimBody = z.object({ initialRefreshToken: z.string().min(1).max(200), redemptionId: z.string().uuid() }).strict();
 
 function fail(reply: FastifyReply, status: number, code: string): FastifyReply {
@@ -88,22 +93,27 @@ export function registerOwnerAgentRoutes(instance: FastifyInstance, deps: AgentR
 
   instance.get('/vaults/:vaultId/agent-model', async (request, reply) => {
     if (ownerOf(request, reply) === null) return reply;
-    const configured = await fs
-      .access(join(deps.secretsDir, MODEL_KEY_FILE))
-      .then(() => true, () => false);
+    const has = (file: string) => fs.access(join(deps.secretsDir, file)).then(() => true, () => false);
+    const kind = (await has(MODEL_OAUTH_FILE)) ? 'subscription' : (await has(MODEL_KEY_FILE)) ? 'api-key' : null;
     reply.header('cache-control', 'no-store');
-    return { configured };
+    return { configured: kind !== null, kind };
   });
 
   instance.put('/vaults/:vaultId/agent-model', async (request, reply) => {
     if (ownerOf(request, reply) === null) return reply;
-    const body = modelKeyBody.safeParse(request.body);
+    const body = modelLoginBody.safeParse(request.body);
     // Never echo the body back, not even in an error.
     if (!body.success) return fail(reply, 400, 'INVALID_REQUEST');
-    const file = join(deps.secretsDir, MODEL_KEY_FILE);
+    // One login at a time: writing one removes the other.
+    const [write, drop, secret] =
+      'key' in body.data
+        ? [MODEL_KEY_FILE, MODEL_OAUTH_FILE, body.data.key]
+        : [MODEL_OAUTH_FILE, MODEL_KEY_FILE, body.data.oauthToken];
+    const file = join(deps.secretsDir, write);
     const temp = `${file}.tmp`;
-    await fs.writeFile(temp, `${body.data.key}\n`, { mode: 0o600 });
+    await fs.writeFile(temp, `${secret}\n`, { mode: 0o600 });
     await fs.rename(temp, file);
+    await fs.rm(join(deps.secretsDir, drop), { force: true });
     reply.header('cache-control', 'no-store');
     return reply.status(204).send();
   });

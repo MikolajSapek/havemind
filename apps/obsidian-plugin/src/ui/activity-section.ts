@@ -4,6 +4,7 @@
  */
 
 import type { RevisionRecord } from '../activity/activity';
+import { renderAgentIcon } from './agent-icon';
 import { activityDayLabel, buildActivityViewModel, clockLabel } from '../runtime/activity-render';
 
 import { formatActivityTime } from './primitives';
@@ -27,8 +28,8 @@ export interface ActivitySectionOptions {
   readonly onRestore?: (revisionId: string) => void;
   /** Cap on rendered rows; omit for the full feed. */
   readonly limit?: number;
-  /** Membership ids of AI agents (plan 014); their rows are marked yellow. */
-  readonly agentIds?: ReadonlySet<string>;
+  /** AI agents by membership id (plan 014), with their pixel icon (plan 016). */
+  readonly agentIcons?: ReadonlyMap<string, string>;
   /** "Now" for the day headers; tests pin it, the pane uses the clock. */
   readonly now?: number;
 }
@@ -63,8 +64,12 @@ export function renderActivityRows(
     const entry = content.createDiv();
     entry.addClass('havemind-activity-row');
     entry.addClass(`is-${row.kind}`);
-    if (row.actorId !== null && options.agentIds?.has(row.actorId) === true) {
+    const agentIcon = row.actorId === null ? undefined : options.agentIcons?.get(row.actorId);
+    if (agentIcon !== undefined) {
       entry.addClass('is-agent');
+      const badge = entry.createDiv();
+      badge.addClass('havemind-agent-badge');
+      renderAgentIcon(badge, agentIcon, 'havemind-agent-badge-icon');
     }
     // The note's name over who did what; the full path stays on the tooltip.
     const text = entry.createDiv();
