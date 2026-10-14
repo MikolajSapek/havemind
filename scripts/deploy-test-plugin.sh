@@ -6,8 +6,8 @@ set -euo pipefail
 MONOREPO="$(cd "$(dirname "$0")/.." && pwd)"
 PLUGIN_SOURCE="$MONOREPO/apps/obsidian-plugin"
 TARGETS=(
-  "/Users/sapek/Documents/ObsidianVaults/Testvault/Testvault/.obsidian/plugins/havemind-sync"
-  "/Users/sapek/Documents/ObsidianVaults/Testvault2/.obsidian/plugins/havemind-sync"
+  "/Users/sapek/ObsidianVaults/Testvault/Testvault/.obsidian/plugins/havemind-sync"
+  "/Users/sapek/ObsidianVaults/Testvault2/.obsidian/plugins/havemind-sync"
 )
 ARTIFACTS=(main.js manifest.json manifest-beta.json styles.css)
 

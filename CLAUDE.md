@@ -102,7 +102,7 @@ silently drops every platform-optional package the host cannot resolve.
 ## Vault notes, update on every push
 
 The project's running notes live in the user's Obsidian vault, in
-`~/Documents/ObsidianVaults/Mikolaj Private/Havemind/`:
+`~/ObsidianVaults/Mikolaj Private/Havemind/`:
 
 | Note | Holds |
 |---|---|
