@@ -62,6 +62,35 @@ Every item below, and every later `plans/0NN`, states:
 3. Output: the vault notes updated, and the Phase 1 list below confirmed or
    trimmed. Ships: nothing.
 
+### Phase 0 result (2026-10-14)
+
+- Post-release checks pass. Copy of the 2026-10-13 server database, read
+  only: since 1.6.0 Hubert's device sent 10 revisions (last 2026-10-12), the
+  Mac 32 (last 2026-10-09), the phone 3 (last 2026-10-07). The Mac's
+  `data.json` is 169 KB, down from 634 KB; a little over the ~140 KB estimate
+  because since 1.6.0 the backup copy carries the file list too.
+- `plan/11-BACKLOG.md` already closes all ten items of the vault note
+  "10 otwartych pozycji" (AUD2-01/03/05/06, AUD-07, AUD-10, SRV-06, UI-00/02/03),
+  each with its commit; the vault notes had gone stale. The only open backlog
+  row is **MOB-02** (real-device smoke test). Already seen working on the
+  phone: sync both ways, return from background, the 1.7 pane. Still to cover:
+  onboarding from an invitation, one conflict, the author overlay in the
+  mobile editor, one large binary attachment.
+- The 6.10 review list, checked in the tree:
+  - 1.1 open: `runtime/activity-log.ts:55` keeps the feed in memory only.
+  - 1.2 open: `plugin/commands.ts:6-19`, "Open activity" calls `openPane()`
+    without selecting the tab; "Connect to Havemind" has no `checkCallback`.
+  - 1.3 open: `ui/screens/status-indicator.ts:74-76` offers Retry now only for
+    `offline` and `reconnect-required`, not `retrying`.
+  - 1.4 open: raw ISO at `ui/screens/invitation-envelope.ts:73` and
+    `ui/screens/pending-approval-row.ts:38`; the guest never gets an expiry
+    because `main.ts:437` builds the waiting view without `expiresAt`.
+  - 1.5 open: `runtime/getting-started-render.ts:76` says "below".
+  - 1.6 open: the coarse-pointer block in `styles.css` sizes tabs and More
+    options, not roster or send-queue actions.
+  - Fixed in 1.7.x: More options closing (native menu), Disconnect confirm,
+    owner-only Rejoin/Remove, the waiting-device card.
+
 ## Phase 1, polish (1.7.4, 1.7.5)
 
 Plugin-only, no server change. Each is small; group two or three per release.
