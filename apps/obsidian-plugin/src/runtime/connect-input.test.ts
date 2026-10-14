@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   classifyConnectInput,
   pairOwnerDevice,
+  resolvePairingCode,
 } from './connect-input';
 import type {
   RequestUrlOptions,
@@ -12,6 +13,36 @@ import type {
 const API = 'https://host';
 const VAULT = '11111111-1111-4111-8111-111111111111';
 const DEVICE = '22222222-2222-4222-8222-222222222222';
+
+describe('resolvePairingCode (plan 013, one paste)', () => {
+  const TOKEN = 'hm_pt_abcDEF123';
+  it('takes the server from the code the installer prints', () => {
+    expect(resolvePairingCode(`${TOKEN}@https://havemind.your-tailnet.ts.net`, '')).toEqual({
+      pairingToken: TOKEN,
+      serverUrl: 'https://havemind.your-tailnet.ts.net',
+    });
+  });
+
+  it('keeps the two-field form working', () => {
+    expect(resolvePairingCode(`  ${TOKEN} `, 'https://sync.example.test')).toEqual({
+      pairingToken: TOKEN,
+      serverUrl: 'https://sync.example.test',
+    });
+  });
+
+  it('accepts a matching URL typed in the field too', () => {
+    expect(resolvePairingCode(`${TOKEN}@https://a.example.test`, 'https://a.example.test/')).toEqual({
+      pairingToken: TOKEN,
+      serverUrl: 'https://a.example.test',
+    });
+  });
+
+  it('refuses a code whose server disagrees with the field, saying both', () => {
+    expect(() => resolvePairingCode(`${TOKEN}@https://a.example.test`, 'https://b.example.test')).toThrow(
+      /a\.example\.test.*b\.example\.test/,
+    );
+  });
+});
 
 describe('classifyConnectInput', () => {
   it('recognises an owner pairing token', () => {

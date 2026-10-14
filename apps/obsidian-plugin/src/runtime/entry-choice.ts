@@ -106,20 +106,23 @@ export interface HostViewModel {
 }
 
 export const SELF_HOSTING_GUIDE_URL =
-  'https://github.com/MikolajSapek/havemind/blob/main/docs/self-hosting.md';
+  'https://github.com/MikolajSapek/havemind/blob/main/docs/install.md';
+
+/** One command on Linux or macOS sets up Docker, Tailscale and the server. */
+export const INSTALL_COMMAND =
+  'curl -fsSL https://github.com/MikolajSapek/havemind/releases/latest/download/install.sh | bash';
 
 export function buildHostView(): HostViewModel {
   return {
     heading: 'Run the server',
-    subheading: 'On a machine that stays awake and is on your private network.',
+    subheading: 'On a Linux machine or a Mac that stays awake.',
     steps: [
-      { text: 'Install Docker and Tailscale on that machine.' },
-      { text: 'Sign both machines into the same tailnet.' },
-      { text: 'Run the stack:', command: 'docker compose up -d' },
-      { text: "Copy its Tailscale address, that's your server URL." },
-      { text: 'Connect below, then invite the others.' },
+      { text: 'Install Tailscale on this device and your phone, same account.' },
+      { text: 'On the server machine, run:', command: INSTALL_COMMAND },
+      { text: 'It ends with one line. Connect below and paste it.' },
+      { text: 'Then invite the others.' },
     ],
-    guideLabel: 'Full self-hosting guide',
+    guideLabel: 'Step-by-step install guide',
     guideUrl: SELF_HOSTING_GUIDE_URL,
     primaryAction: "I've done this, connect",
   };

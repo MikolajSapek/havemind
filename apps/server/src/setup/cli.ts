@@ -499,6 +499,17 @@ function runDoctorCommand(
   return { exitCode: report.status === 'fail' ? 1 : 0, stderr: '', stdout };
 }
 
+/**
+ * The one line the owner pastes into Havemind (plan 013): the token and this
+ * server's address together, so there is no second field to fill. Only when
+ * the server knows its canonical https origin; the token alone otherwise.
+ */
+function connectCodeLines(pairingToken: string, env: ServerEnvironment): string[] {
+  const origin = resolveServerOrigin(env);
+  if (origin === null) return [];
+  return ['', 'Or paste this one line into Havemind in Obsidian:', `  ${pairingToken}@${origin}`];
+}
+
 function resolveDatabaseFile(env: ServerEnvironment): string | null {
   const dataDir = env.HAVEMIND_DATA_DIR;
   if (dataDir === undefined || dataDir.trim() === '') {
@@ -536,6 +547,7 @@ function runSetup(
       `Owner user id: ${result.ownerUserId}`,
       `Pairing token (single-use, expires ${result.pairingExpiresAt}):`,
       `  ${result.pairingToken}`,
+      ...connectCodeLines(result.pairingToken, dependencies.env),
       '',
       'Hand this token to the first device now; only its hash is stored server-side.',
       '',
@@ -581,6 +593,7 @@ function runCreateVault(
       `Owner user id: ${result.ownerUserId}`,
       `Pairing token (single-use, expires ${result.pairingExpiresAt}):`,
       `  ${result.pairingToken}`,
+      ...connectCodeLines(result.pairingToken, dependencies.env),
       '',
       'Hand this token to the new owner device now; only its hash is stored server-side.',
       '',
@@ -627,6 +640,7 @@ function runRotatePairing(
       `Vault id:      ${result.vaultId}`,
       `Fresh pairing token (single-use, expires ${result.pairingExpiresAt}):`,
       `  ${result.pairingToken}`,
+      ...connectCodeLines(result.pairingToken, dependencies.env),
       '',
       'Hand this token to the owner device now; only its hash is stored server-side.',
       '',

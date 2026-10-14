@@ -11,7 +11,7 @@
 import type { Plugin } from 'obsidian';
 
 import { driveToConnected } from '../connect-driver';
-import { classifyConnectInput, pairOwnerDevice } from '../connect-input';
+import { classifyConnectInput, resolvePairingCode, pairOwnerDevice } from '../connect-input';
 import { isConnectedOnboardingState } from '../connection';
 import type { StatusListener } from '../controller';
 import { ObsidianOnboardingSecrets } from '../onboarding-secrets';
@@ -147,7 +147,8 @@ export async function connectFromInput(
   const kind = classifyConnectInput(input);
   try {
     if (kind === 'pairing') {
-      return await connectAsOwner(plugin, input.trim(), serverUrl, options);
+      const code = resolvePairingCode(input, serverUrl);
+      return await connectAsOwner(plugin, code.pairingToken, code.serverUrl, options);
     }
     if (kind === 'envelope') {
       return await connectAsInvitee(plugin, input.trim(), options);

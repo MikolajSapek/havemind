@@ -90,6 +90,25 @@ describe('setup', () => {
     expect(() => parsePairingToken(match?.[0] ?? '')).not.toThrow();
   });
 
+  it('prints the one-line code to paste into Havemind when it knows its address (plan 013)', () => {
+    const dataDir = makeDataDir();
+    const result = runCli(
+      ['setup', '--owner', 'Alice', '--vault', 'Notes'],
+      { env: baseEnv({ HAVEMIND_DATA_DIR: dataDir, HAVEMIND_API_BASE_URL: 'https://havemind.example.test' }) },
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toMatch(/hm_pt_[A-Za-z0-9_-]{43}@https:\/\/havemind\.example\.test\n/u);
+  });
+
+  it('prints no code without a valid https address, only the token', () => {
+    const dataDir = makeDataDir();
+    const result = runCli(
+      ['setup', '--owner', 'Alice', '--vault', 'Notes'],
+      { env: baseEnv({ HAVEMIND_DATA_DIR: dataDir, HAVEMIND_API_BASE_URL: 'http://plain.example.test' }) },
+    );
+    expect(result.stdout).not.toContain('@http');
+  });
+
   it('fails cleanly when already initialised', () => {
     const dataDir = makeDataDir();
     const env = baseEnv({ HAVEMIND_DATA_DIR: dataDir });

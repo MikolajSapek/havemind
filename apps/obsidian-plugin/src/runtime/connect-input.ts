@@ -22,6 +22,38 @@ export function classifyConnectInput(text: string): ConnectInputKind {
   return 'unknown';
 }
 
+function originOf(value: string): string | null {
+  try {
+    return new URL(value.trim()).origin;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The owner's pairing input, as one paste or two fields (plan 013). The
+ * installer prints `hm_pt_…@https://server`, so the owner pastes one line; the
+ * token alone plus the Server URL field still works. The code is typed by the
+ * owner from their own terminal, never taken from a link (see
+ * `isSafePassiveJoinProtocolData`).
+ */
+export function resolvePairingCode(
+  input: string,
+  serverField: string,
+): { readonly pairingToken: string; readonly serverUrl: string } {
+  const trimmed = input.trim();
+  const at = trimmed.indexOf('@');
+  if (at === -1) return { pairingToken: trimmed, serverUrl: serverField.trim() };
+  const pairingToken = trimmed.slice(0, at);
+  const embedded = trimmed.slice(at + 1);
+  const embeddedOrigin = originOf(embedded) ?? embedded;
+  const field = serverField.trim();
+  if (field.length > 0 && originOf(field) !== embeddedOrigin) {
+    throw new Error(`the code is for ${embeddedOrigin}, but the Server URL field says ${field}. Clear the field or use the matching code.`);
+  }
+  return { pairingToken, serverUrl: embeddedOrigin };
+}
+
 export interface PairOwnerDeviceOptions {
   readonly requestUrl: RequestUrlFn;
   readonly apiBaseUrl: string;

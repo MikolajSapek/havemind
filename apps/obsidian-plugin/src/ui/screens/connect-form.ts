@@ -33,7 +33,7 @@ export function renderConnectForm(
       'havemind-connect-token',
       'Invitation or owner pairing token',
       'textarea',
-      { placeholder: 'v1.… or hm_pt_…', value: draft.token },
+      { placeholder: 'v1.… or hm_pt_…@https://…', value: draft.token },
     );
     const serverInput = labelledField(
       content,
@@ -42,7 +42,7 @@ export function renderConnectForm(
       'input',
       {
         type: 'text',
-        placeholder: 'https://your-server.example',
+        placeholder: 'https://your-server.example (not needed for hm_pt_…@ codes)',
         value: draft.server,
       },
     );

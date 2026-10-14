@@ -4,6 +4,7 @@ import {
   SELF_HOSTING_GUIDE_URL,
   buildEntryChooser,
   buildHostView,
+  INSTALL_COMMAND,
 } from './entry-choice';
 
 describe('entry chooser', () => {
@@ -38,7 +39,14 @@ describe('host view', () => {
       (step) => step.command !== undefined,
     );
     expect(withCommand).toHaveLength(1);
-    expect(withCommand[0]?.command).toBe('docker compose up -d');
+    expect(withCommand[0]?.command).toBe(INSTALL_COMMAND);
+    expect(INSTALL_COMMAND).toMatch(/^curl -fsSL https:\/\/github\.com\/.+\/install\.sh \| bash$/);
+  });
+
+  it('tells the host the installer prints the one line to paste', () => {
+    const text = buildHostView().steps.map((step) => step.text).join(' ');
+    expect(text).toMatch(/Tailscale/);
+    expect(text).toMatch(/paste/i);
   });
 
   it('links the guide absolutely, so the click reaches a browser', () => {

@@ -17,14 +17,18 @@ is a note in the vault that people can read and edit.
 - **Scope is kept by the agent's client, and every change can be undone.**
   The server stays blind to content and paths (rule 2). Advisory, said so
   plainly in the docs, backed by attribution and one-click undo.
-- **Where agents run:** my recommendation, to confirm: one headless Havemind
-  agent client, used two ways:
+- **Agents are autonomous background workers, not chat** (owner,
+  2026-10-14). The server-side runner is the main way; MCP is the second.
+- **Where agents run: the user chooses per agent** (owner, 2026-10-14: "two
+  options, the user picks"). One headless Havemind agent client, run either
+  way, picked in "Add agent":
   1. **MCP first.** `npx @havemind/agent mcp` gives Claude Desktop, Claude Code
      or any MCP client tools on the vault. The client syncs through the
      Havemind server itself, so it does not need Obsidian open.
-  2. **Scheduled on the server later.** The same client in a container next to
-     the server runs predefined agents on a timer, with the owner's model key.
-  This avoids building two clients and starts where the owner already works.
+  2. **Always on the server.** The same client in a container next to the
+     server runs the agent continuously or on its schedule, with the owner's
+     model key, so it works while every laptop sleeps.
+  One client, two ways to run it; both ship in the first agents release.
 
 ## What the tree has (read 2026-10-14)
 
@@ -63,13 +67,14 @@ is a note in the vault that people can read and edit.
      folders and last activity; "Add agent" opens a picker of predefined
      agents or "Custom", creates the task note and the agent invitation, and
      shows the MCP setup snippet for Claude Desktop / Claude Code.
-5. **Predefined agents** (task-note templates, owner picked all four, plus
-   two from research):
+5. **Predefined agents** are autonomous: they run in the background on their
+   own schedule and do work in the vault, never a chat (owner, 2026-10-14:
+   chat already exists in the vault, e.g. Claudian; these must not duplicate
+   it). Task-note templates, the owner's four plus one from research:
    - Inbox sorter: files notes from `Inbox/` into folders, adds tags.
    - Daily / weekly summary: writes a summary note of what changed and who.
    - Link gardener: finds orphan notes, suggests links, fixes broken ones.
    - Meeting to tasks: turns meeting notes into tasks with owners.
-   - Vault Q&A (read-only): answers questions from the vault, writes nothing.
    - Clip digester: summarises web clips in `Clippings/` into short notes.
 
 ## Spike first (time-boxed)
