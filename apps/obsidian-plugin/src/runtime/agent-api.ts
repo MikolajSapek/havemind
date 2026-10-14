@@ -44,15 +44,25 @@ export async function modelKeyConfigured(options: AgentApiOptions): Promise<bool
   return body?.configured === true;
 }
 
-/** The server's model login: a Claude subscription token or an API key (plan 016). */
-export type ServerLogin = { readonly kind: 'subscription' | 'api-key'; readonly secret: string };
+/** What the server's agents think with (plan 016): a provider, its login, model and endpoint. */
+export interface ServerBrain {
+  readonly provider: 'claude-code' | 'codex' | 'anthropic' | 'openai-compatible';
+  readonly secret?: string;
+  readonly model?: string;
+  readonly baseUrl?: string;
+}
 
 export async function setModelKey(
   options: AgentApiOptions,
-  key: string | ServerLogin,
+  key: string | ServerBrain,
 ): Promise<'saved' | 'invalid' | 'failed'> {
-  const login: ServerLogin = typeof key === 'string' ? { kind: 'api-key', secret: key } : key;
-  const body = login.kind === 'subscription' ? { oauthToken: login.secret.trim() } : { key: login.secret.trim() };
+  const brain: ServerBrain = typeof key === 'string' ? { provider: 'anthropic', secret: key } : key;
+  const body = {
+    provider: brain.provider,
+    ...(brain.secret === undefined ? {} : { secret: brain.secret.trim() }),
+    ...(brain.model === undefined ? {} : { model: brain.model.trim() }),
+    ...(brain.baseUrl === undefined ? {} : { baseUrl: brain.baseUrl.trim() }),
+  };
   const response = await call(options, 'PUT', '/agent-model', body);
   if (response.status === 204) return 'saved';
   if (response.status === 400) return 'invalid';

@@ -22,11 +22,10 @@ import { createInterface } from 'node:readline/promises';
 import { finishJoin, HeadlessAgent, startJoin, type AgentPaths } from './agent';
 import { claimNextAgent, folderFor } from './claim';
 import { createFetchRequestUrl } from './fetch-request-url';
-import { createClaudeModel, DEFAULT_AGENT_MODEL } from './model';
 import { serveMcp } from './mcp';
 import { AgentPool } from './pool';
 import { runAgentOnce, type AgentBrain, type RunMemory } from './runner';
-import { createClaudeCodeOneShot } from './claude-code';
+import { brainFrom, parseBrain } from './brains';
 
 const APPROVAL_POLL_MS = 3_000;
 const APPROVAL_WAIT_MS = 15 * 60_000;
@@ -125,25 +124,25 @@ async function modelKey(): Promise<string | null> {
   return fromFile === '' ? null : fromFile;
 }
 
-/** A Claude subscription login from `claude setup-token` (plan 016). */
-async function oauthToken(): Promise<string | null> {
-  const fromEnv = process.env.CLAUDE_CODE_OAUTH_TOKEN?.trim() ?? '';
-  if (fromEnv !== '') return fromEnv;
+async function readSecretFile(name: string): Promise<string | null> {
   const dir = process.env.HAVEMIND_AGENT_SECRETS_DIR;
   if (dir === undefined || dir === '') return null;
-  const fromFile = (await fs.readFile(join(dir, 'model.oauth'), 'utf8').catch(() => '')).trim();
-  return fromFile === '' ? null : fromFile;
+  const text = (await fs.readFile(join(dir, name), 'utf8').catch(() => '')).trim();
+  return text === '' ? null : text;
 }
 
-/** How the agents think: the subscription through Claude Code, else an API key; null to wait. */
+/**
+ * How the agents think (plan 016): the brain the owner chose in Havemind
+ * (brain.json and its secret), else plan 015's single login, else the
+ * environment; null to sync and wait.
+ */
 async function brainOrNull(): Promise<AgentBrain | null> {
-  const token = await oauthToken();
-  if (token !== null) {
-    return { kind: 'one-shot', ask: createClaudeCodeOneShot({ oauthToken: token, ...(process.env.HAVEMIND_AGENT_MODEL ? { model: process.env.HAVEMIND_AGENT_MODEL } : {}) }) };
-  }
+  const saved = parseBrain(await readSecretFile('brain.json'));
+  if (saved !== null) return brainFrom(saved, await readSecretFile('brain.secret'));
+  const token = (await readSecretFile('model.oauth')) ?? (process.env.CLAUDE_CODE_OAUTH_TOKEN?.trim() || null);
+  if (token !== null) return brainFrom({ provider: 'claude-code' }, token);
   const apiKey = await modelKey();
-  if (apiKey === null) return null;
-  return { kind: 'tools', model: createClaudeModel({ apiKey, model: process.env.HAVEMIND_AGENT_MODEL ?? DEFAULT_AGENT_MODEL }) };
+  return apiKey === null ? null : brainFrom({ provider: 'anthropic', ...(process.env.HAVEMIND_AGENT_MODEL ? { model: process.env.HAVEMIND_AGENT_MODEL } : {}) }, apiKey);
 }
 
 async function brainOrThrow(): Promise<AgentBrain> {

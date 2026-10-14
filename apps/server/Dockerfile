@@ -68,10 +68,11 @@ COPY --from=build --chown=1000:1000 /app/apps/server/bin ./apps/server/bin
 # AI agents (plan 014): `node agent/havemind-agent.mjs run|join|once|mcp`.
 COPY --from=build --chown=1000:1000 /app/agent ./agent
 
-# Agents that think with the owner's Claude subscription run Claude Code
-# headless (plan 016). Pinned; used only by the agents service, never by the
-# server process.
-RUN npm install -g @anthropic-ai/claude-code@2.1.285 && npm cache clean --force
+# Agents that think with the owner's Claude or ChatGPT subscription run Claude
+# Code or Codex headless (plan 016). Pinned; used only by the agents service,
+# never by the server process.
+RUN npm install -g @anthropic-ai/claude-code@2.1.285 @openai/codex@0.159.1 \
+  && npm cache clean --force
 
 USER 1000:1000
 EXPOSE 8787

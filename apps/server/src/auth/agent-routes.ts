@@ -28,16 +28,65 @@ export interface AgentRoutesDeps {
 }
 
 export const AGENT_SERVICE_HEADER = 'x-havemind-agent-service-token';
-const MODEL_KEY_FILE = 'model.key';
-/** A Claude subscription login from `claude setup-token` (plan 016). */
-const MODEL_OAUTH_FILE = 'model.oauth';
+/** What the agents think with (plan 016): provider, model and endpoint; no secret. */
+const BRAIN_FILE = 'brain.json';
+/** Its login, apart: a token, a key or a Codex auth.json. */
+const BRAIN_SECRET_FILE = 'brain.secret';
+/** Plan 015's single-login files, removed when a brain is set. */
+const LEGACY_FILES = ['model.key', 'model.oauth'];
+
+const modelName = z.string().trim().min(1).max(200).regex(/^[A-Za-z0-9._:/@-]+$/u);
+const claudeToken = z.string().trim().regex(/^sk-ant-oat[0-9]{2}-[A-Za-z0-9_-]{20,400}$/u);
+const anthropicKey = z.string().trim().regex(/^sk-ant-api[0-9]{2}-[A-Za-z0-9_-]{20,300}$/u);
+const codexAuth = z
+  .string()
+  .trim()
+  .max(20_000)
+  .refine((text) => {
+    try {
+      const value: unknown = JSON.parse(text);
+      return typeof value === 'object' && value !== null && !Array.isArray(value);
+    } catch {
+      return false;
+    }
+  });
+/** HTTPS anywhere, or plain HTTP only to this machine (a local Ollama). */
+const apiBase = z
+  .string()
+  .trim()
+  .url()
+  .refine((value) => {
+    const url = new URL(value);
+    return url.protocol === 'https:' || (url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]', 'host.docker.internal'].includes(url.hostname));
+  });
+const genericKey = z.string().trim().min(1).max(500).regex(/^[\x21-\x7e]+$/u);
+
+const modelLoginBody = z.union([
+  z.object({ key: anthropicKey }).strict(),
+  z.object({ oauthToken: claudeToken }).strict(),
+  z.object({ provider: z.literal('claude-code'), secret: claudeToken, model: modelName.optional() }).strict(),
+  z.object({ provider: z.literal('codex'), secret: codexAuth, model: modelName.optional() }).strict(),
+  z.object({ provider: z.literal('anthropic'), secret: anthropicKey, model: modelName.optional() }).strict(),
+  z.object({ provider: z.literal('openai-compatible'), baseUrl: apiBase, model: modelName, secret: genericKey.optional() }).strict(),
+]);
+
+type Brain = { provider: string; model?: string | undefined; baseUrl?: string | undefined };
+
+function brainOf(body: z.infer<typeof modelLoginBody>): { brain: Brain; secret: string | undefined } {
+  if ('key' in body) return { brain: { provider: 'anthropic' }, secret: body.key };
+  if ('oauthToken' in body) return { brain: { provider: 'claude-code' }, secret: body.oauthToken };
+  const { secret, ...brain } = body;
+  return { brain, secret };
+}
+
+async function writePrivate(file: string, text: string): Promise<void> {
+  const temp = `${file}.tmp`;
+  await fs.writeFile(temp, text, { mode: 0o600 });
+  await fs.rename(temp, file);
+}
 
 const vaultParams = z.object({ vaultId: z.string().uuid() });
 const enrollBody = z.object({ name: z.string().trim().min(1).max(80) }).strict();
-const modelLoginBody = z.union([
-  z.object({ key: z.string().trim().regex(/^sk-ant-api[0-9]{2}-[A-Za-z0-9_-]{20,300}$/u) }).strict(),
-  z.object({ oauthToken: z.string().trim().regex(/^sk-ant-oat[0-9]{2}-[A-Za-z0-9_-]{20,400}$/u) }).strict(),
-]);
 const claimBody = z.object({ initialRefreshToken: z.string().min(1).max(200), redemptionId: z.string().uuid() }).strict();
 
 function fail(reply: FastifyReply, status: number, code: string): FastifyReply {
@@ -93,8 +142,14 @@ export function registerOwnerAgentRoutes(instance: FastifyInstance, deps: AgentR
 
   instance.get('/vaults/:vaultId/agent-model', async (request, reply) => {
     if (ownerOf(request, reply) === null) return reply;
-    const has = (file: string) => fs.access(join(deps.secretsDir, file)).then(() => true, () => false);
-    const kind = (await has(MODEL_OAUTH_FILE)) ? 'subscription' : (await has(MODEL_KEY_FILE)) ? 'api-key' : null;
+    const saved = await fs.readFile(join(deps.secretsDir, BRAIN_FILE), 'utf8').catch(() => null);
+    let kind: string | null;
+    if (saved !== null) {
+      kind = (JSON.parse(saved) as Brain).provider;
+    } else {
+      const has = (file: string) => fs.access(join(deps.secretsDir, file)).then(() => true, () => false);
+      kind = (await has('model.oauth')) ? 'claude-code' : (await has('model.key')) ? 'anthropic' : null;
+    }
     reply.header('cache-control', 'no-store');
     return { configured: kind !== null, kind };
   });
@@ -104,16 +159,13 @@ export function registerOwnerAgentRoutes(instance: FastifyInstance, deps: AgentR
     const body = modelLoginBody.safeParse(request.body);
     // Never echo the body back, not even in an error.
     if (!body.success) return fail(reply, 400, 'INVALID_REQUEST');
-    // One login at a time: writing one removes the other.
-    const [write, drop, secret] =
-      'key' in body.data
-        ? [MODEL_KEY_FILE, MODEL_OAUTH_FILE, body.data.key]
-        : [MODEL_OAUTH_FILE, MODEL_KEY_FILE, body.data.oauthToken];
-    const file = join(deps.secretsDir, write);
-    const temp = `${file}.tmp`;
-    await fs.writeFile(temp, `${secret}\n`, { mode: 0o600 });
-    await fs.rename(temp, file);
-    await fs.rm(join(deps.secretsDir, drop), { force: true });
+    const { brain, secret } = brainOf(body.data);
+    // One brain at a time: the secret is written or removed with it.
+    const secretFile = join(deps.secretsDir, BRAIN_SECRET_FILE);
+    if (secret === undefined) await fs.rm(secretFile, { force: true });
+    else await writePrivate(secretFile, `${secret}\n`);
+    await writePrivate(join(deps.secretsDir, BRAIN_FILE), `${JSON.stringify(brain)}\n`);
+    for (const legacy of LEGACY_FILES) await fs.rm(join(deps.secretsDir, legacy), { force: true });
     reply.header('cache-control', 'no-store');
     return reply.status(204).send();
   });

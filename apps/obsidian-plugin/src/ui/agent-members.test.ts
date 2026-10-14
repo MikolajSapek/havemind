@@ -172,16 +172,39 @@ describe('adding an agent with one click (plans 015, 016)', () => {
     expect(added).toHaveLength(0);
     field().value = 'sk-ant-oat01-token';
     click(addButton);
-    expect(added[0]?.[2]).toEqual({ kind: 'subscription', secret: 'sk-ant-oat01-token' });
+    expect(added[0]?.[2]).toEqual({ kind: 'server', provider: 'claude-code', secret: 'sk-ant-oat01-token' });
   });
 
   it('takes an API key instead when chosen', async () => {
     const { click, added, els } = await render({ keyNeeded: true });
-    click((el) => el.attrs?.['data-brain'] === 'api-key');
+    click((el) => el.attrs?.['data-brain'] === 'anthropic');
     expect(els().some((el) => el.text === 'claude setup-token')).toBe(false);
     (els().find((el) => el.attrs?.['id'] === 'havemind-agent-key') as MockElement).value = 'sk-ant-api03-key';
     click(addButton);
-    expect(added[0]?.[2]).toEqual({ kind: 'api-key', secret: 'sk-ant-api03-key' });
+    expect(added[0]?.[2]).toEqual({ kind: 'server', provider: 'anthropic', secret: 'sk-ant-api03-key' });
+  });
+
+  it('uses a ChatGPT subscription through Codex, from its saved login', async () => {
+    const { click, added, els } = await render({ keyNeeded: true });
+    click((el) => el.attrs?.['data-brain'] === 'codex');
+    expect(els().some((el) => el.text === 'cat ~/.codex/auth.json | pbcopy')).toBe(true);
+    (els().find((el) => el.attrs?.['id'] === 'havemind-agent-key') as MockElement).value = '{"tokens":{}}';
+    click(addButton);
+    expect(added[0]?.[2]).toEqual({ kind: 'server', provider: 'codex', secret: '{"tokens":{}}' });
+  });
+
+  it('reaches any other model through an OpenAI-compatible service, filled in for the common ones', async () => {
+    const { click, added, els } = await render({ keyNeeded: true });
+    click((el) => el.attrs?.['data-brain'] === 'openai-compatible');
+    const field = (id: string) => els().find((el) => el.attrs?.['id'] === id) as MockElement;
+    expect(field('havemind-agent-base').value).toBe('https://openrouter.ai/api/v1');
+    field('havemind-agent-endpoint').value = 'ollama';
+    field('havemind-agent-endpoint').triggerEvent?.('change', {});
+    expect(field('havemind-agent-base').value).toBe('http://host.docker.internal:11434/v1');
+    click(addButton);
+    expect(added[0]?.[2]).toEqual({
+      kind: 'server', provider: 'openai-compatible', model: 'llama3.1', baseUrl: 'http://host.docker.internal:11434/v1',
+    });
   });
 
   it('runs on this computer with Claude Code only where that is possible', async () => {

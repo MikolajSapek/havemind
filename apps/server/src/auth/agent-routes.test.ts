@@ -173,9 +173,9 @@ describe('one-click agents (plan 015)', () => {
     });
     expect(put.statusCode).toBe(204);
     expect(put.body).toBe('');
-    expect((await status()).json()).toEqual({ configured: true, kind: 'api-key' });
+    expect((await status()).json()).toEqual({ configured: true, kind: 'anthropic' });
 
-    const file = join(s.secretsDir, 'model.key');
+    const file = join(s.secretsDir, 'brain.secret');
     expect(readFileSync(file, 'utf8').trim()).toBe(key);
     expect(statSync(file).mode & 0o777).toBe(0o600);
     const dump = s.database.prepare("SELECT group_concat(sql) AS s FROM sqlite_master").get() as { s: string };
@@ -197,14 +197,40 @@ describe('one-click agents (plan 015)', () => {
     const status = async () =>
       (await s.app.inject({ method: 'GET', url: `/vaults/${VAULT}/agent-model`, headers: { authorization: `Bearer ${s.owner}` } })).json();
     expect((await put({ oauthToken: 'sk-ant-oat01-' + 't'.repeat(40) })).statusCode).toBe(204);
-    expect(await status()).toEqual({ configured: true, kind: 'subscription' });
-    const oauthFile = join(s.secretsDir, 'model.oauth');
-    expect(statSync(oauthFile).mode & 0o777).toBe(0o600);
+    expect(await status()).toEqual({ configured: true, kind: 'claude-code' });
+    const secretFile = join(s.secretsDir, 'brain.secret');
+    expect(readFileSync(secretFile, 'utf8')).toContain('sk-ant-oat01-');
     expect((await put({ key: 'sk-ant-api03-' + 'k'.repeat(40) })).statusCode).toBe(204);
-    expect(await status()).toEqual({ configured: true, kind: 'api-key' });
-    expect(existsSync(oauthFile)).toBe(false);
+    expect(await status()).toEqual({ configured: true, kind: 'anthropic' });
+    expect(readFileSync(secretFile, 'utf8')).toContain('sk-ant-api03-');
     expect((await put({ oauthToken: 'sk-ant-api03-wrong-kind-' + 'x'.repeat(30) })).statusCode).toBe(400);
     expect((await put({ key: 'a', oauthToken: 'b' })).statusCode).toBe(400);
+  });
+
+  it('takes any provider the agents service can run, with its model, the secret kept apart (plan 016)', async () => {
+    const s = setup();
+    const put = (body: Record<string, string>) =>
+      s.app.inject({ method: 'PUT', url: `/vaults/${VAULT}/agent-model`, headers: { authorization: `Bearer ${s.owner}` }, body });
+    const status = async () =>
+      (await s.app.inject({ method: 'GET', url: `/vaults/${VAULT}/agent-model`, headers: { authorization: `Bearer ${s.owner}` } })).json();
+
+    expect((await put({ provider: 'codex', secret: '{"tokens":{"refresh_token":"r"}}', model: 'gpt-5-codex' })).statusCode).toBe(204);
+    expect(await status()).toEqual({ configured: true, kind: 'codex' });
+    expect(JSON.parse(readFileSync(join(s.secretsDir, 'brain.json'), 'utf8'))).toEqual({ provider: 'codex', model: 'gpt-5-codex' });
+    expect(readFileSync(join(s.secretsDir, 'brain.secret'), 'utf8')).toContain('refresh_token');
+    expect(statSync(join(s.secretsDir, 'brain.json')).mode & 0o777).toBe(0o600);
+    expect(statSync(join(s.secretsDir, 'brain.secret')).mode & 0o777).toBe(0o600);
+
+    expect((await put({ provider: 'openai-compatible', baseUrl: 'https://openrouter.ai/api/v1', model: 'google/gemini-2.5-pro', secret: 'sk-or-v1-abc' })).statusCode).toBe(204);
+    expect(await status()).toEqual({ configured: true, kind: 'openai-compatible' });
+    // Ollama on the same machine needs no key.
+    expect((await put({ provider: 'openai-compatible', baseUrl: 'http://localhost:11434/v1', model: 'llama3.1' })).statusCode).toBe(204);
+    expect(existsSync(join(s.secretsDir, 'brain.secret'))).toBe(false);
+
+    expect((await put({ provider: 'codex', secret: 'not json' })).statusCode).toBe(400);
+    expect((await put({ provider: 'openai-compatible', baseUrl: 'ftp://x', model: 'm' })).statusCode).toBe(400);
+    expect((await put({ provider: 'openai-compatible', baseUrl: 'http://example.com/v1', model: 'm' })).statusCode).toBe(400);
+    expect((await put({ provider: 'nonsense', secret: 'x' })).statusCode).toBe(400);
   });
 
   it('offers none of it on a server without an agents service', async () => {

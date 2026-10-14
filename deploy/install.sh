@@ -226,6 +226,8 @@ services:
     init: true
     restart: unless-stopped
     command: ["node", "agent/havemind-agent.mjs", "run"]
+    # A model on this machine (Ollama) is reachable as host.docker.internal.
+    extra_hosts: ["host.docker.internal:host-gateway"]
     env_file:
       - .env
       - path: agents.env

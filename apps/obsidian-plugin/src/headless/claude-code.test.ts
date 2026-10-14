@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { createClaudeCodeOneShot } from './claude-code';
+import { createClaudeCodeOneShot, createCliOneShot, createOpenAiCompatibleOneShot } from './claude-code';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -12,7 +12,10 @@ afterEach(() => {
 });
 
 /** A stand-in `claude` that records how it was called and answers like Claude Code. */
-function fakeClaude(answer: string, exitCode = 0): { bin: string; seen: () => { args: string[]; token: string; apiKey: string; stdin: string } } {
+function fakeClaude(answer: string, exitCode = 0): {
+  bin: string;
+  seen: () => { args: string[]; token: string; apiKey: string; stdin: string; cursorKey: string; codexAuth: string; codexAuthMode: number };
+} {
   const dir = mkdtempSync(join(tmpdir(), 'hm-fake-claude-'));
   dirs.push(dir);
   const log = join(dir, 'seen.json');
@@ -23,9 +26,18 @@ function fakeClaude(answer: string, exitCode = 0): { bin: string; seen: () => { 
 let stdin = '';
 process.stdin.on('data', (c) => (stdin += c));
 process.stdin.on('end', () => {
-  process.getBuiltinModule('fs').writeFileSync(${JSON.stringify(log)}, JSON.stringify({
-    args: process.argv.slice(2), token: process.env.CLAUDE_CODE_OAUTH_TOKEN || '', apiKey: process.env.ANTHROPIC_API_KEY || '', stdin }));
-  process.stdout.write(${JSON.stringify(answer)});
+  const fs = process.getBuiltinModule('fs');
+  const args = process.argv.slice(2);
+  const home = process.env.CODEX_HOME;
+  const auth = home ? home + '/auth.json' : '';
+  fs.writeFileSync(${JSON.stringify(log)}, JSON.stringify({
+    args, token: process.env.CLAUDE_CODE_OAUTH_TOKEN || '', apiKey: process.env.ANTHROPIC_API_KEY || '', stdin,
+    cursorKey: process.env.CURSOR_API_KEY || '',
+    codexAuth: auth && fs.existsSync(auth) ? fs.readFileSync(auth, 'utf8') : '',
+    codexAuthMode: auth && fs.existsSync(auth) ? fs.statSync(auth).mode & 0o777 : 0 }));
+  const o = args.indexOf('-o');
+  if (o !== -1) fs.writeFileSync(args[o + 1], ${JSON.stringify(answer)});
+  else process.stdout.write(${JSON.stringify(answer)});
   process.exit(${exitCode});
 });
 `,
@@ -59,5 +71,44 @@ describe('thinking with Claude Code (plan 016)', () => {
     const crashed = fakeClaude('', 3);
     await expect(createClaudeCodeOneShot({ bin: crashed.bin })('s', 'p')).rejects.toThrow(/code 3/u);
     await expect(createClaudeCodeOneShot({ bin: '/nonexistent/claude' })('s', 'p')).rejects.toThrow(/could not start/u);
+  });
+
+  it('asks Codex read-only, its ChatGPT login in a private 0600 auth.json', async () => {
+    const codex = fakeClaude('{"writes":[]}');
+    const ask = createCliOneShot('codex', { bin: codex.bin, secret: '{"tokens":"x"}', model: 'gpt-5-codex' });
+    expect(await ask('System.', 'Notes.')).toBe('{"writes":[]}');
+    const seen = codex.seen();
+    expect(seen.args).toEqual(expect.arrayContaining(['exec', '--sandbox', 'read-only', '--ephemeral', '-m', 'gpt-5-codex', '-']));
+    expect(seen.codexAuth).toBe('{"tokens":"x"}');
+    expect(seen.codexAuthMode).toBe(0o600);
+    expect(seen.stdin).toBe('System.\n\nNotes.');
+  });
+
+  it('asks Cursor Agent in its read-only mode, the key only in its environment', async () => {
+    const cursor = fakeClaude(JSON.stringify({ type: 'result', is_error: false, result: 'ok' }));
+    expect(await createCliOneShot('cursor', { bin: cursor.bin, secret: 'crsr_key' })('S', 'P')).toBe('ok');
+    const seen = cursor.seen();
+    expect(seen.args).toEqual(['-p', '--output-format', 'json', '--trust', '--mode', 'ask']);
+    expect(seen.cursorKey).toBe('crsr_key');
+  });
+
+  it('asks any OpenAI-compatible API (OpenRouter, Gemini, Ollama...)', async () => {
+    const calls: { url: string; body: unknown; auth: string | null }[] = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string, init: RequestInit) => {
+      calls.push({ url, body: JSON.parse(String(init.body)), auth: new Headers(init.headers).get('authorization') });
+      return new Response(JSON.stringify({ choices: [{ message: { content: 'answer' } }] }), { status: 200 });
+    }) as typeof fetch;
+    try {
+      const ask = createOpenAiCompatibleOneShot({ baseUrl: 'https://openrouter.ai/api/v1/', model: 'google/gemini-2.5-pro', apiKey: 'sk-or-1' });
+      expect(await ask('S', 'P')).toBe('answer');
+      expect(calls[0]?.url).toBe('https://openrouter.ai/api/v1/chat/completions');
+      expect(calls[0]?.auth).toBe('Bearer sk-or-1');
+      expect(calls[0]?.body).toMatchObject({ model: 'google/gemini-2.5-pro', messages: [{ role: 'system', content: 'S' }, { role: 'user', content: 'P' }] });
+      await createOpenAiCompatibleOneShot({ baseUrl: 'http://localhost:11434/v1', model: 'llama3' })('S', 'P');
+      expect(calls[1]?.auth).toBeNull();
+    } finally {
+      globalThis.fetch = realFetch;
+    }
   });
 });

@@ -7,6 +7,13 @@ import type { AddAgentModel, AgentLogin } from '../ui/screens/add-agent';
 
 import { writeTaskNote } from './invitations';
 
+const INVALID: Readonly<Record<string, string>> = {
+  'claude-code': 'That does not look like a token from claude setup-token (sk-ant-oat01-…).',
+  codex: 'That does not look like a Codex auth.json.',
+  anthropic: 'That does not look like an Anthropic API key (sk-ant-api03-…).',
+  'openai-compatible': 'Check the address (https, or http to this machine) and the model name.',
+};
+
 export class Agents {
   private formOpen = false;
   private keyNeeded: boolean | null = null;
@@ -55,16 +62,15 @@ export class Agents {
         return;
       }
       if (login !== null) {
-        const saved = await setModelKey(api, login);
+        const saved = await setModelKey(api, {
+          provider: login.provider,
+          ...(login.secret === undefined ? {} : { secret: login.secret }),
+          ...(login.model === undefined ? {} : { model: login.model }),
+          ...(login.baseUrl === undefined ? {} : { baseUrl: login.baseUrl }),
+        });
         if (saved !== 'saved') {
           // Never the secret itself in a message.
-          report(
-            saved === 'invalid'
-              ? login.kind === 'subscription'
-                ? 'That does not look like a token from claude setup-token (sk-ant-oat01-…).'
-                : 'That does not look like an Anthropic API key (sk-ant-api03-…).'
-              : 'Could not save it on the server.',
-          );
+          report(saved === 'invalid' ? INVALID[login.provider] ?? 'That login was refused.' : 'Could not save it on the server.');
           return;
         }
       }

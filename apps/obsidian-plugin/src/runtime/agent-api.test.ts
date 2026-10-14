@@ -43,13 +43,15 @@ describe('adding an agent with one click (plan 015)', () => {
     expect(await setModelKey(options, '  sk-ant-api03-abcdefghijklmnopqrstuvwxyz  ')).toBe('saved');
     expect(calls[0]?.method).toBe('PUT');
     expect(calls[0]?.url).not.toContain('sk-ant');
-    expect(JSON.parse(calls[0]?.body ?? '{}')).toEqual({ key: 'sk-ant-api03-abcdefghijklmnopqrstuvwxyz' });
+    expect(JSON.parse(calls[0]?.body ?? '{}')).toEqual({ provider: 'anthropic', secret: 'sk-ant-api03-abcdefghijklmnopqrstuvwxyz' });
     expect(await setModelKey(api(400).options, 'nope')).toBe('invalid');
   });
 
   it('sends a Claude subscription token under its own name (plan 016)', async () => {
     const { calls, options } = api(204);
-    expect(await setModelKey(options, { kind: 'subscription', secret: 'sk-ant-oat01-abc' })).toBe('saved');
-    expect(JSON.parse(calls[0]?.body ?? '{}')).toEqual({ oauthToken: 'sk-ant-oat01-abc' });
+    expect(await setModelKey(options, { provider: 'claude-code', secret: 'sk-ant-oat01-abc' })).toBe('saved');
+    expect(JSON.parse(calls[0]?.body ?? '{}')).toEqual({ provider: 'claude-code', secret: 'sk-ant-oat01-abc' });
+    await setModelKey(options, { provider: 'openai-compatible', baseUrl: 'https://openrouter.ai/api/v1', model: 'x/y' });
+    expect(JSON.parse(calls[1]?.body ?? '{}')).toEqual({ provider: 'openai-compatible', baseUrl: 'https://openrouter.ai/api/v1', model: 'x/y' });
   });
 });

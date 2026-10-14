@@ -14,12 +14,15 @@ havemind-agent
 havemind-agent-add
 havemind-agent-badge
 havemind-agent-badge-icon
+havemind-agent-base
 havemind-agent-brain
 havemind-agent-brain-detail
 havemind-agent-brain-sub
 havemind-agent-brain-title
 havemind-agent-brains
+havemind-agent-endpoint
 havemind-agent-key
+havemind-agent-model
 havemind-agent-name
 havemind-agent-section
 havemind-agent-tile

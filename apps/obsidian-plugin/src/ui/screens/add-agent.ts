@@ -10,9 +10,10 @@ import { AGENT_PRESETS, CUSTOM_AGENT, presetById, type AgentPreset } from '../..
 import { renderAgentIcon } from '../agent-icon';
 import { labelledField, renderFormStatus, renderViewTitle } from '../primitives';
 
-import { renderBrains } from './add-agent-login';
+import { renderBrains, type AgentBrain } from './add-agent-login';
 
-export type AgentBrain = 'subscription' | 'api-key' | 'local';
+export type { AgentBrain };
+
 
 export interface AddAgentModel {
   /** True: ask how it thinks; false: the server already has a login; null: checking. */
@@ -29,11 +30,24 @@ export interface AddAgentDraft {
   agentBrain?: AgentBrain;
 }
 
-/** What the agent thinks with, as the owner chose it; null keeps the server's login. */
+/** What the agent thinks with, as the owner chose it; null keeps the server's brain. */
 export type AgentLogin =
-  | { readonly kind: 'subscription' | 'api-key'; readonly secret: string }
+  | {
+      readonly kind: 'server';
+      readonly provider: 'claude-code' | 'codex' | 'anthropic' | 'openai-compatible';
+      readonly secret?: string;
+      readonly model?: string;
+      readonly baseUrl?: string;
+    }
   | { readonly kind: 'local' }
   | null;
+
+const MISSING: Readonly<Record<string, string>> = {
+  'claude-code': 'Paste the token from claude setup-token first.',
+  codex: 'Paste your Codex login (auth.json) first.',
+  anthropic: 'Paste the API key first.',
+  'openai-compatible': 'Give the address and the model first.',
+};
 
 export interface AddAgentActions {
   readonly onAdd: (presetId: string, name: string, login: AgentLogin, report: (message: string) => void) => void;
@@ -125,12 +139,17 @@ export function renderAddAgent(
       if (picked.brain === 'local') {
         login = { kind: 'local' };
       } else {
-        const secret = picked.secret();
-        if (secret === '') {
-          status.setText(picked.brain === 'subscription' ? 'Paste the token from claude setup-token first.' : 'Paste the API key first.');
+        const open = picked.brain === 'openai-compatible';
+        if (open ? picked.baseUrl === '' || picked.model === '' : picked.secret === '') {
+          status.setText(MISSING[picked.brain] ?? 'Fill in the login first.');
           return;
         }
-        login = { kind: picked.brain, secret };
+        login = {
+          kind: 'server',
+          provider: picked.brain,
+          ...(picked.secret === '' ? {} : { secret: picked.secret }),
+          ...(open ? { model: picked.model, baseUrl: picked.baseUrl } : {}),
+        };
       }
     }
     status.setText('Adding…');
