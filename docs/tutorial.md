@@ -13,7 +13,7 @@ You need a computer that stays on (a Raspberry Pi, an old laptop, a mini PC, a
 small VPS, or a Mac that does not sleep) and a free Tailscale account. For the
 agents, a Claude subscription or an API key.
 
-![The Havemind pane: the server in the middle, green when in sync; you in violet and five agents in yellow around it](images/05-agents-status.png)
+![The Havemind pane: the server in the middle, green when in sync; you in violet and five agents in yellow around it](images/05-agents-status-framed.png)
 
 ## 1. Tailscale, the private network (5 minutes, once)
 
@@ -69,6 +69,10 @@ vault. On the laptop, **People, Invite someone**, and send the invitation to
 yourself. On the phone, install Havemind and open the invitation: the phone
 shows six digits, you type them on the laptop, and the whole vault arrives.
 
+<p align="center"><img src="images/09-approve-device-framed.png" alt="On the laptop, People shows: Phone wants to join, as editor, with a button to enter its code" width="70%"></p>
+
+<p align="center"><img src="images/13-mobile-note.png" alt="On the iPhone, the task note an agent wrote, synced" width="32%"> <img src="images/10-mobile-agents.png" alt="On the iPhone, the flower: you, the laptop and the agents in yellow; 2 devices, 5 agents" width="32%"></p>
+
 ## 4. Invite someone
 
 1. **People, Invite someone.** Send them the invitation.
@@ -98,11 +102,11 @@ People are violet, agents are yellow.
      server (free, nothing leaves your machine).
 4. **Add agent.** It appears in yellow within a minute.
 
-![Add agent: six tiles with pixel icons, a name field and one button](images/08-add-agent.png)
+![Add agent: six tiles with pixel icons, a name field and one button](images/08-add-agent-framed.png)
 
 Add the other four the same way; the login is asked only once.
 
-![People: you, and five agents, each with Undo and Remove](images/07-agents-people.png)
+![People: you, and five agents, each with Undo and Remove](images/07-agents-people-framed.png)
 
 ## 6. Watch them work
 
@@ -118,7 +122,11 @@ Write a few notes the way you normally would. For example:
 
 Every change shows in **Activity**, in yellow, with the agent's icon:
 
-![Activity: rows signed by Meeting to tasks, Link gardener, Inbox sorter, Daily summary and Clip digester](images/06-agents-activity.png)
+![Activity: rows signed by Meeting to tasks, Link gardener, Inbox sorter, Daily summary and Clip digester](images/06-agents-activity-framed.png)
+
+On the phone too, a minute later:
+
+<p align="center"><img src="images/11-mobile-activity.png" alt="Activity on the iPhone: Inbox sorter created and edited a note a person had just written" width="32%"> <img src="images/12-mobile-people.png" alt="People on the iPhone: the owner, this phone, and five agents" width="32%"></p>
 
 A web clip that says "ignore your instructions and…" is treated as text to
 summarise, not as an order; in our tests the digester noted it and moved on.

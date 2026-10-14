@@ -11,10 +11,12 @@ the repository that README lives in.
 | `02-activity.png` | Activity feed |
 | `03-people.png` | People tab: owner and two editors |
 | `04-mobile.png` | The pane on an iPhone, cropped to the sidebar it opens in |
-| `05-agents-status.png` | Status with five agents in yellow around the server |
-| `06-agents-activity.png` | Activity rows signed by agents, with their icons |
-| `07-agents-people.png` | People: the owner and five agents |
-| `08-add-agent.png` | Add agent: the six tiles |
+| `05-agents-status-framed.png` | Status with five agents in yellow around the server, on a MacBook |
+| `06-agents-activity-framed.png` | Activity rows signed by agents, with their icons |
+| `07-agents-people-framed.png` | People: the owner and five agents |
+| `08-add-agent-framed.png` | Add agent: the six tiles |
+| `09-approve-device-framed.png` | The owner's card when a new device asks to join |
+| `10-mobile-agents.png` ... `13-mobile-note.png` | The same on an iPhone: flower, Activity, People, a note an agent wrote |
 | `*-framed.png` | The same captures composited into Apple device bezels; these are what the catalogue README uses |
 
 ## Rules for a new capture

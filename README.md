@@ -141,7 +141,12 @@ The long version, including backups and multiple vaults, is in
 </p>
 
 <p align="center">
+  <img src="docs/images/05-agents-status-framed.png" alt="The Status tab with AI agents: you in violet, five agents in yellow with pixel icons, around a green server" width="100%">
+</p>
+
+<p align="center">
   <img src="docs/images/04-mobile-framed.png" alt="The Havemind pane on an iPhone: the flower with a green core, and In sync" width="49%">
+  <img src="docs/images/11-mobile-activity.png" alt="Activity on an iPhone: Inbox sorter, an AI agent, filed a note a person had just written" width="49%">
 </p>
 
 ## What it will not do

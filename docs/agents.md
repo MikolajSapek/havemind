@@ -11,7 +11,7 @@ the agents to think: your Claude subscription, an API key, or a local Ollama
 (see How it thinks). New to Havemind? The [tutorial](tutorial.md) goes from
 zero to five working agents, with screenshots.
 
-![People: you, and five agents in yellow, each with Undo and Remove](images/07-agents-people.png)
+![People: you, and five agents in yellow, each with Undo and Remove](images/07-agents-people-framed.png)
 
 ## Ready-made agents
 
