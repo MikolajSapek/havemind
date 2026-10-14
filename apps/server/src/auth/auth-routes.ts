@@ -11,6 +11,11 @@ import {
 import { registerSyncRoutes, type SyncRoutesDeps } from '../sync/sync-routes.js';
 import type { InvitationService } from './invitations.js';
 import {
+  registerAgentServiceRoutes,
+  registerOwnerAgentRoutes,
+  type AgentRoutesDeps,
+} from './agent-routes.js';
+import {
   registerOwnerInvitationRoutes,
   registerPreAuthOnboardingRoutes,
 } from './onboarding-routes.js';
@@ -62,6 +67,8 @@ export interface AuthRoutesDeps {
   readonly clientKey?: (request: FastifyRequest) => string | null;
   readonly sync?: SyncRoutesDeps;
   readonly invitations?: InvitationService;
+  /** One-click agents (plan 015), present only when the server has an agents service. */
+  readonly agents?: Pick<AgentRoutesDeps, 'serviceToken' | 'secretsDir' | 'apiBaseUrl'>;
   /**
    * Server-wide default per-vault quota reported to members alongside usage when
    * a vault has no explicit `quota_bytes`. Defaults to
@@ -370,6 +377,9 @@ export function registerAuthRoutes(
         return undefined;
       });
       registerPreAuthOnboardingRoutes(instance, onboardingDeps);
+      if (deps.agents !== undefined) {
+        registerAgentServiceRoutes(instance, { ...deps.agents, database: deps.database, invitations: onboardingDeps.invitations });
+      }
     });
   }
 
@@ -429,6 +439,9 @@ export function registerAuthRoutes(
 
     if (onboardingDeps !== undefined) {
       registerOwnerInvitationRoutes(instance, onboardingDeps);
+      if (deps.agents !== undefined) {
+        registerOwnerAgentRoutes(instance, { ...deps.agents, database: deps.database, invitations: onboardingDeps.invitations });
+      }
     }
 
     if (deps.sync !== undefined) {

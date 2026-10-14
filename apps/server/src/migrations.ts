@@ -179,6 +179,15 @@ const memberKindMigration: MigrationDefinition = Object.freeze({
   version: 8,
 });
 
+const agentEnrollmentsMigration: MigrationDefinition = Object.freeze({
+  name: 'agent-enrollments',
+  sql: readFileSync(
+    new URL('./migrations/009-agent-enrollments.sql', import.meta.url),
+    'utf8',
+  ),
+  version: 9,
+});
+
 export const DEFAULT_MIGRATIONS: readonly MigrationDefinition[] = Object.freeze([
   initialMigration,
   onboardingMigration,
@@ -188,6 +197,7 @@ export const DEFAULT_MIGRATIONS: readonly MigrationDefinition[] = Object.freeze(
   rejoinSecretMigration,
   deviceVaultScopeMigration,
   memberKindMigration,
+  agentEnrollmentsMigration,
 ]);
 
 export const CURRENT_SCHEMA_VERSION =

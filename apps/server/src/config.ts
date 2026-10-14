@@ -70,6 +70,14 @@ export interface ServerConfig {
    */
   readonly trustedProxies: readonly string[];
   readonly vaultQuotaBytes: number;
+  /**
+   * One-click agents (plan 015): set together, they enable the agent
+   * enrollment and claim routes. The token is shared only with the agents
+   * service; the directory holds the model key file, outside the database
+   * and its backups.
+   */
+  readonly agentServiceToken?: string;
+  readonly agentSecretsDir?: string;
 }
 
 export class ConfigValidationError extends Error {
@@ -131,7 +139,13 @@ export function parseServerConfig(environment: ServerEnvironment): ServerConfig 
     environment.HAVEMIND_TRUSTED_PROXIES,
   );
 
+  const agentService = parseAgentService(
+    environment.HAVEMIND_AGENT_SERVICE_TOKEN,
+    environment.HAVEMIND_AGENT_SECRETS_DIR,
+  );
+
   return Object.freeze({
+    ...agentService,
     apiBaseUrl,
     bodyLimitBytes,
     host,
@@ -142,6 +156,28 @@ export function parseServerConfig(environment: ServerEnvironment): ServerConfig 
     trustedProxies,
     vaultQuotaBytes,
   });
+}
+
+const MIN_SERVICE_TOKEN_LENGTH = 32;
+
+function parseAgentService(
+  token: string | undefined,
+  secretsDir: string | undefined,
+): { agentServiceToken?: string; agentSecretsDir?: string } {
+  const t = token?.trim() ?? '';
+  const d = secretsDir?.trim() ?? '';
+  if (t === '' && d === '') return {};
+  if (t === '' || d === '') {
+    throw new ConfigValidationError([
+      'HAVEMIND_AGENT_SERVICE_TOKEN and HAVEMIND_AGENT_SECRETS_DIR must be set together',
+    ]);
+  }
+  if (t.length < MIN_SERVICE_TOKEN_LENGTH) {
+    throw new ConfigValidationError([
+      `HAVEMIND_AGENT_SERVICE_TOKEN must be at least ${MIN_SERVICE_TOKEN_LENGTH} characters`,
+    ]);
+  }
+  return { agentServiceToken: t, agentSecretsDir: d };
 }
 
 function parseApiBaseUrl(value: string | undefined): string {

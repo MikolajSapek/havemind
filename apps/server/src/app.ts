@@ -113,7 +113,18 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
   });
 
   if (options.auth !== undefined) {
-    registerAuthRoutes(app, options.auth);
+    registerAuthRoutes(app, {
+      ...options.auth,
+      ...(options.config.agentServiceToken === undefined || options.config.agentSecretsDir === undefined
+        ? {}
+        : {
+            agents: {
+              serviceToken: options.config.agentServiceToken,
+              secretsDir: options.config.agentSecretsDir,
+              apiBaseUrl: options.config.apiBaseUrl,
+            },
+          }),
+    });
     // F9 rejoin surface: a self-contained encapsulated plugin registered
     // alongside (not inside) auth-routes, so re-admitting a known contact after
     // a terminal auth failure needs no change to the auth-routes module.
@@ -176,8 +187,11 @@ function createDiscoveryDocument(config: ServerConfig): DiscoveryDocument {
   return discoveryDocumentSchema.parse({
     apiBaseUrl: config.apiBaseUrl,
     authMethods: ['opaque-token'],
-    // Plan 014: members can be AI agents (memberships.kind).
-    capabilities: ['agent-members-v1'],
+    // Plan 014: members can be AI agents (memberships.kind). Plan 015: this
+    // server adds them with one click, through its agents service.
+    capabilities: config.agentServiceToken === undefined
+      ? ['agent-members-v1']
+      : ['agent-members-v1', 'agent-service-v1'],
     name: config.serverName,
     protocol: {
       major: PROTOCOL_MAJOR_VERSION,

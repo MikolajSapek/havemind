@@ -30,6 +30,7 @@ const FROZEN: Readonly<Record<number, string>> = {
   6: '409bb2b61baff58c40ee7d5d6f40dba6f4a147891a48ab9e81b6393ac99efe2f',
   7: 'b667f3f25d6b27dcd798156ba7f5ebf5d570757a3151a410da0d966665e30ad6',
   8: '896f6df2297f650522e9ee9f9210e39d6dcf09448451ff8bbbcbe53764a0395a',
+  9: '6ec90f5f92ce53bda2bbe93f87d21809fc1243d8a1a90eeae81d46ac87a6c3e8',
 };
 
 describe('applied migrations are immutable', () => {
