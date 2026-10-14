@@ -135,8 +135,12 @@ After tagging the source repo, mirror it:
    workflow builds the GitHub release from there.
 4. Verify with `gh release list --repo mikolajsapek/obsidian-havemind`, not just
    the source repo's.
+5. Give the distribution release its notes:
+   `gh release edit X.Y.Z --repo mikolajsapek/obsidian-havemind --notes-file docs/release-notes/X.Y.Z.md`.
+   Its workflow creates the release without a body, and the catalogue review
+   flags a release with no description (2026-10-14).
 
-A release is reported as done only after step 4.
+A release is reported as done only after step 5.
 
 ### The README is part of the release, not documentation about it
 
