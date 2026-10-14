@@ -20,7 +20,7 @@ and the server.
 
 - Plugin: "Show history of this note", in the command palette and the file
   menu (plan 012). Every synced version of the note with who made it and
-  when, the difference between a picked version and the note now, and a
+  when it reached the server, the difference between a picked version and the note now, and a
   two-step Restore that writes it back as a normal edit. Plugin-only: the
   time comes from the `serverTime` every server already puts on each receipt.
 

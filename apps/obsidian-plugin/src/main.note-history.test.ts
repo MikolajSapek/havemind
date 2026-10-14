@@ -66,6 +66,16 @@ describe('Show history of this note', () => {
     expect(texts.some((t) => t.startsWith('Hubert · '))).toBe(true);
   });
 
+  it('tells the user when the history cannot be loaded', async () => {
+    const plugin = connectedPlugin();
+    (plugin as unknown as { connection: { noteEvents: () => Promise<unknown> } }).connection.noteEvents = async () =>
+      Promise.reject(new Error('offline'));
+    const before = registrationState.notices.length;
+    command('note-history')?.checkCallback?.(false);
+    await settle();
+    expect(registrationState.notices.slice(before).some((n) => /could not load this note's history/i.test(n))).toBe(true);
+  });
+
   it('offers the same in the file menu of a synced note, and not of an unsynced one', () => {
     connectedPlugin();
     const synced = new Menu();

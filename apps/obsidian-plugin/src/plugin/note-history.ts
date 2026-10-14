@@ -1,6 +1,6 @@
 /** "Show history of this note" (plan 012): the command and the file menu item. */
 
-import type { EventRef } from 'obsidian';
+import { Notice, type EventRef } from 'obsidian';
 
 import type HavemindPlugin from '../main';
 import { buildNoteHistory } from '../runtime/note-history';
@@ -32,7 +32,13 @@ async function open(plugin: Host, note: NoteFile, fileId: string): Promise<void>
   const connection = plugin.connection;
   if (connection?.noteEvents === undefined || connection.revisionContent === undefined) return;
   const loadVersion = connection.revisionContent;
-  const events = await connection.noteEvents(fileId);
+  let events;
+  try {
+    events = await connection.noteEvents(fileId);
+  } catch {
+    new Notice("Havemind: could not load this note's history. Check the connection and try again.");
+    return;
+  }
   const vault = plugin.app as unknown as { vault: { read: (file: NoteFile) => Promise<string> } };
   new NoteHistoryModal(plugin.app, {
     title: note.basename ?? note.path,

@@ -64,6 +64,20 @@ describe('note history window (plan 012)', () => {
     expect(button(root, 'Restore this version')).toBeUndefined();
   });
 
+  it('says so when a version cannot be loaded, never a blank area', async () => {
+    const root = createContent();
+    renderNoteHistory(asEl(root), deps({ loadVersion: async () => Promise.reject(new Error('offline')) }));
+    button(root, 'Hubert')?.triggerClick();
+    await settle();
+    expect(texts(root).some((t) => /could not load this version/i.test(t))).toBe(true);
+  });
+
+  it('says the times are when each version reached the server', () => {
+    const root = createContent();
+    renderNoteHistory(asEl(root), deps());
+    expect(texts(root).some((t) => /reached the server/i.test(t))).toBe(true);
+  });
+
   it('says so when there is no history yet', () => {
     const root = createContent();
     renderNoteHistory(asEl(root), deps({ rows: [] }));

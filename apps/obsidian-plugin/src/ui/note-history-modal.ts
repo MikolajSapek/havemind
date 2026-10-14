@@ -28,6 +28,9 @@ export function renderNoteHistory(container: HTMLElement, deps: NoteHistoryDeps)
     container.createDiv({ text: 'No synced versions of this note yet.' }).addClass('havemind-hint');
     return;
   }
+  container
+    .createDiv({ text: 'Times are when each version reached the server.' })
+    .addClass('havemind-hint');
   const list = container.createDiv();
   list.addClass('havemind-history-list');
   const detail = container.createDiv();
@@ -43,7 +46,16 @@ export function renderNoteHistory(container: HTMLElement, deps: NoteHistoryDeps)
 
 async function showVersion(detail: HTMLElement, revisionId: string, deps: NoteHistoryDeps): Promise<void> {
   detail.empty();
-  const [version, now] = await Promise.all([deps.loadVersion(revisionId), deps.currentText()]);
+  let version: RevisionContent | null;
+  let now: string;
+  try {
+    [version, now] = await Promise.all([deps.loadVersion(revisionId), deps.currentText()]);
+  } catch {
+    detail
+      .createDiv({ text: 'Could not load this version. Check the connection and try again.' })
+      .addClass('havemind-hint');
+    return;
+  }
   if (version === null) {
     detail
       .createDiv({ text: 'This version has no text to show: it is a deletion or an attachment.' })

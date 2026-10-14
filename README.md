@@ -110,7 +110,8 @@ The long version, including backups and multiple vaults, is in
   then, as a normal edit that syncs; the current text stays in history.
 - **Every note has its history.** "Show history of this note" (command
   palette or the file menu) lists each synced version with who made it and
-  when, shows how a version differs from the note now, and restores it.
+  when it reached the server, shows how a version differs from the note now,
+  and restores it.
 - **Notes, attachments and how the vault looks.** Markdown notes, images and
   PDFs up to 25 MB, plus your theme, snippets, hotkeys and
   graph settings.
