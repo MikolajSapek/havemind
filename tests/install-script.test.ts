@@ -95,6 +95,29 @@ describe('install.sh', () => {
     expect(source).toMatch(/^name: havemind-install$/m);
   });
 
+  it('runs to the end when piped into bash and a command reads stdin', () => {
+    // `curl … | bash` feeds the script on stdin; `docker compose exec` read the
+    // rest of it, so bash stopped after "Your vault" with exit 0 (AWS, 1.9.1).
+    const bin = mkdtempSync(join(tmpdir(), 'hm-install-bin-'));
+    writeFileSync(join(bin, 'docker'), '#!/bin/sh\ncat >/dev/null\nexit 0\n');
+    writeFileSync(join(bin, 'tailscale'), '#!/bin/sh\nexit 0\n');
+    chmodSync(join(bin, 'docker'), 0o755);
+    chmodSync(join(bin, 'tailscale'), 0o755);
+    const out = execFileSync('bash', [], {
+      encoding: 'utf8',
+      input: source,
+      env: {
+        ...process.env,
+        PATH: `${bin}:${process.env.PATH ?? ''}`,
+        HAVEMIND_DRY_RUN: '1',
+        HAVEMIND_YES: '1',
+        HAVEMIND_DNS_NAME: 'box.your-tailnet.ts.net',
+        HAVEMIND_HOME: mkdtempSync(join(tmpdir(), 'hm-install-home-')),
+      },
+    });
+    expect(out).toContain('==> Done');
+  });
+
   it('never sources os-release into its own shell', () => {
     // /etc/os-release sets VERSION; sourcing it at top level replaced the image
     // tag with "24.04.5 LTS (Noble Numbat)" on Ubuntu (CI, 1.9.0).

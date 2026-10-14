@@ -60,6 +60,11 @@ ask_value() {
   printf '%s' "${answer:-$fallback}"
 }
 
+# Everything runs inside main(), called on the last line: with `curl | bash`
+# the script arrives on stdin, and a command that reads stdin (docker compose
+# exec) would otherwise eat the rest of it and end the install silently.
+main() {
+
 # ---------------------------------------------------------------------------
 # 1. The machine
 # ---------------------------------------------------------------------------
@@ -285,3 +290,6 @@ elif [ "$NEW_CODE" = "1" ]; then
 else
   say "Server updated. Your devices stay connected."
 fi
+}
+
+main "$@"

@@ -7,6 +7,15 @@ and the server.
 
 ## [Unreleased]
 
+## [1.9.2], 2026-10-14
+
+### Fixed
+
+- Installer: run as `curl ... | bash`, it stopped silently after "Your vault"
+  without printing the code, because `docker compose exec` read the rest of
+  the script from stdin. The script now runs from a function that bash reads
+  in full first. Tested piped on Ubuntu 24.04 arm64, fresh and re-run.
+
 ## [1.9.1], 2026-10-14
 
 ### Fixed

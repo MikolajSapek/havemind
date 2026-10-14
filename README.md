@@ -17,7 +17,7 @@ you own passes the changes around and remembers who wrote what.
 Built for people. If you also run Claude, MCP or another local agent in that
 vault, its edits land in the same history.
 
-**Version 1.9.1, desktop and mobile.** Your own server now installs with one command. A two-week pilot on two devices lost no
+**Version 1.9.2, desktop and mobile.** Your own server now installs with one command. A two-week pilot on two devices lost no
 data, including through three real incidents.
 
 There is no end-to-end encryption. Your server stores the vault in plaintext,
