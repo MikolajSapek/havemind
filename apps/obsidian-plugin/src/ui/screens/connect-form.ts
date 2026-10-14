@@ -71,6 +71,9 @@ export interface PaneDraft {
   server: string;
   role: string;
   name: string;
+  /** The one-click agent form's picks (plan 015). */
+  agentTask?: string;
+  agentName?: string;
 }
 
 /** Every live field the pane has handed out this render. */

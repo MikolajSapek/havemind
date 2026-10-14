@@ -11,6 +11,7 @@
 
 import type { Plugin } from 'obsidian';
 
+import type { AgentApiOptions } from '../agent-api';
 import {
   approveRedeemedDevice,
   rejectPendingDevice,
@@ -258,4 +259,25 @@ export async function fetchMemberRosterForVault(
     selfMembershipId: options.selfMembershipId,
     vaultId: connected.vaultId,
   });
+}
+
+/**
+ * Owner-only (plan 015): the connected vault's one-click agent calls, or null
+ * when this device is not connected. Same session as every other owner action.
+ */
+export async function agentApiForOwner(plugin: Plugin): Promise<AgentApiOptions | null> {
+  const connected = await resolveConnectedVault(plugin);
+  if (connected === null) return null;
+  const clientInstanceId = await ensureClientInstanceId(createClientInstanceRepo(plugin));
+  const secrets = new ObsidianOnboardingSecrets({
+    clientInstanceId,
+    secretStorage: plugin.app.secretStorage,
+  });
+  const accessProvider = sharedAccessProvider(plugin, connected.apiBaseUrl, secrets);
+  return {
+    requestUrl: createRequestUrlFn(),
+    apiBaseUrl: connected.apiBaseUrl,
+    vaultId: connected.vaultId,
+    getAccessToken: () => accessProvider.getAccessToken(),
+  };
 }

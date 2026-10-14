@@ -22,7 +22,7 @@ import { AGENT_JOIN_COMMAND, presetById, taskNoteFor, taskNotePath } from '../ru
 import { errorMessage } from './error-message';
 
 /** Writes an agent's task note from its preset, never over one already there. */
-async function writeTaskNote(plugin: HavemindPlugin, name: string, presetId: string | undefined): Promise<string> {
+export async function writeTaskNote(plugin: HavemindPlugin, name: string, presetId: string | undefined): Promise<string> {
   const { vault } = plugin.app as unknown as AppWithVault;
   const path = taskNotePath(name);
   for (const folder of ['Havemind', 'Havemind/Agents']) {

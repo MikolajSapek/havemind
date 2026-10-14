@@ -31,7 +31,7 @@ export interface ConnectedBodyState {
 
 /** The renderers the body delegates to, all owned by the view. */
 export interface ConnectedBodyScreens {
-  readonly renderIndicator: (content: HTMLElement, panel: ConnectionPanelView) => void;
+  readonly renderIndicator: (content: HTMLElement, panel: ConnectionPanelView, compact?: boolean) => void;
   readonly renderSendQueue: (content: HTMLElement) => void;
   readonly renderConflicts: (content: HTMLElement) => void;
   readonly renderEntryPath: (content: HTMLElement) => void;
@@ -100,7 +100,9 @@ export function renderConnectedBody(
     // it is open. Everywhere else it stays in the Status tab, where a calm pane
     // wants it.
     if (composer !== null) {
-      renderSection(content, 'status', () => screens.renderIndicator(content, panel));
+      // One compact line (owner, 2026-10-14): the full block read as an older
+      // design over the form; the line alone keeps "connected" visible.
+      renderSection(content, 'status', () => screens.renderIndicator(content, panel, true));
     }
 
     const tabs = screens.paneTabs(composer != null);

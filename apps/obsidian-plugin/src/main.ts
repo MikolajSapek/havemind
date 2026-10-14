@@ -34,6 +34,7 @@ import {
 import { registerCommands } from './plugin/commands';
 import { Conflicts } from './plugin/conflicts';
 import { errorMessage } from './plugin/error-message';
+import { Agents } from './plugin/agents';
 import { Invitations } from './plugin/invitations';
 import { People } from './plugin/people';
 import { InviteeRejoin } from './plugin/rejoin';
@@ -121,6 +122,7 @@ export default class HavemindPlugin extends Plugin {
   syncState: DurableSyncState | null = null;
   readonly people = new People(this);
   readonly invitations = new Invitations(this);
+  readonly agents = new Agents(this);
   readonly rejoin = new InviteeRejoin(this);
   readonly conflicts = new Conflicts(this);
   readonly sendQueue = new SendQueue(this);
@@ -158,6 +160,13 @@ export default class HavemindPlugin extends Plugin {
           void this.invitations.openCreateConnectionView();
         },
         onCloseComposer: () => this.invitations.closeCreateConnectionView(),
+        addAgentProvider: () => this.agents.model(),
+        agentNoticeProvider: () => this.agents.notice,
+        onOpenAddAgent: () => this.agents.open(),
+        onCloseAddAgent: () => this.agents.close(),
+        onAddAgent: (presetId, name, key, report) => {
+          void this.agents.add(presetId, name, key, report);
+        },
         onSyncNow: () => {
           void this.syncNow();
         },

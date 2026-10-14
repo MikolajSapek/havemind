@@ -25,6 +25,8 @@ export function renderStatusIndicator(
   panel: ConnectionPanelView,
   actions: StatusIndicatorActions = {},
   includeRecovery = true,
+  /** One line, no details: over a form, where the details are noise. */
+  compact = false,
 ): void {
     const row = content.createDiv({ text: '' });
     row.addClass('havemind-status');
@@ -42,6 +44,10 @@ export function renderStatusIndicator(
       setIcon(icon, panel.icon);
     }
     row.createEl('span', { text: ` ${panel.label}` });
+    if (compact) {
+      if (includeRecovery) renderRecoveryActions(content, panel, actions);
+      return;
+    }
     const detail = content.createDiv();
     detail.addClass('havemind-status-detail');
     for (const part of panel.detail.split(' · ')) {

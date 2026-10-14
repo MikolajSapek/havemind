@@ -8,6 +8,7 @@
  * nothing that imported them has to change.
  */
 
+import type { AddAgentModel } from './screens/add-agent';
 import type { RevisionRecord } from '../activity/activity';
 import type { ConflictCopy } from '../runtime/conflict-resolution';
 import type { CreatedInvitation } from '../runtime/create-invitation';
@@ -106,6 +107,13 @@ export interface OnboardingViewOptions {
   readonly onOpenComposer?: () => void;
   /** Closes the owner's invite composer and returns to the People tab. */
   readonly onCloseComposer?: () => void;
+  /** The one-click "Add agent" form while open (plan 015), else null. */
+  readonly addAgentProvider?: () => AddAgentModel | null;
+  /** The line People shows after an agent was added. */
+  readonly agentNoticeProvider?: () => string | undefined;
+  readonly onOpenAddAgent?: () => void;
+  readonly onCloseAddAgent?: () => void;
+  readonly onAddAgent?: (presetId: string, name: string, key: string | null, report: ConnectReporter) => void;
   /** Forces a sync cycle from the action bar, matching the `sync-now` command. */
   readonly onSyncNow?: () => void;
   /**

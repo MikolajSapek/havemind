@@ -18,13 +18,14 @@ import type { ConnectDraft, ConnectLiveInputs } from './connect-form';
 import { renderInviteComposer } from './invite-composer';
 import { renderPeopleTab } from './people-tab';
 import { renderConflicts, renderSendQueue } from './alarms';
+import type { AddAgentDraft } from './add-agent';
 import { renderStatusIndicator } from './status-indicator';
 import { renderStatusHero } from './status-hero';
 import type { TabBodyScreens } from './tab-body';
 
 export interface TabScreensContext {
   readonly options: OnboardingViewOptions;
-  readonly draft: ConnectDraft & { role: string; name: string };
+  readonly draft: ConnectDraft & { role: string; name: string } & AddAgentDraft;
   readonly liveInputs: ConnectLiveInputs & {
     role?: HTMLElement | undefined;
     name?: HTMLElement | undefined;
@@ -79,6 +80,20 @@ export function buildTabScreens(context: TabScreensContext): TabBodyScreens {
             onReject: options.onReject,
           }),
         onOpenComposer: options.onOpenComposer,
+        ...(options.onAddAgent === undefined
+          ? {}
+          : {
+              addAgent: {
+                model: options.addAgentProvider?.() ?? null,
+                draft: context.draft,
+                actions: {
+                  onAdd: options.onAddAgent,
+                  onClose: () => options.onCloseAddAgent?.(),
+                },
+                ...(options.onOpenAddAgent === undefined ? {} : { onOpen: options.onOpenAddAgent }),
+                ...(options.agentNoticeProvider?.() === undefined ? {} : { notice: options.agentNoticeProvider?.() as string }),
+              },
+            }),
         pending: (() => {
           try {
             return options.pendingApprovalsProvider?.() ?? [];
@@ -96,16 +111,19 @@ export function buildTabScreens(context: TabScreensContext): TabBodyScreens {
  * them outside the tabs, above the strip.
  */
 export function buildBodyRenderers(options: OnboardingViewOptions): {
-  renderIndicator: (target: HTMLElement, panel: ConnectionPanelView) => void;
+  renderIndicator: (target: HTMLElement, panel: ConnectionPanelView, compact?: boolean) => void;
   renderSendQueue: (target: HTMLElement) => void;
   renderConflicts: (target: HTMLElement) => void;
 } {
   return {
-    renderIndicator: (target, panel) =>
-      renderStatusIndicator(target, panel, {
-        onRetry: options.onRetry,
-        onReset: options.onReset,
-      }),
+    renderIndicator: (target, panel, compact = false) =>
+      renderStatusIndicator(
+        target,
+        panel,
+        { onRetry: options.onRetry, onReset: options.onReset },
+        true,
+        compact,
+      ),
     renderSendQueue: (target) =>
       renderSendQueue(target, {
         recoveryRequired: options.recoveryRequiredProvider?.() ?? false,

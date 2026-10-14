@@ -106,6 +106,7 @@ export {
 } from './adapters/connect-flows';
 
 export {
+  agentApiForOwner,
   approvePendingDeviceForOwner,
   rejectPendingDeviceForOwner,
   createInvitationForOwner,

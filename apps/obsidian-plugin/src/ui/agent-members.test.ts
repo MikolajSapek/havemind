@@ -128,3 +128,41 @@ describe('inviting an AI agent (plan 014)', () => {
     expect(created[0]?.[3]).toBe('inbox-sorter');
   });
 });
+
+describe('adding an agent with one click (plan 015)', () => {
+  async function render(model: { keyNeeded: boolean | null; unsupported?: boolean }) {
+    const { renderAddAgent } = await import('./screens/add-agent');
+    const { createMockElement } = await import('../test/obsidian.mock');
+    const root = createMockElement();
+    const added: unknown[][] = [];
+    renderAddAgent(root as unknown as HTMLElement, model, {}, {
+      onAdd: (...args: unknown[]) => added.push(args),
+      onClose: () => undefined,
+    });
+    return { els: flatten(root), added };
+  }
+
+  it('adds the picked task under its own name, with no code to copy', async () => {
+    const { els, added } = await render({ keyNeeded: false });
+    expect(els.find((el) => el.attrs?.['id'] === 'havemind-agent-key')).toBeUndefined();
+    els.find((el) => el.text === 'Add agent')?.triggerClick();
+    expect(added[0]?.slice(0, 3)).toEqual(['inbox-sorter', 'Inbox sorter', null]);
+  });
+
+  it('asks for the key once, in a password field, and not without it', async () => {
+    const { els, added } = await render({ keyNeeded: true });
+    const key = els.find((el) => el.attrs?.['id'] === 'havemind-agent-key');
+    expect(key?.attrs?.['type'] ?? (key as { type?: string } | undefined)?.type).toBe('password');
+    els.find((el) => el.text === 'Add agent')?.triggerClick();
+    expect(added).toHaveLength(0);
+    (key as MockElement).value = 'sk-ant-api03-key';
+    els.find((el) => el.text === 'Add agent')?.triggerClick();
+    expect(added[0]?.[2]).toBe('sk-ant-api03-key');
+  });
+
+  it('says so plainly on a server that cannot do it', async () => {
+    const { els } = await render({ keyNeeded: null, unsupported: true });
+    expect(els.some((el) => /cannot add agents with one click/u.test(el.text ?? ''))).toBe(true);
+    expect(els.find((el) => el.text === 'Add agent')).toBeUndefined();
+  });
+});

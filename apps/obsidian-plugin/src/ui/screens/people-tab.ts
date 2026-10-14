@@ -10,6 +10,8 @@
 import type { CreateConnectionViewModel, PendingApprovalEntry } from '../onboarding-view';
 import { renderSection } from '../primitives';
 
+import { renderAddAgent, type AddAgentActions, type AddAgentDraft, type AddAgentModel } from './add-agent';
+
 export interface PeopleTabActions {
   readonly renderRoster: (content: HTMLElement) => void;
   readonly renderComposer: (
@@ -17,6 +19,8 @@ export interface PeopleTabActions {
     model: CreateConnectionViewModel,
   ) => void;
   readonly onOpenComposer?: (() => void) | undefined;
+  /** One-click agents (plan 015): the open form, its draft and actions. */
+  readonly addAgent?: { model: AddAgentModel | null; draft: AddAgentDraft; actions: AddAgentActions; onOpen?: () => void; notice?: string };
   /** Devices waiting for approval, shown even while the composer is closed. */
   readonly pending?: readonly PendingApprovalEntry[];
   readonly now?: number;
@@ -64,9 +68,21 @@ export function renderPeopleTab(
     return;
   }
 
+  const agent = actions.addAgent;
+  if (agent?.model != null) {
+    renderAddAgent(body, agent.model, agent.draft, agent.actions);
+    return;
+  }
+  if (agent?.notice !== undefined) body.createDiv({ text: agent.notice }).addClass('havemind-hint');
+
   if (actions.onOpenComposer !== undefined) {
     const open = body.createEl('button', { text: 'Invite someone' });
     open.addClass('havemind-invite-cta');
     open.onClickEvent(() => actions.onOpenComposer?.());
+  }
+  if (agent?.onOpen !== undefined) {
+    const openAgent = body.createEl('button', { text: 'Add agent' });
+    openAgent.addClass('havemind-invite-cta');
+    openAgent.onClickEvent(() => agent.onOpen?.());
   }
 }

@@ -11,6 +11,9 @@ havemind-activity-time
 havemind-activity-title
 havemind-activity-trail
 havemind-agent
+havemind-agent-key
+havemind-agent-name
+havemind-agent-task
 havemind-agents
 havemind-alarm
 havemind-alarm-conflict

@@ -135,4 +135,14 @@ describe('UI-03, the composer is a modal over the panel (AT3-2)', () => {
 
     expect(texts(root).some((t) => /synced/i.test(t))).toBe(true);
   });
+
+  it('keeps it to one compact line, not the old block of details', () => {
+    // Owner, 2026-10-14: the block that appeared over Invite someone looked
+    // like an older design. One line still proves the vault is connected,
+    // also on a phone, which has no status bar.
+    const root = syncedPane({
+      composerProvider: () => ({ role: 'editor' as const, name: '', invitation: null, pending: [] }),
+    });
+    expect(texts(root).some((t) => /Private Tailscale network|Encrypted in transit/u.test(t))).toBe(false);
+  });
 });
