@@ -105,6 +105,8 @@ interface MemberRow {
   // the roster here, under its access token, instead of the legacy /members
   // route that authenticates with the refresh token.
   readonly membershipId: string;
+  /** person or agent (plan 014). */
+  readonly kind: string;
   readonly role: string;
 }
 
@@ -306,7 +308,8 @@ function loadVaultMembers(
     .prepare(
       `SELECT users.display_name AS displayName,
               memberships.id AS membershipId,
-              memberships.role AS role
+              memberships.role AS role,
+              memberships.kind AS kind
        FROM memberships
        INNER JOIN users ON users.id = memberships.user_id
        WHERE memberships.vault_id = ? AND memberships.status = 'active'

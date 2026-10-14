@@ -82,7 +82,7 @@ describe('deny-by-default auth-routes', () => {
     expect(response.headers['cache-control']).toBe('no-store');
     expect(response.json()).toEqual({
       members: [
-        { displayName: 'Alice', membershipId: MEMBERSHIP_A, role: 'owner' },
+        { displayName: 'Alice', kind: 'person', membershipId: MEMBERSHIP_A, role: 'owner' },
       ],
       quotaBytes: DEFAULT_VAULT_QUOTA_BYTES,
       role: 'owner',

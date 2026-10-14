@@ -126,6 +126,17 @@ describe('one-click agents (plan 015)', () => {
     expect((await claim(s, '90000000-0000-4000-8000-00000000c002')).statusCode).toBe(204);
   });
 
+  it('names the agent as an agent in the members list the plugin reads (plan 014)', async () => {
+    const s = setup();
+    await enroll(s, s.owner, 'Inbox sorter');
+    const claimed = (await claim(s, '90000000-0000-4000-8000-00000000c009')).json() as { membershipId: string };
+    const members = (await s.app.inject({ method: 'GET', url: `/vaults/${VAULT}/members`, headers: { authorization: `Bearer ${s.owner}` } })).json() as {
+      members: { membershipId: string; kind: string }[];
+    };
+    expect(members.members.find((m) => m.membershipId === claimed.membershipId)?.kind).toBe('agent');
+    expect(members.members.find((m) => m.membershipId === OWNER_MEMBERSHIP)?.kind).toBe('person');
+  });
+
   it('answers a repeated claim with the same agent, never a second one', async () => {
     const s = setup();
     await enroll(s, s.owner, 'Daily summary');
