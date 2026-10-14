@@ -7,6 +7,18 @@ and the server.
 
 ## [Unreleased]
 
+## [1.9.1], 2026-10-14
+
+### Fixed
+
+- Installer, found on a fresh Ubuntu 24.04 arm64 machine: the server could not
+  open its database because the new data volume was owned by root; the
+  installer now gives it to the server's user before starting it.
+- Installer: a run that stopped before owner setup now sets the owner up when
+  run again, instead of asking for a new code from a server with no owner.
+- Plugin: the connect form names the installer line and says the Server URL
+  can stay empty for it.
+
 ## [1.9.0], 2026-10-14
 
 ### Added

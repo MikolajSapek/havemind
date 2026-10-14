@@ -31,7 +31,7 @@ export function renderConnectForm(
     const tokenInput = labelledField(
       content,
       'havemind-connect-token',
-      'Invitation or owner pairing token',
+      'Invitation, or the line from the installer',
       'textarea',
       { placeholder: 'v1.… or hm_pt_…@https://…', value: draft.token },
     );
@@ -42,7 +42,7 @@ export function renderConnectForm(
       'input',
       {
         type: 'text',
-        placeholder: 'https://your-server.example (not needed for hm_pt_…@ codes)',
+        placeholder: 'Leave empty for the installer line',
         value: draft.server,
       },
     );
