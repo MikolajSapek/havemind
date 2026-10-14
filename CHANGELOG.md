@@ -7,6 +7,15 @@ and the server.
 
 ## [Unreleased]
 
+## [1.10.3], 2026-10-15
+
+### Fixed
+
+- 1.10.2 never reached the plugin catalogue: the Server URL field's example
+  address looked like a real tailnet name, and the distribution release
+  refuses any. The example is generic now, and a test applies the same rule
+  to the plugin sources before a release.
+
 ## [1.10.2], 2026-10-15
 
 ### Fixed

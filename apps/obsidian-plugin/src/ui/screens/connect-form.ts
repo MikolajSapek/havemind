@@ -46,7 +46,7 @@ export function renderConnectForm(
       'input',
       {
         type: 'text',
-        placeholder: 'https://your-server.your-tailnet.ts.net',
+        placeholder: 'https://… (only if your line has no @)',
         value: draft.server,
       },
     );
