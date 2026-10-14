@@ -147,3 +147,15 @@ describe('removeRosterMember', () => {
     expect(next.map((m) => m.membershipId)).toEqual(['m-owner']);
   });
 });
+
+describe('agents in the persisted roster (plan 014)', () => {
+  it('keeps the agent mark across a save and a load', () => {
+    const parsed = parseRoster({
+      approvedMembersRoster: [
+        { membershipId: 'm-bot', displayName: 'Inbox sorter', role: 'editor', self: false, kind: 'agent' },
+        { membershipId: 'm-x', displayName: 'X', role: 'editor', self: false, kind: 'nonsense' },
+      ],
+    });
+    expect(parsed.map((m) => m.kind)).toEqual(['agent', undefined]);
+  });
+});

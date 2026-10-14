@@ -54,7 +54,7 @@ function spokePath(angle: number): string {
   return `M${at(APOTHEM + 4)}L${at(DIST - APOTHEM - 2)}`;
 }
 
-const HAS_SPOKE: ReadonlySet<FlowerSeat['kind']> = new Set(['member', 'self-offline', 'conflict', 'joining']);
+const HAS_SPOKE: ReadonlySet<FlowerSeat['kind']> = new Set(['member', 'agent', 'self-offline', 'conflict', 'joining']);
 
 export function renderFlower(parent: HTMLElement, model: FlowerModel): SVGSVGElement {
   const svg = parent.createSvg('svg', {

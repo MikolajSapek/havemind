@@ -15,7 +15,7 @@ export const FLOWER_SEATS = 6;
 
 export type FlowerCore = 'done' | 'alive' | 'syncing' | 'unreachable';
 
-export type FlowerSeatKind = 'member' | 'self-offline' | 'conflict' | 'joining' | 'more' | 'free';
+export type FlowerSeatKind = 'member' | 'agent' | 'self-offline' | 'conflict' | 'joining' | 'more' | 'free';
 
 export interface FlowerSeat {
   readonly kind: FlowerSeatKind;
@@ -116,8 +116,14 @@ export function buildFlowerModel(input: FlowerInput): FlowerModel {
   }
   for (const member of shownOthers) {
     const conflict = conflictNames.has(member.displayName);
-    seats.push({ kind: conflict ? 'conflict' : 'member', label: initials.get(member.membershipId) ?? '?' });
-    words.push(conflict ? `${member.displayName} (conflict)` : member.displayName);
+    const agent = member.kind === 'agent';
+    seats.push({
+      kind: conflict ? 'conflict' : agent ? 'agent' : 'member',
+      label: initials.get(member.membershipId) ?? '?',
+    });
+    words.push(
+      conflict ? `${member.displayName} (conflict)` : agent ? `${member.displayName} (agent)` : member.displayName,
+    );
   }
   if (overflow) {
     // Count members, not seats: the first seat is "you" even before the

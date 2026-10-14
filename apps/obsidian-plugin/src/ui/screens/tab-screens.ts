@@ -44,8 +44,14 @@ export function buildTabScreens(context: TabScreensContext): TabBodyScreens {
       }
     },
     renderActivity: (target) => {
+      const agentIds = new Set(
+        (options.rejoinRosterProvider?.()?.rows ?? [])
+          .filter((row) => row.agent)
+          .map((row) => row.membershipId),
+      );
       renderActivityRows(target, {
         feed: options.activityFeedProvider?.() ?? [],
+        agentIds,
         ...(options.onRestore ? { onRestore: options.onRestore } : {}),
       });
     },

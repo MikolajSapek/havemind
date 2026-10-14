@@ -19,6 +19,8 @@ export interface RejoinRosterRowView {
   readonly removable: boolean;
   readonly colorToken: string;
   readonly self: boolean;
+  /** An AI agent (plan 014): listed after the people, drawn yellow. */
+  readonly agent: boolean;
 }
 
 export interface RejoinRosterView {
@@ -26,12 +28,16 @@ export interface RejoinRosterView {
   readonly rows: readonly RejoinRosterRowView[];
 }
 
-/** Rows ordered owner first, then by display name. */
+/** Rows ordered owner first, then people, then agents, each by display name. */
 export function buildRejoinRosterView(members: readonly RosterMember[]): RejoinRosterView {
   const rows = [...members]
     .sort((left, right) => {
       if (left.role !== right.role) {
         return left.role === 'owner' ? -1 : 1;
+      }
+      const leftAgent = left.kind === 'agent';
+      if (leftAgent !== (right.kind === 'agent')) {
+        return leftAgent ? 1 : -1;
       }
       return left.displayName.localeCompare(right.displayName);
     })
@@ -44,6 +50,7 @@ export function buildRejoinRosterView(members: readonly RosterMember[]): RejoinR
         removable: !member.self,
         role: member.role,
         self: member.self,
+        agent: member.kind === 'agent',
       }),
     );
   return { empty: rows.length === 0, rows };

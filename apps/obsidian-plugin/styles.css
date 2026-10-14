@@ -130,8 +130,9 @@
 /* =========================================================================
    2a. Flower colour tokens
    The flower is the one place the brand violet appears: the core is Hive
-   Violet, every member seat one lavender, initials tell people apart. All other
-   chrome takes Obsidian's theme variables (plan 010).
+   Violet, every member seat one lavender, initials tell people apart. AI agents
+   sit in the theme's yellow (plan 014). All other chrome takes Obsidian's theme
+   variables (plan 010).
    ========================================================================= */
 .theme-light,
 :root {
@@ -149,6 +150,7 @@
 .theme-light,
 .theme-dark {
   --havemind-flower-done: var(--color-green);
+  --havemind-flower-agent: var(--color-yellow);
 }
 
 .theme-dark {
@@ -531,6 +533,11 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* An AI agent (plan 014): a yellow edge, the same yellow as its flower seat.
+   Colour is not the only signal; the row also says "AI agent". */
+.havemind-roster-row.is-agent,
+.havemind-activity-row.is-agent { box-shadow: inset 3px 0 0 var(--havemind-flower-agent); }
 
 .havemind-roster-name {
   color: var(--text-normal);
@@ -1633,6 +1640,7 @@ button.havemind-history-row.is-active {
   animation: havemind-flower-march 1.6s linear infinite;
 }
 .havemind-flower-seat.is-more { fill: var(--background-modifier-border); }
+.havemind-flower-seat.is-agent { fill: var(--havemind-flower-agent); }
 .havemind-flower-split { fill: var(--color-red); }
 .havemind-flower-label {
   fill: var(--havemind-flower-ink);

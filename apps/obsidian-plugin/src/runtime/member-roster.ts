@@ -53,6 +53,9 @@ function parseMember(value: unknown, selfMembershipId: string | null): RosterMem
     membershipId: value.membershipId,
     role: value.role as MemberRole,
     self,
+    // Only a server with agent members (plan 014) sends a kind; anything but
+    // "agent" is a person.
+    ...(value.kind === 'agent' ? { kind: 'agent' as const } : {}),
   };
 }
 

@@ -31,6 +31,8 @@ export interface RosterMember {
   readonly role: MemberRole;
   /** True for the local user's own membership (rendered as "You"). */
   readonly self: boolean;
+  /** Present only for an AI agent (plan 014); people carry no kind. */
+  readonly kind?: 'agent';
 }
 
 /**
@@ -86,6 +88,7 @@ function parseMember(value: unknown): RosterMember | null {
     displayName: value.displayName,
     role: value.role,
     self: value.self,
+    ...(value.kind === 'agent' ? { kind: 'agent' as const } : {}),
   };
 }
 

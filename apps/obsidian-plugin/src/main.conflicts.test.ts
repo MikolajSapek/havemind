@@ -251,6 +251,7 @@ describe('HavemindOnboardingView per-section render isolation (MAJOR 5)', () => 
           removable: false,
           colorToken: '--havemind-author-1',
           self: false,
+          agent: false,
         },
       ],
     };

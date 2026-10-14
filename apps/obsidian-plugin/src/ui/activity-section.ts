@@ -27,6 +27,8 @@ export interface ActivitySectionOptions {
   readonly onRestore?: (revisionId: string) => void;
   /** Cap on rendered rows; omit for the full feed. */
   readonly limit?: number;
+  /** Membership ids of AI agents (plan 014); their rows are marked yellow. */
+  readonly agentIds?: ReadonlySet<string>;
   /** "Now" for the day headers; tests pin it, the pane uses the clock. */
   readonly now?: number;
 }
@@ -61,6 +63,9 @@ export function renderActivityRows(
     const entry = content.createDiv();
     entry.addClass('havemind-activity-row');
     entry.addClass(`is-${row.kind}`);
+    if (row.actorId !== null && options.agentIds?.has(row.actorId) === true) {
+      entry.addClass('is-agent');
+    }
     // The note's name over who did what; the full path stays on the tooltip.
     const text = entry.createDiv();
     text.addClass('havemind-activity-main');

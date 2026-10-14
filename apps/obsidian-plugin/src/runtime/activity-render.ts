@@ -38,6 +38,8 @@ export interface ActivityRowView {
    * reserved neutral token.
    */
   readonly colorToken: string;
+  /** Who did it; null for the initial import. */
+  readonly actorId: string | null;
   readonly canRestore: boolean;
   /** The note's name without `.md` (attachments keep their extension). */
   readonly title: string;
@@ -86,6 +88,7 @@ export function buildActivityViewModel(
       pathLabel: entry.path,
       timestamp: entry.timestamp,
       timeLabel: format(entry.timestamp),
+      actorId: entry.actorId,
       colorToken:
         entry.actorId === null
           ? INITIAL_IMPORT_COLOR_TOKEN

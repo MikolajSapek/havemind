@@ -126,3 +126,24 @@ describe('buildFlowerModel', () => {
     expect(model.seats.slice(1).every((seat) => seat.kind === 'free')).toBe(true);
   });
 });
+
+describe('agents in the flower (plan 014)', () => {
+  const sorter: RosterMember = {
+    membershipId: 'm9', displayName: 'Inbox sorter', role: 'editor', self: false, kind: 'agent',
+  };
+
+  it('gives an agent a seat of its own kind, so it draws yellow, and says so in words', () => {
+    const model = buildFlowerModel(input({ members: [me, phone, sorter] }));
+    expect(model.seats.map((seat) => [seat.kind, seat.label]).slice(0, 3)).toEqual([
+      ['member', 'you'],
+      ['member', 'MI'],
+      ['agent', 'IS'],
+    ]);
+    expect(model.description).toContain('Inbox sorter (agent)');
+  });
+
+  it('still shows a conflict on an agent as a conflict', () => {
+    const model = buildFlowerModel(input({ members: [me, sorter], conflictAuthors: ['Inbox sorter'] }));
+    expect(model.seats[1]?.kind).toBe('conflict');
+  });
+});

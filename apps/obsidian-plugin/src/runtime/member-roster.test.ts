@@ -70,6 +70,29 @@ describe('fetchMemberRoster', () => {
     expect(calls[0]?.url).not.toContain('hm_rt_');
   });
 
+  it('marks members the server says are agents, and only those (plan 014)', async () => {
+    const { fn } = fakeRequestUrl({
+      status: 200,
+      json: {
+        members: [
+          { membershipId: 'm-owner', displayName: 'Mikolaj', role: 'owner', kind: 'person' },
+          { membershipId: 'm-bot', displayName: 'Inbox sorter', role: 'editor', kind: 'agent' },
+          // A server older than plan 014 sends no kind at all.
+          { membershipId: 'm-old', displayName: 'Hubert', role: 'editor' },
+        ],
+        version: 1,
+      },
+    });
+    const members = await fetchMemberRoster({
+      apiBaseUrl: API,
+      getRefreshToken: async () => 'hm_rt_secret',
+      requestUrl: fn,
+      selfMembershipId: 'm-owner',
+      vaultId: VAULT,
+    });
+    expect(members.map((m) => m.kind)).toEqual([undefined, 'agent', undefined]);
+  });
+
   it('omits the vault query when the caller has no vault id', async () => {
     const { calls, fn } = fakeRequestUrl({
       status: 200,

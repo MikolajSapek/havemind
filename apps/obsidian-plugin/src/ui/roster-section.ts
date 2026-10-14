@@ -33,10 +33,11 @@ export function renderRejoinRoster(
   for (const row of roster.rows) {
     const item = content.createDiv({ text: '' });
     item.addClass('havemind-roster-row');
+    if (row.agent) item.addClass('is-agent');
     const text = item.createDiv();
     text.addClass('havemind-roster-copy');
     text.createDiv({ text: row.displayName }).addClass('havemind-roster-name');
-    const role = row.role === 'owner' ? 'Owner' : 'Editor';
+    const role = row.role === 'owner' ? 'Owner' : row.agent ? 'AI agent' : 'Editor';
     const meta = text.createDiv({ text: row.self ? `${role} · this device` : role });
     meta.addClass('havemind-roster-meta');
     if (!ownerView) continue;
