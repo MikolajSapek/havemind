@@ -127,6 +127,14 @@ describe('first-run screens keep the pane inset', () => {
   });
 });
 
+describe('the history window keeps its size when a diff appears (1.8.2)', () => {
+  // Obsidian centres a modal, so a detail area that grew on the first pick
+  // moved the list under the pointer.
+  it('reserves the detail area up front', () => {
+    expect(css).toMatch(/\.havemind-history-detail\s*\{[^}]*min-height:/);
+  });
+});
+
 describe('modals get the pane tokens (1.8.1)', () => {
   // A modal renders outside `.havemind-view`, so tokens declared only there
   // resolved to nothing in it: the history list lost its hairlines and the

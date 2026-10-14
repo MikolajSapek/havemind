@@ -14,6 +14,16 @@ and the server.
   the time it has left, so backups stay daily across deploys instead of
   leaving a gap of up to 47 hours.
 
+## [1.8.2], 2026-10-14
+
+### Fixed
+
+- Plugin: in the history window, picking two versions quickly could show the
+  first one's diff beside the second one's mark; only the latest pick draws.
+- Plugin: the history window reserves the diff's space up front, so it no
+  longer grows and moves the list under the pointer on the first pick, and
+  says what to do before a version is picked.
+
 ## [1.8.1], 2026-10-14
 
 ### Fixed

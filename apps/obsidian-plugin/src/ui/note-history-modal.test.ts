@@ -112,6 +112,32 @@ describe('note history window (plan 012)', () => {
     expect(button(root, 'Restore this version')).toBeUndefined();
   });
 
+  it('shows the version picked last, even when an earlier pick loads later (1.8.2)', async () => {
+    let releaseSlow: (() => void) | undefined;
+    const root = createContent();
+    renderNoteHistory(asEl(root), deps({
+      loadVersion: (id) =>
+        id === 'a'
+          ? new Promise((resolve) => {
+              releaseSlow = () => resolve({ fileId: 'f1', path: 'Venue.md', content: 'slow\n' });
+            })
+          : Promise.resolve({ fileId: 'f1', path: 'Venue.md', content: 'fast\n' }),
+    }));
+    button(root, 'Hubert')?.triggerClick();
+    button(root, 'You')?.triggerClick();
+    await settle();
+    releaseSlow?.();
+    await settle();
+    expect(texts(root)).toContain('+ fast');
+    expect(texts(root)).not.toContain('+ slow');
+  });
+
+  it('says what to do before a version is picked, in the space the diff will take', () => {
+    const root = createContent();
+    renderNoteHistory(asEl(root), deps());
+    expect(texts(root).some((t) => /pick a version/i.test(t))).toBe(true);
+  });
+
   it('says so when there is no history yet', () => {
     const root = createContent();
     renderNoteHistory(asEl(root), deps({ rows: [] }));

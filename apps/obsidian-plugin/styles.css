@@ -1042,6 +1042,11 @@ button.havemind-history-row:hover {
   background: var(--background-modifier-hover);
   color: var(--text-normal);
 }
+.havemind-history-detail {
+  /* Reserved up front, so the centred modal does not grow and move the list
+     under the pointer on the first pick (1.8.2). */
+  min-height: min(30rem, 50vh);
+}
 .havemind-history-restore,
 button.havemind-history-restore {
   margin-top: var(--size-4-2);
