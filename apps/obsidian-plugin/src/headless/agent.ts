@@ -129,7 +129,10 @@ export class HeadlessAgent {
   ) {}
 
   static async open(paths: AgentPaths): Promise<HeadlessAgent> {
-    const identity = await finishJoin(paths);
+    // An agent added with one click (plan 015) has its identity on disk; one
+    // that joined by invitation finishes its onboarding first.
+    const claimed = (await jsonFile(paths.stateDir, 'identity.json').load()) as AgentIdentity | null;
+    const identity = claimed ?? (await finishJoin(paths));
     if (identity === null) throw new Error('This agent is not approved yet.');
     const requestUrl = paths.requestUrl ?? createFetchRequestUrl();
     const secrets = new FileSecrets(paths.stateDir);

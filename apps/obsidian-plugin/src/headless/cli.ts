@@ -20,6 +20,8 @@ import { join } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 
 import { finishJoin, HeadlessAgent, startJoin, type AgentPaths } from './agent';
+import { claimNextAgent, folderFor } from './claim';
+import { createFetchRequestUrl } from './fetch-request-url';
 import { createClaudeModel, DEFAULT_AGENT_MODEL } from './model';
 import { serveMcp } from './mcp';
 import { AgentPool } from './pool';
@@ -39,9 +41,6 @@ const say = (line: string): void => {
 };
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-export function folderFor(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9]+/gu, '-').replace(/^-|-$/gu, '') || 'agent';
-}
 
 async function readInvitation(): Promise<string> {
   if (process.stdin.isTTY) {
@@ -113,10 +112,35 @@ async function readMemory(paths: AgentPaths): Promise<RunMemory> {
   }
 }
 
-function modelFromEnvironment() {
-  const apiKey = process.env.ANTHROPIC_API_KEY ?? '';
-  if (apiKey === '') throw new Error('Set ANTHROPIC_API_KEY for the agents (in the server .env), then start again.');
+/** The model key: the environment, or the file the owner set from Havemind (plan 015). */
+async function modelKey(): Promise<string | null> {
+  const fromEnv = process.env.ANTHROPIC_API_KEY?.trim() ?? '';
+  if (fromEnv !== '') return fromEnv;
+  const dir = process.env.HAVEMIND_AGENT_SECRETS_DIR;
+  if (dir === undefined || dir === '') return null;
+  const fromFile = (await fs.readFile(join(dir, 'model.key'), 'utf8').catch(() => '')).trim();
+  return fromFile === '' ? null : fromFile;
+}
+
+async function modelOrThrow() {
+  const apiKey = await modelKey();
+  if (apiKey === null) throw new Error('No model key yet: add it in Havemind (Add agent) or set ANTHROPIC_API_KEY.');
   return createClaudeModel({ apiKey, model: process.env.HAVEMIND_AGENT_MODEL ?? DEFAULT_AGENT_MODEL });
+}
+
+/** Agents the owner added in Havemind, claimed with the server's service token (plan 015). */
+async function claimNew(): Promise<void> {
+  const serviceToken = process.env.HAVEMIND_AGENT_SERVICE_TOKEN ?? '';
+  const apiBaseUrl = process.env.HAVEMIND_API_BASE_URL ?? '';
+  if (serviceToken === '' || apiBaseUrl === '') return;
+  for (;;) {
+    const folder = await claimNextAgent({ agentsDir: agentsDir(), apiBaseUrl, serviceToken, requestUrl: createFetchRequestUrl() });
+    if (folder === null) return;
+    const agent = await HeadlessAgent.open(pathsFor(folder));
+    await agent.sync();
+    await writeMemory(pathsFor(folder), { lastRunAt: 0, lastSequence: await agent.latestSequence() });
+    say(`${agent.identity.name}: added from Havemind.`);
+  }
 }
 
 async function writeMemory(paths: AgentPaths, memory: RunMemory): Promise<void> {
@@ -139,7 +163,7 @@ async function runWith(agent: HeadlessAgent, folder: string, force: boolean): Pr
   const paths = pathsFor(folder);
   const outcome = await runAgentOnce({
     agent,
-    model: modelFromEnvironment(),
+    model: await modelOrThrow(),
     memory: await readMemory(paths),
     now: Date.now(),
     force,
@@ -180,16 +204,25 @@ async function main(argv: readonly string[]): Promise<void> {
       if (name === undefined) throw new Error('Usage: havemind-agent once <name> [--force]');
       return runOne(folderFor(name), rest.includes('--force'));
     case 'run':
-      modelFromEnvironment();
-      say(`Running ${(await agentFolders()).length} agent(s); checking every minute.`);
+      say('Agents service started; checking every minute.');
       {
         // Each agent stays open, and locked, for the life of this process.
+        // Without a model key it still adds and syncs agents, and waits.
         const pool = new AgentPool(openLocked);
+        let toldNoKey = false;
         for (;;) {
+          await claimNew().catch((error: unknown) => {
+            say(`Adding agents: ${error instanceof Error ? error.message : 'failed'}`);
+          });
+          const haveKey = (await modelKey()) !== null;
+          if (!haveKey && !toldNoKey) say('No model key yet; agents sync but do not run until it is added in Havemind.');
+          toldNoKey = !haveKey;
           for (const folder of await agentFolders()) {
             try {
               const agent = await pool.get(folder);
-              if (agent !== null) await runWith(agent, folder, false);
+              if (agent === null) continue;
+              if (haveKey) await runWith(agent, folder, false);
+              else await agent.sync();
             } catch (error) {
               say(`${folder}: ${error instanceof Error ? error.message : 'failed'}`);
               await pool.drop(folder);

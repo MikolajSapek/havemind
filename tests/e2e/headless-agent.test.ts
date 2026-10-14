@@ -31,6 +31,7 @@ import { HeadlessAgent, startJoin, type AgentPaths } from '../../apps/obsidian-p
 import type { ModelPort, ModelRequest } from '../../apps/obsidian-plugin/src/headless/model.js';
 import { runAgentOnce } from '../../apps/obsidian-plugin/src/headless/runner.js';
 import { handleMcpMessage } from '../../apps/obsidian-plugin/src/headless/mcp.js';
+import { claimNextAgent } from '../../apps/obsidian-plugin/src/headless/claim.js';
 import { approveRedeemedDevice } from '../../apps/obsidian-plugin/src/runtime/approve-device.js';
 import { createVaultInvitation } from '../../apps/obsidian-plugin/src/runtime/create-invitation.js';
 import type { RequestUrlFn } from '../../apps/obsidian-plugin/src/runtime/sync-transport.js';
@@ -47,7 +48,7 @@ afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { force: true, recursive: true });
 });
 
-function startServer() {
+function startServer(env: Record<string, string> = {}) {
   const dataDir = tempDir('server');
   const database = openDatabase(join(dataDir, 'havemind.sqlite'));
   runMigrations(database);
@@ -73,7 +74,7 @@ function startServer() {
       invitations: new InvitationService(database),
       sync: { blobStore, database, revisions: new RevisionRepository(database, blobStore) },
     },
-    config: parseServerConfig({ HAVEMIND_API_BASE_URL: ORIGIN, HAVEMIND_SERVER_NAME: 'Test' }),
+    config: parseServerConfig({ HAVEMIND_API_BASE_URL: ORIGIN, HAVEMIND_SERVER_NAME: 'Test', ...env }),
     loggerStream: new Writable({ write: (_c, _e, done) => done() }),
   });
   const requestUrl: RequestUrlFn = async (options) => {
@@ -309,6 +310,54 @@ describe('headless agent (plan 014)', () => {
       });
       expect(capped.kind).toBe('day-cap');
       expect(calls).toBe(1);
+    } finally {
+      await server.app.close();
+      server.database.close();
+    }
+  });
+
+  it('picks up an agent the owner added with one click, once, even when an answer is lost', async () => {
+    const serviceToken = 'hm_svc_' + 's'.repeat(43);
+    const server = startServer({ HAVEMIND_AGENT_SERVICE_TOKEN: serviceToken, HAVEMIND_AGENT_SECRETS_DIR: tempDir('secrets') });
+    try {
+      const enrolled = await server.requestUrl({
+        url: `${ORIGIN}/vaults/${server.vaultId}/agents`,
+        method: 'POST',
+        headers: { authorization: `Bearer ${server.ownerToken}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Inbox sorter' }),
+      });
+      expect(enrolled.status).toBe(201);
+
+      const agentsDir = tempDir('agents');
+      // The server completes the claim, but the answer never arrives.
+      let drop = true;
+      const lossy: RequestUrlFn = async (options) => {
+        const response = await server.requestUrl(options);
+        if (drop) {
+          drop = false;
+          throw new Error('connection reset');
+        }
+        return response;
+      };
+      const claimOptions = { agentsDir, apiBaseUrl: ORIGIN, serviceToken, requestUrl: lossy };
+      await expect(claimNextAgent(claimOptions)).rejects.toThrow(/connection reset/u);
+      const folder = await claimNextAgent(claimOptions);
+      expect(folder).toBe('inbox-sorter');
+      expect(await claimNextAgent(claimOptions)).toBeNull();
+      const agents = server.database.prepare("SELECT COUNT(*) AS c FROM memberships WHERE kind = 'agent'").get() as { c: number };
+      expect(agents.c).toBe(1);
+
+      // It runs like any agent, from its files alone.
+      const paths = { stateDir: join(agentsDir, 'inbox-sorter', 'state'), vaultDir: join(agentsDir, 'inbox-sorter', 'vault'), requestUrl: server.requestUrl };
+      const agent = await HeadlessAgent.open(paths);
+      expect(agent.identity.name).toBe('Inbox sorter');
+      await agent.writeNote('Notes/hello.md', 'Hello.\n');
+      await agent.sync();
+      const reopened = await HeadlessAgent.open(paths);
+      await reopened.sync();
+      const pushed = server.database.prepare('SELECT COUNT(*) AS c FROM revisions WHERE membership_id = ?').get(agent.identity.memberId) as { c: number };
+      expect(pushed.c).toBe(1);
+      expect(statSync(join(paths.stateDir, 'secrets.json')).mode & 0o777).toBe(0o600);
     } finally {
       await server.app.close();
       server.database.close();
