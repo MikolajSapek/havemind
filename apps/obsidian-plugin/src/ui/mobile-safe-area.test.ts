@@ -79,6 +79,15 @@ describe('coarse-pointer touch targets', () => {
     expect(Number(touch?.[1])).toBeGreaterThanOrEqual(44);
   });
 
+  it('gives every row action a finger-sized target (plan 011, 1.6)', () => {
+    // Rejoin and Remove (roster), Retry and Discard (send queue) and Retry now
+    // were 26-30px on a phone, under the 44px platform minimum.
+    for (const cls of ['havemind-roster-action', 'havemind-send-action', 'havemind-retry']) {
+      const rule = new RegExp(`button\\.${cls}[^{]*\\{[^}]*min-height:\\s*var\\(--havemind-tab-height-touch\\)`);
+      expect(coarse, cls).toMatch(rule);
+    }
+  });
+
   it('leaves the desktop strip at its designed height', () => {
     // The 36px declaration (plan 010) must survive outside the coarse block,
     // or the desktop sidebar inherits a phone-sized strip.

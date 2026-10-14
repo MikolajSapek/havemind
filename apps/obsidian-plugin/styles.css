@@ -1220,6 +1220,12 @@
     height: var(--havemind-tab-height-touch);
     font-size: var(--font-ui-medium);
   }
+  /* Row actions reach the same 44px minimum as the tabs (plan 011, 1.6). */
+  .havemind-view button.havemind-roster-action,
+  .havemind-view button.havemind-send-action,
+  .havemind-view button.havemind-retry {
+    min-height: var(--havemind-tab-height-touch);
+  }
   /* A finger has no hover, so Restore is always there on a touch screen. */
   .havemind-view button.havemind-activity-action { opacity: 1; }
   /* A tablet keeps More options in the strip; give it a finger-sized target. */
