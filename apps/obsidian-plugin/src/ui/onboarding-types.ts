@@ -34,7 +34,8 @@ export interface PendingApprovalEntry {
 }
 
 /** The invitee role the owner mints an invitation for. */
-export type InvitationRole = 'editor' | 'owner';
+/** 'agent' invites an AI agent (plan 014): an editor's permissions, shown in yellow. */
+export type InvitationRole = 'editor' | 'owner' | 'agent';
 
 /**
  * Single-panel model for the owner "Create connection" surface: the create
@@ -52,6 +53,8 @@ export interface CreateConnectionViewModel {
   readonly pending: readonly PendingApprovalEntry[];
   /** True once the minted invitation is past its expiry (single-use, ~15 min). */
   readonly invitationExpired?: boolean;
+  /** For an AI agent's invitation: the command that lets it join (plan 014). */
+  readonly agentJoinCommand?: string;
   /** Transient confirmation line (e.g. "Invitation created."), if any. */
   readonly notice?: string;
   /**
@@ -212,6 +215,8 @@ export interface OnboardingViewOptions {
     role: InvitationRole,
     name: string,
     report: ConnectReporter,
+    /** The ready-made agent picked for an "AI agent" invitation (plan 014). */
+    agentPresetId?: string,
   ) => void;
   /** Dismiss the minted-invitation display (clears the dead-end envelope). */
   readonly onDismissInvitation?: () => void;

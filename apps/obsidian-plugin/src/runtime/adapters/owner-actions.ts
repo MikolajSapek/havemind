@@ -41,7 +41,11 @@ import { sharedAccessProvider } from './shared-access-provider';
  */
 export async function createInvitationForOwner(
   plugin: Plugin,
-  options?: { intendedRole?: 'editor' | 'owner'; intendedMemberDisplayName?: string },
+  options?: {
+    intendedRole?: 'editor' | 'owner';
+    intendedKind?: 'person' | 'agent';
+    intendedMemberDisplayName?: string;
+  },
 ): Promise<CreatedInvitation | null> {
   // The owner may be connected via /owner/pair (an ownerConnection record) or via
   // the invitee onboarding flow (a connected onboarding state). Resolve either.
@@ -68,6 +72,7 @@ export async function createInvitationForOwner(
     ...(options?.intendedRole === undefined
       ? {}
       : { intendedRole: options.intendedRole }),
+    ...(options?.intendedKind === undefined ? {} : { intendedKind: options.intendedKind }),
     ...(options?.intendedMemberDisplayName === undefined
       ? {}
       : { intendedMemberDisplayName: options.intendedMemberDisplayName }),

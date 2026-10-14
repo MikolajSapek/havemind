@@ -48,6 +48,10 @@ jobs:
       - name: Test
         run: npm test
 
+      # The headless agent client (plan 014) as one file, for MCP on a laptop.
+      - name: Build the agent bundle
+        run: npm run build:agent -w @havemind/obsidian-plugin
+
       # --- Acceptance tests AT1–AT5 (plan 003) ---
 
       - name: AT1, three-file artifact present
@@ -121,6 +125,7 @@ jobs:
           subject-path: |
             apps/obsidian-plugin/main.js
             apps/obsidian-plugin/styles.css
+            apps/obsidian-plugin/dist-agent/havemind-agent.mjs
 
       - name: Create GitHub Release with three-file artifact
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
@@ -133,6 +138,7 @@ jobs:
             apps/obsidian-plugin/main.js
             apps/obsidian-plugin/manifest.json
             apps/obsidian-plugin/styles.css
+            apps/obsidian-plugin/dist-agent/havemind-agent.mjs
 
   # Server image for the one-command installer (plan 013): amd64 for most
   # machines, arm64 for a Raspberry Pi or an Apple-silicon Mac. Runs only after

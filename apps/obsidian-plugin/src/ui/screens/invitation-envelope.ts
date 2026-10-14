@@ -39,9 +39,14 @@ export function renderInvitationEnvelope(
 
   content
     .createDiv({
-      text: 'Invite created, copy it and send it to the other device. Single-use, expires in 15 minutes.',
+      text: model.agentJoinCommand === undefined
+        ? 'Invite created, copy it and send it to the other device. Single-use, expires in 15 minutes.'
+        : 'On the server machine, run this, paste the invitation below when it asks, then type here the six digits it prints. Single-use, expires in 15 minutes.',
     })
     .addClass('havemind-hint');
+  if (model.agentJoinCommand !== undefined) {
+    content.createEl('code', { text: model.agentJoinCommand, cls: 'havemind-host-command' });
+  }
   const code = content.createEl('code', { text: envelope });
   code.addClass('havemind-invite-envelope');
   // A hand-selectable copy for when the clipboard is unavailable or denied.

@@ -16,6 +16,7 @@ import type {
   PendingApprovalEntry,
 } from '../onboarding-view';
 
+import { renderAgentTaskField } from './agent-task-field';
 import { renderInvitationEnvelope } from './invitation-envelope';
 import { renderPendingRow } from './pending-approval-row';
 import {
@@ -30,6 +31,8 @@ import {
 export interface ComposerDraft {
   role: string;
   name: string;
+  /** The ready-made agent picked when the role is "AI agent" (plan 014). */
+  task?: string;
   /** Approval codes typed but not yet submitted, by invitation id (U3). */
   codes?: Record<string, string>;
 }
@@ -49,6 +52,7 @@ export interface InviteComposerModel {
   readonly invitation: { readonly envelope: string; readonly expiresAt: string } | null;
   readonly pending: readonly PendingApprovalEntry[];
   readonly invitationExpired?: boolean;
+  readonly agentJoinCommand?: string;
   readonly notice?: string;
   readonly noticeKind?: 'info' | 'success';
 }
@@ -56,7 +60,12 @@ export interface InviteComposerModel {
 export interface InviteComposerActions {
   readonly onClose?: (() => void) | undefined;
   readonly onCreate?:
-    | ((role: InvitationRole, name: string, report: (message: string) => void) => void)
+    | ((
+        role: InvitationRole,
+        name: string,
+        report: (message: string) => void,
+        agentPresetId?: string,
+      ) => void)
     | undefined;
   readonly onCopy?: ((envelope: string) => boolean | Promise<boolean>) | undefined;
   readonly onDismiss?: (() => void) | undefined;
@@ -132,10 +141,13 @@ function renderCreateSection(
   actions: InviteComposerActions,
 ): void {
   const roleSelect = labelledField(content, 'havemind-invite-role', 'Role', 'select');
-  for (const value of ['editor', 'owner'] as const) {
-    roleSelect.createEl('option', { text: value, value });
+  for (const [value, text] of [['editor', 'editor'], ['owner', 'owner'], ['agent', 'AI agent']] as const) {
+    roleSelect.createEl('option', { text, value });
   }
   roleSelect.value = draft.role || model.role;
+
+  // An AI agent starts from a ready-made task; shown only for that role.
+  const chosenPreset = renderAgentTaskField(content, roleSelect as HTMLElement & { value: string }, draft);
 
   const nameInput = labelledField(content, 'havemind-invite-name', 'Name', 'input', {
     type: 'text',
@@ -149,11 +161,16 @@ function renderCreateSection(
   const create = content.createEl('button', { text: 'Create invitation' });
   create.addClass('mod-cta');
   create.onClickEvent(() => {
-    const role: InvitationRole = roleSelect.value === 'owner' ? 'owner' : 'editor';
+    const role: InvitationRole =
+      roleSelect.value === 'owner' ? 'owner' : roleSelect.value === 'agent' ? 'agent' : 'editor';
     status.setText('Creating invitation…');
-    actions.onCreate?.(role, nameInput.value.trim(), (message) =>
-      status.setText(message),
-    );
+    const report = (message: string): void => status.setText(message);
+    if (role !== 'agent') {
+      actions.onCreate?.(role, nameInput.value.trim(), report);
+      return;
+    }
+    const preset = chosenPreset();
+    actions.onCreate?.(role, nameInput.value.trim() || preset.name, report, preset.id);
   });
 
   renderInvitationEnvelope(content, model, actions);

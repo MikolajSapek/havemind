@@ -213,8 +213,8 @@ export default class HavemindPlugin extends Plugin {
           // Move the secret into the clipboard; never log the envelope.
           return copyTextToClipboard(envelope, browserClipboardCopyDeps());
         },
-        onCreateInvitation: (role, name, report) => {
-          void this.invitations.createInvitation(role, name, report);
+        onCreateInvitation: (role, name, report, agentPresetId) => {
+          void this.invitations.createInvitation(role, name, report, agentPresetId);
         },
         onDismissInvitation: () => this.invitations.dismissInvitation(),
         onApprove: (invitationId, verificationPhrase, report) => {

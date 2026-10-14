@@ -16,7 +16,23 @@ import type {
   PendingApprovalEntry,
 } from '../ui/onboarding-view';
 
+import type { AppWithVault } from '../runtime/adapters/shared';
+import { AGENT_JOIN_COMMAND, presetById, taskNoteFor, taskNotePath } from '../runtime/agent-presets';
+
 import { errorMessage } from './error-message';
+
+/** Writes an agent's task note from its preset, never over one already there. */
+async function writeTaskNote(plugin: HavemindPlugin, name: string, presetId: string | undefined): Promise<string> {
+  const { vault } = plugin.app as unknown as AppWithVault;
+  const path = taskNotePath(name);
+  for (const folder of ['Havemind', 'Havemind/Agents']) {
+    if (vault.getAbstractFileByPath(folder) === null) await vault.createFolder(folder);
+  }
+  if (vault.getAbstractFileByPath(path) === null) {
+    await vault.create(path, taskNoteFor(presetById(presetId ?? 'custom')));
+  }
+  return path;
+}
 
 export class Invitations {
   public pendingInvitation: CreatedInvitation | null = null;
@@ -26,6 +42,8 @@ export class Invitations {
   public connectionNotice: string | undefined;
   /** Visual treatment for `connectionNotice`; see CreateConnectionViewModel. */
   public connectionNoticeKind: 'info' | 'success' | undefined;
+  /** The shown invitation is for an AI agent (plan 014): show how it joins. */
+  private pendingInvitationIsAgent = false;
 
   public constructor(private readonly plugin: HavemindPlugin) {}
 
@@ -57,6 +75,7 @@ export class Invitations {
       invitation: this.pendingInvitation,
       pending: this.pendingApprovals,
       invitationExpired: this.isInvitationExpired(),
+      ...(this.pendingInvitationIsAgent ? { agentJoinCommand: AGENT_JOIN_COMMAND } : {}),
       ...(this.connectionNotice === undefined
         ? {}
         : { notice: this.connectionNotice }),
@@ -195,10 +214,15 @@ export class Invitations {
     role: InvitationRole,
     name: string,
     report: ConnectReporter,
+    agentPresetId?: string,
   ): Promise<void> {
+    const agent = role === 'agent';
+    const memberRole = role === 'owner' ? 'owner' : 'editor';
     try {
+      const taskNote = agent ? await writeTaskNote(this.plugin, name, agentPresetId) : null;
       const invitation = await createInvitationForOwner(this.plugin, {
-        intendedRole: role,
+        intendedRole: memberRole,
+        ...(agent ? { intendedKind: 'agent' as const } : {}),
         ...(name.length === 0 ? {} : { intendedMemberDisplayName: name }),
       });
       if (invitation === null) {
@@ -209,6 +233,7 @@ export class Invitations {
       // invite section, never leave it hidden behind another surface.
       this.connectionActive = true;
       this.pendingInvitation = invitation;
+      this.pendingInvitationIsAgent = agent;
       this.pendingApprovals = [
         ...this.pendingApprovals.filter(
           (entry) => entry.invitationId !== invitation.invitationId,
@@ -216,16 +241,23 @@ export class Invitations {
         {
           invitationId: invitation.invitationId,
           expiresAt: invitation.expiresAt,
-          intendedRole: role,
+          intendedRole: memberRole,
+          ...(agent ? { intendedKind: 'agent' as const } : {}),
           ...(name.length === 0 ? {} : { intendedMemberDisplayName: name }),
         },
       ];
-      this.connectionNotice =
-        'Invitation created. Copy it and send it to the other device.';
+      this.connectionNotice = taskNote === null
+        ? 'Invitation created. Copy it and send it to the other device.'
+        : `Task note written: ${taskNote}. Edit it any time; the agent reads it before every run.`;
       this.connectionNoticeKind = undefined;
       this.plugin.views.refreshOnboardingNow();
     } catch (error) {
-      report(`Could not create invitation: ${errorMessage(error)}`);
+      // A server older than plan 014 refuses the agent kind outright.
+      report(
+        agent && /400|INVALID/u.test(errorMessage(error))
+          ? 'This server cannot add AI agents yet. Update it (run the installer again), then try again.'
+          : `Could not create invitation: ${errorMessage(error)}`,
+      );
     }
   }
 

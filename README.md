@@ -28,9 +28,9 @@ so whoever runs that machine can read it. Read the
 [docs/install.md](docs/install.md); the manual guide is
 [docs/self-hosting.md](docs/self-hosting.md).
 
-**Connecting Claude or an AI agent?** See
-[docs/using-with-ai-agents.md](docs/using-with-ai-agents.md) for the
-requirements and the steps.
+**AI agents as members?** Background agents (inbox sorter, daily summary and
+more) join your vault in yellow, each with a task note: see
+[docs/agents.md](docs/agents.md).
 
 ## Install
 
@@ -223,6 +223,7 @@ which is why this section exists.
 
 - [Self-hosting guide](docs/self-hosting.md), zero to working server
 - [Current limitations](docs/pilot/known-limitations.md), the caveats that bite
+- [AI agents as members](docs/agents.md), background agents with task notes
 - [Using it with AI agents](docs/using-with-ai-agents.md)
 
 **If you are working on it**

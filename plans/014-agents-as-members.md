@@ -1,6 +1,6 @@
 # 014, AI agents as members of the vault
 
-- Status: **In progress**, 2026-10-14; spike done. Phase 4 of `plans/011-after-1.7.md`; the
+- Status: **Built**, 2026-10-14 (steps 1 to 5 below); live test pending. Phase 4 of `plans/011-after-1.7.md`; the
   owner chose this direction (over end-to-end encryption, for now).
 - Owner's ask: add external agents and predefined ones; people stay violet,
   agents are yellow; each agent has written down what it must do in the vault.
@@ -122,3 +122,29 @@ later release.
   owner action), the server revokes its tokens.
 - Scope is advisory: documented, plus attribution; server-side enforcement
   stays possible later without changing the task-note format.
+
+## Built (2026-10-14)
+
+1. Server: `memberships.kind` and `invitations.intended_kind` (migration 008),
+   set by the owner's invitation; roster and pending approvals return it;
+   discovery lists `agent-members-v1`. Rollback after 008 means restoring the
+   backup taken before the update: an older server refuses a newer schema.
+2. Plugin: agents in yellow (`--havemind-flower-agent`) in the flower, People
+   ("AI agent", after the people) and Activity; the approval card says
+   "As AI agent". Agent seats keep their initials rather than an "AI" label:
+   two agents must stay distinguishable, and the colour already says "agent".
+3. Headless client `apps/obsidian-plugin/src/headless`: the plugin's own sync
+   code over a folder; `fetch`, 0600 state files, no runtime `obsidian`
+   (bundle test). The file port detects folders by `TFolder.children`.
+4. Runner: task note parse, `checkWrite` scope (never `Havemind/`,
+   `.obsidian/`, conflicts, trash), runs only when due and when people changed
+   notes, capped turns and writes, Claude over `fetch`.
+5. `havemind-agent` CLI (join, run, once, mcp, list), MCP over stdio, one lock
+   per agent; bundled in the server image and attached to releases; installer
+   service `havemind-agents` behind the `agents` profile, key in `agents.env`.
+6. Plugin: role "AI agent" in Invite someone with five ready-made tasks plus
+   Custom; writes the task note and shows the join command.
+
+Not yet: "Undo all of this agent's changes since…" (per-note Restore works),
+deletes by agents, and the live test on a fresh machine with a real key.
+

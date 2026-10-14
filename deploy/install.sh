@@ -176,6 +176,11 @@ if [ "$FRESH" = "1" ]; then
   fi
 fi
 run mkdir -p "${HOME_DIR}"
+# Agents reach the server by its tailnet name. On Linux that name and the
+# Tailscale Serve port live on the host's network; Docker Desktop on a Mac
+# resolves and routes it from its own network.
+AGENT_NETWORK=""
+[ "$OS" = "Linux" ] && AGENT_NETWORK="    network_mode: host"
 if [ "$DRY" = "1" ]; then
   say "[dry-run] write ${HOME_DIR}/compose.yaml and ${HOME_DIR}/.env"
 else
@@ -210,14 +215,45 @@ services:
       options:
         max-size: "10m"
         max-file: "5"
+  # AI agents (plan 014), off until: docker compose --profile agents up -d
+  # Same image, its own process. The model key lives in agents.env, which this
+  # installer never writes or reads.
+  havemind-agents:
+    image: ${IMAGE}
+    profiles: [agents]
+    user: "1000:1000"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    init: true
+    restart: unless-stopped
+    command: ["node", "agent/havemind-agent.mjs", "run"]
+${AGENT_NETWORK}
+    env_file:
+      - path: agents.env
+        required: false
+    environment:
+      HAVEMIND_AGENTS_DIR: /agents
+    volumes:
+      - ./agents:/agents
+    tmpfs:
+      - /tmp
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
 volumes:
   havemind-data:
 EOF
-  cat > "${HOME_DIR}/.env" <<EOF
+  # Kept on a re-run: the owner may have added settings since.
+  if [ ! -f "${HOME_DIR}/.env" ]; then
+    cat > "${HOME_DIR}/.env" <<EOF
 HAVEMIND_API_BASE_URL=${SERVER_URL}
 HAVEMIND_SERVER_NAME=Havemind
 EOF
-  mkdir -p "${HOME_DIR}/backups"
+  fi
+  mkdir -p "${HOME_DIR}/backups" "${HOME_DIR}/agents"
 fi
 run $DOCKER compose --project-directory "${HOME_DIR}" pull
 # The container runs as uid 1000 with no capabilities, so it cannot chown its
@@ -227,7 +263,7 @@ run $DOCKER compose --project-directory "${HOME_DIR}" pull
 run $DOCKER compose --project-directory "${HOME_DIR}" up --no-start
 run $DOCKER run --rm --user 0 --entrypoint chown \
   -v havemind-install_havemind-data:/data -v "${HOME_DIR}/backups:/backups" \
-  "${IMAGE}" -R 1000:1000 /data /backups
+  -v "${HOME_DIR}/agents:/agents" "${IMAGE}" -R 1000:1000 /data /backups /agents
 run $DOCKER compose --project-directory "${HOME_DIR}" up -d
 
 if [ "$DRY" != "1" ]; then

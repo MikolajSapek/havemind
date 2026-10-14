@@ -84,6 +84,7 @@ havemind-invite-envelope
 havemind-invite-envelope-text
 havemind-invite-name
 havemind-invite-role
+havemind-invite-task
 havemind-join
 havemind-nav-bar
 havemind-onboarding
@@ -115,6 +116,7 @@ havemind-send-file
 havemind-send-reason
 havemind-send-recovery
 havemind-send-waiting
+havemind-server
 havemind-status
 havemind-status-bar
 havemind-status-detail

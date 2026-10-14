@@ -95,3 +95,36 @@ describe('agents in People and Activity (plan 014)', () => {
     expect(meta?.text).toMatch(/^As AI agent · expires in/u);
   });
 });
+
+describe('inviting an AI agent (plan 014)', () => {
+  it('offers "AI agent" as a role and a ready-made task to start from', async () => {
+    const { renderInviteComposer } = await import('./screens/invite-composer');
+    const { createMockElement } = await import('../test/obsidian.mock');
+    const root = createMockElement();
+    const created: unknown[][] = [];
+    renderInviteComposer(
+      root as unknown as HTMLElement,
+      { role: 'agent', name: '', invitation: null, pending: [] },
+      { role: 'agent', name: '' },
+      {},
+      { onCreate: (...args: unknown[]) => created.push(args) },
+    );
+    const els = flatten(root);
+    const roles = els.find((el) => el.attrs?.['id'] === 'havemind-invite-role');
+    expect(flatten(roles as MockElement).map((el) => el.text)).toContain('AI agent');
+    const task = els.find((el) => el.attrs?.['id'] === 'havemind-invite-task');
+    expect(flatten(task as MockElement).filter((el) => el.tag === 'option').map((el) => el.text)).toEqual([
+      'Inbox sorter',
+      'Daily summary',
+      'Link gardener',
+      'Meeting to tasks',
+      'Clip digester',
+      'Custom',
+    ]);
+    els.find((el) => el.text === 'Create invitation')?.triggerClick();
+    // No name typed: the agent is named after its task.
+    expect(created[0]?.[0]).toBe('agent');
+    expect(created[0]?.[1]).toBe('Inbox sorter');
+    expect(created[0]?.[3]).toBe('inbox-sorter');
+  });
+});
