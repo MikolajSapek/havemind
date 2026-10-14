@@ -25,7 +25,8 @@ import { createFetchRequestUrl } from './fetch-request-url';
 import { createClaudeModel, DEFAULT_AGENT_MODEL } from './model';
 import { serveMcp } from './mcp';
 import { AgentPool } from './pool';
-import { runAgentOnce, type RunMemory } from './runner';
+import { runAgentOnce, type AgentBrain, type RunMemory } from './runner';
+import { createClaudeCodeOneShot } from './claude-code';
 
 const APPROVAL_POLL_MS = 3_000;
 const APPROVAL_WAIT_MS = 15 * 60_000;
@@ -124,10 +125,31 @@ async function modelKey(): Promise<string | null> {
   return fromFile === '' ? null : fromFile;
 }
 
-async function modelOrThrow() {
+/** A Claude subscription login from `claude setup-token` (plan 016). */
+async function oauthToken(): Promise<string | null> {
+  const fromEnv = process.env.CLAUDE_CODE_OAUTH_TOKEN?.trim() ?? '';
+  if (fromEnv !== '') return fromEnv;
+  const dir = process.env.HAVEMIND_AGENT_SECRETS_DIR;
+  if (dir === undefined || dir === '') return null;
+  const fromFile = (await fs.readFile(join(dir, 'model.oauth'), 'utf8').catch(() => '')).trim();
+  return fromFile === '' ? null : fromFile;
+}
+
+/** How the agents think: the subscription through Claude Code, else an API key; null to wait. */
+async function brainOrNull(): Promise<AgentBrain | null> {
+  const token = await oauthToken();
+  if (token !== null) {
+    return { kind: 'one-shot', ask: createClaudeCodeOneShot({ oauthToken: token, ...(process.env.HAVEMIND_AGENT_MODEL ? { model: process.env.HAVEMIND_AGENT_MODEL } : {}) }) };
+  }
   const apiKey = await modelKey();
-  if (apiKey === null) throw new Error('No model key yet: add it in Havemind (Add agent) or set ANTHROPIC_API_KEY.');
-  return createClaudeModel({ apiKey, model: process.env.HAVEMIND_AGENT_MODEL ?? DEFAULT_AGENT_MODEL });
+  if (apiKey === null) return null;
+  return { kind: 'tools', model: createClaudeModel({ apiKey, model: process.env.HAVEMIND_AGENT_MODEL ?? DEFAULT_AGENT_MODEL }) };
+}
+
+async function brainOrThrow(): Promise<AgentBrain> {
+  const brain = await brainOrNull();
+  if (brain === null) throw new Error('No Claude login yet: add one in Havemind (Add agent).');
+  return brain;
 }
 
 /** Agents the owner added in Havemind, claimed with the server's service token (plan 015). */
@@ -165,7 +187,7 @@ async function runWith(agent: HeadlessAgent, folder: string, force: boolean): Pr
   const paths = pathsFor(folder);
   const outcome = await runAgentOnce({
     agent,
-    model: await modelOrThrow(),
+    brain: await brainOrThrow(),
     memory: await readMemory(paths),
     now: Date.now(),
     force,
@@ -216,8 +238,8 @@ async function main(argv: readonly string[]): Promise<void> {
           await claimNew().catch((error: unknown) => {
             say(`Adding agents: ${error instanceof Error ? error.message : 'failed'}`);
           });
-          const haveKey = (await modelKey()) !== null;
-          if (!haveKey && !toldNoKey) say('No model key yet; agents sync but do not run until it is added in Havemind.');
+          const haveKey = (await brainOrNull()) !== null;
+          if (!haveKey && !toldNoKey) say('No Claude login yet; agents sync but do not run until one is added in Havemind.');
           toldNoKey = !haveKey;
           for (const folder of await agentFolders()) {
             try {
