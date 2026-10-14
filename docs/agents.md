@@ -47,17 +47,27 @@ note says. It never deletes notes.
 ## Add an agent
 
 1. In Obsidian, open Havemind, **People**, **Add agent**.
-2. Pick a task, change the name if you like, and the first time only paste
-   your Anthropic API key. Click **Add agent**.
+2. Pick a task, change the name if you like, and the first time only choose
+   how it thinks (below). Click **Add agent**.
 
 That is all. Havemind writes the task note, the agents service on your server
 picks the agent up, and it appears in yellow within a minute. No invitation to
 copy, no command, no six digits: you added it from your own signed-in
 Havemind, on your own server.
 
-The key is sent once to your server and kept there in a file only the server
-and the agents service can read (`~/havemind-server/agent-secrets/model.key`),
-outside the database and its backups. Havemind never shows it again.
+### How it thinks
+
+| Choice | What you give, once | Notes |
+|---|---|---|
+| **Claude** | the token from `claude setup-token` (Claude Code, your Claude subscription) | the default |
+| **Codex** | your Codex login, `~/.codex/auth.json` (your ChatGPT subscription) | |
+| **Anthropic API** | an API key (`sk-ant-api03-…`) | billed to the key |
+| **Other models** | an OpenAI-compatible address, a model and a key | OpenRouter (hundreds of models), OpenAI, Google Gemini, or an Ollama on the server (no key) |
+
+It is sent once to your server and kept there in files only the server and
+the agents service can read (`~/havemind-server/agent-secrets/`), outside the
+database and its backups. Havemind never shows it again. Choosing again
+replaces it.
 
 This needs a server set up with the one-command installer from Havemind 1.10
 on (it runs the agents service). On a server you run by hand, set
@@ -94,8 +104,11 @@ busy. Invite a separate agent for Claude Code.
 
 ## Undo and remove
 
-- Every note an agent changed shows it in **Activity** and in the note's
-  history; **Restore** puts the earlier version back.
+- **People**, the agent, **Undo its changes** (two clicks): every note it
+  changed gets back the last version someone else wrote, as a normal edit,
+  and notes it created go to the trash. A note a person changed after the
+  agent is left alone.
+- One note at a time: its history, or **Restore** in **Activity**.
 - To stop an agent for good, **People**, the agent, **Remove**. Its tokens stop
   working at once.
 - To pause all agents: `docker compose --project-directory ~/havemind-server stop havemind-agents`.

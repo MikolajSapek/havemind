@@ -1,6 +1,6 @@
 # 016, agents: pixel icons, a designed Add agent, and Claude login
 
-- Status: **Approved**, 2026-10-14. Follows `plans/015-one-click-agents.md`.
+- Status: **Shipped in 1.10.0** except step 5 (Claude Code on this computer), which needs a desktop helper: the plugin may not start programs. Codex, any OpenAI-compatible model and bulk undo were added on the owner's ask. Follows `plans/015-one-click-agents.md`.
 - Owner's ask: the agent UI must be properly designed; every agent gets a
   small pixel icon; and a way in without an API key: "log in through the
   CLI". Owner's choices: both login ways selectable; icons in the Add agent

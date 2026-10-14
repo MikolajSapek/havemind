@@ -1,6 +1,6 @@
 # 015, add an agent with one click
 
-- Status: **Approved**, 2026-10-14. Follows `plans/014-agents-as-members.md`.
+- Status: **Shipped in 1.10.0**, 2026-10-14; tested live on AWS (Ubuntu arm64). Follows `plans/014-agents-as-members.md`.
 - Owner's ask: "a button, add agent, and that's it": no invitation to copy,
   no command on the server, no six digits. The model comes from an API key
   given once, or from Claude Code on the owner's computer (MCP).

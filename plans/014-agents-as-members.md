@@ -1,6 +1,6 @@
 # 014, AI agents as members of the vault
 
-- Status: **Built**, 2026-10-14 (steps 1 to 5 below); live test pending. Phase 4 of `plans/011-after-1.7.md`; the
+- Status: **Shipped in 1.10.0**, 2026-10-14, with plans 015 and 016. Phase 4 of `plans/011-after-1.7.md`; the
   owner chose this direction (over end-to-end encryption, for now).
 - Owner's ask: add external agents and predefined ones; people stay violet,
   agents are yellow; each agent has written down what it must do in the vault.
