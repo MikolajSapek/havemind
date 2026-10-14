@@ -1,6 +1,15 @@
 # 013, one-command server install and a one-paste connect code
 
-- Status: **Approved**, 2026-10-14 (Linux and macOS). Next after `plans/012-note-history.md`.
+- Status: **Shipped in 1.9.0 to 1.9.2**, 2026-10-14 (Linux and macOS).
+- Live test, 2026-10-14: a fresh AWS t4g.small, Ubuntu 24.04 arm64, nothing
+  installed. The published `curl | bash` installed Docker and Tailscale, the
+  owner signed the machine into the tailnet with one link, and an empty vault
+  on a Mac connected with the pasted line (owner pair 200, first revision 200,
+  pane "In sync"). The test found three bugs the dry-run tests could not:
+  `/etc/os-release` replacing `VERSION` (1.9.0, caught by CI), a root-owned
+  data volume and a half-finished setup on re-run (1.9.1), and `docker compose
+  exec` eating the piped script (1.9.2). Each has a regression test.
+- Not yet tested live: the macOS server path (Docker Desktop or OrbStack).
 - Owner's ask: "install the whole thing on a server in one click, and a
   tutorial for Tailscale and for the connection".
 
