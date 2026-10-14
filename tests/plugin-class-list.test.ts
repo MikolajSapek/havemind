@@ -43,6 +43,7 @@ function extractClassNames(): readonly string[] {
   const walk = (dir: string): readonly string[] =>
     readdirSync(dir).flatMap((entry) => {
       const path = join(dir, entry);
+      if (entry === 'headless') return [];
       return statSync(path).isDirectory() ? walk(path) : [path];
     });
 

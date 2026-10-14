@@ -28,6 +28,8 @@ const OUT = fileURLToPath(
 function walk(dir) {
   return readdirSync(dir).flatMap((entry) => {
     const path = join(dir, entry);
+    // The headless agent client (plan 014) runs in Node and renders nothing.
+    if (entry === 'headless') return [];
     return statSync(path).isDirectory() ? walk(path) : [path];
   });
 }
