@@ -31,6 +31,8 @@ function rosterMembers(options: OnboardingViewOptions): RosterMember[] {
         displayName: row.displayName,
         role: row.role,
         self: row.self,
+        // An agent stays an agent in the flower: yellow, with its icon.
+        ...(row.agent ? { kind: 'agent' as const, icon: row.icon ?? 'robot' } : {}),
       })),
     [],
   );

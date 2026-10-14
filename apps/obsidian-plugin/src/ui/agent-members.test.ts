@@ -237,3 +237,12 @@ describe('undoing an agent from People (plan 016)', () => {
     expect(undone).toEqual(['m-bot']);
   });
 });
+
+describe('the agent in the flower on the Status tab (plan 016)', () => {
+  it('draws its seat yellow with its pixel icon, not lavender initials', () => {
+    const els = openTab(/status/i);
+    const seats = els.filter((el) => el.tag === 'path' && (el.classes ?? []).includes('havemind-flower-seat'));
+    expect(seats.some((el) => (el.classes ?? []).includes('is-agent'))).toBe(true);
+    expect(els.some((el) => (el.classes ?? []).includes('havemind-flower-agent-icon'))).toBe(true);
+  });
+});
