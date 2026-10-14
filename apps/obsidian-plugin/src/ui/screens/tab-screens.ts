@@ -68,6 +68,7 @@ export function buildTabScreens(context: TabScreensContext): TabBodyScreens {
             waiting: options.rejoinWaitingProvider?.() ?? new Set<string>(),
             ...(options.onRejoin === undefined ? {} : { onRejoin: options.onRejoin }),
             ...(options.onRemove === undefined ? {} : { onRemove: options.onRemove }),
+            ...(options.onUndoAgent === undefined ? {} : { onUndoAgent: options.onUndoAgent }),
           });
         },
         renderComposer: (composerTarget, m) =>

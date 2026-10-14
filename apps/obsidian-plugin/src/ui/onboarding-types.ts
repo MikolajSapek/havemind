@@ -189,6 +189,8 @@ export interface OnboardingViewOptions {
   readonly onRejoin?: (membershipId: string) => void;
   /** Owner permanently removes a member from the vault (two-step confirm in UI). */
   readonly onRemove?: (membershipId: string) => void;
+  /** Owner undoes everything an agent changed (plan 016). */
+  readonly onUndoAgent?: (membershipId: string) => void;
   /**
    * Runs the connect flow for the pasted input (invitation envelope `v1.…` or
    * owner pairing token `hm_pt_…`) against the given server URL, reporting

@@ -221,3 +221,23 @@ describe('adding an agent with one click (plans 015, 016)', () => {
     expect(els().find(addButton)).toBeUndefined();
   });
 });
+
+describe('undoing an agent from People (plan 016)', () => {
+  it('offers Undo its changes on an agent row only, behind a second click', async () => {
+    const { renderRejoinRoster } = await import('./roster-section');
+    const { createMockElement } = await import('../test/obsidian.mock');
+    const root = createMockElement();
+    const undone: string[] = [];
+    renderRejoinRoster(root as unknown as HTMLElement, buildRejoinRosterView([you, magda, sorter]), {
+      waiting: new Set(),
+      onRemove: () => undefined,
+      onUndoAgent: (id) => undone.push(id),
+    });
+    const undo = flatten(root).filter((el) => el.text === 'Undo its changes');
+    expect(undo).toHaveLength(1);
+    undo[0]?.triggerClick();
+    expect(undone).toEqual([]);
+    undo[0]?.triggerClick();
+    expect(undone).toEqual(['m-bot']);
+  });
+});

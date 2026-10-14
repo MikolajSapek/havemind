@@ -16,6 +16,8 @@ export interface RejoinRosterActions {
   readonly onRejoin?: (membershipId: string) => void;
   /** Owner permanently removes a member from the vault (destructive, two-step). */
   readonly onRemove?: (membershipId: string) => void;
+  /** Owner puts back every note an agent changed (plan 016). */
+  readonly onUndoAgent?: (membershipId: string) => void;
 }
 
 export function renderRejoinRoster(
@@ -67,28 +69,37 @@ export function renderRejoinRoster(
     // inline two-step confirm: the first click arms "Confirm remove", the second
     // click within the same render executes. No window.confirm, it blocks
     // Electron and would freeze the pane.
+    // Undo is for agents (plan 016): their changes go back, one normal edit
+    // per note. Like Remove, it takes two clicks.
+    if (row.agent && actions.onUndoAgent) {
+      twoStep(item, 'Undo its changes', 'Confirm undo', () => actions.onUndoAgent?.(row.membershipId));
+    }
     if (row.removable && actions.onRemove) {
-      let armed = false;
-      let executed = false;
-      const remove = item.createEl('button', { text: 'Remove' });
-      remove.addClass('mod-warning');
-      remove.addClass('havemind-roster-action');
-      remove.onClickEvent(() => {
-        if (executed) {
-          return;
-        }
-        if (!armed) {
-          armed = true;
-          remove.setText('Confirm remove');
-          remove.addClass('havemind-roster-action-armed');
-          return;
-        }
-        // Fire exactly once: the success path re-renders the roster (dropping
-        // this row), but guard here too so a stray click before that re-render
-        // can never submit a second removal.
-        executed = true;
-        actions.onRemove?.(row.membershipId);
-      });
+      twoStep(item, 'Remove', 'Confirm remove', () => actions.onRemove?.(row.membershipId));
     }
   }
+}
+
+/**
+ * A destructive action behind an inline two-step confirm: the first click
+ * arms it, the second executes, exactly once. Never mod-cta, and no
+ * window.confirm, which blocks Electron and would freeze the pane.
+ */
+function twoStep(item: HTMLElement, label: string, confirmLabel: string, run: () => void): void {
+  let armed = false;
+  let executed = false;
+  const button = item.createEl('button', { text: label });
+  button.addClass('mod-warning');
+  button.addClass('havemind-roster-action');
+  button.onClickEvent(() => {
+    if (executed) return;
+    if (!armed) {
+      armed = true;
+      button.setText(confirmLabel);
+      button.addClass('havemind-roster-action-armed');
+      return;
+    }
+    executed = true;
+    run();
+  });
 }

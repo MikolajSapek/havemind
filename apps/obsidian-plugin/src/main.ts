@@ -9,6 +9,7 @@ import { isSafePassiveJoinProtocolData } from './onboarding/invite';
 import type { DurableSyncState } from './runtime/sync-state';
 import { getPluginDataMutex } from './runtime/plugin-data-mutex';
 import { restoreRevision, type RestoreDeps } from './runtime/activity-restore';
+import { planAgentUndo } from './runtime/agent-undo';
 import { ActivityLog, activityEntriesToRecords } from './runtime/activity-log';
 import type { RuntimeHooks } from './runtime/adapters/runtime-hooks';
 import { forgetSharedAccessProvider } from './runtime/adapters/shared-access-provider';
@@ -203,6 +204,9 @@ export default class HavemindPlugin extends Plugin {
         onRemove: (membershipId) => {
           void this.people.removeMember(membershipId);
         },
+        onUndoAgent: (membershipId) => {
+          void this.undoAgent(membershipId);
+        },
         onConnect: (input, serverUrl, report) => {
           void this.connectFromInput(input, serverUrl, report).catch(() => {
             report('Could not connect. Check the invitation, pairing token, and server URL.');
@@ -394,6 +398,56 @@ export default class HavemindPlugin extends Plugin {
    * The Activity feed's Restore: writes the note's text from that revision as a
    * normal edit, which then syncs like any other. Reports what happened.
    */
+  /** Puts back every note an agent changed (plan 016); see runtime/agent-undo.ts. */
+  async undoAgent(membershipId: string): Promise<void> {
+    const connection = this.connection;
+    const state = this.syncState;
+    if (connection?.noteEvents === undefined || connection.revisionContent === undefined || state === null) {
+      new Notice('Havemind: connect before undoing an agent.');
+      return;
+    }
+    const { vault, fileManager } = this.app as unknown as {
+      vault: RestoreDeps['vault'];
+      fileManager: { trashFile(file: unknown): Promise<void> };
+    };
+    const fileIds = new Set(
+      this.activityLog
+        .snapshot()
+        .filter((entry) => entry.author.kind === 'member' && entry.author.membershipId === membershipId)
+        .map((entry) => entry.fileId),
+    );
+    let undone = 0;
+    let kept = 0;
+    for (const fileId of fileIds) {
+      try {
+        const step = planAgentUndo(fileId, await connection.noteEvents(fileId), membershipId);
+        if (step === null) {
+          kept += 1;
+        } else if (step.action === 'restore') {
+          const result = await restoreRevision(
+            { revisionContent: connection.revisionContent, currentPath: (id) => state.pathForFileId(id), vault },
+            step.revisionId,
+          );
+          if (result.outcome !== 'unavailable') undone += 1;
+        } else {
+          const path = state.pathForFileId(fileId);
+          const file = path === null ? null : vault.getAbstractFileByPath(path);
+          if (file !== null) {
+            await fileManager.trashFile(file);
+            undone += 1;
+          }
+        }
+      } catch {
+        kept += 1;
+      }
+    }
+    new Notice(
+      kept === 0
+        ? `Havemind: undid ${undone} note(s) the agent changed.`
+        : `Havemind: undid ${undone} note(s); left ${kept} that someone changed since, or that could not be undone.`,
+    );
+  }
+
   async handleRestore(revisionId: string): Promise<void> {
     const connection = this.connection;
     const state = this.syncState;
