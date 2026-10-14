@@ -20,6 +20,8 @@ export interface CreateInvitationOptions {
   readonly getAccessToken: () => Promise<string>;
   readonly intendedRole?: 'editor' | 'owner';
   readonly intendedMemberDisplayName?: string;
+  /** "agent" invites an AI agent (plan 014); servers without agents refuse it. */
+  readonly intendedKind?: 'person' | 'agent';
 }
 
 export interface CreatedInvitation {
@@ -44,6 +46,7 @@ export async function createVaultInvitation(
   const token = await options.getAccessToken();
   const body: Record<string, string> = {};
   if (options.intendedRole !== undefined) body.intendedRole = options.intendedRole;
+  if (options.intendedKind !== undefined) body.intendedKind = options.intendedKind;
   if (options.intendedMemberDisplayName !== undefined) {
     body.intendedMemberDisplayName = options.intendedMemberDisplayName;
   }

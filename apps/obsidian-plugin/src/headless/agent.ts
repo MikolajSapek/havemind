@@ -1,0 +1,251 @@
+/**
+ * The headless Havemind client an AI agent runs as (plan 014).
+ *
+ * It joins a vault like a person's device does, through the owner's invitation
+ * and six-digit approval, then syncs the vault into a folder on disk with the
+ * plugin's own sync code: onboarding controller, refresh-token access,
+ * transport, `SyncRunner`, outbox, vault apply and merge. Only the platform
+ * ports differ (a folder instead of Obsidian's Vault, `fetch` instead of
+ * `requestUrl`, files instead of `data.json`), the same seam the e2e harness
+ * fills in `tests/e2e/onboarding-two-device.test.ts`.
+ *
+ * The agent changes the vault only through `writeNote` / `deleteNote`, which
+ * hand the change to the push producer exactly as an Obsidian vault event
+ * would. Every change carries the agent's own membership, so it is
+ * attributed to the agent and can be undone like anyone's.
+ */
+
+import { randomBytes, randomUUID } from 'node:crypto';
+import { promises as fs } from 'node:fs';
+
+import { hashPlaintext } from '@havemind/protocol';
+
+import { OnboardingController, type OnboardingViewState } from '../onboarding/controller';
+import { VaultChangeObserver } from '../obsidian/vault-adapter';
+import { RefreshTokenAccessProvider } from '../runtime/access-token';
+import { createVaultFilePort } from '../runtime/adapters/vault-file-port';
+import { bootstrapIdentities } from '../runtime/bootstrap-identities';
+import { CONFLICT_FOLDER } from '../runtime/conflict-resolution';
+import { buildConnectionResolvers } from '../runtime/connection';
+import { reconcileHeads } from '../runtime/head-reconciliation';
+import { KeyedMutex } from '../runtime/keyed-mutex';
+import { RequestUrlOnboardingApi } from '../runtime/onboarding-api';
+import { PluginDataOnboardingStore } from '../runtime/onboarding-store';
+import { createRemoteApplyProducerSync } from '../runtime/remote-apply-coordinator';
+import { RevisionHistory } from '../runtime/revision-history';
+import { DurableSyncState } from '../runtime/sync-state';
+import { RequestUrlTransport, type RequestUrlFn } from '../runtime/sync-transport';
+import { VaultApplyAdapter } from '../runtime/vault-apply';
+import { OutboxLocalChangeRepository } from '../sync/outbox-repository';
+import { reconcileVaultState } from '../sync/reconciliation';
+import { SyncRunner, type SyncCycleResult } from '../sync/sync-runner';
+
+import { createFetchRequestUrl } from './fetch-request-url';
+import { openFsVault, type FsVault } from './fs-vault';
+import { FileSecrets, jsonFile, syncStateFile } from './state-files';
+
+export interface AgentPaths {
+  /** Tokens and sync state; created 0700, files 0600. */
+  readonly stateDir: string;
+  /** The vault, mirrored as plain files. */
+  readonly vaultDir: string;
+  /** Defaults to `fetch`; tests inject the server directly. */
+  readonly requestUrl?: RequestUrlFn;
+}
+
+export interface AgentIdentity {
+  readonly apiBaseUrl: string;
+  readonly vaultId: string;
+  readonly vaultName: string;
+  readonly memberId: string;
+  readonly deviceId: string;
+  /** The name the owner gave this agent in the invitation. */
+  readonly name: string;
+}
+
+const APPROVAL_POLL_STEPS = 16;
+
+function brandedToken(prefix: string): string {
+  return `${prefix}${randomBytes(32).toString('base64url')}`;
+}
+
+async function onboarding(paths: AgentPaths): Promise<OnboardingController> {
+  await fs.mkdir(paths.stateDir, { recursive: true, mode: 0o700 });
+  return new OnboardingController({
+    clock: { now: () => Date.now() },
+    remoteApi: new RequestUrlOnboardingApi({ requestUrl: paths.requestUrl ?? createFetchRequestUrl() }),
+    secrets: new FileSecrets(paths.stateDir),
+    store: new PluginDataOnboardingStore({ persist: jsonFile(paths.stateDir, 'onboarding.json') }),
+  });
+}
+
+/**
+ * Redeems the owner's invitation and returns the six digits the owner types
+ * to approve this agent. Nothing is trusted from the invitation beyond what
+ * the owner's server confirms.
+ */
+export async function startJoin(paths: AgentPaths, envelope: string, deviceLabel: string): Promise<string> {
+  const controller = await onboarding(paths);
+  controller.beginFromPastedEnvelope(envelope.trim());
+  await controller.loadInvitationReview();
+  const state = await controller.confirmInvitation(deviceLabel);
+  if (state.phase !== 'pending-approval') {
+    throw new Error(`The invitation could not be redeemed (${state.phase}).`);
+  }
+  return state.verificationPhrase;
+}
+
+/** Advances the stored onboarding until the owner approved (or refused) it. */
+export async function finishJoin(paths: AgentPaths): Promise<AgentIdentity | null> {
+  const controller = await onboarding(paths);
+  for (let step = 0; step < APPROVAL_POLL_STEPS; step += 1) {
+    const state: OnboardingViewState = await controller.resume();
+    if (state.phase === 'connected') {
+      return {
+        apiBaseUrl: state.apiBaseUrl,
+        vaultId: state.vaultId,
+        vaultName: state.vaultName,
+        memberId: state.memberId,
+        deviceId: state.deviceId,
+        name: state.intendedMemberDisplayName,
+      };
+    }
+    if (state.phase === 'rejected') throw new Error('The owner refused this agent.');
+    if (state.phase === 'pending-approval') return null;
+  }
+  return null;
+}
+
+/** A connected agent: sync the vault, read it, change it. */
+export class HeadlessAgent {
+  private constructor(
+    readonly identity: AgentIdentity,
+    private readonly fsVault: FsVault,
+    private readonly runner: SyncRunner,
+    private readonly observer: VaultChangeObserver,
+    private readonly adoptExisting: () => Promise<void>,
+  ) {}
+
+  static async open(paths: AgentPaths): Promise<HeadlessAgent> {
+    const identity = await finishJoin(paths);
+    if (identity === null) throw new Error('This agent is not approved yet.');
+    const requestUrl = paths.requestUrl ?? createFetchRequestUrl();
+    const secrets = new FileSecrets(paths.stateDir);
+    const access = new RefreshTokenAccessProvider({
+      requestUrl,
+      apiBaseUrl: identity.apiBaseUrl,
+      getRefreshToken: () => secrets.getRefreshToken(),
+      saveRefreshToken: (value) => secrets.saveRefreshToken(value),
+      generateRotationId: () => brandedToken('hm_ri_'),
+      generateSuccessorToken: () => brandedToken('hm_rt_'),
+    });
+    const getAuthToken = () => access.getAccessToken();
+    const state = new DurableSyncState({ persist: syncStateFile(paths.stateDir) });
+    const pushIdentity = { vaultId: identity.vaultId, memberId: identity.memberId, deviceId: identity.deviceId };
+    const transport = new RequestUrlTransport({
+      requestUrl,
+      apiBaseUrl: identity.apiBaseUrl,
+      vaultId: identity.vaultId,
+      getAuthToken,
+      resolveEnvelope: (revisionId) => state.peekEnvelope(revisionId),
+      identity: pushIdentity,
+    });
+    const resolvers = buildConnectionResolvers({
+      apiBaseUrl: identity.apiBaseUrl,
+      vaultId: identity.vaultId,
+      getAccessToken: getAuthToken,
+      requestUrl,
+    });
+    const history = new RevisionHistory({ transport, state, resolveRevision: resolvers.resolveRevision });
+    const fsVault = await openFsVault(paths.vaultDir);
+    const files = createVaultFilePort({ vault: fsVault.vault as never, state });
+    const lock = new KeyedMutex();
+    const producer = new OutboxLocalChangeRepository({
+      recovery: state,
+      identity: pushIdentity,
+      store: { load: () => state.loadProducer(), save: (next) => state.saveProducer(next) },
+      hasAuthoredRevision: (revisionId) => state.hasAuthoredRevision(revisionId),
+      generateRevisionId: () => randomUUID(),
+    });
+    const vault = new VaultApplyAdapter({
+      lock,
+      history,
+      files,
+      conflictFolder: CONFLICT_FOLDER,
+      resolveRevision: resolvers.resolveRevision,
+      hashContent: async (content) => hashPlaintext(content),
+      producerSync: createRemoteApplyProducerSync(() => producer),
+    });
+    const runner = new SyncRunner({
+      beforeCycle: () => producer.recover(),
+      beforePull: () => history.refresh(),
+      afterPull: () => reconcileHeads({ history, state, producer, files, lock }),
+      transport,
+      state,
+      vault,
+      scheduler: () => undefined,
+    });
+    const observer = new VaultChangeObserver({
+      clock: () => Date.now(),
+      generateFileId: () => randomUUID(),
+      generateOperationId: () => randomUUID(),
+      repository: producer,
+      vault: fsVault.snapshot,
+    });
+    const adoptExisting = async (): Promise<void> => {
+      const blocked = await bootstrapIdentities({ history, state, producer, vault: fsVault.snapshot });
+      await reconcileVaultState({
+        observer,
+        repository: producer,
+        vault: {
+          ...fsVault.snapshot,
+          listSyncablePaths: async () =>
+            (await fsVault.snapshot.listSyncablePaths()).filter((path) => !blocked.has(path.toLowerCase())),
+        },
+      });
+    };
+    return new HeadlessAgent(identity, fsVault, runner, observer, adoptExisting);
+  }
+
+  /** One push and pull with the server; the first call also adopts files already on disk. */
+  async sync(): Promise<SyncCycleResult> {
+    if (!this.adopted) {
+      await this.adoptExisting();
+      this.adopted = true;
+    }
+    return this.runner.trigger();
+  }
+
+  private adopted = false;
+
+  async listNotes(): Promise<readonly string[]> {
+    return (await this.fsVault.snapshot.listSyncablePaths()).filter((path) => path.endsWith('.md')).sort();
+  }
+
+  async readNote(path: string): Promise<string | null> {
+    return (await this.fsVault.snapshot.exists(path)) ? this.fsVault.snapshot.readText(path) : null;
+  }
+
+  /** Creates or replaces a note and queues it for the next `sync()`. */
+  async writeNote(path: string, content: string): Promise<void> {
+    const vault = this.fsVault.vault as {
+      getAbstractFileByPath(path: string): { path: string } | null;
+      createFolder(path: string): Promise<void>;
+      create(path: string, content: string): Promise<unknown>;
+      modify(file: { path: string }, content: string): Promise<void>;
+    };
+    const segments = path.split('/').slice(0, -1);
+    for (let i = 1; i <= segments.length; i += 1) {
+      const folder = segments.slice(0, i).join('/');
+      if (vault.getAbstractFileByPath(folder) === null) await vault.createFolder(folder);
+    }
+    const existing = vault.getAbstractFileByPath(path);
+    if (existing === null) {
+      await vault.create(path, content);
+      await this.observer.observeCreate(path);
+    } else {
+      await vault.modify(existing, content);
+      await this.observer.observeModify(path);
+    }
+  }
+}

@@ -8,7 +8,16 @@
  * cycle in permanent backoff.
  */
 
-import { TFolder, type TFile, type Vault, type Workspace } from 'obsidian';
+import type { TAbstractFile, TFile, Vault, Workspace } from 'obsidian';
+
+/**
+ * A folder, told apart by the shape Obsidian gives it (`TFolder.children`), so
+ * this module needs no runtime import of `obsidian` and also serves the
+ * headless agent client (plan 014), whose vault is a folder on disk.
+ */
+function isFolder(file: TAbstractFile | null): boolean {
+  return file !== null && Array.isArray((file as { children?: unknown }).children);
+}
 
 import { canonicalizeMarkdown, isSyncableConfigPath } from '@havemind/protocol';
 
@@ -79,7 +88,7 @@ async function ensureWritableConflictFolder(
     await vault.createFolder(folder);
     return folder;
   }
-  if (abstract instanceof TFolder) {
+  if (isFolder(abstract)) {
     return folder;
   }
   const fallback = `${folder} (files)`;
@@ -88,7 +97,7 @@ async function ensureWritableConflictFolder(
     await vault.createFolder(fallback);
     return fallback;
   }
-  if (fallbackAbstract instanceof TFolder) {
+  if (isFolder(fallbackAbstract)) {
     return fallback;
   }
   // Even the sanitized fallback is occupied by a non-folder file. Land the
@@ -164,7 +173,7 @@ async function ensureParentFolders(
       await vault.createFolder(prefix);
       continue;
     }
-    if (existing instanceof TFolder) {
+    if (isFolder(existing)) {
       continue;
     }
     throw new ParentFolderOccupiedError(prefix);

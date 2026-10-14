@@ -204,7 +204,9 @@ export class TAbstractFile {
   path = '';
 }
 export class TFile extends TAbstractFile {}
-export class TFolder extends TAbstractFile {}
+export class TFolder extends TAbstractFile {
+  children: TAbstractFile[] = [];
+}
 
 /**
  * `requestUrl` is not exercised by the shared mock; suites that need it mock it
