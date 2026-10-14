@@ -107,8 +107,11 @@ Plugin-only, no server change. Each is small; group two or three per release.
 Notes:
 - 1.1 stores the feed in the plugin's IndexedDB client store
   (`storage/client-store.ts`, introduced in 1.6.0), never in `data.json`,
-  which 1.5.9 just stopped from growing. Cap it (200 entries, as today) and
-  drop entries for files that no longer exist on read.
+  which 1.5.9 just stopped from growing. Cap it (200 entries, as today).
+  Shipped in 1.7.5: saves are coalesced (a first sync records a row per
+  file), Disconnect empties the feed because the record is not scoped to a
+  vault, Reset deletes it with the database. Rows of deleted files stay:
+  "deleted it" is a true row.
 - Server cleanups AUD2-01, AUD2-03, AUD2-05 ride along as one server-only
   release with its own sapserver deploy; they change no API.
 

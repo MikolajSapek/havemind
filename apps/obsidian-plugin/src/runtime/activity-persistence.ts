@@ -16,6 +16,8 @@ export interface ActivityRecords {
 }
 
 const KEY = 'feed';
+/** A first sync records one row per file; this many ms of quiet, then one write. */
+const SAVE_DELAY_MS = 500;
 const FORMAT = 1;
 const KINDS = new Set(['create', 'edit', 'rename', 'delete', 'conflict']);
 
@@ -56,6 +58,7 @@ export function persistActivity(
 ): () => void {
   let disposed = false;
   let unsubscribe = (): void => undefined;
+  let flush = (): void => undefined;
   let warned = false;
   void (async () => {
     const records = await openRecords().catch(() => null);
@@ -66,12 +69,26 @@ export function persistActivity(
       // A record we cannot read starts a fresh feed.
     }
     if (disposed) return;
-    const save = (): void => {
+    const write = (): void => {
       records.putActivityRecord(KEY, { format: FORMAT, entries: log.snapshot() }).catch(() => {
         if (warned) return;
         warned = true;
         console.warn('Havemind: could not save the activity feed; it will reset when Obsidian restarts.');
       });
+    };
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const save = (): void => {
+      if (timer !== null) return;
+      timer = setTimeout(() => {
+        timer = null;
+        write();
+      }, SAVE_DELAY_MS);
+    };
+    flush = (): void => {
+      if (timer === null) return;
+      clearTimeout(timer);
+      timer = null;
+      write();
     };
     unsubscribe = log.subscribe(save);
     // Rows recorded while the store was opening are not saved yet.
@@ -80,5 +97,6 @@ export function persistActivity(
   return () => {
     disposed = true;
     unsubscribe();
+    flush();
   };
 }

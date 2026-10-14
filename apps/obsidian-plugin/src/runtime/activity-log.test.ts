@@ -28,6 +28,16 @@ const roster: RosterMember[] = [
 ];
 
 describe('ActivityLog', () => {
+  it('empties on clear, and tells subscribers', () => {
+    const log = new ActivityLog();
+    log.record(entry());
+    const listener = vi.fn();
+    log.subscribe(listener);
+    log.clear();
+    expect(log.snapshot()).toEqual([]);
+    expect(listener).toHaveBeenCalledOnce();
+  });
+
   it('records entries and returns them in a snapshot', () => {
     const log = new ActivityLog();
     log.record(entry({ revisionId: 'r1' }));

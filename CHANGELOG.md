@@ -14,6 +14,22 @@ and the server.
   the time it has left, so backups stay daily across deploys instead of
   leaving a gap of up to 47 hours.
 
+## [1.7.5], 2026-10-14
+
+### Changed
+
+- Plugin: the Activity feed survives a restart. The last 200 entries are kept
+  in the device's client database (never data.json), saved at most once per
+  burst, emptied on Disconnect and deleted with Reset.
+
+### Fixed
+
+- Plugin: invitation expiry reads as a clock time ("Expires at 16:05") for
+  the owner, and the joining device now sees it, together with the name of
+  the person who invited it.
+- Plugin: Rejoin, Remove, Retry, Discard and Retry now are 44px tall on a
+  touch screen.
+
 ## [1.7.4], 2026-10-14
 
 ### Fixed

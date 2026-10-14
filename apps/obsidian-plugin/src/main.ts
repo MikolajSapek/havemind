@@ -538,6 +538,9 @@ export default class HavemindPlugin extends Plugin {
     this.connectionError = undefined;
     this.awaitingApproval = null;
     this.guestInvitationInvalid = false;
+    // The saved feed is not scoped to a vault, and the next connection may be
+    // to another one, whose history its Restore buttons would not find.
+    this.activityLog.clear();
     this.statusBar.setStatus(formatStatusBar({ status: 'disconnected' }));
     this.views.refreshOnboardingNow();
   }

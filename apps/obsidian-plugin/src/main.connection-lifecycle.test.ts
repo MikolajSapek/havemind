@@ -10,7 +10,10 @@ const adapterMocks = vi.hoisted(() => ({
   revokeMembershipForOwner: vi.fn(),
   buildRejoinControllerForInvitee: vi.fn(),
   listPendingApprovalsForOwner: vi.fn(),
+  persistActivity: vi.fn(() => () => undefined),
 }));
+
+vi.mock('./runtime/activity-persistence', () => ({ persistActivity: adapterMocks.persistActivity }));
 
 vi.mock('./runtime/obsidian-adapters', async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
@@ -161,6 +164,31 @@ describe('startConnection lifecycle safety', () => {
 
     expect(handle.stop).not.toHaveBeenCalled();
     expect(internals(plugin).connection).toBe(handle);
+  });
+
+  it('starts keeping the Activity feed once, on either way of connecting (plan 011, 1.1)', async () => {
+    adapterMocks.persistActivity.mockClear();
+    const plugin = newPlugin();
+    adapterMocks.startHavemindConnection.mockResolvedValue(fakeHandle('sapserver'));
+    await internals(plugin).startConnection();
+    expect(adapterMocks.persistActivity).toHaveBeenCalledOnce();
+
+    const other = newPlugin();
+    adapterMocks.connectFromInput.mockResolvedValue(fakeHandle('sapserver'));
+    await (
+      other as unknown as {
+        connectFromInput: (input: string, serverUrl: string, report: (m: string) => void) => Promise<void>;
+      }
+    ).connectFromInput('v1.x', 'https://sapserver.example', () => {});
+    expect(adapterMocks.persistActivity).toHaveBeenCalledTimes(2);
+  });
+
+  it('empties the Activity feed on Disconnect, so another vault never inherits it', async () => {
+    const plugin = newPlugin();
+    const log = (plugin as unknown as { activityLog: { record(e: unknown): void; snapshot(): unknown[] } }).activityLog;
+    log.record({ revisionId: 'r1', fileId: 'f1', path: 'a.md', kind: 'edit', author: { kind: 'remote' }, timestamp: 1, hasContent: true });
+    (plugin as unknown as { disconnect(): void }).disconnect();
+    expect(log.snapshot()).toEqual([]);
   });
 
   // B8: a guest device asked for the owner's pending approvals at every start,

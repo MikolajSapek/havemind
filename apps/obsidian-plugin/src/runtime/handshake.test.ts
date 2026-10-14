@@ -6,6 +6,14 @@ import {
   groupCode,
 } from './handshake';
 
+describe('a blank inviter name', () => {
+  it('reads as no name at all, never "to , who invited you"', () => {
+    expect(buildGuestHandshake({ code: '482917', ownerName: '  ' }).instruction).toBe(
+      'Read these six digits out loud to the person who invited you.',
+    );
+  });
+});
+
 describe('groupCode', () => {
   it('splits six digits 3+3 so they can be read aloud', () => {
     expect(groupCode('482917')).toEqual(['482', '917']);

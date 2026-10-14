@@ -3,7 +3,7 @@
  * memory only, so every restart emptied it; now it is kept in the client
  * database's `activity` store, never in data.json.
  */
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ActivityLog, type ActivityLogEntry } from './activity-log';
 import { persistActivity, type ActivityRecords } from './activity-persistence';
@@ -34,13 +34,49 @@ function memoryRecords(initial?: unknown): ActivityRecords & { saved: unknown } 
 const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe('persistActivity', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('writes a burst of records once, not once per record', async () => {
+    // A first sync records one row per file; a write per row is the burst the
+    // pane's coalesced repaint exists to avoid on a phone.
+    vi.useFakeTimers();
+    let writes = 0;
+    const records: ActivityRecords = {
+      getActivityRecord: async () => undefined,
+      putActivityRecord: async () => {
+        writes += 1;
+      },
+    };
+    const log = new ActivityLog();
+    persistActivity(log, async () => records);
+    await vi.runAllTimersAsync();
+    for (let i = 0; i < 50; i += 1) log.record(entry(`r${i}`, i));
+    await vi.runAllTimersAsync();
+    expect(writes).toBe(1);
+  });
+
+  it('writes a pending burst when it is disposed', async () => {
+    vi.useFakeTimers();
+    const records = memoryRecords();
+    const log = new ActivityLog();
+    const dispose = persistActivity(log, async () => records);
+    await vi.runAllTimersAsync();
+    log.record(entry('r1', 1));
+    dispose();
+    await Promise.resolve();
+    expect(records.saved).toEqual({ format: 1, entries: [entry('r1', 1)] });
+  });
+
   it('brings back what the last session recorded', async () => {
     const before = new ActivityLog();
     const records = memoryRecords();
-    persistActivity(before, async () => records);
+    const stop = persistActivity(before, async () => records);
     await settle();
     before.record(entry('r1', 100));
     before.record(entry('r2', 200));
+    stop(); // the plugin unloading writes what is still pending
     await settle();
 
     const after = new ActivityLog();

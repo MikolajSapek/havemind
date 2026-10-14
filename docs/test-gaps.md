@@ -82,10 +82,10 @@ Recorded so they are decided rather than forgotten:
 - **The handshake, end to end.** Two real devices, one code read aloud. The unit
   tests pin the wording and the grouping; they cannot tell you whether the
   ceremony works between two people in a room.
-- **Proof-of-life after a restart.** The calm pane says "Last change 4 min ago",
-  but `ActivityLog` is in-memory and rebuilds on every start, so a reloaded pane
-  reads "none yet". Either that is acceptable or the log needs a durable tail,
-  a product decision, still open (see `plans/007-ui-rebuild.md`).
+- **Proof-of-life after a restart.** Closed in 1.7.5: the Activity feed is kept
+  in the client database and restored on the first connection
+  (`runtime/activity-persistence.ts`). Still to see on a device: a row recorded
+  before a reload is there after it.
 
 ## Suggested order
 

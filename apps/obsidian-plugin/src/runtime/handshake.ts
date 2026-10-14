@@ -52,7 +52,7 @@ export function buildGuestHandshake(
   // name the sentence has to carry the relationship itself, so the two forms
   // differ in shape rather than one being the other with a blank in it.
   const instruction =
-    input.ownerName === undefined
+    input.ownerName === undefined || input.ownerName.trim() === ''
       ? 'Read these six digits out loud to the person who invited you.'
       : `Read these six digits out loud to ${input.ownerName}, who invited you.`;
   return {

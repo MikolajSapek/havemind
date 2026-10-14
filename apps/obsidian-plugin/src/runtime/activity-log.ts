@@ -94,6 +94,14 @@ export class ActivityLog {
     }
   }
 
+  /** Empties the feed, as Disconnect does, and notifies subscribers. */
+  clear(): void {
+    this.entries = [];
+    for (const listener of this.listeners) {
+      listener();
+    }
+  }
+
   /** All recorded entries in insertion order (oldest first). */
   snapshot(): readonly ActivityLogEntry[] {
     return [...this.entries];
