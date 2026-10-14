@@ -28,6 +28,9 @@ so whoever runs that machine can read it. Read the
 [docs/install.md](docs/install.md); the manual guide is
 [docs/self-hosting.md](docs/self-hosting.md).
 
+**New here?** The [tutorial](docs/tutorial.md) goes from zero to a shared
+vault with five AI agents, step by step, with screenshots.
+
 **AI agents as members?** Background agents (inbox sorter, daily summary and
 more) join your vault in yellow, each with a task note: see
 [docs/agents.md](docs/agents.md).
@@ -226,6 +229,7 @@ which is why this section exists.
 
 **If you are running it**
 
+- [Tutorial](docs/tutorial.md), zero to a shared vault with AI agents
 - [Self-hosting guide](docs/self-hosting.md), zero to working server
 - [Current limitations](docs/pilot/known-limitations.md), the caveats that bite
 - [AI agents as members](docs/agents.md), background agents with task notes

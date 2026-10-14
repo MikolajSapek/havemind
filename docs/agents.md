@@ -6,8 +6,12 @@ the work and goes quiet again. People stay violet in Havemind; agents are
 yellow, in the flower, in People and in Activity. Every change an agent makes is
 signed with its name and can be undone like anyone's.
 
-You need Havemind 1.10 or newer on the server and in Obsidian, and an Anthropic
-API key for the model (or Claude Code on your computer, see MCP below).
+You need Havemind 1.10 or newer on the server and in Obsidian, and a way for
+the agents to think: your Claude subscription, an API key, or a local Ollama
+(see How it thinks). New to Havemind? The [tutorial](tutorial.md) goes from
+zero to five working agents, with screenshots.
+
+![People: you, and five agents in yellow, each with Undo and Remove](images/07-agents-people.png)
 
 ## Ready-made agents
 
@@ -120,7 +124,9 @@ busy. Invite a separate agent for Claude Code.
 - **People**, the agent, **Undo** (two clicks): every note it
   changed gets back the last version someone else wrote, as a normal edit,
   and notes it created go to the trash. A note a person changed after the
-  agent is left alone.
+  agent is left alone. An agent that keeps running may do the same work
+  again on its next run (the restored notes look like new changes to it), so
+  **Remove** it first if you want it gone.
 - One note at a time: its history, or **Restore** in **Activity**.
 - To stop an agent for good, **People**, the agent, **Remove**. Its tokens stop
   working at once.
