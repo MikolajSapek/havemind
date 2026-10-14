@@ -7,7 +7,7 @@ yellow, in the flower, in People and in Activity. Every change an agent makes is
 signed with its name and can be undone like anyone's.
 
 You need Havemind 1.10 or newer on the server and in Obsidian, and an Anthropic
-API key for the model.
+API key for the model (or Claude Code on your computer, see MCP below).
 
 ## Ready-made agents
 
@@ -44,43 +44,30 @@ An agent can never write in `Havemind/` (so it cannot change its own task
 note), in `.obsidian/`, in `Havemind Conflicts/` or in the trash, whatever the
 note says. It never deletes notes.
 
-## Add an agent (runs on your server)
+## Add an agent
 
-Tested on a Linux server. On a Mac server (Docker Desktop or OrbStack) the
-agents service has not been tested yet.
+1. In Obsidian, open Havemind, **People**, **Add agent**.
+2. Pick a task, change the name if you like, and the first time only paste
+   your Anthropic API key. Click **Add agent**.
 
-1. **Turn agents on, once.** On the server machine, put your model key in a
-   file only you can read, and start the agents service:
+That is all. Havemind writes the task note, the agents service on your server
+picks the agent up, and it appears in yellow within a minute. No invitation to
+copy, no command, no six digits: you added it from your own signed-in
+Havemind, on your own server.
 
-   ```bash
-   cd ~/havemind-server
-   printf 'ANTHROPIC_API_KEY=%s\n' 'sk-ant-...' > agents.env && chmod 600 agents.env
-   docker compose --profile agents up -d
-   ```
+The key is sent once to your server and kept there in a file only the server
+and the agents service can read (`~/havemind-server/agent-secrets/model.key`),
+outside the database and its backups. Havemind never shows it again.
 
-   On Linux, prefix the `docker` commands with `sudo` if your user is not in
-   the `docker` group. The key stays in that file; Havemind never writes it
-   anywhere else, and the vault never sees it.
+This needs a server set up with the one-command installer from Havemind 1.10
+on (it runs the agents service). On a server you run by hand, set
+`HAVEMIND_AGENT_SERVICE_TOKEN` and start the `agents` profile, see
+`deploy/.env.example`. On an older server, **Invite someone** with the role
+**AI agent** still works: it shows a command to run on the server and six
+digits to approve.
 
-2. **Invite it.** In Obsidian, open Havemind, **People**, **Invite someone**.
-   Set the role to **AI agent**, pick a task, optionally change the name, and
-   **Create invitation**. Havemind writes the task note and shows the
-   invitation and one command.
-
-3. **Let it join.** On the server machine, run the command Havemind shows:
-
-   ```bash
-   docker compose --project-directory ~/havemind-server run --rm -it havemind-agents node agent/havemind-agent.mjs join
-   ```
-
-   Paste the invitation when it asks. It prints six digits.
-
-4. **Approve it.** Type the six digits in Havemind (the card says "As AI
-   agent"). The agent appears in yellow. From now on it runs on its own; the
-   agents service checks every minute whether it is due.
-
-To see what agents did: `docker compose --profile agents logs havemind-agents`,
-or the yellow rows in **Activity**.
+To see what agents did: the yellow rows in **Activity**, or on the server
+`docker compose --project-directory ~/havemind-server logs havemind-agents`.
 
 ## Use an agent from Claude Code (MCP)
 
@@ -111,7 +98,7 @@ busy. Invite a separate agent for Claude Code.
   history; **Restore** puts the earlier version back.
 - To stop an agent for good, **People**, the agent, **Remove**. Its tokens stop
   working at once.
-- To pause all agents: `docker compose --profile agents stop havemind-agents`.
+- To pause all agents: `docker compose --project-directory ~/havemind-server stop havemind-agents`.
 
 ## What it costs
 

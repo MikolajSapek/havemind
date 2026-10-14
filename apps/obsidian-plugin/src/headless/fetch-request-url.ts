@@ -7,9 +7,21 @@
 import { REQUEST_TIMEOUT_MS } from '../runtime/adapters/request-timeout';
 import type { RequestUrlFn } from '../runtime/sync-transport';
 
-export function createFetchRequestUrl(): RequestUrlFn {
+/**
+ * `serverUrl`, when given, carries every request instead of the public
+ * address: the agents service sits next to the server on the same Compose
+ * network and reaches it as http://havemind-server:8787, with no tailnet name,
+ * certificate or host networking involved. Only the origin changes.
+ */
+export function createFetchRequestUrl(serverUrl?: string): RequestUrlFn {
   return async (options) => {
-    const response = await fetch(options.url, {
+    const target = serverUrl === undefined || serverUrl === ''
+      ? options.url
+      : (() => {
+          const url = new URL(options.url);
+          return new URL(`${url.pathname}${url.search}`, serverUrl).toString();
+        })();
+    const response = await fetch(target, {
       method: options.method,
       ...(options.headers === undefined ? {} : { headers: options.headers }),
       ...(options.body === undefined ? {} : { body: options.body }),

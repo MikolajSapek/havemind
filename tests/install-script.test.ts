@@ -49,7 +49,7 @@ describe('install.sh', () => {
     // A fresh named volume is root-owned; the server (uid 1000, no
     // capabilities) then fails with "unable to open database file" (AWS, 1.9.0).
     const out = dryRun();
-    const chown = out.search(/--entrypoint chown -v havemind-install_havemind-data:\/data -v \S+:\/backups -v \S+:\/agents \S+ -R 1000:1000 \/data \/backups \/agents/);
+    const chown = out.search(/--entrypoint chown -v havemind-install_havemind-data:\/data -v \S+:\/backups -v \S+:\/agents -v \S+:\/agent-secrets \S+ -R 1000:1000 \/data \/backups \/agents \/agent-secrets/);
     expect(chown).toBeGreaterThan(-1);
     expect(chown).toBeLessThan(out.search(/ up -d/));
   });
@@ -63,12 +63,19 @@ describe('install.sh', () => {
     expect(vault.indexOf('touch "$OWNER_MARK"')).toBeGreaterThan(vault.indexOf(' setup --owner'));
   });
 
-  it('can run AI agents next to the server, only when asked to (plan 014)', () => {
-    // Same image, its own process, off until `--profile agents`: without a
-    // model key it would only restart in a loop.
+  it('runs the agents service next to the server, ready for one-click agents (plan 015)', () => {
     expect(source).toMatch(/^ {2}havemind-agents:$/m);
-    expect(source).toMatch(/profiles: \[agents\]/);
+    expect(source).not.toMatch(/profiles: \[agents\]/);
     expect(source).toMatch(/agent\/havemind-agent\.mjs", "run"/);
+    // The model key lives in its own folder: never in the data volume or backups.
+    expect(source).toMatch(/- \.\/agent-secrets:\/agent-secrets$/m);
+    expect(source).toMatch(/- \.\/agent-secrets:\/agent-secrets:ro$/m);
+    expect(source).toMatch(/HAVEMIND_AGENT_SECRETS_DIR: \/agent-secrets/);
+  });
+
+  it('makes the agents service token once, only on the server', () => {
+    expect(source).toMatch(/HAVEMIND_AGENT_SERVICE_TOKEN=/);
+    expect(source).toMatch(/grep -q '\^HAVEMIND_AGENT_SERVICE_TOKEN=' "\$\{HOME_DIR\}\/\.env"/);
   });
 
   it('never rewrites an existing .env, which may hold the model key', () => {

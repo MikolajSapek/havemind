@@ -32,9 +32,11 @@ const APPROVAL_WAIT_MS = 15 * 60_000;
 const RUN_LOOP_MS = 60_000;
 
 const agentsDir = (): string => process.env.HAVEMIND_AGENTS_DIR ?? join(homedir(), '.havemind-agents');
+const serverUrl = (): string | undefined => process.env.HAVEMIND_AGENT_SERVER_URL || undefined;
 const pathsFor = (folder: string): AgentPaths => ({
   stateDir: join(agentsDir(), folder, 'state'),
   vaultDir: join(agentsDir(), folder, 'vault'),
+  requestUrl: createFetchRequestUrl(serverUrl()),
 });
 const say = (line: string): void => {
   process.stderr.write(`${line}\n`);
@@ -134,7 +136,7 @@ async function claimNew(): Promise<void> {
   const apiBaseUrl = process.env.HAVEMIND_API_BASE_URL ?? '';
   if (serviceToken === '' || apiBaseUrl === '') return;
   for (;;) {
-    const folder = await claimNextAgent({ agentsDir: agentsDir(), apiBaseUrl, serviceToken, requestUrl: createFetchRequestUrl() });
+    const folder = await claimNextAgent({ agentsDir: agentsDir(), apiBaseUrl, serviceToken, requestUrl: createFetchRequestUrl(serverUrl()) });
     if (folder === null) return;
     const agent = await HeadlessAgent.open(pathsFor(folder));
     await agent.sync();

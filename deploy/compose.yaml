@@ -49,8 +49,14 @@ services:
       HAVEMIND_BACKUP_DIR: ${HAVEMIND_BACKUP_DIR-/backups}
       HAVEMIND_BACKUP_INTERVAL_HOURS: ${HAVEMIND_BACKUP_INTERVAL_HOURS:-24}
       HAVEMIND_BACKUP_KEEP: ${HAVEMIND_BACKUP_KEEP:-7}
+      # One-click AI agents (plan 015): set HAVEMIND_AGENT_SERVICE_TOKEN in
+      # .env to turn them on; the model key is then a file in ./agent-secrets,
+      # never in the data volume or the backups.
+      HAVEMIND_AGENT_SERVICE_TOKEN: ${HAVEMIND_AGENT_SERVICE_TOKEN:-}
+      HAVEMIND_AGENT_SECRETS_DIR: ${HAVEMIND_AGENT_SERVICE_TOKEN:+/agent-secrets}
     volumes:
       - havemind-data:/data
+      - ./agent-secrets:/agent-secrets
       # Host-side backup directory, so the sudo-free user cron (and restic) can
       # read finished artifacts WITHOUT docker. NOTE the path is relative to THIS
       # FILE's directory: run from the repo checkout it is <repo>/deploy/backups,
@@ -81,6 +87,38 @@ services:
       options:
         max-size: "10m"
         max-file: "5"
+
+  # AI agents (plans 014, 015), on with: docker compose --profile agents up -d
+  # Needs HAVEMIND_AGENT_SERVICE_TOKEN in .env. Same image, its own process.
+  havemind-agents:
+    image: havemind-server:${HAVEMIND_IMAGE_TAG:-0.0.0-private}
+    profiles: [agents]
+    user: "1000:1000"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - "no-new-privileges:true"
+    init: true
+    restart: unless-stopped
+    command: ["node", "agent/havemind-agent.mjs", "run"]
+    environment:
+      HAVEMIND_API_BASE_URL: ${HAVEMIND_API_BASE_URL}
+      # Straight to the server on this Compose network; no tailnet hop.
+      HAVEMIND_AGENT_SERVER_URL: http://havemind-server:8787
+      HAVEMIND_AGENT_SERVICE_TOKEN: ${HAVEMIND_AGENT_SERVICE_TOKEN:-}
+      HAVEMIND_AGENTS_DIR: /agents
+      HAVEMIND_AGENT_SECRETS_DIR: /agent-secrets
+    volumes:
+      - ./agents:/agents
+      - ./agent-secrets:/agent-secrets:ro
+    tmpfs:
+      - /tmp
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   havemind-data:

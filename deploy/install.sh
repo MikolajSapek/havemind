@@ -178,11 +178,6 @@ if [ "$FRESH" = "1" ]; then
   fi
 fi
 run mkdir -p "${HOME_DIR}"
-# Agents reach the server by its tailnet name. On Linux that name and the
-# Tailscale Serve port live on the host's network; Docker Desktop on a Mac
-# resolves and routes it from its own network.
-AGENT_NETWORK=""
-[ "$OS" = "Linux" ] && AGENT_NETWORK="    network_mode: host"
 if [ "$DRY" = "1" ]; then
   say "[dry-run] write ${HOME_DIR}/compose.yaml and ${HOME_DIR}/.env"
 else
@@ -207,9 +202,11 @@ services:
       HAVEMIND_PORT: "8787"
       HAVEMIND_DATA_DIR: /data
       HAVEMIND_BACKUP_DIR: /backups
+      HAVEMIND_AGENT_SECRETS_DIR: /agent-secrets
     volumes:
       - havemind-data:/data
       - ./backups:/backups
+      - ./agent-secrets:/agent-secrets
     tmpfs:
       - /tmp
     logging:
@@ -217,12 +214,11 @@ services:
       options:
         max-size: "10m"
         max-file: "5"
-  # AI agents (plan 014), off until: docker compose --profile agents up -d
-  # Same image, its own process. The model key lives in agents.env, which this
-  # installer never writes or reads.
+  # AI agents (plans 014, 015): same image, its own process. Agents are added
+  # from Havemind with one click; the model key the owner gives there is a
+  # file in ./agent-secrets, outside the data volume and the backups.
   havemind-agents:
     image: ${IMAGE}
-    profiles: [agents]
     user: "1000:1000"
     read_only: true
     cap_drop: [ALL]
@@ -230,14 +226,18 @@ services:
     init: true
     restart: unless-stopped
     command: ["node", "agent/havemind-agent.mjs", "run"]
-${AGENT_NETWORK}
     env_file:
+      - .env
       - path: agents.env
         required: false
     environment:
       HAVEMIND_AGENTS_DIR: /agents
+      HAVEMIND_AGENT_SECRETS_DIR: /agent-secrets
+      # Straight to the server on this Compose network; no tailnet hop.
+      HAVEMIND_AGENT_SERVER_URL: http://havemind-server:8787
     volumes:
       - ./agents:/agents
+      - ./agent-secrets:/agent-secrets:ro
     tmpfs:
       - /tmp
     logging:
@@ -255,7 +255,14 @@ HAVEMIND_API_BASE_URL=${SERVER_URL}
 HAVEMIND_SERVER_NAME=Havemind
 EOF
   fi
+  # The agents service's token: made once, shared only by the two containers.
+  if ! grep -q '^HAVEMIND_AGENT_SERVICE_TOKEN=' "${HOME_DIR}/.env"; then
+    printf 'HAVEMIND_AGENT_SERVICE_TOKEN=hm_svc_%s\n' "$(od -An -tx1 -N32 /dev/urandom | tr -d ' \n')" >> "${HOME_DIR}/.env"
+  fi
+  chmod 600 "${HOME_DIR}/.env"
   mkdir -p "${HOME_DIR}/backups" "${HOME_DIR}/agents"
+  mkdir -p "${HOME_DIR}/agent-secrets"
+  chmod 700 "${HOME_DIR}/agent-secrets"
 fi
 if [ -z "${HAVEMIND_IMAGE:-}" ]; then
   run $DOCKER compose --project-directory "${HOME_DIR}" pull
@@ -269,7 +276,8 @@ fi
 run $DOCKER compose --project-directory "${HOME_DIR}" up --no-start
 run $DOCKER run --rm --user 0 --entrypoint chown \
   -v havemind-install_havemind-data:/data -v "${HOME_DIR}/backups:/backups" \
-  -v "${HOME_DIR}/agents:/agents" "${IMAGE}" -R 1000:1000 /data /backups /agents
+  -v "${HOME_DIR}/agents:/agents" -v "${HOME_DIR}/agent-secrets:/agent-secrets" \
+  "${IMAGE}" -R 1000:1000 /data /backups /agents /agent-secrets
 run $DOCKER compose --project-directory "${HOME_DIR}" up -d
 
 if [ "$DRY" != "1" ]; then
@@ -288,6 +296,11 @@ say "The server is running."
 step "Tailscale Serve"
 run $TSC serve --bg --https=443 "http://127.0.0.1:${PORT}"
 say "Served at ${SERVER_URL} for devices in your tailnet."
+if [ "$DRY" != "1" ]; then
+  # The first HTTPS request makes Tailscale fetch the certificate, which can
+  # take a while; do it now so Obsidian's first connect does not time out.
+  curl -fsS --max-time 90 "${SERVER_URL}/readyz" >/dev/null 2>&1 || true
+fi
 
 # ---------------------------------------------------------------------------
 # 6. The owner and the code to paste
@@ -321,6 +334,8 @@ if [ -n "$CODE" ]; then
   say "  ${CODE}"
   say ""
   say "It works once and expires in 15 minutes. Your laptop and phone must be signed in to the same Tailscale account."
+  say ""
+  say "AI agents: in Havemind, People, Add agent. Nothing more to set up here."
 elif [ "$DRY" = "1" ]; then
   say "[dry-run] the code to paste would be printed here."
 elif [ "$NEW_CODE" = "1" ]; then
