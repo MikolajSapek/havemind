@@ -264,7 +264,10 @@ describe('plugin lifecycle', () => {
 
     const connect = registrationState.commands.find(({ id }) => id === 'connect');
     expect(connect).toBeDefined();
-    await connect?.callback?.();
+    // A checkCallback since 1.7.4: offered only while nothing is connected.
+    expect(connect?.checkCallback?.(true)).toBe(true);
+    connect?.checkCallback?.(false);
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(app.workspace.rightLeaf?.states).toEqual([
       { active: true, type: HAVEMIND_ONBOARDING_VIEW },

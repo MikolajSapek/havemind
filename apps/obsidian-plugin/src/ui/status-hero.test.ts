@@ -42,6 +42,15 @@ describe('Status tab', () => {
     expect(labels).toEqual(['you', 'H', 'MI', '?']);
   });
 
+  it('offers Retry now while a retry is pending, not only offline', () => {
+    const pane = syncedPane({
+      panelProvider: () => buildConnectionPanel({ status: 'retrying' }),
+      rejoinRosterProvider: () => buildRejoinRosterView(members),
+      onRetry: () => undefined,
+    });
+    expect(flatten(pane).some((el) => el.tag === 'button' && el.text === 'Retry now')).toBe(true);
+  });
+
   it('offers Retry now when this device is offline', () => {
     const pane = syncedPane({
       panelProvider: () => buildConnectionPanel({ status: 'offline' }),

@@ -19,6 +19,9 @@ import {
   resetObsidianMock,
 } from './test/obsidian.mock';
 import { internals } from './test/plugin-internals';
+import { WorkspaceLeaf } from './test/obsidian.mock';
+import { HAVEMIND_ONBOARDING_VIEW } from './ui/view-types';
+import { flatten } from './test/dom';
 import { manifest, flush } from './test/fixtures';
 
 /** The registered command with this id, or a hard setup failure. */
@@ -119,6 +122,38 @@ describe('command palette actions', () => {
     // needs this, and that state is not always distinguishable up front.
     expect(command('reset-connection').checkCallback).toBeUndefined();
     expect(command('reset-connection').callback).toBeDefined();
+  });
+
+  it('offers Connect only while nothing is connected', async () => {
+    const plugin = newPlugin();
+    await plugin.onload();
+    expect(command('connect').checkCallback?.(true)).toBe(true);
+    installFakeConnection(plugin);
+    // Connected, "Connect to Havemind" would only tear down the live pane.
+    expect(command('connect').checkCallback?.(true)).toBe(false);
+  });
+
+  it('opens the pane on the Activity tab from Open activity', async () => {
+    const plugin = newPlugin();
+    await plugin.onload();
+    installFakeConnection(plugin);
+    (plugin as unknown as { connectionStatus: string }).connectionStatus = 'synced';
+    const leaf = new WorkspaceLeaf();
+    const view = registrationState.views.get(HAVEMIND_ONBOARDING_VIEW)?.(leaf as never) as unknown as {
+      onOpen(): Promise<void>;
+      containerEl: MockElement;
+    };
+    (leaf as unknown as { view: unknown }).view = view;
+    await view.onOpen();
+    (plugin.app.workspace as unknown as { leaves: Map<string, WorkspaceLeaf[]> }).leaves.set(HAVEMIND_ONBOARDING_VIEW, [leaf]);
+
+    command('open-activity').callback?.();
+    await flush();
+
+    const selected = flatten(view.containerEl).find(
+      (el) => el.attrs.role === 'tab' && el.attrs['aria-selected'] === 'true',
+    );
+    expect(selected?.attrs['aria-label']).toBe('Activity');
   });
 
   it('offers Sync now and Disconnect once a connection is live', async () => {

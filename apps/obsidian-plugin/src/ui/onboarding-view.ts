@@ -129,6 +129,11 @@ export class HavemindOnboardingView extends ItemView {
     });
   }
 
+  /** Opens the pane on a given tab, for a command that names one. */
+  showTab(id: PaneTabId): void {
+    this.activeTab = id;
+    this.render();
+  }
   override onClose(): void {
     this.repaints.stop();
     this.options.onClosed?.();
@@ -138,10 +143,8 @@ export class HavemindOnboardingView extends ItemView {
    * Repaints at once, for a change the user just caused by tapping something.
    *
    * A tap has to answer immediately: coalescing is for events arriving FROM the
-   * server, where nobody is waiting on a specific frame.
-   */
-  /**
-   * Re-renders from the current panel state, called on every status change.
+   * server, where nobody is waiting on a specific frame. `refresh()` below
+   * re-renders from the current panel state, on every status change.
    *
    * COALESCED, and that is the point. 36 call sites reach this, and every
    * repaint reads the conflict provider, which scans the whole vault. On a

@@ -6,15 +6,18 @@ export function registerCommands(plugin: HavemindPlugin): void {
   plugin.addCommand({
     id: 'open-activity',
     name: 'Open activity',
-    callback: () => plugin.openPane(),
+    callback: () => plugin.openPane('activity'),
   });
   plugin.addCommand({
     id: 'connect',
     name: 'Connect to Havemind',
-    callback: () => {
+    // Connected, this would only swap the live pane for the connect form.
+    checkCallback: (checking) => {
+      if (checking) return !plugin.connectionActions().connected();
       plugin.invitations.connectionActive = false;
       plugin.views.refreshOnboardingNow();
-      return plugin.openPane();
+      void plugin.openPane();
+      return true;
     },
   });
   // Single owner entry point: create the invitation and approve the joining

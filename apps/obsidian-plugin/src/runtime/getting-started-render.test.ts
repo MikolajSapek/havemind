@@ -6,6 +6,10 @@ import {
 } from './getting-started-render';
 
 describe('buildGettingStartedViewModel', () => {
+  it('never points at a form "below": the help also opens on a connected pane', () => {
+    for (const step of buildGettingStartedViewModel().steps) expect(step.text).not.toMatch(/below/i);
+  });
+
   it('titles the tutorial "Getting started"', () => {
     expect(buildGettingStartedViewModel().title).toBe('Getting started');
   });

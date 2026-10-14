@@ -14,6 +14,18 @@ and the server.
   the time it has left, so backups stay daily across deploys instead of
   leaving a gap of up to 47 hours.
 
+## [1.7.4], 2026-10-14
+
+### Fixed
+
+- Plugin: "Open activity" opens the pane on the Activity tab, not on
+  whichever tab was last open.
+- Plugin: "Connect to Havemind" is offered only while nothing is connected;
+  on a live vault it only swapped the pane for the connect form.
+- Plugin: a pending retry ("Retrying...") offers Retry now, as offline does.
+- Plugin: Getting started no longer tells a connected user to paste a token
+  "below", where there is no form.
+
 ## [1.7.3], 2026-10-14
 
 ### Fixed

@@ -73,7 +73,9 @@ export function renderRecoveryActions(
     // panel, not the status bar, since setText clobbers status-bar children.
     if (
       actions.onRetry !== undefined &&
-      (panel.status === 'offline' || panel.status === 'reconnect-required')
+      (panel.status === 'offline' ||
+        panel.status === 'retrying' ||
+        panel.status === 'reconnect-required')
     ) {
       const retry = content.createEl('button', { text: 'Retry now' });
       retry.addClass('mod-cta');

@@ -45,6 +45,7 @@ import {
   type ConnectReporter,
   type GuestWaitingViewModel,
 } from './ui/onboarding-view';
+import type { PaneTabId } from './runtime/pane-tabs';
 import { formatActivityTime, prefersReducedMotion } from './ui/primitives';
 import { HavemindSettingTab, formatMemberCount } from './ui/setting-tab';
 import { PluginViewRegistry } from './ui/view-registry';
@@ -781,7 +782,7 @@ export default class HavemindPlugin extends Plugin {
    * an existing leaf, so asking twice focuses the pane rather than opening a
    * second copy of it.
    */
-  async openPane(): Promise<void> {
+  async openPane(tab?: PaneTabId): Promise<void> {
     const existingLeaf = this.app.workspace.getLeavesOfType(HAVEMIND_ONBOARDING_VIEW)[0];
     const leaf = existingLeaf ?? this.app.workspace.getRightLeaf(false);
     if (!leaf) return;
@@ -789,5 +790,6 @@ export default class HavemindPlugin extends Plugin {
       await leaf.setViewState({ active: true, type: HAVEMIND_ONBOARDING_VIEW });
     }
     await this.app.workspace.revealLeaf(leaf);
+    if (tab !== undefined && leaf.view instanceof HavemindOnboardingView) leaf.view.showTab(tab);
   }
 }

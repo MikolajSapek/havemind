@@ -73,7 +73,7 @@ export function buildGettingStartedViewModel(): GettingStartedViewModel {
       },
       {
         number: 3,
-        text: 'Paste the Server URL and pairing token below, then select Connect.',
+        text: "Paste the Server URL and pairing token into Havemind's connect screen, then select Connect.",
       },
       {
         number: 4,
