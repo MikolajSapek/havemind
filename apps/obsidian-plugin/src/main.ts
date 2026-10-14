@@ -385,7 +385,7 @@ export default class HavemindPlugin extends Plugin {
    * The Activity feed's Restore: writes the note's text from that revision as a
    * normal edit, which then syncs like any other. Reports what happened.
    */
-  private async handleRestore(revisionId: string): Promise<void> {
+  async handleRestore(revisionId: string): Promise<void> {
     const connection = this.connection;
     const state = this.syncState;
     if (connection?.revisionContent === undefined || state === null) {

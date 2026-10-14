@@ -1024,6 +1024,26 @@
   font-weight: var(--font-medium);
 }
 
+/* History of one note (plan 012): the versions as a quiet list, the picked
+   one's diff below it, styled by the conflict diff rules above. */
+.havemind-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-2-1);
+  margin: var(--size-4-2) 0;
+  max-height: 14rem;
+  overflow: auto;
+}
+.havemind-history-row,
+button.havemind-history-row {
+  justify-content: flex-start;
+  text-align: left;
+}
+.havemind-history-restore,
+button.havemind-history-restore {
+  margin-top: var(--size-4-2);
+}
+
 /* Resolve modal: unchanged structure, quieter surfaces. */
 .havemind-conflict-modal-meta {
   margin-bottom: var(--size-4-3);

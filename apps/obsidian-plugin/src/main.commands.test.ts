@@ -100,6 +100,7 @@ describe('command palette actions', () => {
       'sync-now',
       'disconnect',
       'reset-connection',
+      'note-history',
     ]);
     expect(command('sync-now').name).toBe('Sync now');
     expect(command('disconnect').name).toBe('Disconnect');

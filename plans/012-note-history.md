@@ -1,6 +1,6 @@
 # 012, history of one note (1.8)
 
-- Status: **In progress**, 2026-10-14. Phase 2 of `plans/011-after-1.7.md`.
+- Status: **Shipped in 1.8.0**, 2026-10-14. Phase 2 of `plans/011-after-1.7.md`.
 
 ## Goal
 

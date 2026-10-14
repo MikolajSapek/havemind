@@ -17,7 +17,7 @@ you own passes the changes around and remembers who wrote what.
 Built for people. If you also run Claude, MCP or another local agent in that
 vault, its edits land in the same history.
 
-**Version 1.7.5, desktop and mobile.** A two-week pilot on two devices lost no
+**Version 1.8.0, desktop and mobile.** A two-week pilot on two devices lost no
 data, including through three real incidents.
 
 There is no end-to-end encryption. Your server stores the vault in plaintext,
@@ -108,6 +108,9 @@ The long version, including backups and multiple vaults, is in
   The Activity feed keeps the last 200 entries on the device, across
   restarts. Restore on an entry puts that note back to the text it had
   then, as a normal edit that syncs; the current text stays in history.
+- **Every note has its history.** "Show history of this note" (command
+  palette or the file menu) lists each synced version with who made it and
+  when, shows how a version differs from the note now, and restores it.
 - **Notes, attachments and how the vault looks.** Markdown notes, images and
   PDFs up to 25 MB, plus your theme, snippets, hotkeys and
   graph settings.

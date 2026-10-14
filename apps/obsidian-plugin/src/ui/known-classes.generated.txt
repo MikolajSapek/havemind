@@ -67,6 +67,11 @@ havemind-hero
 havemind-hero-sub
 havemind-hero-title
 havemind-hint
+havemind-history
+havemind-history-detail
+havemind-history-list
+havemind-history-restore
+havemind-history-row
 havemind-host-command
 havemind-host-steps
 havemind-invitation-token

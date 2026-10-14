@@ -9,6 +9,7 @@
  * identity alongside the new one.
  */
 
+import type { RemoteEvent } from '../../sync/sync-runner';
 import type { RevisionContent } from '../activity-restore';
 import type { Plugin } from 'obsidian';
 
@@ -81,6 +82,8 @@ export interface ConnectionHandle {
   readonly revisionContent?: (revisionId: string) => Promise<RevisionContent | null>;
   /** The membership that wrote a file's newest revision. Absent on the no-op handle. */
   readonly lastAuthor?: (fileId: string) => Promise<string | null>;
+  /** Every revision of one file, for its history (plan 012). Absent on the no-op handle. */
+  readonly noteEvents?: (fileId: string) => Promise<RemoteEvent[]>;
   /** Applies a parked incoming change again (B2). Absent on the no-op handle. */
   readonly retryParked?: (revisionId: string) => Promise<boolean>;
 }
@@ -142,7 +145,7 @@ export async function startSyncLoop(
   // (rule 3 TOCTOU close). Distinct files still sync in parallel.
   const fileApplyLock = new KeyedMutex();
   let producer: PushProducerHandle | null = null;
-  const { controller, state, initializeProducer, conflictAncestor, revisionContent, lastAuthor, retryParked } = buildSyncController(
+  const { controller, state, initializeProducer, conflictAncestor, revisionContent, lastAuthor, noteEvents, retryParked } = buildSyncController(
     plugin,
     {
       apiBaseUrl: resolvers.apiBaseUrl,
@@ -230,6 +233,7 @@ export async function startSyncLoop(
     conflictAncestor,
     revisionContent,
     lastAuthor,
+    noteEvents,
     retryParked,
     readRoster: (selfMembershipId) =>
       fetchVaultMembers({

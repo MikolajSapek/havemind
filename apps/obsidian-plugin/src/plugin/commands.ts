@@ -2,6 +2,8 @@
 
 import type HavemindPlugin from '../main';
 
+import { registerNoteHistory } from './note-history';
+
 export function registerCommands(plugin: HavemindPlugin): void {
   plugin.addCommand({
     id: 'open-activity',
@@ -66,6 +68,7 @@ export function registerCommands(plugin: HavemindPlugin): void {
   // overlay, and the command palette for the panel that actually connects a
   // vault. A new user found the hexagon, got an activity list, and had no
   // route to connecting anything.
+  registerNoteHistory(plugin);
   plugin.addRibbonIcon('hexagon', 'Open Havemind', () => {
     void plugin.openPane();
   });

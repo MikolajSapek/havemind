@@ -14,6 +14,22 @@ and the server.
   the time it has left, so backups stay daily across deploys instead of
   leaving a gap of up to 47 hours.
 
+## [1.8.0], 2026-10-14
+
+### Added
+
+- Plugin: "Show history of this note", in the command palette and the file
+  menu (plan 012). Every synced version of the note with who made it and
+  when, the difference between a picked version and the note now, and a
+  two-step Restore that writes it back as a normal edit. Plugin-only: the
+  time comes from the `serverTime` every server already puts on each receipt.
+
+### Changed
+
+- Plugin: the stored revision log moves to format 2, which carries each
+  revision's accepted time. A log stored by an earlier version is read again
+  in full once, on the first connection after the update.
+
 ## [1.7.5], 2026-10-14
 
 ### Changed

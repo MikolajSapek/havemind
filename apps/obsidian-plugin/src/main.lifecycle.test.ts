@@ -91,6 +91,7 @@ describe('plugin lifecycle', () => {
       'sync-now',
       'disconnect',
       'reset-connection',
+      'note-history',
     ]);
     expect(app.vault.getMarkdownFilesCalls).toBe(0);
     expect(app.network.requestCalls).toBe(0);
