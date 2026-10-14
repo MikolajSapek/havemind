@@ -14,6 +14,22 @@ and the server.
   the time it has left, so backups stay daily across deploys instead of
   leaving a gap of up to 47 hours.
 
+## [1.8.1], 2026-10-14
+
+### Fixed
+
+- Plugin: a diff, in the history and in the conflict window, shows the
+  changed lines with three lines around each and folds the rest into
+  "... N unchanged lines"; a long note used to show in full.
+- Plugin: the history window marks the picked version, puts Restore above the
+  diff, and says when a version is the same as the note now.
+- Plugin: the conflict and history windows get the pane's design tokens. They
+  render outside the pane, so their hairlines and accent resolved to nothing.
+- Plugin: modal titles drop the hexagon icon (plan 010, fewer icons), and the
+  history rows read like the Activity list.
+- Plugin: a history or version that fails to load is logged to the console
+  with its error, besides the message on screen.
+
 ## [1.8.0], 2026-10-14
 
 ### Added

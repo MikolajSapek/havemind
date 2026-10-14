@@ -8,6 +8,8 @@ import { Modal, type App } from 'obsidian';
 
 import type { RevisionContent } from '../runtime/activity-restore';
 import { computeLineDiff } from '../runtime/conflict-resolution';
+
+import { renderDiff } from './diff-view';
 import type { NoteHistoryRow } from '../runtime/note-history';
 
 import { armedButton, renderViewTitle } from './primitives';
@@ -35,10 +37,14 @@ export function renderNoteHistory(container: HTMLElement, deps: NoteHistoryDeps)
   list.addClass('havemind-history-list');
   const detail = container.createDiv();
   detail.addClass('havemind-history-detail');
+  const items: HTMLElement[] = [];
   for (const row of deps.rows) {
     const item = list.createEl('button', { text: `${row.author} · ${row.when}` });
     item.addClass('havemind-history-row');
+    items.push(item);
     item.onClickEvent(() => {
+      for (const other of items) other.removeClass('is-active');
+      item.addClass('is-active');
       void showVersion(detail, row.revisionId, deps);
     });
   }
@@ -50,7 +56,8 @@ async function showVersion(detail: HTMLElement, revisionId: string, deps: NoteHi
   let now: string;
   try {
     [version, now] = await Promise.all([deps.loadVersion(revisionId), deps.currentText()]);
-  } catch {
+  } catch (error) {
+    console.warn('Havemind: could not load a version for the note history', error);
     detail
       .createDiv({ text: 'Could not load this version. Check the connection and try again.' })
       .addClass('havemind-hint');
@@ -62,25 +69,25 @@ async function showVersion(detail: HTMLElement, revisionId: string, deps: NoteHi
       .addClass('havemind-hint');
     return;
   }
+  if (version.content === now) {
+    detail
+      .createDiv({ text: 'This version is the same as the note now.' })
+      .addClass('havemind-hint');
+    return;
+  }
+  // Restore first: the diff below can be long, the action should not be.
+  armedButton(detail, 'Restore this version', 'Confirm restore', 'havemind-history-restore', () =>
+    deps.onRestore(revisionId),
+  );
   const diff = computeLineDiff(now, version.content);
   if (diff === null) {
     detail
       .createDiv({ text: 'The difference is too large to show here.' })
       .addClass('havemind-hint');
-  } else {
-    detail.createDiv({ text: '− now · + this version' }).addClass('havemind-conflict-legend');
-    const box = detail.createDiv();
-    box.addClass('havemind-conflict-diff');
-    for (const line of diff) {
-      const prefix = line.type === 'added' ? '+ ' : line.type === 'removed' ? '- ' : '  ';
-      const row = box.createDiv({ text: `${prefix}${line.text}` });
-      row.addClass('havemind-conflict-line');
-      row.addClass(`havemind-conflict-line-${line.type}`);
-    }
+    return;
   }
-  armedButton(detail, 'Restore this version', 'Confirm restore', 'havemind-history-restore', () =>
-    deps.onRestore(revisionId),
-  );
+  detail.createDiv({ text: '− now · + this version' }).addClass('havemind-conflict-legend');
+  renderDiff(detail, diff);
 }
 
 export class NoteHistoryModal extends Modal {

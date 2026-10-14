@@ -127,6 +127,18 @@ describe('first-run screens keep the pane inset', () => {
   });
 });
 
+describe('modals get the pane tokens (1.8.1)', () => {
+  // A modal renders outside `.havemind-view`, so tokens declared only there
+  // resolved to nothing in it: the history list lost its hairlines and the
+  // picked version its accent, silently, and the conflict diff its border.
+  const tokenScope = /([^{}]*)\{\s*--havemind-accent:/.exec(css.replace(/\/\*[\s\S]*?\*\//g, ''))?.[1] ?? '';
+  const scope = tokenScope.split(',').map((s) => s.trim());
+
+  it.each(['.havemind-conflict-modal', '.havemind-history'])('%s carries them', (root) => {
+    expect(scope).toContain(root);
+  });
+});
+
 describe('fields mounted on the view stay inside the pane', () => {
   // The view is a flex column. The generic field rule says `width: 100%`, and
   // the side inset adds 12px each side on top of it, so on the join screen

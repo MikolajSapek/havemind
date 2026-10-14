@@ -9,7 +9,6 @@
  * identically. Presentation only, nothing here reads or writes plugin state.
  */
 
-import { setIcon } from 'obsidian';
 
 export function prefersReducedMotion(): boolean {
   return (
@@ -41,13 +40,8 @@ export function formatActivityTime(timestamp: number): string {
  * and never changes the heading's text content.
  */
 export function renderViewTitle(content: HTMLElement, text: string): void {
-  const heading = content.createEl('h3', { text });
-  heading.addClass('havemind-view-title');
-  // Pure decoration: the heading already carries the title text, so a screen
-  // reader must not announce the glyph as a second, unnamed thing.
-  const icon = heading.createEl('span', { attr: DECORATIVE });
-  icon.addClass('havemind-title-icon');
-  setIcon(icon, 'hexagon');
+  // Words only (plan 010, fewer icons): the hexagon that led every title is gone.
+  content.createEl('h3', { text }).addClass('havemind-view-title');
 }
 
 /**

@@ -35,7 +35,8 @@ async function open(plugin: Host, note: NoteFile, fileId: string): Promise<void>
   let events;
   try {
     events = await connection.noteEvents(fileId);
-  } catch {
+  } catch (error) {
+    console.warn("Havemind: could not load a note's history", error);
     new Notice("Havemind: could not load this note's history. Check the connection and try again.");
     return;
   }

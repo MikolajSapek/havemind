@@ -28,6 +28,8 @@ describe('note history window (plan 012)', () => {
   it('lists every version with who and when', () => {
     const root = createContent();
     renderNoteHistory(asEl(root), deps());
+    // Plan 010, fewer icons: the title is words only.
+    expect(flatten(root).some((el) => el.classes.includes('havemind-title-icon'))).toBe(false);
     expect(texts(root)).toContain('History of Venue');
     expect(button(root, 'You · Today 16:05')).toBeDefined();
     expect(button(root, 'Hubert · Yesterday 09:30')).toBeDefined();
@@ -76,6 +78,38 @@ describe('note history window (plan 012)', () => {
     const root = createContent();
     renderNoteHistory(asEl(root), deps());
     expect(texts(root).some((t) => /reached the server/i.test(t))).toBe(true);
+  });
+
+  it('shows only what changed, marks the picked version, and puts Restore above the diff (1.8.1)', async () => {
+    const long = (mid: string): string => [...Array.from({ length: 40 }, (_, i) => `line ${i}`), mid, ...Array.from({ length: 40 }, (_, i) => `tail ${i}`)].join('\n');
+    const root = createContent();
+    renderNoteHistory(asEl(root), deps({
+      loadVersion: async () => ({ fileId: 'f1', path: 'Venue.md', content: long('then') }),
+      currentText: async () => long('now'),
+    }));
+    button(root, 'Hubert')?.triggerClick();
+    await settle();
+    const all = flatten(root);
+    expect(all.filter((el) => /unchanged lines/.test(el.text))).toHaveLength(2);
+    expect(all.some((el) => el.text === '  line 0')).toBe(false);
+    expect(button(root, 'Hubert')?.classes).toContain('is-active');
+    expect(button(root, 'You')?.classes).not.toContain('is-active');
+    const restoreAt = all.findIndex((el) => el.tag === 'button' && el.text === 'Restore this version');
+    const diffAt = all.findIndex((el) => el.classes.includes('havemind-conflict-diff'));
+    expect(restoreAt).toBeGreaterThan(-1);
+    expect(restoreAt).toBeLessThan(diffAt);
+  });
+
+  it('says a version matching the note now changes nothing, and offers no Restore', async () => {
+    const root = createContent();
+    renderNoteHistory(asEl(root), deps({
+      loadVersion: async () => ({ fileId: 'f1', path: 'Venue.md', content: 'same\n' }),
+      currentText: async () => 'same\n',
+    }));
+    button(root, 'Hubert')?.triggerClick();
+    await settle();
+    expect(texts(root).some((t) => /same as the note now/i.test(t))).toBe(true);
+    expect(button(root, 'Restore this version')).toBeUndefined();
   });
 
   it('says so when there is no history yet', () => {

@@ -11,6 +11,7 @@ import { Modal, type App } from 'obsidian';
 
 import type { ConflictCopy, DiffLine } from '../runtime/conflict-resolution';
 
+import { renderDiff } from './diff-view';
 import { armedButton, renderViewTitle } from './primitives';
 
 /** View model for the resolve modal, pure, built from a copy + optional diff. */
@@ -95,15 +96,7 @@ export function renderConflictModalBody(
       text: `− your version · + ${model.author ?? 'the other version'}`,
     });
     legend.addClass('havemind-conflict-legend');
-    const diffBox = container.createDiv({ text: '' });
-    diffBox.addClass('havemind-conflict-diff');
-    for (const line of model.diff) {
-      const prefix =
-        line.type === 'added' ? '+ ' : line.type === 'removed' ? '- ' : '  ';
-      const row = diffBox.createDiv({ text: `${prefix}${line.text}` });
-      row.addClass('havemind-conflict-line');
-      row.addClass(`havemind-conflict-line-${line.type}`);
-    }
+    renderDiff(container, model.diff);
   }
 
   const buttons = container.createDiv({ text: '' });

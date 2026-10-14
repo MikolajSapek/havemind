@@ -36,7 +36,10 @@
    1. Local tokens, thin aliases over Obsidian's semantic variables
    ========================================================================= */
 .havemind-view,
-.havemind-status-bar {
+.havemind-status-bar,
+/* Modals render outside the pane; their roots need the tokens too (1.8.1). */
+.havemind-conflict-modal,
+.havemind-history {
   --havemind-accent: var(--interactive-accent);
   --havemind-hairline: var(--background-modifier-border);
   --havemind-gap: var(--size-4-4);          /* air between blocks */
@@ -297,24 +300,9 @@
   font-weight: var(--font-medium);
 }
 
-/* Panel title: thin-line hexagon in the accent, then the title text. */
+/* Modal and composer titles: words only (plan 010). */
 .havemind-view-title {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--size-4-2);
-}
-
-.havemind-title-icon {
-  order: -1;
-  display: inline-flex;
-  color: var(--havemind-accent);
-}
-
-.havemind-title-icon .svg-icon {
-  width: var(--icon-s);
-  height: var(--icon-s);
-  color: inherit;
-  stroke-width: 1.6;
+  margin-top: 0;
 }
 
 /* Section captions. The uppercase treatment is gone (design 1a, cut #2): in a
@@ -1029,15 +1017,30 @@
 .havemind-history-list {
   display: flex;
   flex-direction: column;
-  gap: var(--size-2-1);
   margin: var(--size-4-2) 0;
   max-height: 14rem;
   overflow: auto;
+  border-top: 1px solid var(--havemind-hairline);
 }
+/* Rows read like the Activity list: plain text on hairlines, not buttons. */
 .havemind-history-row,
 button.havemind-history-row {
   justify-content: flex-start;
+  height: auto;
+  padding: var(--size-4-2) var(--size-4-2);
+  border: 0;
+  border-bottom: 1px solid var(--havemind-hairline);
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
   text-align: left;
+  cursor: pointer;
+}
+button.havemind-history-row:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
 }
 .havemind-history-restore,
 button.havemind-history-restore {
@@ -1073,6 +1076,20 @@ button.havemind-history-restore {
 
 .havemind-conflict-line {
   padding: 0 var(--size-4-1);
+}
+
+/* A folded run of unchanged lines (1.8.1). */
+.havemind-conflict-gap {
+  padding: var(--size-2-1) var(--size-4-1);
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* The picked version in the history list. */
+.havemind-history-row.is-active,
+button.havemind-history-row.is-active {
+  box-shadow: inset 2px 0 0 var(--havemind-accent);
+  color: var(--text-normal);
 }
 
 .havemind-conflict-line-added {

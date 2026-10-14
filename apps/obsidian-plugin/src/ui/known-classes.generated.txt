@@ -23,6 +23,7 @@ havemind-conflict-action
 havemind-conflict-action-armed
 havemind-conflict-buttons
 havemind-conflict-diff
+havemind-conflict-gap
 havemind-conflict-header
 havemind-conflict-hint
 havemind-conflict-icon
