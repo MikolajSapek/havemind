@@ -101,3 +101,16 @@ describe('analyzeCompose, catches unsafe configuration', () => {
     expect(violations.join('\n')).not.toMatch(/digest|sha256/i);
   });
 });
+
+describe('the agents service', () => {
+  it('does not inherit the server healthcheck, which would mark it unhealthy forever', async () => {
+    // Same image as the server, so it inherits a HEALTHCHECK that calls the
+    // server port, which the agents service never opens (found on sapserver).
+    for (const file of ['deploy/compose.yaml', 'deploy/install.sh']) {
+      const text = await read(file);
+      const block = text.slice(text.indexOf('havemind-agents:'));
+      expect(block, file).toMatch(/healthcheck:\s*\n\s+disable: true/u);
+    }
+  });
+});
+

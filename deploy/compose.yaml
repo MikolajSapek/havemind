@@ -102,6 +102,9 @@ services:
     init: true
     restart: unless-stopped
     command: ["node", "agent/havemind-agent.mjs", "run"]
+    # Same image as the server: its HEALTHCHECK calls a port this service never opens.
+    healthcheck:
+      disable: true
     # Start once the server answers, not before.
     depends_on:
       havemind-server:
