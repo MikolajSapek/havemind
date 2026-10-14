@@ -203,7 +203,8 @@ describe('Fastify application', () => {
     expect(discoveryDocumentSchema.parse(response.json())).toEqual({
       apiBaseUrl: 'https://sync.example.test/api/v1',
       authMethods: ['opaque-token'],
-      capabilities: [],
+      // Plan 014: the plugin offers "Add agent" only where this is listed.
+      capabilities: ['agent-members-v1'],
       name: 'Test Havemind',
       protocol: {
         major: 1,

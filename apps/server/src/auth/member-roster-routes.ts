@@ -35,6 +35,7 @@ interface RosterRow {
   readonly membershipId: string;
   readonly displayName: string;
   readonly role: 'owner' | 'editor';
+  readonly kind: 'person' | 'agent';
 }
 
 type RosterErrorCode = 'FORBIDDEN' | 'INVALID_REQUEST' | 'UNAUTHENTICATED';
@@ -112,7 +113,8 @@ export function registerMemberRosterRoutes(
       .prepare(
         `SELECT memberships.id AS membershipId,
                 users.display_name AS displayName,
-                memberships.role AS role
+                memberships.role AS role,
+                memberships.kind AS kind
          FROM memberships
          JOIN users ON users.id = memberships.user_id
          WHERE memberships.vault_id = ?

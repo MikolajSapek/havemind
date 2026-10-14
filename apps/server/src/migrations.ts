@@ -170,6 +170,15 @@ const deviceVaultScopeMigration: MigrationDefinition = Object.freeze({
   version: 7,
 });
 
+const memberKindMigration: MigrationDefinition = Object.freeze({
+  name: 'member-kind',
+  sql: readFileSync(
+    new URL('./migrations/008-member-kind.sql', import.meta.url),
+    'utf8',
+  ),
+  version: 8,
+});
+
 export const DEFAULT_MIGRATIONS: readonly MigrationDefinition[] = Object.freeze([
   initialMigration,
   onboardingMigration,
@@ -178,6 +187,7 @@ export const DEFAULT_MIGRATIONS: readonly MigrationDefinition[] = Object.freeze(
   quotaMigration,
   rejoinSecretMigration,
   deviceVaultScopeMigration,
+  memberKindMigration,
 ]);
 
 export const CURRENT_SCHEMA_VERSION =

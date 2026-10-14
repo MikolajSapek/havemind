@@ -94,6 +94,7 @@ const invitationCreateBodySchema = z
   .object({
     intendedMemberDisplayName: z.string().min(1).max(80).optional(),
     intendedRole: z.enum(['editor', 'owner']).optional(),
+    intendedKind: z.enum(['person', 'agent']).optional(),
   })
   .strict();
 
@@ -483,6 +484,9 @@ export function registerOwnerInvitationRoutes(
         ...(body.data.intendedMemberDisplayName === undefined
           ? {}
           : { intendedMemberDisplayName: body.data.intendedMemberDisplayName }),
+        ...(body.data.intendedKind === undefined
+          ? {}
+          : { intendedKind: body.data.intendedKind }),
       });
       reply.header('cache-control', 'no-store');
       return {

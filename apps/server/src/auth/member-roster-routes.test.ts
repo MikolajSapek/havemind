@@ -128,12 +128,22 @@ describe('GET /members', () => {
 
     expect(response.json()).toEqual({
       members: [
-        { displayName: 'Mikolaj', membershipId: 'm-owner', role: 'owner' },
-        { displayName: 'Hubert', membershipId: 'm-guest', role: 'editor' },
-        { displayName: 'Miki telfon', membershipId: 'm-third', role: 'editor' },
+        { displayName: 'Mikolaj', kind: 'person', membershipId: 'm-owner', role: 'owner' },
+        { displayName: 'Hubert', kind: 'person', membershipId: 'm-guest', role: 'editor' },
+        { displayName: 'Miki telfon', kind: 'person', membershipId: 'm-third', role: 'editor' },
       ],
       version: 1,
     });
+  });
+
+  it('says which members are agents (plan 014)', async () => {
+    const fixture = makeFixture();
+    fixture.database
+      .prepare("UPDATE memberships SET kind = 'agent' WHERE id = 'm-third'")
+      .run();
+    const response = await getMembers(fixture, GUEST);
+    const members = (response.json() as { members: { membershipId: string; kind: string }[] }).members;
+    expect(members.find((m) => m.membershipId === 'm-third')?.kind).toBe('agent');
   });
 
   it('omits a revoked membership', async () => {

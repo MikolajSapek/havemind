@@ -134,11 +134,15 @@ export interface InvitationServiceOptions {
 
 export type InvitationRole = 'editor' | 'owner';
 
+/** What the member is (plan 014); decided by the inviting owner, never the joiner. */
+export type MemberKind = 'person' | 'agent';
+
 export interface CreateInvitationInput {
   readonly vaultId: string;
   readonly createdByMembershipId: string;
   readonly inviterDeviceId: string;
   readonly intendedRole?: InvitationRole;
+  readonly intendedKind?: MemberKind;
   readonly intendedMemberDisplayName?: string;
 }
 
@@ -251,6 +255,7 @@ interface InvitationRow {
   readonly pendingCredentialHash: string | null;
   readonly pendingRefreshTokenHash: string | null;
   readonly approvalAttempts: number;
+  readonly intendedKind: string;
 }
 
 interface OwnerMembershipRow {
@@ -301,6 +306,16 @@ function requireRole(value: InvitationRole | undefined): InvitationRole {
     return 'editor';
   }
   if (value !== 'editor' && value !== 'owner') {
+    throw new InvitationError('INVALID_INPUT');
+  }
+  return value;
+}
+
+function requireKind(value: string | undefined): MemberKind {
+  if (value === undefined) {
+    return 'person';
+  }
+  if (value !== 'person' && value !== 'agent') {
     throw new InvitationError('INVALID_INPUT');
   }
   return value;
@@ -370,6 +385,7 @@ export class InvitationService {
     const membershipId = requireUuid(input.createdByMembershipId);
     const inviterDeviceId = requireUuid(input.inviterDeviceId);
     const intendedRole = requireRole(input.intendedRole);
+    const intendedKind = requireKind(input.intendedKind);
     const intendedMemberDisplayName = requireDisplayName(
       input.intendedMemberDisplayName ?? DEFAULT_INTENDED_MEMBER_NAME,
     );
@@ -396,8 +412,8 @@ export class InvitationService {
              token_hash, verification_secret, intended_role, expires_at,
              created_at, consumed_at, consumed_by_user_id, pending_device_id,
              revoked_at, intended_member_display_name, intended_member_id,
-             pending_credential_hash, pending_refresh_token_hash
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?, NULL, NULL)`,
+             pending_credential_hash, pending_refresh_token_hash, intended_kind
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?, NULL, NULL, ?)`,
         )
         .run(
           invitationId,
@@ -411,6 +427,7 @@ export class InvitationService {
           createdAt,
           intendedMemberDisplayName,
           intendedMemberId,
+          intendedKind,
         );
 
       return {
@@ -803,8 +820,8 @@ export class InvitationService {
       this.#database
         .prepare(
           `INSERT INTO memberships (
-             id, vault_id, user_id, role, status, created_at, revoked_at
-           ) VALUES (?, ?, ?, ?, 'active', ?, NULL)`,
+             id, vault_id, user_id, role, status, created_at, revoked_at, kind
+           ) VALUES (?, ?, ?, ?, 'active', ?, NULL, ?)`,
         )
         .run(
           membershipId,
@@ -812,6 +829,7 @@ export class InvitationService {
           pendingUserId,
           this.#normalizeStoredRole(invitation.intendedRole),
           approvedAt,
+          requireKind(invitation.intendedKind),
         );
 
       const family =
@@ -953,6 +971,7 @@ const INVITATION_SELECT = `
          intended_member_id AS intendedMemberId,
          pending_credential_hash AS pendingCredentialHash,
          pending_refresh_token_hash AS pendingRefreshTokenHash,
-         approval_attempts AS approvalAttempts
+         approval_attempts AS approvalAttempts,
+         intended_kind AS intendedKind
   FROM invitations
 `;

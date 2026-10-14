@@ -1172,3 +1172,72 @@ describe('owner device pairing HTTP surface', () => {
     expect(response.statusCode).toBe(400);
   });
 });
+
+describe('agent members (plan 014)', () => {
+  /** Owner invites with `body`, the device redeems, the owner approves. */
+  async function joinWith(body: Record<string, unknown>) {
+    const fixture = makeFixture();
+    const app = createApp(fixture);
+    const created = await app.inject({
+      body,
+      headers: { authorization: `Bearer ${fixture.ownerAccessToken}` },
+      method: 'POST',
+      url: `/vaults/${VAULT}/invitations`,
+    });
+    if (created.statusCode !== 201 && created.statusCode !== 200) {
+      return { created, fixture, kind: null };
+    }
+    const invitation = created.json() as {
+      invitationId: string;
+      invitationToken: string;
+      intendedMemberId: string;
+    };
+    const redeem = await app.inject({
+      body: {
+        deviceLabel: 'Agent host',
+        initialRefreshToken: generateRefreshToken(),
+        invitationToken: invitation.invitationToken,
+        redemptionId: randomUUID(),
+      },
+      method: 'POST',
+      url: '/invitations/redeem',
+    });
+    const pending = redeem.json() as { verificationPhrase: string };
+    const approve = await approveWith(
+      app,
+      fixture.ownerAccessToken,
+      invitation.invitationId,
+      pending.verificationPhrase,
+    );
+    expect(approve.statusCode).toBe(200);
+    const row = fixture.database
+      .prepare('SELECT kind FROM memberships WHERE user_id = ? AND vault_id = ?')
+      .get(invitation.intendedMemberId, VAULT) as { kind: string };
+    return { created, fixture, kind: row.kind };
+  }
+
+  it('marks a member the owner invited as an agent', async () => {
+    const joined = await joinWith({
+      intendedKind: 'agent',
+      intendedMemberDisplayName: 'Inbox sorter',
+    });
+    expect(joined.kind).toBe('agent');
+  });
+
+  it('makes everyone else a person, the owner included', async () => {
+    const joined = await joinWith({ intendedMemberDisplayName: 'Bob' });
+    expect(joined.kind).toBe('person');
+    const owner = joined.fixture.database
+      .prepare('SELECT kind FROM memberships WHERE id = ?')
+      .get(OWNER_MEMBERSHIP) as { kind: string };
+    expect(owner.kind).toBe('person');
+  });
+
+  it('refuses a kind it does not know', async () => {
+    const joined = await joinWith({
+      intendedKind: 'robot',
+      intendedMemberDisplayName: 'X',
+    });
+    expect(joined.created.statusCode).toBe(400);
+  });
+});

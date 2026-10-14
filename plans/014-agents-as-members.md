@@ -46,7 +46,7 @@ is a note in the vault that people can read and edit.
    (`person | agent`, default `person`) and `invitations.intended_kind`. The
    owner's invitation sets it; redeem copies it to the membership; the roster
    returns it. Permissions are an editor's. `/.well-known/havemind` advertises
-   the capability `agent-members`; the plugin hides "Add agent" without it
+   the capability `agent-members-v1`; the plugin hides "Add agent" without it
    (rule 1 of plan 011).
 2. **Agent task notes.** `Havemind/Agents/<Name>.md` in the vault:
    frontmatter `agent: <membership>`, `may_write: [folders]`, `schedule`

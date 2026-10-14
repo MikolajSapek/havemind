@@ -165,7 +165,8 @@ describe('controlled migrations', () => {
     const database = trackDatabase(openDatabase(temporaryDatabasePath()));
     // Upgrade path: stop one version short of the vault-scope migration, seed
     // devices as a pre-007 server would have, then apply 007.
-    runMigrations(database, DEFAULT_MIGRATIONS.slice(0, CURRENT_SCHEMA_VERSION - 1));
+    const VAULT_SCOPE_VERSION = 7;
+    runMigrations(database, DEFAULT_MIGRATIONS.slice(0, VAULT_SCOPE_VERSION - 1));
 
     const at = '2026-07-16T03:00:00.000Z';
     const users = ['single', 'multi', 'none'] as const;
@@ -206,7 +207,9 @@ describe('controlled migrations', () => {
     }
 
     expect(runMigrations(database)).toEqual({
-      appliedVersions: [CURRENT_SCHEMA_VERSION],
+      appliedVersions: DEFAULT_MIGRATIONS.slice(VAULT_SCOPE_VERSION - 1).map(
+        (migration) => migration.version,
+      ),
       currentVersion: CURRENT_SCHEMA_VERSION,
     });
 

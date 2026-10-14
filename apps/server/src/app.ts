@@ -176,7 +176,8 @@ function createDiscoveryDocument(config: ServerConfig): DiscoveryDocument {
   return discoveryDocumentSchema.parse({
     apiBaseUrl: config.apiBaseUrl,
     authMethods: ['opaque-token'],
-    capabilities: [],
+    // Plan 014: members can be AI agents (memberships.kind).
+    capabilities: ['agent-members-v1'],
     name: config.serverName,
     protocol: {
       major: PROTOCOL_MAJOR_VERSION,
