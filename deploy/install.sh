@@ -216,8 +216,13 @@ EOF
 fi
 run $DOCKER compose --project-directory "${HOME_DIR}" pull
 # The container runs as uid 1000 with no capabilities, so it cannot chown its
-# backup folder itself; do it once from the same image, as root.
-run $DOCKER run --rm --user 0 --entrypoint chown -v "${HOME_DIR}/backups:/backups" "${IMAGE}" -R 1000:1000 /backups
+# data volume or backup folder itself (a fresh volume is root-owned); do it
+# from the same image, as root. Not `compose run`: it keeps cap_drop ALL, and
+# root without CAP_CHOWN cannot chown. `up --no-start` creates the volume first.
+run $DOCKER compose --project-directory "${HOME_DIR}" up --no-start
+run $DOCKER run --rm --user 0 --entrypoint chown \
+  -v havemind-install_havemind-data:/data -v "${HOME_DIR}/backups:/backups" \
+  "${IMAGE}" -R 1000:1000 /data /backups
 run $DOCKER compose --project-directory "${HOME_DIR}" up -d
 
 if [ "$DRY" != "1" ]; then
@@ -246,11 +251,14 @@ step "Your vault"
 CLI=( $DOCKER compose --project-directory "${HOME_DIR}" exec -T havemind-server node apps/server/bin/havemind.js )
 NEW_CODE=0
 OUTPUT=""
-if [ "$FRESH" = "1" ]; then
+# Written only after setup succeeds, so a run that stopped earlier sets up again.
+OWNER_MARK="${HOME_DIR}/.owner-ready"
+if [ ! -f "$OWNER_MARK" ]; then
   OWNER="${HAVEMIND_OWNER:-$(ask_value 'Your name (shown to the people you invite):' "${USER:-Owner}")}"
   VAULT="${HAVEMIND_VAULT:-$(ask_value 'Name of the shared vault:' 'Shared vault')}"
   NEW_CODE=1
   OUTPUT="$(run "${CLI[@]}" setup --owner "$OWNER" --vault "$VAULT")"
+  run touch "$OWNER_MARK"
 elif ask "Make a new code to connect another Obsidian as the owner? (the old code stops working)"; then
   NEW_CODE=1
   OUTPUT="$(run "${CLI[@]}" rotate-pairing)"

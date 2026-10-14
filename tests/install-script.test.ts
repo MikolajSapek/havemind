@@ -44,6 +44,24 @@ describe('install.sh', () => {
     expect(out).toMatch(/setup --owner \S+ --vault/);
   });
 
+  it('gives uid 1000 its data and backup folders before the server starts', () => {
+    // A fresh named volume is root-owned; the server (uid 1000, no
+    // capabilities) then fails with "unable to open database file" (AWS, 1.9.0).
+    const out = dryRun();
+    const chown = out.search(/--entrypoint chown -v havemind-install_havemind-data:\/data -v \S+:\/backups \S+ -R 1000:1000 \/data \/backups/);
+    expect(chown).toBeGreaterThan(-1);
+    expect(chown).toBeLessThan(out.search(/ up -d/));
+  });
+
+  it('sets the owner up again when an earlier run stopped before setup', () => {
+    // compose.yaml existed, so the re-run took the update path and called
+    // rotate-pairing on a server with no owner (AWS, 1.9.0).
+    const at = source.indexOf('step "Your vault"');
+    const vault = source.slice(at);
+    expect(vault).toMatch(/if \[ ! -f "\$OWNER_MARK" \]; then/);
+    expect(vault.indexOf('touch "$OWNER_MARK"')).toBeGreaterThan(vault.indexOf(' setup --owner'));
+  });
+
   it('never opens the server to the public internet', () => {
     const code = source.split('\n').filter((line) => !line.trim().startsWith('#')).join('\n');
     expect(code).not.toMatch(/\bfunnel\b/i);
