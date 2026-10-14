@@ -104,7 +104,11 @@ async function joinCommand(): Promise<void> {
 async function agentFolders(): Promise<string[]> {
   await fs.mkdir(agentsDir(), { recursive: true, mode: 0o700 });
   const entries = await fs.readdir(agentsDir(), { withFileTypes: true });
-  return entries.filter((e) => e.isDirectory() && !e.name.startsWith('joining-')).map((e) => e.name).sort();
+  // Dot-folders hold the service's own tools (.tools), never an agent.
+  return entries
+    .filter((e) => e.isDirectory() && !e.name.startsWith('joining-') && !e.name.startsWith('.'))
+    .map((e) => e.name)
+    .sort();
 }
 
 async function readMemory(paths: AgentPaths): Promise<RunMemory> {
