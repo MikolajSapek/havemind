@@ -1,6 +1,6 @@
 # 014, AI agents as members of the vault
 
-- Status: **Proposed**, 2026-10-14. Phase 4 of `plans/011-after-1.7.md`; the
+- Status: **In progress**, 2026-10-14; spike done. Phase 4 of `plans/011-after-1.7.md`; the
   owner chose this direction (over end-to-end encryption, for now).
 - Owner's ask: add external agents and predefined ones; people stay violet,
   agents are yellow; each agent has written down what it must do in the vault.
@@ -42,11 +42,11 @@ is a note in the vault that people can read and edit.
 
 ## Design
 
-1. **Server: an `agent` role.** Migration widens the role check to
-   `owner | editor | agent` and lets an invitation intend `agent`. The roster
-   returns the role. An agent can read and push like an editor; it cannot
-   invite, approve or remove. Old servers have no `agent`: the plugin hides
-   "Add agent" when the server's `/.well-known/havemind` lacks the capability
+1. **Server: a member `kind`.** Migration adds `memberships.kind`
+   (`person | agent`, default `person`) and `invitations.intended_kind`. The
+   owner's invitation sets it; redeem copies it to the membership; the roster
+   returns it. Permissions are an editor's. `/.well-known/havemind` advertises
+   the capability `agent-members`; the plugin hides "Add agent" without it
    (rule 1 of plan 011).
 2. **Agent task notes.** `Havemind/Agents/<Name>.md` in the vault:
    frontmatter `agent: <membership>`, `may_write: [folders]`, `schedule`
@@ -83,6 +83,32 @@ Before step 1: can a headless client built on `sync-core` pair, push one
 revision and show as its own member on the current server? Kill criteria: it
 needs server changes beyond the role, or it duplicates the plugin's sync
 engine instead of reusing it. Result goes in this file before any release.
+
+**Result (2026-10-14): yes, neither kill criterion fired.**
+
+- Pair, push, own member: already proven by `tests/e2e/onboarding-two-device.test.ts`,
+  which drives a second device through the production onboarding controller,
+  `RequestUrlTransport`, `SyncRunner`, outbox and vault apply against a real
+  in-process server; its revisions carry the approval's own `membershipId`.
+  No server change.
+- Runs without Obsidian: an esbuild bundle (platform node) of the onboarding
+  controller and API, onboarding store, access-token provider, transport,
+  `DurableSyncState`, `VaultApplyAdapter`, `RevisionHistory`, connection
+  resolvers, outbox, `VaultChangeObserver`, `reconcileVaultState` and
+  `SyncRunner` has 112 inputs, none of them `obsidian`, and loads in plain
+  Node. Only the assembly under `runtime/adapters/` (sync controller, push
+  producer, sync loop) imports Obsidian; the headless client replaces that
+  assembly with a filesystem one, reusing everything below it.
+- Permissions: every owner action on the server (invite, approve, remove,
+  rejoin grant) already refuses a non-owner (`role !== 'owner'` in
+  `onboarding-routes.ts`, `revoke-routes.ts`, `rejoin-routes.ts`,
+  `invitations.ts`, `rejoin-grants.ts`). An agent is therefore an editor plus
+  a mark, not a new permission tier.
+
+**Design change from the spike:** step 1 below becomes a `kind` on the
+membership (`person | agent`), set by the owner's invitation and never by the
+joining client (rule 3), instead of a third role. Same permissions as an
+editor, so no route guard changes.
 
 ## Ships in
 
