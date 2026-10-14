@@ -29,6 +29,7 @@ import { CONFLICT_FOLDER } from '../runtime/conflict-resolution';
 import { buildConnectionResolvers } from '../runtime/connection';
 import { reconcileHeads } from '../runtime/head-reconciliation';
 import { KeyedMutex } from '../runtime/keyed-mutex';
+import { fetchMemberRoster } from '../runtime/member-roster';
 import { RequestUrlOnboardingApi } from '../runtime/onboarding-api';
 import { PluginDataOnboardingStore } from '../runtime/onboarding-store';
 import { createRemoteApplyProducerSync } from '../runtime/remote-apply-coordinator';
@@ -124,6 +125,8 @@ export class HeadlessAgent {
     private readonly runner: SyncRunner,
     private readonly observer: VaultChangeObserver,
     private readonly adoptExisting: () => Promise<void>,
+    private readonly history: RevisionHistory,
+    private readonly agentMemberIds: () => Promise<ReadonlySet<string>>,
   ) {}
 
   static async open(paths: AgentPaths): Promise<HeadlessAgent> {
@@ -204,7 +207,17 @@ export class HeadlessAgent {
         },
       });
     };
-    return new HeadlessAgent(identity, fsVault, runner, observer, adoptExisting);
+    const agentMemberIds = async (): Promise<ReadonlySet<string>> => {
+      const members = await fetchMemberRoster({
+        apiBaseUrl: identity.apiBaseUrl,
+        requestUrl,
+        getRefreshToken: () => secrets.getRefreshToken(),
+        vaultId: identity.vaultId,
+        selfMembershipId: identity.memberId,
+      });
+      return new Set([identity.memberId, ...members.filter((m) => m.kind === 'agent').map((m) => m.membershipId)]);
+    };
+    return new HeadlessAgent(identity, fsVault, runner, observer, adoptExisting, history, agentMemberIds);
   }
 
   /** One push and pull with the server; the first call also adopts files already on disk. */
@@ -218,6 +231,25 @@ export class HeadlessAgent {
 
   private adopted = false;
 
+  /**
+   * Notes people (not this or any other agent) changed after server sequence
+   * `after`, and the newest sequence seen. An agent acts on these only, so it
+   * never triggers itself or another agent.
+   */
+  async peopleChangesSince(after: number): Promise<{ latest: number; paths: string[] }> {
+    const agents = await this.agentMemberIds();
+    let latest = after;
+    const paths: string[] = [];
+    for (const head of await this.history.allHeads()) {
+      latest = Math.max(latest, head.serverSequence);
+      const author = head.revision.authorMembershipId;
+      if (head.serverSequence <= after || author === undefined || agents.has(author)) continue;
+      const payload = await this.history.payload(head);
+      if (payload.operation !== 'delete') paths.push(payload.path);
+    }
+    return { latest, paths: paths.sort() };
+  }
+
   async listNotes(): Promise<readonly string[]> {
     return (await this.fsVault.snapshot.listSyncablePaths()).filter((path) => path.endsWith('.md')).sort();
   }
@@ -226,7 +258,11 @@ export class HeadlessAgent {
     return (await this.fsVault.snapshot.exists(path)) ? this.fsVault.snapshot.readText(path) : null;
   }
 
-  /** Creates or replaces a note and queues it for the next `sync()`. */
+  /**
+   * Creates or replaces a note and queues it for the next `sync()`. The client
+   * primitive: an agent's own writes go through `writeAsAgent` in `runner.ts`,
+   * which checks the task note's scope first.
+   */
   async writeNote(path: string, content: string): Promise<void> {
     const vault = this.fsVault.vault as {
       getAbstractFileByPath(path: string): { path: string } | null;

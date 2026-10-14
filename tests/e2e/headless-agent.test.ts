@@ -28,6 +28,8 @@ import { runMigrations } from '../../apps/server/src/migrations.js';
 import { RevisionRepository } from '../../apps/server/src/revision-repository.js';
 
 import { HeadlessAgent, startJoin, type AgentPaths } from '../../apps/obsidian-plugin/src/headless/agent.js';
+import type { ModelPort, ModelRequest } from '../../apps/obsidian-plugin/src/headless/model.js';
+import { runAgentOnce } from '../../apps/obsidian-plugin/src/headless/runner.js';
 import { approveRedeemedDevice } from '../../apps/obsidian-plugin/src/runtime/approve-device.js';
 import { createVaultInvitation } from '../../apps/obsidian-plugin/src/runtime/create-invitation.js';
 import type { RequestUrlFn } from '../../apps/obsidian-plugin/src/runtime/sync-transport.js';
@@ -94,14 +96,18 @@ function startServer() {
 
 type Server = ReturnType<typeof startServer>;
 
-/** The owner invites an agent by name; the agent joins with the owner's approval. */
-async function addAgent(server: Server, name: string): Promise<{ agent: HeadlessAgent; paths: AgentPaths }> {
+/** The owner invites a member by name; it joins with the owner's approval. */
+async function addAgent(
+  server: Server,
+  name: string,
+  kind: 'person' | 'agent' = 'agent',
+): Promise<{ agent: HeadlessAgent; paths: AgentPaths }> {
   const owner = { requestUrl: server.requestUrl, apiBaseUrl: ORIGIN, vaultId: server.vaultId, getAccessToken: async () => server.ownerToken };
   const invitation = await createVaultInvitation({
     ...owner,
     serverOrigin: ORIGIN,
     intendedMemberDisplayName: name,
-    intendedKind: 'agent',
+    intendedKind: kind,
   });
   const paths: AgentPaths = { stateDir: tempDir('state'), vaultDir: tempDir('vault'), requestUrl: server.requestUrl };
   const code = await startJoin(paths, invitation.envelope, `${name} on the server`);
@@ -149,6 +155,62 @@ describe('headless agent (plan 014)', () => {
 
       // Tokens are on disk for the owner only.
       expect(statSync(join(paths.stateDir, 'secrets.json')).mode & 0o777).toBe(0o600);
+    } finally {
+      await server.app.close();
+      server.database.close();
+    }
+  });
+
+  it('does its task in the background when a person changes something, inside its folders only', async () => {
+    const server = startServer();
+    try {
+      // The client is the same for a person and an agent; only the kind differs.
+      const { agent: magda } = await addAgent(server, 'Magda', 'person');
+      const { agent: sorter } = await addAgent(server, 'Inbox sorter');
+
+      await magda.writeNote(
+        'Havemind/Agents/Inbox sorter.md',
+        '---\nmay_write: [Notes]\nevery: 1h\n---\nFile every note in Inbox/ under Notes/.\n',
+      );
+      await magda.writeNote('Inbox/idea.md', 'Buy a Raspberry Pi.\n');
+      await magda.sync();
+
+      const seen: ModelRequest[] = [];
+      const model: ModelPort = async (request) => {
+        seen.push(request);
+        if (seen.length === 1) {
+          return {
+            stopReason: 'tool_use',
+            content: [
+              { type: 'tool_use', id: 't1', name: 'read_note', input: { path: 'Inbox/idea.md' } },
+              { type: 'tool_use', id: 't2', name: 'write_note', input: { path: 'Notes/idea.md', content: 'Buy a Raspberry Pi.\n' } },
+              // A note must never get the agent to widen its own scope.
+              { type: 'tool_use', id: 't3', name: 'write_note', input: { path: 'Havemind/Agents/Inbox sorter.md', content: 'may_write: [""]' } },
+            ],
+          };
+        }
+        return { stopReason: 'end_turn', content: [{ type: 'text', text: 'Filed 1 note.' }] };
+      };
+
+      const first = await runAgentOnce({ agent: sorter, model, memory: { lastRunAt: 0, lastSequence: 0 }, now: 1_000 });
+      expect(first.kind).toBe('done');
+      if (first.kind !== 'done') return;
+      expect(first.writes).toEqual(['Notes/idea.md']);
+      expect(first.summary).toBe('Filed 1 note.');
+      expect(seen[0]?.messages[0]?.content).toContain('Inbox/idea.md');
+      expect(JSON.stringify(seen[1]?.messages)).toContain('may never write in Havemind/');
+
+      await magda.sync();
+      expect(await magda.readNote('Notes/idea.md')).toBe('Buy a Raspberry Pi.\n');
+      expect(await magda.readNote('Havemind/Agents/Inbox sorter.md')).toContain('may_write: [Notes]');
+
+      // Its own writes never wake it again, even when the schedule allows.
+      const second = await runAgentOnce({ agent: sorter, model, memory: first.memory, now: 1_000 + 2 * 3_600_000 });
+      expect(second.kind).toBe('nothing-new');
+      // And before the schedule says so, it does not even look.
+      const early = await runAgentOnce({ agent: sorter, model, memory: first.memory, now: 2_000 });
+      expect(early.kind).toBe('not-due');
+      expect(seen).toHaveLength(2);
     } finally {
       await server.app.close();
       server.database.close();
