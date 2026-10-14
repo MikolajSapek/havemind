@@ -8,8 +8,8 @@ import { activityDayLabel, buildActivityViewModel, clockLabel } from '../runtime
 
 import { formatActivityTime } from './primitives';
 
-export const EMPTY_ACTIVITY_TEXT =
-  'No changes since Obsidian opened.';
+// The feed is kept across restarts (plan 011, 1.1), so it is simply empty.
+export const EMPTY_ACTIVITY_TEXT = 'No changes yet.';
 
 /** Data and actions an activity surface needs. */
 /**

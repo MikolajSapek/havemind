@@ -41,9 +41,9 @@ describe('activity in the pane', () => {
   });
 
   it('says why it is empty rather than showing a blank tab', () => {
-    // The log is in-memory and rebuilds on every start, so "empty" is the
-    // normal state right after a reload. A blank body would leave the user
-    // unable to tell whether the feed broke or simply has nothing to report.
+    // A blank body would leave the user unable to tell whether the feed broke
+    // or simply has nothing to report yet. Since 1.7.5 the feed survives a
+    // restart, so the text no longer blames Obsidian opening.
     const view = new HavemindOnboardingView(new WorkspaceLeaf(), {
       panelProvider: () => buildConnectionPanel({ status: 'synced' }),
       activityFeedProvider: () => [],
@@ -56,6 +56,6 @@ describe('activity in the pane', () => {
     const texts = flatten(view.containerEl as unknown as MockElement).map(
       (el) => el.text,
     );
-    expect(texts.some((t) => /no changes since obsidian opened/i.test(t))).toBe(true);
+    expect(texts.some((t) => /^no changes yet\.$/i.test(t))).toBe(true);
   });
 });

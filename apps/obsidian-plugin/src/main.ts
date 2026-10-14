@@ -46,6 +46,8 @@ import {
   type GuestWaitingViewModel,
 } from './ui/onboarding-view';
 import type { PaneTabId } from './runtime/pane-tabs';
+import { persistActivity } from './runtime/activity-persistence';
+import { openActivityRecords } from './runtime/adapters/plugin-data-ports';
 import { formatActivityTime, prefersReducedMotion } from './ui/primitives';
 import { HavemindSettingTab, formatMemberCount } from './ui/setting-tab';
 import { PluginViewRegistry } from './ui/view-registry';
@@ -86,6 +88,8 @@ export default class HavemindPlugin extends Plugin {
   private readonly activityLog = new ActivityLog();
   /** Disposer for the activityLog subscription set up in onload(); torn down in onunload(). */
   private activityLogUnsubscribe: (() => void) | null = null;
+  /** Stops saving the feed; null until a connection exists (plan 011, 1.1). */
+  private activityPersistence: (() => void) | null = null;
   /**
    * Monotonic counter bumped each time a live connection is (re-)established
    * (`startConnection`/`connectFromInput` assign a handle). The invitee rejoin
@@ -279,6 +283,8 @@ export default class HavemindPlugin extends Plugin {
     this.syncState = null;
     this.activityLogUnsubscribe?.();
     this.activityLogUnsubscribe = null;
+    this.activityPersistence?.();
+    this.activityPersistence = null;
   }
 
   /** Starts sync without allowing startup failures to escape UI/event callbacks. */
@@ -328,6 +334,7 @@ export default class HavemindPlugin extends Plugin {
       return;
     }
     this.connection = handle;
+    this.startActivityPersistence();
     // Capture the live durable state for the send-queue panel + auto-repair sweep.
     this.syncState = handle.state ?? null;
     // A live connection was (re-)established: advance the generation so any armed
@@ -471,6 +478,7 @@ export default class HavemindPlugin extends Plugin {
       this.awaitingApproval = null;
       this.guestInvitationInvalid = false;
       this.connection = handle;
+      this.startActivityPersistence();
       this.syncState = handle.state ?? null;
       // A live connection was (re-)established, advance the generation (FINDING 1b).
       this.connectGeneration += 1;
@@ -684,6 +692,10 @@ export default class HavemindPlugin extends Plugin {
       this.connection?.stop();
       this.connection = null;
       this.syncState = null;
+      // The reset deletes the database the feed is saved in; the next
+      // connection opens a fresh one.
+      this.activityPersistence?.();
+      this.activityPersistence = null;
       await resetHavemindConnectionState(this);
       // No later action may reuse an access token cached for the old pairing.
       forgetSharedAccessProvider(this);
@@ -782,6 +794,16 @@ export default class HavemindPlugin extends Plugin {
    * an existing leaf, so asking twice focuses the pane rather than opening a
    * second copy of it.
    */
+  /**
+   * Keeps the Activity feed across restarts, from the first connection on.
+   * Not at load: opening the client database mints a client id, which a
+   * device that never paired must not have yet.
+   */
+  private startActivityPersistence(): void {
+    if (this.activityPersistence !== null) return;
+    this.activityPersistence = persistActivity(this.activityLog, openActivityRecords(this));
+  }
+
   async openPane(tab?: PaneTabId): Promise<void> {
     const existingLeaf = this.app.workspace.getLeavesOfType(HAVEMIND_ONBOARDING_VIEW)[0];
     const leaf = existingLeaf ?? this.app.workspace.getRightLeaf(false);

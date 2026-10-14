@@ -77,6 +77,23 @@ export class ActivityLog {
     }
   }
 
+  /**
+   * Brings back rows saved by an earlier session. A row recorded in this
+   * session wins over a stored one with the same revisionId; the result is
+   * oldest first and capped like `record`.
+   */
+  restore(stored: readonly ActivityLogEntry[]): void {
+    const current = new Set(this.entries.map((entry) => entry.revisionId));
+    const merged = [...stored.filter((entry) => !current.has(entry.revisionId)), ...this.entries]
+      .map((entry, index) => ({ entry, index }))
+      .sort((a, b) => a.entry.timestamp - b.entry.timestamp || a.index - b.index)
+      .map(({ entry }) => entry);
+    this.entries = merged.slice(Math.max(0, merged.length - this.maxEntries));
+    for (const listener of this.listeners) {
+      listener();
+    }
+  }
+
   /** All recorded entries in insertion order (oldest first). */
   snapshot(): readonly ActivityLogEntry[] {
     return [...this.entries];

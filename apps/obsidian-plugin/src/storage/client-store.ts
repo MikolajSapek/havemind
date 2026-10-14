@@ -1,4 +1,4 @@
-// Only `payloads` and `history` have accessors; the other stores stay so every
+// Only `payloads`, `history` and `activity` have accessors; the other stores stay so every
 // database opens with the schema it was created with.
 export const CLIENT_STORE_NAMES = [
   'activity',
@@ -291,6 +291,17 @@ export class IndexedDbClientStore {
     await this.runTransaction('history', 'readwrite', (store) =>
       store.put(value, key),
     );
+  }
+
+  /** The saved Activity feed (plan 011, 1.1), or undefined when absent. */
+  async getActivityRecord(key: string): Promise<unknown> {
+    assertStorageKey(key);
+    return this.runTransaction<unknown>('activity', 'readonly', (store) => store.get(key));
+  }
+
+  async putActivityRecord(key: string, value: unknown): Promise<void> {
+    assertStorageKey(key);
+    await this.runTransaction('activity', 'readwrite', (store) => store.put(value, key));
   }
 
   /** Remove one history record; a no-op when absent. */

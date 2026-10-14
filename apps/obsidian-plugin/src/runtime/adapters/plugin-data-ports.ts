@@ -206,6 +206,14 @@ export function createPersistedRevisionHistoryStore(
   );
 }
 
+/** The client database's Activity feed records (plan 011, 1.1). */
+export function openActivityRecords(plugin: Plugin): () => Promise<IndexedDbClientStore | null> {
+  return openClientStoreLazily(
+    plugin,
+    'Havemind: activity store unavailable; the feed resets when Obsidian restarts.',
+  );
+}
+
 /**
  * The client database, opened once on first use. CONNECT-SAFE: never throws;
  * resolves to null (after one warning) when IndexedDB cannot be opened.

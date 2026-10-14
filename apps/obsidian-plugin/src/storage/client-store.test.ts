@@ -118,6 +118,19 @@ describe('IndexedDbClientStore storage', () => {
     await expect(reopened.getHistoryRecord('history|vault')).resolves.toBeUndefined();
   });
 
+  it('stores and reads the activity feed across reopen (plan 011, 1.1)', async () => {
+    const indexedDb = new FakeIndexedDbFactory();
+    const first = createStore(indexedDb);
+    await first.open();
+    await first.putActivityRecord('feed', { format: 1, entries: [] });
+    await expect(first.getActivityRecord('absent')).resolves.toBeUndefined();
+    first.close();
+
+    const reopened = createStore(indexedDb);
+    await reopened.open();
+    await expect(reopened.getActivityRecord('feed')).resolves.toEqual({ format: 1, entries: [] });
+  });
+
   it('reports a blocked upgrade, closes late success, and permits an explicit retry', async () => {
     const indexedDb = new FakeIndexedDbFactory();
     indexedDb.blockNextOpen();

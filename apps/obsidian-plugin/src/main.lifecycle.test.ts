@@ -187,7 +187,7 @@ describe('plugin lifecycle', () => {
     const container = await openActivityTab(plugin);
     expect(
       descendants(container).some(({ text }) =>
-        text === 'No changes since Obsidian opened.'),
+        text === 'No changes yet.'),
     ).toBe(true);
 
     registrationState.settingsTabs[0]?.display();
