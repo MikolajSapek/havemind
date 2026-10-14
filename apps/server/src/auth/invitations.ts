@@ -220,6 +220,7 @@ export interface PendingInvitationApproval {
   readonly expiresAt: string;
   readonly intendedMemberDisplayName: string;
   readonly intendedRole: InvitationRole;
+  readonly intendedKind: MemberKind;
 }
 
 export interface RejectPendingDeviceInput {
@@ -481,6 +482,7 @@ export class InvitationService {
                 invitations.expires_at AS expiresAt,
                 invitations.intended_member_display_name AS intendedMemberDisplayName,
                 invitations.intended_role AS intendedRole,
+                invitations.intended_kind AS intendedKind,
                 devices.display_name AS deviceDisplayName
          FROM invitations
          INNER JOIN devices ON devices.id = invitations.pending_device_id
@@ -498,6 +500,7 @@ export class InvitationService {
       expiresAt: row.expiresAt,
       intendedMemberDisplayName: requireDisplayName(row.intendedMemberDisplayName),
       intendedRole: requireRole(row.intendedRole),
+      intendedKind: requireKind(row.intendedKind),
       invitationId: requireUuid(row.invitationId),
       pendingDeviceId: requireUuid(row.pendingDeviceId),
     }));

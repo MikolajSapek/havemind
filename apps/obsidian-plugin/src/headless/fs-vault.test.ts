@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -38,5 +38,20 @@ describe('a vault that is a folder (plan 014)', () => {
     expect(await snapshot.listSyncablePaths()).toEqual(['Inbox/a.md']);
     expect(v.getAbstractFileByPath('Inbox')?.children).toEqual([]);
     expect(v.getAbstractFileByPath('b.md')).toBeNull();
+  });
+
+  it('lists the synced .obsidian settings too, so a restart never reads them as deleted', async () => {
+    // The plugin's reconciliation takes a mapped path it is not shown for a
+    // local delete. A person's synced appearance settings live under
+    // .obsidian/; leaving them out of the listing made a restarted agent push
+    // tombstones for everyone's settings.
+    const root = mkdtempSync(join(tmpdir(), 'hm-fsvault-'));
+    roots.push(root);
+    mkdirSync(join(root, '.obsidian'));
+    writeFileSync(join(root, '.obsidian', 'appearance.json'), '{}');
+    writeFileSync(join(root, '.obsidian', 'workspace.json'), '{}');
+    writeFileSync(join(root, 'Note.md'), 'n');
+    const { snapshot } = await openFsVault(root);
+    expect([...(await snapshot.listSyncablePaths())].sort()).toEqual(['.obsidian/appearance.json', 'Note.md']);
   });
 });

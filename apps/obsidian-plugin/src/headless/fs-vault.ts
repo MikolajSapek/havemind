@@ -13,6 +13,7 @@ import { promises as fs } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
 
 import type { VaultSnapshotPort } from '../obsidian/vault-adapter';
+import { CONFIG_DIR, listSyncableConfigPaths } from '../sync/config-adapter';
 
 /** Where a remotely deleted file goes, like Obsidian's local `.trash`. */
 export const TRASH_FOLDER = '.trash';
@@ -51,7 +52,7 @@ async function walk(root: string, folder = ''): Promise<string[]> {
 
 /** Opens (and creates, if missing) the vault folder at `root`. */
 export async function openFsVault(root: string): Promise<FsVault> {
-  await fs.mkdir(root, { recursive: true });
+  await fs.mkdir(root, { recursive: true, mode: 0o700 });
   const abs = (path: string): string => {
     const full = join(root, ...path.split('/'));
     // A vault path never leaves the vault: a hostile `../` from a remote
@@ -160,7 +161,13 @@ export async function openFsVault(root: string): Promise<FsVault> {
   };
 
   const snapshot: VaultSnapshotPort = {
-    listSyncablePaths: () => walk(root),
+    // Notes and attachments, plus the synced `.obsidian/` settings, exactly as
+    // the plugin lists them: reconciliation reads a mapped path missing from
+    // this list as a local delete.
+    listSyncablePaths: async () => [
+      ...(await walk(root)),
+      ...((await vault.adapter.exists(CONFIG_DIR)) ? await listSyncableConfigPaths(vault.adapter, CONFIG_DIR) : []),
+    ],
     listAllPaths: () => walk(root),
     readText: async (path) => fs.readFile(abs(path), 'utf8'),
     readBinary: async (path) => new Uint8Array(await fs.readFile(abs(path))),

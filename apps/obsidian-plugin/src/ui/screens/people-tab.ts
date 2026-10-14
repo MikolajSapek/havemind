@@ -34,7 +34,9 @@ function renderPendingCards(body: HTMLElement, actions: PeopleTabActions): void 
     card.createDiv({ text: `${name ?? 'A new device'} wants to join` }).addClass('havemind-pending-title');
     const minutes = Math.max(1, Math.round(left / 60_000));
     card
-      .createDiv({ text: `As ${entry.intendedRole ?? 'editor'} · expires in ${minutes} min` })
+      .createDiv({
+        text: `As ${entry.intendedKind === 'agent' ? 'AI agent' : entry.intendedRole ?? 'editor'} · expires in ${minutes} min`,
+      })
       .addClass('havemind-pending-meta');
     if (actions.onOpenComposer !== undefined) {
       const open = actions.onOpenComposer;

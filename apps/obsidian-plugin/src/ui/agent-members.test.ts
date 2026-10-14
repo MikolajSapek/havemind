@@ -12,6 +12,7 @@ import { buildConnectionPanel } from '../runtime/status';
 import { WorkspaceLeaf, type MockElement } from '../test/obsidian.mock';
 import { flatten } from '../test/dom';
 import { HavemindOnboardingView } from './onboarding-view';
+import type { PendingApprovalEntry } from './onboarding-types';
 
 const you: RosterMember = { membershipId: 'm-you', displayName: 'You', role: 'owner', self: true };
 const magda: RosterMember = { membershipId: 'm-magda', displayName: 'Magda', role: 'editor', self: false };
@@ -31,8 +32,14 @@ function feed(actorId: string, displayName: string) {
   }];
 }
 
-function openTab(name: RegExp, records = [...feed('m-bot', 'Inbox sorter'), ...feed('m-magda', 'Magda')]) {
+function openTab(
+  name: RegExp,
+  records = [...feed('m-bot', 'Inbox sorter'), ...feed('m-magda', 'Magda')],
+  pending: readonly PendingApprovalEntry[] = [],
+) {
   const view = new HavemindOnboardingView(new WorkspaceLeaf(), {
+    pendingApprovalsProvider: () => pending,
+    onOpenComposer: () => undefined,
     panelProvider: () => buildConnectionPanel({ status: 'synced' }),
     activityFeedProvider: () => records,
     rejoinRosterProvider: () => buildRejoinRosterView([sorter, you, magda]),
@@ -74,5 +81,17 @@ describe('agents in People and Activity (plan 014)', () => {
     expect(rows).toHaveLength(2);
     const agentRows = rows.filter((el) => (el.classes ?? []).includes('is-agent'));
     expect(agentRows).toHaveLength(1);
+  });
+
+  it('says a waiting device is an AI agent before the owner types its code', () => {
+    const els = openTab(/people/i, [], [{
+      invitationId: 'inv-1',
+      expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
+      intendedMemberDisplayName: 'Inbox sorter',
+      intendedRole: 'editor',
+      intendedKind: 'agent',
+    }]);
+    const meta = els.find((el) => (el.classes ?? []).includes('havemind-pending-meta'));
+    expect(meta?.text).toMatch(/^As AI agent · expires in/u);
   });
 });

@@ -1233,6 +1233,34 @@ describe('agent members (plan 014)', () => {
     expect(owner.kind).toBe('person');
   });
 
+  it('tells the owner a waiting device is an agent before they approve it', async () => {
+    const fixture = makeFixture();
+    const app = createApp(fixture);
+    const created = await app.inject({
+      body: { intendedKind: 'agent', intendedMemberDisplayName: 'Inbox sorter' },
+      headers: { authorization: `Bearer ${fixture.ownerAccessToken}` },
+      method: 'POST',
+      url: `/vaults/${VAULT}/invitations`,
+    });
+    const invitation = created.json() as { invitationToken: string };
+    await app.inject({
+      body: {
+        deviceLabel: 'Agent host',
+        initialRefreshToken: generateRefreshToken(),
+        invitationToken: invitation.invitationToken,
+        redemptionId: randomUUID(),
+      },
+      method: 'POST',
+      url: '/invitations/redeem',
+    });
+    const pending = await app.inject({
+      headers: { authorization: `Bearer ${fixture.ownerAccessToken}` },
+      method: 'GET',
+      url: `/vaults/${VAULT}/invitations/pending`,
+    });
+    expect((pending.json() as { pending: { intendedKind: string }[] }).pending[0]?.intendedKind).toBe('agent');
+  });
+
   it('refuses a kind it does not know', async () => {
     const joined = await joinWith({
       intendedKind: 'robot',

@@ -136,6 +136,17 @@ describe('headless agent (plan 014)', () => {
       expect(await gardener.readNote('Summaries/Today.md')).toBe('# Today\n\nThree notes filed.\n');
       expect(readFileSync(join(gardenerPaths.vaultDir, 'Summaries', 'Today.md'), 'utf8')).toContain('Three notes filed.');
 
+      // A runner restarts often. Reopened from its files, an agent must find
+      // nothing to send: no new revisions, no tombstones.
+      const count = () => (server.database.prepare('SELECT COUNT(*) AS c FROM revisions').get() as { c: number }).c;
+      const before = count();
+      for (const reopenPaths of [paths, gardenerPaths]) {
+        const reopened = await HeadlessAgent.open(reopenPaths);
+        await reopened.sync();
+        await reopened.sync();
+      }
+      expect(count()).toBe(before);
+
       // Tokens are on disk for the owner only.
       expect(statSync(join(paths.stateDir, 'secrets.json')).mode & 0o777).toBe(0o600);
     } finally {

@@ -29,6 +29,8 @@ export interface PendingApprovalEntry {
   readonly intendedMemberDisplayName?: string;
   /** Role the invitation was minted for; carried into the roster on approval. */
   readonly intendedRole?: MemberRole;
+  /** "agent" when the owner invited an AI agent (plan 014). */
+  readonly intendedKind?: 'person' | 'agent';
 }
 
 /** The invitee role the owner mints an invitation for. */

@@ -12,6 +12,7 @@ export interface PendingApproval {
   readonly expiresAt: string;
   readonly intendedMemberDisplayName?: string;
   readonly intendedRole?: 'editor' | 'owner';
+  readonly intendedKind?: 'person' | 'agent';
 }
 
 export interface ListPendingApprovalsOptions {
@@ -64,6 +65,8 @@ function parsePendingApproval(value: unknown): PendingApproval {
       ? { intendedMemberDisplayName: value.intendedMemberDisplayName }
       : {}),
     ...(value.intendedRole === undefined ? {} : { intendedRole: value.intendedRole }),
+    // Older servers send no kind; anything but "agent" is a person.
+    ...(value.intendedKind === 'agent' ? { intendedKind: 'agent' as const } : {}),
     invitationId: value.invitationId,
   };
 }
