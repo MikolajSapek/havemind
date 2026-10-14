@@ -9,7 +9,7 @@
  * the first agent's own membership, marked as an agent.
  */
 import { randomUUID } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Writable } from 'node:stream';
@@ -242,6 +242,73 @@ describe('headless agent (plan 014)', () => {
       await magda.sync();
       expect(await magda.readNote('Notes/From Claude.md')).toBe('Hi\n');
       expect(await magda.readNote('Elsewhere.md')).toBeNull();
+    } finally {
+      await server.app.close();
+      server.database.close();
+    }
+  });
+
+  it('sends nothing someone put in its folder by hand: only its scoped writes leave', async () => {
+    // In MCP mode the agent's folder sits next to Claude Code, which can edit
+    // files directly. Nothing written there may reach the vault as the agent.
+    const server = startServer();
+    try {
+      const { agent: magda } = await addAgent(server, 'Magda', 'person');
+      await magda.writeNote('Notes/Shared.md', 'From Magda.\n');
+      await magda.sync();
+      const { agent: helper, paths } = await addAgent(server, 'Helper');
+      expect(await helper.readNote('Notes/Shared.md')).toBe('From Magda.\n');
+      const count = () => (server.database.prepare('SELECT COUNT(*) AS c FROM revisions').get() as { c: number }).c;
+      const before = count();
+
+      writeFileSync(join(paths.vaultDir, 'Elsewhere.md'), 'Sneaked in.\n');
+      writeFileSync(join(paths.vaultDir, 'Notes', 'Shared.md'), 'Edited by hand.\n');
+      await helper.sync();
+      const reopened = await HeadlessAgent.open(paths);
+      await reopened.sync();
+      await reopened.sync();
+
+      expect(count()).toBe(before);
+      await magda.sync();
+      expect(await magda.readNote('Elsewhere.md')).toBeNull();
+      expect(await magda.readNote('Notes/Shared.md')).toBe('From Magda.\n');
+    } finally {
+      await server.app.close();
+      server.database.close();
+    }
+  });
+
+  it('pays for a failing run once per interval, and never past the daily cap', async () => {
+    const server = startServer();
+    try {
+      const { agent: magda } = await addAgent(server, 'Magda', 'person');
+      const { agent: sorter } = await addAgent(server, 'Inbox sorter');
+      await magda.writeNote('Havemind/Agents/Inbox sorter.md', '---\nmay_write: [Notes]\nevery: 1h\n---\nFile notes.\n');
+      await magda.writeNote('Inbox/a.md', 'a\n');
+      await magda.sync();
+
+      let calls = 0;
+      const failing: ModelPort = async () => {
+        calls += 1;
+        throw new Error('The model call failed (529, overloaded_error).');
+      };
+      const start = { lastRunAt: 0, lastSequence: 0 };
+      const failed = await runAgentOnce({ agent: sorter, model: failing, memory: start, now: 10_000 });
+      expect(failed.kind).toBe('failed');
+      // A minute later the same changes are still there, but the run is not due.
+      const retry = await runAgentOnce({ agent: sorter, model: failing, memory: failed.memory, now: 70_000 });
+      expect(retry.kind).toBe('not-due');
+      expect(calls).toBe(1);
+
+      const today = new Date(10_000).toISOString().slice(0, 10);
+      const capped = await runAgentOnce({
+        agent: sorter,
+        model: failing,
+        memory: { lastRunAt: 0, lastSequence: 0, day: today, runsToday: 48 },
+        now: 10_000,
+      });
+      expect(capped.kind).toBe('day-cap');
+      expect(calls).toBe(1);
     } finally {
       await server.app.close();
       server.database.close();

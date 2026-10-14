@@ -16,6 +16,10 @@ import { checkWrite, parseTaskNote, taskNotePath, type AgentTask } from './task-
 
 export const MAX_TURNS_PER_RUN = 12;
 export const MAX_WRITES_PER_RUN = 20;
+/** Every 30 minutes, all day; a misconfigured `every` cannot cost more. */
+export const MAX_RUNS_PER_DAY = 48;
+/** Changed notes named in the prompt; the rest are counted. */
+export const MAX_LISTED_CHANGES = 50;
 const MAX_READ_CHARS = 20_000;
 
 export interface RunMemory {
@@ -23,12 +27,17 @@ export interface RunMemory {
   readonly lastRunAt: number;
   /** Server sequence its last run had seen. */
   readonly lastSequence: number;
+  /** The UTC day `runsToday` counts, YYYY-MM-DD. */
+  readonly day?: string;
+  readonly runsToday?: number;
 }
 
 export type RunOutcome =
   | { readonly kind: 'no-task'; readonly memory: RunMemory }
   | { readonly kind: 'not-due'; readonly memory: RunMemory }
   | { readonly kind: 'nothing-new'; readonly memory: RunMemory }
+  | { readonly kind: 'day-cap'; readonly memory: RunMemory }
+  | { readonly kind: 'failed'; readonly memory: RunMemory; readonly error: string }
   | { readonly kind: 'done'; readonly memory: RunMemory; readonly writes: readonly string[]; readonly summary: string };
 
 const TOOLS: readonly ToolSpec[] = [
@@ -104,16 +113,39 @@ export async function runAgentOnce(options: RunOptions): Promise<RunOutcome> {
   const changes = await agent.peopleChangesSince(memory.lastSequence);
   const changed = changes.paths.filter((path) => path !== taskNotePath(agent.identity.name));
   if (changed.length === 0) {
-    return { kind: 'nothing-new', memory: { lastRunAt: memory.lastRunAt, lastSequence: changes.latest } };
+    return { kind: 'nothing-new', memory: { ...memory, lastSequence: changes.latest } };
   }
+  const day = new Date(now).toISOString().slice(0, 10);
+  const runsToday = memory.day === day ? memory.runsToday ?? 0 : 0;
+  if (runsToday >= MAX_RUNS_PER_DAY) return { kind: 'day-cap', memory };
+  // Whatever happens below, this run counts: a failing model call is retried
+  // after a full interval, never a minute later at full price again.
+  const spent: RunMemory = { lastRunAt: now, lastSequence: memory.lastSequence, day, runsToday: runsToday + 1 };
 
+  const listed = changed.slice(0, MAX_LISTED_CHANGES).map((path) => `- ${path}`);
+  if (changed.length > MAX_LISTED_CHANGES) listed.push(`- and ${changed.length - MAX_LISTED_CHANGES} more`);
   const writes: string[] = [];
   const messages: ModelMessage[] = [
-    {
-      role: 'user',
-      content: `Notes people changed since your last run:\n${changed.map((path) => `- ${path}`).join('\n')}\n\nDo your task now.`,
-    },
+    { role: 'user', content: `Notes people changed since your last run:\n${listed.join('\n')}\n\nDo your task now.` },
   ];
+  let summary: string;
+  try {
+    summary = await converse(agent, task, model, messages, writes);
+  } catch (error) {
+    await agent.sync();
+    return { kind: 'failed', memory: spent, error: error instanceof Error ? error.message : 'the run failed' };
+  }
+  await agent.sync();
+  return { kind: 'done', memory: { ...spent, lastSequence: changes.latest }, writes, summary };
+}
+
+async function converse(
+  agent: HeadlessAgent,
+  task: AgentTask,
+  model: ModelPort,
+  messages: ModelMessage[],
+  writes: string[],
+): Promise<string> {
   let summary = '';
   for (let turn = 0; turn < MAX_TURNS_PER_RUN; turn += 1) {
     const response = await model({ system: systemPrompt(agent, task), messages, tools: TOOLS });
@@ -133,8 +165,7 @@ export async function runAgentOnce(options: RunOptions): Promise<RunOutcome> {
     }
     messages.push({ role: 'user', content: results });
   }
-  await agent.sync();
-  return { kind: 'done', memory: { lastRunAt: now, lastSequence: changes.latest }, writes, summary };
+  return summary;
 }
 
 async function runTool(

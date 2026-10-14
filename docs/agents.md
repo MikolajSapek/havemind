@@ -46,6 +46,9 @@ note says. It never deletes notes.
 
 ## Add an agent (runs on your server)
 
+Tested on a Linux server. On a Mac server (Docker Desktop or OrbStack) the
+agents service has not been tested yet.
+
 1. **Turn agents on, once.** On the server machine, put your model key in a
    file only you can read, and start the agents service:
 

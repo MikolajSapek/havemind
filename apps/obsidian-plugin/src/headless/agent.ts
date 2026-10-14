@@ -38,7 +38,6 @@ import { DurableSyncState } from '../runtime/sync-state';
 import { RequestUrlTransport, type RequestUrlFn } from '../runtime/sync-transport';
 import { VaultApplyAdapter } from '../runtime/vault-apply';
 import { OutboxLocalChangeRepository } from '../sync/outbox-repository';
-import { reconcileVaultState } from '../sync/reconciliation';
 import { SyncRunner, type SyncCycleResult } from '../sync/sync-runner';
 
 import { createFetchRequestUrl } from './fetch-request-url';
@@ -195,17 +194,13 @@ export class HeadlessAgent {
       repository: producer,
       vault: fsVault.snapshot,
     });
+    // An agent never scans its folder for changes: whatever lands there by
+    // other means (a person's editor, Claude Code's own file tools in MCP mode)
+    // must not leave as the agent. Its only changes are `writeNote` calls,
+    // which the scoped write path guards. Identities still come back from the
+    // history so a restart maps the files it already has.
     const adoptExisting = async (): Promise<void> => {
-      const blocked = await bootstrapIdentities({ history, state, producer, vault: fsVault.snapshot });
-      await reconcileVaultState({
-        observer,
-        repository: producer,
-        vault: {
-          ...fsVault.snapshot,
-          listSyncablePaths: async () =>
-            (await fsVault.snapshot.listSyncablePaths()).filter((path) => !blocked.has(path.toLowerCase())),
-        },
-      });
+      await bootstrapIdentities({ history, state, producer, vault: fsVault.snapshot });
     };
     const agentMemberIds = async (): Promise<ReadonlySet<string>> => {
       const members = await fetchMemberRoster({
@@ -220,7 +215,7 @@ export class HeadlessAgent {
     return new HeadlessAgent(identity, fsVault, runner, observer, adoptExisting, history, agentMemberIds);
   }
 
-  /** One push and pull with the server; the first call also adopts files already on disk. */
+  /** One push and pull with the server; the first call also maps the files already on disk. */
   async sync(): Promise<SyncCycleResult> {
     if (!this.adopted) {
       await this.adoptExisting();
@@ -230,6 +225,11 @@ export class HeadlessAgent {
   }
 
   private adopted = false;
+
+  /** The newest server sequence this agent has; a fresh agent starts its runs here. */
+  async latestSequence(): Promise<number> {
+    return Math.max(0, ...(await this.history.allHeads()).map((head) => head.serverSequence));
+  }
 
   /**
    * Notes people (not this or any other agent) changed after server sequence

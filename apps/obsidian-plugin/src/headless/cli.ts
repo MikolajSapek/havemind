@@ -22,6 +22,7 @@ import { createInterface } from 'node:readline/promises';
 import { finishJoin, HeadlessAgent, startJoin, type AgentPaths } from './agent';
 import { createClaudeModel, DEFAULT_AGENT_MODEL } from './model';
 import { serveMcp } from './mcp';
+import { AgentPool } from './pool';
 import { runAgentOnce, type RunMemory } from './runner';
 
 const APPROVAL_POLL_MS = 3_000;
@@ -88,6 +89,8 @@ async function joinCommand(): Promise<void> {
       await fs.rename(join(agentsDir(), temp), join(agentsDir(), folder));
       const agent = await HeadlessAgent.open(pathsFor(folder));
       await agent.sync();
+      // Its runs start from now: what people wrote before it joined is not news.
+      await writeMemory(pathsFor(folder), { lastRunAt: 0, lastSequence: await agent.latestSequence() });
       say(`Joined "${identity.vaultName}" as ${identity.name}. Its task note: Havemind/Agents/${identity.name}.md`);
       return;
     }
@@ -116,30 +119,51 @@ function modelFromEnvironment() {
   return createClaudeModel({ apiKey, model: process.env.HAVEMIND_AGENT_MODEL ?? DEFAULT_AGENT_MODEL });
 }
 
-async function runOne(folder: string, force: boolean): Promise<void> {
+async function writeMemory(paths: AgentPaths, memory: RunMemory): Promise<void> {
+  await fs.writeFile(join(paths.stateDir, 'runner.json'), JSON.stringify(memory), { mode: 0o600 });
+}
+
+async function openLocked(folder: string): Promise<{ agent: HeadlessAgent; release: () => Promise<void> } | null> {
   const paths = pathsFor(folder);
   const release = await lock(paths);
-  if (release === null) {
+  if (release === null) return null;
+  try {
+    return { agent: await HeadlessAgent.open(paths), release };
+  } catch (error) {
+    await release();
+    throw error;
+  }
+}
+
+async function runWith(agent: HeadlessAgent, folder: string, force: boolean): Promise<void> {
+  const paths = pathsFor(folder);
+  const outcome = await runAgentOnce({
+    agent,
+    model: modelFromEnvironment(),
+    memory: await readMemory(paths),
+    now: Date.now(),
+    force,
+  });
+  await writeMemory(paths, outcome.memory);
+  if (outcome.kind === 'done') {
+    say(`${agent.identity.name}: ${outcome.writes.length} note(s) changed. ${outcome.summary}`);
+  } else if (outcome.kind === 'failed') {
+    say(`${agent.identity.name}: failed, will try again after its interval. ${outcome.error}`);
+  } else if (force || outcome.kind === 'no-task' || outcome.kind === 'day-cap') {
+    say(`${agent.identity.name}: ${outcome.kind}.`);
+  }
+}
+
+async function runOne(folder: string, force: boolean): Promise<void> {
+  const opened = await openLocked(folder);
+  if (opened === null) {
     say(`${folder}: busy (an MCP session or another runner holds it), skipped.`);
     return;
   }
   try {
-    const agent = await HeadlessAgent.open(paths);
-    const outcome = await runAgentOnce({
-      agent,
-      model: modelFromEnvironment(),
-      memory: await readMemory(paths),
-      now: Date.now(),
-      force,
-    });
-    await fs.writeFile(join(paths.stateDir, 'runner.json'), JSON.stringify(outcome.memory), { mode: 0o600 });
-    if (outcome.kind === 'done') {
-      say(`${agent.identity.name}: ${outcome.writes.length} note(s) changed. ${outcome.summary}`);
-    } else if (force || outcome.kind === 'no-task') {
-      say(`${agent.identity.name}: ${outcome.kind}.`);
-    }
+    await runWith(opened.agent, folder, force);
   } finally {
-    await release();
+    await opened.release();
   }
 }
 
@@ -158,13 +182,21 @@ async function main(argv: readonly string[]): Promise<void> {
     case 'run':
       modelFromEnvironment();
       say(`Running ${(await agentFolders()).length} agent(s); checking every minute.`);
-      for (;;) {
-        for (const folder of await agentFolders()) {
-          await runOne(folder, false).catch((error: unknown) => {
-            say(`${folder}: ${error instanceof Error ? error.message : 'failed'}`);
-          });
+      {
+        // Each agent stays open, and locked, for the life of this process.
+        const pool = new AgentPool(openLocked);
+        for (;;) {
+          for (const folder of await agentFolders()) {
+            try {
+              const agent = await pool.get(folder);
+              if (agent !== null) await runWith(agent, folder, false);
+            } catch (error) {
+              say(`${folder}: ${error instanceof Error ? error.message : 'failed'}`);
+              await pool.drop(folder);
+            }
+          }
+          await sleep(RUN_LOOP_MS);
         }
-        await sleep(RUN_LOOP_MS);
       }
     case 'mcp': {
       if (name === undefined) throw new Error('Usage: havemind-agent mcp <name>');

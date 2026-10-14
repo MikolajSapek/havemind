@@ -219,7 +219,6 @@ export class Invitations {
     const agent = role === 'agent';
     const memberRole = role === 'owner' ? 'owner' : 'editor';
     try {
-      const taskNote = agent ? await writeTaskNote(this.plugin, name, agentPresetId) : null;
       const invitation = await createInvitationForOwner(this.plugin, {
         intendedRole: memberRole,
         ...(agent ? { intendedKind: 'agent' as const } : {}),
@@ -229,6 +228,10 @@ export class Invitations {
         report('Connect as the vault owner before creating an invitation.');
         return;
       }
+      // Only once the server took the agent invitation: an older server
+      // refuses it, and a task note for an agent that cannot exist would sync
+      // to everyone for nothing.
+      const taskNote = agent ? await writeTaskNote(this.plugin, name, agentPresetId) : null;
       // Minting an invite always belongs to the composer and must reveal the
       // invite section, never leave it hidden behind another surface.
       this.connectionActive = true;
