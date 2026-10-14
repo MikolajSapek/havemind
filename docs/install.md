@@ -79,7 +79,7 @@ The flower in the pane turns green after the first sync.
 
 ## 5. Invite the others
 
-From the Havemind pane, open the Invite tab and make an invitation for each person. Send them the
+From the Havemind pane, open the People tab, choose Invite someone, and make an invitation for each person. Send them the
 invitation. They need Tailscale on their devices, signed in to your tailnet
 (admin console, **Users**, Invite external users), and the Havemind plugin.
 

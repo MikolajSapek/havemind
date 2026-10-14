@@ -17,16 +17,16 @@ you own passes the changes around and remembers who wrote what.
 Built for people. If you also run Claude, MCP or another local agent in that
 vault, its edits land in the same history.
 
-**Version 1.8.2, desktop and mobile.** A two-week pilot on two devices lost no
+**Version 1.9.0, desktop and mobile.** Your own server now installs with one command. A two-week pilot on two devices lost no
 data, including through three real incidents.
 
 There is no end-to-end encryption. Your server stores the vault in plaintext,
 so whoever runs that machine can read it. Read the
 [security model](#security-model) before you connect a vault you care about.
 
-**Self-hosting your own instance?** See
-[docs/self-hosting.md](docs/self-hosting.md) for the full zero-to-working
-guide (Docker Compose + Tailscale, tailnet-only).
+**Self-hosting your own instance?** One command sets it up, see
+[docs/install.md](docs/install.md); the manual guide is
+[docs/self-hosting.md](docs/self-hosting.md).
 
 **Connecting Claude or an AI agent?** See
 [docs/using-with-ai-agents.md](docs/using-with-ai-agents.md) for the
@@ -49,38 +49,31 @@ Two paths, depending on whether you are the one running the server.
 
 ### You are hosting
 
-1. **Install Tailscale** on the machine that will run the server, and log in.
-   Everyone who syncs joins the same tailnet; that is the whole access
-   boundary, and nothing is exposed to the public internet.
-2. **Configure and start the server.** From a checkout of this repository,
-   `cp deploy/.env.example deploy/.env` and set `HAVEMIND_API_BASE_URL` to the
-   HTTPS tailnet URL you will use in step 3; it is baked into the server's
-   discovery document, so it has to be right before the first start. Before
-   running Compose, complete the [server preparation](docs/self-hosting.md#server-preparation):
-   give uid 1000 ownership of the
-   data volume and backup directory. Then run
-   `docker compose -f deploy/compose.yaml up -d --build`. You need Docker
-   Engine with the Compose v2 plugin.
-3. **Put Tailscale in front of it** with `tailscale serve`, so the other
-   devices on your tailnet can reach it. Full commands are in the
-   [self-hosting guide](docs/self-hosting.md).
-4. **Create your account.** Run `setup` inside the container, once:
+1. **Set up Tailscale.** Make a free account, turn on MagicDNS and HTTPS
+   certificates in its admin console, and install the app on your laptop and
+   phone. Everyone who syncs joins the same tailnet; nothing is exposed to the
+   public internet.
+2. **Run one command** on the machine that will be the server (Linux:
+   Debian, Ubuntu or Raspberry Pi OS; or a Mac that stays awake):
 
    ```bash
-   docker compose -f deploy/compose.yaml exec havemind-server \
-     node apps/server/bin/havemind.js setup --owner "Your Name" --vault "My Vault"
+   curl -fsSL https://github.com/MikolajSapek/havemind/releases/latest/download/install.sh | bash
    ```
 
-   It prints a single-use pairing token (`hm_pt_...`).
-5. **Connect the plugin.** Open the Havemind pane in Obsidian, choose
-   **I'll run the server**, then **I've done this, connect**, and enter your
-   server's full address (`https://something.tailnet-name.ts.net`) together
-   with that pairing token. The Status tab says **In sync** when it is working.
-6. **Invite the other person.** People tab, then Invite someone. Send them the
+   It asks before installing Docker or Tailscale, starts the server inside
+   your tailnet, and ends with one line, `hm_pt_...@https://...`.
+3. **Connect the plugin.** Open the Havemind pane in Obsidian, choose
+   **I'll run the server**, then **I've done this, connect**, and paste that
+   line. The Status tab says **In sync** when it is working.
+4. **Invite the other person.** People tab, then Invite someone. Send them the
    invitation; it works once.
-7. **Approve their device.** They read a 6-digit code aloud to you, you type
+5. **Approve their device.** They read a 6-digit code aloud to you, you type
    it in. Three attempts. That handshake is what binds their identity, so do
    it by voice, never by message.
+
+Every step, with what you will see, is in [docs/install.md](docs/install.md).
+To build and run the server by hand instead, see
+[docs/self-hosting.md](docs/self-hosting.md).
 
 The long version, including backups and multiple vaults, is in
 [docs/self-hosting.md](docs/self-hosting.md).

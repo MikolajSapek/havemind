@@ -7,6 +7,21 @@ and the server.
 
 ## [Unreleased]
 
+## [1.9.0], 2026-10-14
+
+### Added
+
+- One-command server install for Linux and macOS (`install.sh`, attached to
+  each release): Docker and Tailscale through their official installers after
+  asking, the published image, Tailscale Serve only, never Funnel. It ends with
+  one line to paste. Guide: `docs/install.md`.
+- Server image `ghcr.io/mikolajsapek/havemind-server` (amd64, arm64) with
+  build provenance, published on every release.
+- Server CLI prints the pairing code as one line, `hm_pt_...@<server>`, after
+  setup, create-vault and rotate-pairing.
+- Plugin: the connect form takes that one line; the "I'll run the server"
+  screen shows the one command.
+
 ### Fixed
 
 - Server: a restart no longer pushes the next scheduled backup a whole
