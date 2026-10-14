@@ -596,7 +596,12 @@
 .havemind-agent-tile { gap: var(--size-4-2); }
 .havemind-agent-brain { flex-direction: column; }
 .havemind-agent-brain-detail { margin-top: var(--size-4-2); }
-.havemind-agent-add { margin-top: var(--size-4-3); width: 100%; }
+.havemind-agent-add {
+  width: 100%;
+  /* Clears Obsidian's status bar, which floats over the bottom of the pane. */
+  margin: var(--size-4-3) 0 calc(var(--size-4-12) + var(--size-4-2));
+}
+.havemind-agent-field { width: 100%; }
 
 .havemind-roster-name {
   color: var(--text-normal);

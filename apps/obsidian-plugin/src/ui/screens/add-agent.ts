@@ -118,6 +118,7 @@ export function renderAddAgent(
     value: draft.agentName ?? '',
   }) as HTMLElement & { value: string };
   nameRef.el = name;
+  name.addClass('havemind-agent-field');
   name.addEventListener('input', () => {
     draft.agentName = name.value;
   });

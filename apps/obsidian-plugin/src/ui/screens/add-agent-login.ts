@@ -48,6 +48,7 @@ function secretField(parent: HTMLElement, label: string, placeholder: string): F
   const field = labelledField(parent, 'havemind-agent-key', label, 'input', { type: 'password', placeholder }) as Field;
   field.setAttribute('type', 'password');
   field.setAttribute('autocomplete', 'off');
+  field.addClass('havemind-agent-field');
   return field;
 }
 
@@ -92,6 +93,7 @@ export function renderBrains(content: HTMLElement, model: AddAgentModel, draft: 
         const first = ENDPOINTS[0];
         fields.baseUrl = labelledField(detail, 'havemind-agent-base', 'Address', 'input', { type: 'text', value: first?.baseUrl ?? '' }) as Field;
         fields.model = labelledField(detail, 'havemind-agent-model', 'Model', 'input', { type: 'text', value: first?.model ?? '' }) as Field;
+        for (const field of [endpoint, fields.baseUrl, fields.model]) field.addClass('havemind-agent-field');
         fields.secret = secretField(detail, 'API key (none for Ollama)', 'sk-…');
         endpoint.addEventListener('change', () => {
           const picked = ENDPOINTS.find((option) => option.id === endpoint.value);
