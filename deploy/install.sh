@@ -67,11 +67,12 @@ OS="$(uname -s)"
 case "$OS" in
   Linux)
     if [ -r /etc/os-release ]; then
+      # Read in a subshell: os-release defines VERSION, which would replace ours.
       # shellcheck disable=SC1091
-      . /etc/os-release
-      case "${ID:-} ${ID_LIKE:-}" in
+      DISTRO="$(. /etc/os-release && printf '%s %s|%s' "${ID:-}" "${ID_LIKE:-}" "${PRETTY_NAME:-unknown}")"
+      case "${DISTRO%%|*}" in
         *debian*|*ubuntu*|*raspbian*) ;;
-        *) die "this Linux (${PRETTY_NAME:-unknown}) is not supported by the installer yet. Follow docs/self-hosting.md instead." ;;
+        *) die "this Linux (${DISTRO#*|}) is not supported by the installer yet. Follow docs/self-hosting.md instead." ;;
       esac
     fi
     SUDO="sudo"

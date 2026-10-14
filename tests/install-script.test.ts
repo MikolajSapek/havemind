@@ -77,6 +77,12 @@ describe('install.sh', () => {
     expect(source).toMatch(/^name: havemind-install$/m);
   });
 
+  it('never sources os-release into its own shell', () => {
+    // /etc/os-release sets VERSION; sourcing it at top level replaced the image
+    // tag with "24.04.5 LTS (Noble Numbat)" on Ubuntu (CI, 1.9.0).
+    expect(source).not.toMatch(/^\s*\. \/etc\/os-release\s*$/m);
+  });
+
   it('never loses the single-use code when it cannot find the one line', () => {
     const at = source.indexOf('step "Done"');
     expect(source.slice(at)).toMatch(/\$OUTPUT/);
