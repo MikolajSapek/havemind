@@ -106,6 +106,16 @@ export class People {
     );
   }
 
+  private lastSoonRefresh = 0;
+
+  /** refreshRoster, at most every 30 s: for events that arrive in bursts. */
+  public async refreshRosterSoon(): Promise<void> {
+    const now = Date.now();
+    if (now - this.lastSoonRefresh < 30_000) return;
+    this.lastSoonRefresh = now;
+    await this.refreshRoster();
+  }
+
   /**
    * B4: the live connection reads the roster with its own access token. The
    * refresh-token route raced that connection's rotation (401 at every start)

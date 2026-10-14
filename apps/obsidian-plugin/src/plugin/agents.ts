@@ -42,6 +42,20 @@ export class Agents {
     this.plugin.views.refreshOnboardingNow();
   }
 
+  /** The agents service claims it within a minute; show it as soon as it is there. */
+  private async waitForAgent(name: string): Promise<void> {
+    for (let attempt = 0; attempt < 9; attempt += 1) {
+      await new Promise((resolve) => window.setTimeout(resolve, 20_000));
+      if (this.plugin.unloaded) return;
+      await this.plugin.people.refreshRoster();
+      if (this.plugin.people.rosterMembers.some((member) => member.kind === 'agent' && member.displayName === name)) {
+        this.notice = undefined;
+        this.plugin.views.refreshOnboardingNow();
+        return;
+      }
+    }
+  }
+
   private async checkKey(): Promise<void> {
     const api = await agentApiForOwner(this.plugin);
     const configured = api === null ? null : await modelKeyConfigured(api).catch(() => null);
@@ -87,6 +101,7 @@ export class Agents {
       this.notice = `${name} is joining. It appears in yellow within a minute; its task is in Havemind/Agents/${name}.md.`;
       this.formOpen = false;
       this.plugin.views.refreshOnboardingNow();
+      void this.waitForAgent(name);
     } catch {
       report('Could not reach the server. Try again in a moment.');
     }

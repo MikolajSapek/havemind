@@ -133,6 +133,16 @@ export default class HavemindPlugin extends Plugin {
     // The pane carries the activity feed as a tab (plans/007 Stage 0) and is the
     // only registered surface, so one repaint covers it.
     this.activityLogUnsubscribe = this.activityLog.subscribe(() => {
+      // A change by someone the roster does not know yet (an agent added a
+      // minute ago, a person approved on another device) refreshes People.
+      const unknown = this.activityLog
+        .snapshot()
+        .some(
+          (entry) =>
+            entry.author.kind === 'member' &&
+            !this.people.rosterMembers.some((member) => member.membershipId === (entry.author as { membershipId: string }).membershipId),
+        );
+      if (unknown) void this.people.refreshRosterSoon();
       this.views.refreshOnboarding();
     });
 
