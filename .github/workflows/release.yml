@@ -122,13 +122,6 @@ jobs:
             apps/obsidian-plugin/main.js
             apps/obsidian-plugin/styles.css
 
-      # The installer pins the image of this same release (plan 013).
-      - name: Stamp install.sh with the release version
-        run: |
-          mkdir -p dist-release
-          sed "s/:-__HAVEMIND_VERSION__}/:-${GITHUB_REF_NAME}}/" deploy/install.sh > dist-release/install.sh
-          grep -q "HAVEMIND_VERSION:-${GITHUB_REF_NAME}}" dist-release/install.sh || { echo "FAIL: version not stamped"; exit 1; }
-
       - name: Create GitHub Release with three-file artifact
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
@@ -140,7 +133,6 @@ jobs:
             apps/obsidian-plugin/main.js
             apps/obsidian-plugin/manifest.json
             apps/obsidian-plugin/styles.css
-            dist-release/install.sh
 
   # Server image for the one-command installer (plan 013): amd64 for most
   # machines, arm64 for a Raspberry Pi or an Apple-silicon Mac. Runs only after
@@ -150,7 +142,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
-      contents: read
+      contents: write
       packages: write
       id-token: write
       attestations: write
@@ -189,3 +181,15 @@ jobs:
           subject-name: ghcr.io/mikolajsapek/havemind-server
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
+
+      # Only now, with the image pushed, can install.sh point at it (plan 013).
+      - name: Stamp install.sh with the release version
+        run: |
+          mkdir -p dist-release
+          sed "s/:-__HAVEMIND_VERSION__}/:-${GITHUB_REF_NAME}}/" deploy/install.sh > dist-release/install.sh
+          grep -q "HAVEMIND_VERSION:-${GITHUB_REF_NAME}}" dist-release/install.sh || { echo "FAIL: version not stamped"; exit 1; }
+
+      - name: Attach install.sh to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$GITHUB_REF_NAME" dist-release/install.sh --clobber

@@ -11,15 +11,16 @@ import { describe, expect, it } from 'vitest';
 const SCRIPT = join(__dirname, '..', 'deploy', 'install.sh');
 const source = readFileSync(SCRIPT, 'utf8');
 
-function dryRun(): string {
+function dryRun(dockerStub = '#!/bin/sh\nexit 0\n'): string {
   const bin = mkdtempSync(join(tmpdir(), 'hm-install-bin-'));
-  for (const name of ['docker', 'tailscale']) {
+  for (const [name, body] of [['docker', dockerStub], ['tailscale', '#!/bin/sh\nexit 0\n']] as const) {
     const stub = join(bin, name);
-    writeFileSync(stub, '#!/bin/sh\nexit 0\n');
+    writeFileSync(stub, body);
     chmodSync(stub, 0o755);
   }
   return execFileSync('bash', [SCRIPT], {
     encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
     env: {
       ...process.env,
       PATH: `${bin}:${process.env.PATH ?? ''}`,
@@ -56,5 +57,28 @@ describe('install.sh', () => {
       expect(at).toBeGreaterThan(-1);
       expect(source.slice(at - 20, at)).toContain('ask');
     }
+  });
+
+  it('refuses to take over a Havemind stack it did not install', () => {
+    // A manual deploy/compose.yaml stack (project "havemind") must never be
+    // recreated with the published image and a rewritten .env.
+    const existing = '#!/bin/sh\n[ "$1" = ps ] && echo abc123\nexit 0\n';
+    let failure: { stderr?: string; status?: number } = {};
+    try {
+      dryRun(existing);
+    } catch (error) {
+      failure = error as { stderr?: string; status?: number };
+    }
+    expect(failure.status).toBe(1);
+    expect(failure.stderr).toMatch(/already runs Havemind/);
+  });
+
+  it('uses its own Compose project, never the manual stack\'s', () => {
+    expect(source).toMatch(/^name: havemind-install$/m);
+  });
+
+  it('never loses the single-use code when it cannot find the one line', () => {
+    const at = source.indexOf('step "Done"');
+    expect(source.slice(at)).toMatch(/\$OUTPUT/);
   });
 });

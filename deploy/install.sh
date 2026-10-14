@@ -161,13 +161,21 @@ if [ -f "${HOME_DIR}/compose.yaml" ]; then
   FRESH=0
   say "Havemind is already installed in ${HOME_DIR}; updating it to ${VERSION}."
 fi
+if [ "$FRESH" = "1" ]; then
+  # A stack set up by hand (deploy/compose.yaml, project "havemind") must never
+  # be recreated with this image and a rewritten .env.
+  if [ -n "$($DOCKER ps -aq --filter label=com.docker.compose.project=havemind 2>/dev/null)" ] \
+    || { [ "$DRY" != "1" ] && curl -fsS "http://127.0.0.1:${PORT}/readyz" >/dev/null 2>&1; }; then
+    die "this machine already runs Havemind, set up another way. Update it as docs/self-hosting.md says, section j."
+  fi
+fi
 run mkdir -p "${HOME_DIR}"
 if [ "$DRY" = "1" ]; then
   say "[dry-run] write ${HOME_DIR}/compose.yaml and ${HOME_DIR}/.env"
 else
   cat > "${HOME_DIR}/compose.yaml" <<EOF
 # Written by the Havemind installer. Re-running it rewrites this file.
-name: havemind
+name: havemind-install
 services:
   havemind-server:
     image: ${IMAGE}
@@ -235,14 +243,16 @@ step "Your vault"
 # $DOCKER is "docker" or "sudo docker": split on purpose.
 # shellcheck disable=SC2206
 CLI=( $DOCKER compose --project-directory "${HOME_DIR}" exec -T havemind-server node apps/server/bin/havemind.js )
+NEW_CODE=0
+OUTPUT=""
 if [ "$FRESH" = "1" ]; then
   OWNER="${HAVEMIND_OWNER:-$(ask_value 'Your name (shown to the people you invite):' "${USER:-Owner}")}"
   VAULT="${HAVEMIND_VAULT:-$(ask_value 'Name of the shared vault:' 'Shared vault')}"
+  NEW_CODE=1
   OUTPUT="$(run "${CLI[@]}" setup --owner "$OWNER" --vault "$VAULT")"
 elif ask "Make a new code to connect another Obsidian as the owner? (the old code stops working)"; then
+  NEW_CODE=1
   OUTPUT="$(run "${CLI[@]}" rotate-pairing)"
-else
-  OUTPUT=""
 fi
 [ "$DRY" = "1" ] && [ -n "$OUTPUT" ] && say "$OUTPUT"
 CODE="$(printf '%s\n' "$OUTPUT" | sed -n 's/^ *\(hm_pt_[A-Za-z0-9_-]*@https:[^ ]*\)$/\1/p' | head -n 1)"
@@ -254,9 +264,15 @@ if [ -n "$CODE" ]; then
   say ""
   say "  ${CODE}"
   say ""
-  say "It works once and expires soon. Your laptop and phone must be signed in to the same Tailscale account."
+  say "It works once and expires in 15 minutes. Your laptop and phone must be signed in to the same Tailscale account."
 elif [ "$DRY" = "1" ]; then
   say "[dry-run] the code to paste would be printed here."
+elif [ "$NEW_CODE" = "1" ]; then
+  # The token is single-use: never swallow it because its line looked different.
+  say "The one-line code was not found in the server's answer. Here is the answer in full;"
+  say "paste the hm_pt_ token and the Server URL (${SERVER_URL}) into Havemind:"
+  say ""
+  say "$OUTPUT"
 else
   say "Server updated. Your devices stay connected."
 fi
