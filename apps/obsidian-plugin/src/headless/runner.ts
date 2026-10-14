@@ -132,7 +132,8 @@ export async function runAgentOnce(options: RunOptions): Promise<RunOutcome> {
   // after a full interval, never a minute later at full price again.
   const spent: RunMemory = { lastRunAt: now, lastSequence: memory.lastSequence, day, runsToday: runsToday + 1 };
 
-  const listed = changed.slice(0, MAX_LISTED_CHANGES).map((path) => `- ${path}`);
+  const by = (path: string): string => (changes.authors[path] === undefined ? '' : ` (changed by ${changes.authors[path]})`);
+  const listed = changed.slice(0, MAX_LISTED_CHANGES).map((path) => `- ${path}${by(path)}`);
   if (changed.length > MAX_LISTED_CHANGES) listed.push(`- and ${changed.length - MAX_LISTED_CHANGES} more`);
   const writes: string[] = [];
   const messages: ModelMessage[] = [
@@ -145,7 +146,7 @@ export async function runAgentOnce(options: RunOptions): Promise<RunOutcome> {
     summary =
       brain.kind === 'tools'
         ? await converse(agent, task, brain.model, messages, writes)
-        : await answerOnce(agent, task, brain.ask, changed, writes);
+        : await answerOnce(agent, task, brain.ask, changed, changes.authors, writes);
   } catch (error) {
     await agent.sync();
     return { kind: 'failed', memory: spent, error: error instanceof Error ? error.message : 'the run failed' };
@@ -168,6 +169,7 @@ async function answerOnce(
   task: AgentTask,
   ask: OneShotPort,
   changed: readonly string[],
+  authors: Readonly<Record<string, string>>,
   writes: string[],
 ): Promise<string> {
   const parts: string[] = [];
@@ -175,16 +177,31 @@ async function answerOnce(
   for (const path of changed.slice(0, MAX_LISTED_CHANGES)) {
     const text = (await agent.readNote(path)) ?? '';
     const body = text.length > MAX_NOTE_CHARS ? `${text.slice(0, MAX_NOTE_CHARS)}\n[cut]` : text;
-    const block = `<note path=${JSON.stringify(path)}>\n${body}\n</note>`;
+    const author = authors[path] === undefined ? '' : ` changed-by=${JSON.stringify(authors[path])}`;
+    const block = `<note path=${JSON.stringify(path)}${author}>\n${body}\n</note>`;
     if (block.length > budget) break;
     budget -= block.length;
     parts.push(block);
   }
+  // Its own notes too (the folders it may write in), so it can update a note
+  // it wrote before instead of guessing what is in it.
+  const inScope = (path: string): boolean =>
+    task.mayWrite.some((folder) => path === folder || path.startsWith(`${folder}/`));
   const all = (await agent.listNotes()).slice(0, MAX_LISTED_PATHS);
+  const own: string[] = [];
+  for (const path of all.filter((p) => inScope(p) && !changed.includes(p)).reverse()) {
+    const text = (await agent.readNote(path)) ?? '';
+    const body = text.length > MAX_NOTE_CHARS ? `${text.slice(0, MAX_NOTE_CHARS)}\n[cut]` : text;
+    const block = `<your-note path=${JSON.stringify(path)}>\n${body}\n</your-note>`;
+    if (block.length > budget) break;
+    budget -= block.length;
+    own.push(block);
+  }
   const prompt = [
     'Notes people changed since your last run:',
     ...parts,
     '',
+    ...(own.length === 0 ? [] : ['Notes already in your folders (you may update them):', ...own, '']),
     `Every note in the vault (${all.length} shown):`,
     ...all.map((path) => `- ${path}`),
     '',

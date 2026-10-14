@@ -200,6 +200,8 @@ describe('headless agent (plan 014)', () => {
       expect(first.writes).toEqual(['Notes/idea.md']);
       expect(first.summary).toBe('Filed 1 note.');
       expect(seen[0]?.messages[0]?.content).toContain('Inbox/idea.md');
+      // Who changed it, so a summary can say so (found live: "author unknown").
+      expect(seen[0]?.messages[0]?.content).toContain('Inbox/idea.md (changed by Magda)');
       expect(JSON.stringify(seen[1]?.messages)).toContain('may never write in Havemind/');
 
       await magda.sync();
@@ -390,8 +392,13 @@ describe('headless agent (plan 014)', () => {
       expect(outcome.writes).toEqual(['Notes/idea.md']);
       expect(outcome.summary).toContain('refused: Havemind/Agents/Inbox sorter.md');
       // The changed note went in as data.
-      expect(prompts[0]).toContain('<note path="Inbox/idea.md">');
+      expect(prompts[0]).toContain('<note path="Inbox/idea.md" changed-by="Magda">');
       expect(prompts[0]).toContain('Buy a Raspberry Pi.');
+      // A second run sees the note it wrote, so it can update it (found live).
+      await magda.writeNote('Inbox/second.md', 'Second.\n');
+      await magda.sync();
+      await runAgentOnce({ agent: sorter, brain: { kind: 'one-shot', ask }, memory: outcome.memory, now: 1_000 + 2 * 3_600_000, force: true });
+      expect(prompts[1]).toContain('<your-note path="Notes/idea.md">');
       await magda.sync();
       expect(await magda.readNote('Notes/idea.md')).toBe('Buy a Raspberry Pi.\n');
       expect(await magda.readNote('Havemind/Agents/Inbox sorter.md')).toContain('may_write: [Notes]');

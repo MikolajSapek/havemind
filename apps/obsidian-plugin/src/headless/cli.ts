@@ -23,6 +23,7 @@ import { finishJoin, HeadlessAgent, startJoin, type AgentPaths } from './agent';
 import { claimNextAgent, folderFor } from './claim';
 import { createFetchRequestUrl } from './fetch-request-url';
 import { serveMcp } from './mcp';
+import { acquireLock } from './lock';
 import { AgentPool } from './pool';
 import { runAgentOnce, type AgentBrain, type RunMemory } from './runner';
 import { brainFrom, parseBrain } from './brains';
@@ -57,25 +58,7 @@ async function readInvitation(): Promise<string> {
   return text.trim();
 }
 
-/** One process per agent at a time: a runner and an MCP session never share state. */
-async function lock(paths: AgentPaths): Promise<(() => Promise<void>) | null> {
-  const file = join(paths.stateDir, 'lock');
-  try {
-    await fs.writeFile(file, String(process.pid), { flag: 'wx', mode: 0o600 });
-  } catch {
-    const pid = Number(await fs.readFile(file, 'utf8').catch(() => '0'));
-    try {
-      if (pid > 0) {
-        process.kill(pid, 0);
-        return null;
-      }
-    } catch {
-      // The process that held it is gone: take the lock over.
-    }
-    await fs.writeFile(file, String(process.pid), { mode: 0o600 });
-  }
-  return () => fs.rm(file, { force: true });
-}
+const lock = (paths: AgentPaths) => acquireLock(paths.stateDir);
 
 async function joinCommand(): Promise<void> {
   const envelope = await readInvitation();
@@ -251,7 +234,10 @@ async function main(argv: readonly string[]): Promise<void> {
           for (const folder of await agentFolders()) {
             try {
               const agent = await pool.get(folder);
-              if (agent === null) continue;
+              if (agent === null) {
+                say(`${folder}: busy (another process holds it), skipped.`);
+                continue;
+              }
               if (haveKey) await runWith(agent, folder, false);
               else await agent.sync();
             } catch (error) {

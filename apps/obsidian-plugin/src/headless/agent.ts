@@ -30,6 +30,7 @@ import { buildConnectionResolvers } from '../runtime/connection';
 import { reconcileHeads } from '../runtime/head-reconciliation';
 import { KeyedMutex } from '../runtime/keyed-mutex';
 import { fetchMemberRoster } from '../runtime/member-roster';
+import type { RosterMember } from '../runtime/roster';
 import { RequestUrlOnboardingApi } from '../runtime/onboarding-api';
 import { PluginDataOnboardingStore } from '../runtime/onboarding-store';
 import { createRemoteApplyProducerSync } from '../runtime/remote-apply-coordinator';
@@ -125,7 +126,7 @@ export class HeadlessAgent {
     private readonly observer: VaultChangeObserver,
     private readonly adoptExisting: () => Promise<void>,
     private readonly history: RevisionHistory,
-    private readonly agentMemberIds: () => Promise<ReadonlySet<string>>,
+    private readonly roster: () => Promise<readonly RosterMember[]>,
   ) {}
 
   static async open(paths: AgentPaths): Promise<HeadlessAgent> {
@@ -205,17 +206,15 @@ export class HeadlessAgent {
     const adoptExisting = async (): Promise<void> => {
       await bootstrapIdentities({ history, state, producer, vault: fsVault.snapshot });
     };
-    const agentMemberIds = async (): Promise<ReadonlySet<string>> => {
-      const members = await fetchMemberRoster({
+    const roster = (): Promise<RosterMember[]> =>
+      fetchMemberRoster({
         apiBaseUrl: identity.apiBaseUrl,
         requestUrl,
         getRefreshToken: () => secrets.getRefreshToken(),
         vaultId: identity.vaultId,
         selfMembershipId: identity.memberId,
       });
-      return new Set([identity.memberId, ...members.filter((m) => m.kind === 'agent').map((m) => m.membershipId)]);
-    };
-    return new HeadlessAgent(identity, fsVault, runner, observer, adoptExisting, history, agentMemberIds);
+    return new HeadlessAgent(identity, fsVault, runner, observer, adoptExisting, history, roster);
   }
 
   /** One push and pull with the server; the first call also maps the files already on disk. */
@@ -239,18 +238,24 @@ export class HeadlessAgent {
    * `after`, and the newest sequence seen. An agent acts on these only, so it
    * never triggers itself or another agent.
    */
-  async peopleChangesSince(after: number): Promise<{ latest: number; paths: string[] }> {
-    const agents = await this.agentMemberIds();
+  async peopleChangesSince(after: number): Promise<{ latest: number; paths: string[]; authors: Record<string, string> }> {
+    const members = await this.roster();
+    const agents = new Set([this.identity.memberId, ...members.filter((m) => m.kind === 'agent').map((m) => m.membershipId)]);
+    const names = new Map(members.map((m) => [m.membershipId, m.displayName]));
     let latest = after;
     const paths: string[] = [];
+    const authors: Record<string, string> = {};
     for (const head of await this.history.allHeads()) {
       latest = Math.max(latest, head.serverSequence);
       const author = head.revision.authorMembershipId;
       if (head.serverSequence <= after || author === undefined || agents.has(author)) continue;
       const payload = await this.history.payload(head);
-      if (payload.operation !== 'delete') paths.push(payload.path);
+      if (payload.operation === 'delete') continue;
+      paths.push(payload.path);
+      const name = names.get(author);
+      if (name !== undefined) authors[payload.path] = name;
     }
-    return { latest, paths: paths.sort() };
+    return { latest, paths: paths.sort(), authors };
   }
 
   async listNotes(): Promise<readonly string[]> {

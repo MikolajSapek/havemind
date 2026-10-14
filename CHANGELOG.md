@@ -7,6 +7,20 @@ and the server.
 
 ## [Unreleased]
 
+## [1.10.1], 2026-10-14
+
+### Fixed
+
+Found by running all five ready-made agents live on a fresh server:
+
+- After the agents service restarted (every server update), every agent was
+  skipped in silence: locks from the old container carried the same process
+  id as the new one. A lock now carries a token of its own process.
+- Agents now know who changed each note, so a daily summary names people
+  instead of "author unknown".
+- An agent that thinks with Claude Code now sees its own notes, so it can
+  update one it wrote before (the daily summary) instead of skipping it.
+
 ## [1.10.0], 2026-10-14
 
 ### Added
