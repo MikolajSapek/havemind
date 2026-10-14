@@ -69,7 +69,8 @@ export function renderStatusHero(
   const text = statusHeroText({
     status: panel.status,
     detail: panel.detail,
-    deviceCount: members.length,
+    deviceCount: members.filter((member) => member.kind !== 'agent').length,
+    agentCount: members.filter((member) => member.kind === 'agent').length,
     waitingCount: guarded(() => options.sendQueueProvider?.()?.waitingCount ?? 0, 0),
     conflictCount: conflicts.length,
   });

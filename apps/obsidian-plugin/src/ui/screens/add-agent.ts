@@ -68,10 +68,8 @@ function renderTiles(content: HTMLElement, draft: AddAgentDraft, onPick: (preset
     const badge = tile.createDiv();
     badge.addClass('havemind-agent-badge');
     renderAgentIcon(badge, preset === CUSTOM_AGENT ? 'robot' : preset.id, 'havemind-agent-badge-icon');
-    const copy = tile.createDiv();
-    copy.addClass('havemind-agent-tile-copy');
-    copy.createDiv({ text: preset === CUSTOM_AGENT ? 'Custom' : preset.name }).addClass('havemind-agent-tile-name');
-    copy.createDiv({ text: preset.summary }).addClass('havemind-agent-tile-summary');
+    tile.createDiv({ text: preset === CUSTOM_AGENT ? 'Custom' : preset.name }).addClass('havemind-agent-tile-name');
+    tile.setAttribute('title', preset.summary);
     tile.onClickEvent(() => {
       draft.agentTask = preset.id;
       for (const other of tiles) {
@@ -79,11 +77,18 @@ function renderTiles(content: HTMLElement, draft: AddAgentDraft, onPick: (preset
         other.toggleClass('is-selected', on);
         other.setAttribute('aria-checked', String(on));
       }
+      summaryRef.el?.setText(preset.summary);
       onPick(preset);
     });
     tiles.push(tile);
   }
+  // What the picked agent does, in one line under the grid.
+  const summary = content.createDiv({ text: presetById(chosen).summary });
+  summary.addClass('havemind-agent-summary');
+  summaryRef.el = summary;
 }
+
+const summaryRef: { el?: HTMLElement } = {};
 
 export function renderAddAgent(
   content: HTMLElement,

@@ -11,6 +11,7 @@
 
 <style>
   /* Obsidian's theme variables, the values the plugin renders against. */
+  body { --radius-m: 8px; --size-4-12: 48px; --size-2-1: 2px; --button-radius: 4px; }
   body.theme-light {
     --background-primary: #ffffff;
     --background-secondary: #f6f6f6;
@@ -34,6 +35,7 @@
     --color-red-rgb: 233, 49, 71;
     --color-red-hsl: 353, 81%, 55%;
     --shell: #e9eaee;
+    --color-yellow: #e0ac00;
   }
   body.theme-dark {
     --background-primary: #1c1c1c;
@@ -58,6 +60,7 @@
     --color-red-rgb: 251, 70, 76;
     --color-red-hsl: 358, 96%, 63%;
     --shell: #141414;
+    --color-yellow: #e0de71;
   }
   body {
     --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -154,6 +157,8 @@
     <button data-screen="offline">Offline</button>
     <button data-screen="activity">Activity</button>
     <button data-screen="people">People</button>
+    <button data-screen="add-agent">Add agent</button>
+    <button data-screen="add-agent-key">Add agent (first)</button>
     <button data-screen="guest">Guest code</button>
   </div>
   <div class="group">

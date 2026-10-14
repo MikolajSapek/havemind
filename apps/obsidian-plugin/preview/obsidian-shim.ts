@@ -28,6 +28,7 @@ declare global {
     createEl(tag: string, options?: CreateElOptions): HTMLElement;
     onClickEvent(callback: (event: MouseEvent) => void): void;
     addClass(name: string): void;
+    toggleClass(name: string, on: boolean): void;
     empty(): void;
   }
 }
@@ -106,6 +107,10 @@ const ICONS: Record<string, string> = {
     '<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>',
   hexagon:
     '<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>',
+};
+
+HTMLElement.prototype.toggleClass = function toggleClass(this: HTMLElement, name: string, on: boolean): void {
+  this.classList.toggle(name, on);
 };
 
 export function setIcon(element: HTMLElement, iconId: string): void {

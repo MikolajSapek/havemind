@@ -64,20 +64,26 @@ export function renderActivityRows(
     const entry = content.createDiv();
     entry.addClass('havemind-activity-row');
     entry.addClass(`is-${row.kind}`);
-    const agentIcon = row.actorId === null ? undefined : options.agentIcons?.get(row.actorId);
-    if (agentIcon !== undefined) {
-      entry.addClass('is-agent');
-      const badge = entry.createDiv();
-      badge.addClass('havemind-agent-badge');
-      renderAgentIcon(badge, agentIcon, 'havemind-agent-badge-icon');
-    }
     // The note's name over who did what; the full path stays on the tooltip.
     const text = entry.createDiv();
     text.addClass('havemind-activity-main');
     const title = text.createDiv({ text: row.title });
     title.addClass('havemind-activity-title');
     title.setAttribute('title', row.pathLabel);
-    text.createDiv({ text: row.meta }).addClass('havemind-activity-meta');
+    // An agent's change carries its icon in the who-did-what line, so every
+    // title keeps the same left edge.
+    const agentIcon = row.actorId === null ? undefined : options.agentIcons?.get(row.actorId);
+    if (agentIcon === undefined) {
+      text.createDiv({ text: row.meta }).addClass('havemind-activity-meta');
+    } else {
+      entry.addClass('is-agent');
+      const meta = text.createDiv();
+      meta.addClass('havemind-activity-meta');
+      const badge = meta.createEl('span');
+      badge.addClass('havemind-agent-badge');
+      renderAgentIcon(badge, agentIcon, 'havemind-agent-badge-icon');
+      meta.createEl('span', { text: row.meta });
+    }
     // Time and Restore in a non-shrinking column, so a long name can never push
     // either past the sidebar edge.
     const trail = entry.createDiv();

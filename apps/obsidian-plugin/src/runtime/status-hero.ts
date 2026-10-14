@@ -10,6 +10,8 @@ export interface StatusHeroInput {
   /** `ConnectionPanelView.detail`: carries "Last sync: …" and the error copy. */
   readonly detail: string;
   readonly deviceCount: number;
+  /** AI agents, counted apart from the people's devices (plan 016). */
+  readonly agentCount?: number;
   /** Outbox items still waiting to go out. */
   readonly waitingCount: number;
   readonly conflictCount: number;
@@ -42,8 +44,12 @@ function lastSync(detail: string): string | null {
   return null;
 }
 
-function devices(count: number): string | null {
-  return count > 0 ? plural(count, 'device', 'devices') : null;
+function devices(count: number, agents = 0): string | null {
+  const parts = [
+    count > 0 ? plural(count, 'device', 'devices') : null,
+    agents > 0 ? plural(agents, 'agent', 'agents') : null,
+  ].filter((part): part is string => part !== null);
+  return parts.length === 0 ? null : parts.join(' · ');
 }
 
 export function statusHeroText(input: StatusHeroInput): StatusHeroText {
@@ -51,11 +57,11 @@ export function statusHeroText(input: StatusHeroInput): StatusHeroText {
   switch (input.status) {
     case 'synced': {
       const time = lastSync(input.detail);
-      const parts = [devices(input.deviceCount), time === null ? null : `last sync ${time}`];
+      const parts = [devices(input.deviceCount, input.agentCount), time === null ? null : `last sync ${time}`];
       return { title, subline: parts.filter((p): p is string => p !== null).join(' · ') };
     }
     case 'syncing':
-      return { title, subline: devices(input.deviceCount) ?? '' };
+      return { title, subline: devices(input.deviceCount, input.agentCount) ?? '' };
     case 'offline':
     case 'retrying': {
       const waiting =

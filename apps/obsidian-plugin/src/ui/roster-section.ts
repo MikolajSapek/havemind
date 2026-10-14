@@ -72,7 +72,7 @@ export function renderRejoinRoster(
     // Undo is for agents (plan 016): their changes go back, one normal edit
     // per note. Like Remove, it takes two clicks.
     if (row.agent && actions.onUndoAgent) {
-      twoStep(item, 'Undo its changes', 'Confirm undo', () => actions.onUndoAgent?.(row.membershipId));
+      twoStep(item, 'Undo', 'Undo all it changed', () => actions.onUndoAgent?.(row.membershipId));
     }
     if (row.removable && actions.onRemove) {
       twoStep(item, 'Remove', 'Confirm remove', () => actions.onRemove?.(row.membershipId));

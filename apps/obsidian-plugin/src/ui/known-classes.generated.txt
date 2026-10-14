@@ -26,10 +26,9 @@ havemind-agent-key
 havemind-agent-model
 havemind-agent-name
 havemind-agent-section
+havemind-agent-summary
 havemind-agent-tile
-havemind-agent-tile-copy
 havemind-agent-tile-name
-havemind-agent-tile-summary
 havemind-agent-tiles
 havemind-agents
 havemind-alarm

@@ -48,7 +48,8 @@ export function buildRejoinRosterView(members: readonly RosterMember[]): RejoinR
         colorToken: authorColorToken(member.membershipId),
         displayName: member.displayName,
         membershipId: member.membershipId,
-        rejoinable: !member.self,
+        // An agent never loses a device the way a person does: no Rejoin.
+        rejoinable: !member.self && member.kind !== 'agent',
         removable: !member.self,
         role: member.role,
         self: member.self,

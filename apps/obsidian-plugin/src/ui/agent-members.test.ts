@@ -229,7 +229,7 @@ describe('undoing an agent from People (plan 016)', () => {
       onRemove: () => undefined,
       onUndoAgent: (id) => undone.push(id),
     });
-    const undo = flatten(root).filter((el) => el.text === 'Undo its changes');
+    const undo = flatten(root).filter((el) => el.text === 'Undo');
     expect(undo).toHaveLength(1);
     undo[0]?.triggerClick();
     expect(undone).toEqual([]);

@@ -117,7 +117,7 @@ busy. Invite a separate agent for Claude Code.
 
 ## Undo and remove
 
-- **People**, the agent, **Undo its changes** (two clicks): every note it
+- **People**, the agent, **Undo** (two clicks): every note it
   changed gets back the last version someone else wrote, as a normal edit,
   and notes it created go to the trash. A note a person changed after the
   agent is left alone.

@@ -14,6 +14,11 @@ function text(overrides: Partial<StatusHeroInput>) {
 }
 
 describe('statusHeroText', () => {
+  it('counts agents apart from devices (plan 016)', () => {
+    expect(text({ agentCount: 2 }).subline).toBe('3 devices · 2 agents · last sync 16:05');
+    expect(text({ agentCount: 1, status: 'syncing', detail: '' }).subline).toBe('3 devices · 1 agent');
+  });
+
   it('says in sync, how many devices and when', () => {
     expect(text({})).toEqual({ title: 'In sync', subline: '3 devices · last sync 16:05' });
     expect(text({ deviceCount: 1 }).subline).toBe('1 device · last sync 16:05');

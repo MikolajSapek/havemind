@@ -510,6 +510,7 @@
    ========================================================================= */
 .havemind-roster-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--havemind-roster-gap);
   min-height: var(--havemind-roster-row-height);
@@ -528,7 +529,8 @@
 }
 
 .havemind-roster-copy {
-  flex: 1;
+  /* The name keeps a readable width; actions wrap under it in a narrow pane. */
+  flex: 1 1 9em;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -549,23 +551,32 @@
   color: var(--havemind-flower-ink);
 }
 .havemind-agent-badge-icon { width: 14px; height: 14px; }
-.havemind-activity-row .havemind-agent-badge { width: 18px; height: 18px; }
-.havemind-activity-row .havemind-agent-badge-icon { width: 12px; height: 12px; }
+.havemind-activity-row .havemind-agent-badge {
+  width: 15px;
+  height: 15px;
+  margin-right: var(--size-4-1);
+  vertical-align: -3px;
+  border-radius: 3px;
+}
+.havemind-activity-row .havemind-agent-badge-icon { width: 11px; height: 11px; }
 .havemind-flower-agent-icon { color: var(--havemind-flower-ink); }
 
 /* Add agent (plan 016): tiles to pick what it does, then how it thinks. */
-.havemind-agent-tiles {
+.havemind-agent-tiles,
+.havemind-agent-brains {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--size-4-2);
-  margin: var(--size-4-2) 0 var(--size-4-3);
 }
+.havemind-agent-tiles { margin-top: var(--size-4-2); }
+/* An odd last choice takes the whole row instead of leaving a hole. */
+.havemind-agent-brain:last-child:nth-child(odd) { grid-column: 1 / -1; }
 .havemind-agent-tile,
 .havemind-agent-brain {
   display: flex;
-  align-items: flex-start;
   height: auto;
-  padding: var(--size-4-2) var(--size-4-3);
+  min-height: 44px;
+  padding: var(--size-4-2);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-m);
   background: var(--background-primary);
@@ -581,20 +592,24 @@
   border-color: var(--havemind-flower-agent);
   box-shadow: inset 0 0 0 1px var(--havemind-flower-agent);
 }
-.havemind-agent-tile-copy { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .havemind-agent-tile-name,
-.havemind-agent-brain-title { font-weight: var(--font-semibold); color: var(--text-normal); }
-.havemind-agent-tile-summary,
+.havemind-agent-brain-title {
+  font-size: var(--font-ui-small);
+  font-weight: var(--font-semibold);
+  color: var(--text-normal);
+  line-height: 1.25;
+}
+.havemind-agent-summary,
 .havemind-agent-brain-sub { font-size: var(--font-ui-smaller); color: var(--text-muted); line-height: 1.35; }
+.havemind-agent-summary { margin: var(--size-4-2) 0 var(--size-4-3); }
 .havemind-agent-section {
   margin: var(--size-4-3) 0 var(--size-4-1);
   font-size: var(--font-ui-small);
   font-weight: var(--font-semibold);
   color: var(--text-muted);
 }
-.havemind-agent-brains { display: flex; flex-direction: column; gap: var(--size-4-1); }
-.havemind-agent-tile { gap: var(--size-4-2); }
-.havemind-agent-brain { flex-direction: column; }
+.havemind-agent-tile { gap: var(--size-4-2); align-items: center; }
+.havemind-agent-brain { flex-direction: column; align-items: flex-start; justify-content: center; }
 .havemind-agent-brain-detail { margin-top: var(--size-4-2); }
 .havemind-agent-add {
   width: 100%;

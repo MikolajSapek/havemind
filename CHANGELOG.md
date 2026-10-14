@@ -26,7 +26,7 @@ and the server.
   database or its backups. A running agent sends the changed notes to that
   model.
 - Undo only covers what this device's Activity remembers (200 changes).
-- Undo its changes on an agent's row: everything it changed goes back.
+- Undo on an agent's row: everything it changed goes back.
 - Server: member kind (migration 008), agent enrollments (009), the agents
   service in the installer and the image, and a
   havemind-agent command with an MCP server for Claude Code.

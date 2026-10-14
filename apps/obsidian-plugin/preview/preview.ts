@@ -22,9 +22,10 @@ import { renderRejoinRoster } from '../src/ui/roster-section';
 import { renderConflicts, renderSendQueue } from '../src/ui/screens/alarms';
 import { renderGuestWaitingScreen } from '../src/ui/screens/guest-waiting';
 import { renderStatusHero } from '../src/ui/screens/status-hero';
+import { renderAddAgent } from '../src/ui/screens/add-agent';
 import { renderConnectedBodyFor } from '../src/ui/screens/connected-body-wiring';
 
-type Screen = 'chooser' | 'host' | 'join' | 'status' | 'syncing' | 'offline' | 'activity' | 'people' | 'guest';
+type Screen = 'chooser' | 'host' | 'join' | 'status' | 'syncing' | 'offline' | 'activity' | 'people' | 'guest' | 'add-agent' | 'add-agent-key';
 
 const SCREEN_FOR: Readonly<Record<EntryChoice, Screen>> = { undecided: 'chooser', hosting: 'host', joining: 'join' };
 const CHOICE_FOR: Readonly<Partial<Record<Screen, EntryChoice>>> = { chooser: 'undecided', host: 'hosting', join: 'joining' };
@@ -82,6 +83,8 @@ const MEMBERS: RosterMember[] = [
   { membershipId: 'm1', displayName: 'You', role: 'owner', self: true },
   { membershipId: 'm2', displayName: 'MIKI IPHONE', role: 'editor', self: false },
   { membershipId: 'm3', displayName: 'Hubert', role: 'editor', self: false },
+  { membershipId: 'm4', displayName: 'Inbox sorter', role: 'editor', self: false, kind: 'agent', icon: 'inbox-sorter' },
+  { membershipId: 'm5', displayName: 'Daily summary', role: 'editor', self: false, kind: 'agent', icon: 'daily-summary' },
 ];
 const CONFLICTS: ConflictCopy[] = [
   { copyPath: 'Havemind Conflicts/Venue (MIKI IPHONE).md', copyName: 'Venue (MIKI IPHONE).md', kind: 'new', noteName: 'Venue', author: 'MIKI IPHONE', timestamp: '15:20', isBinary: false, targetPath: 'Venue.md', targetKnown: true, manualHint: null },
@@ -92,6 +95,7 @@ function feed(): RevisionRecord[] {
   const now = Date.now();
   const author = (displayName: string, actorId: string) => ({ kind: 'author' as const, actorId, displayName });
   return [
+    { revisionId: 'r0', fileId: 'f0', path: 'Notes/Pomysły/Pomysł na weekend.md', kind: 'create', actor: author('Inbox sorter', 'm4'), timestamp: now - 0.5 * HOUR, content: 'x' },
     { revisionId: 'r1', fileId: 'f1', path: 'Reunion/Venue.md', kind: 'conflict', actor: author('MIKI IPHONE', 'm2'), timestamp: now - 1 * HOUR, content: 'x' },
     { revisionId: 'r2', fileId: 'f2', path: 'Welcome.md', kind: 'edit', actor: author('You', 'm1'), timestamp: now - 2 * HOUR, content: 'x' },
     { revisionId: 'r3', fileId: 'f3', path: 'Reunion/Oferty netto brutto.md', kind: 'edit', actor: author('Hubert', 'm3'), timestamp: now - 3 * HOUR, content: 'x' },
@@ -116,7 +120,8 @@ function paintConnected(pane: HTMLElement, which: Screen): void {
   };
   renderSendQueue(pane, { recoveryRequired: false, view: options.sendQueueProvider() });
   renderConflicts(pane, { copies: conflicts, onResolve: () => undefined });
-  const tab: PaneTabId = which === 'activity' ? 'activity' : which === 'people' ? 'people' : 'status';
+  const tab: PaneTabId =
+    which === 'activity' ? 'activity' : which === 'people' || which === 'add-agent' || which === 'add-agent-key' ? 'people' : 'status';
   renderPaneTabs(pane, {
     view: buildPaneTabs({ active: tab, attentionCount: conflicts.length }),
     onSelect: () => undefined,
@@ -125,15 +130,25 @@ function paintConnected(pane: HTMLElement, which: Screen): void {
   const body = pane.createDiv();
   body.addClass('havemind-tab-body');
   if (tab === 'status') renderStatusHero(body, panel, options, 0);
-  if (tab === 'activity') renderActivityRows(body, { feed: feed(), onRestore: () => undefined });
+  const agentIcons = new Map(
+    buildRejoinRosterView(MEMBERS).rows.filter((row) => row.agent).map((row) => [row.membershipId, row.icon ?? 'robot'] as const),
+  );
+  if (tab === 'activity') renderActivityRows(body, { feed: feed(), onRestore: () => undefined, agentIcons });
   if (tab === 'people') {
     renderRejoinRoster(body, buildRejoinRosterView(MEMBERS), {
       waiting: new Set<string>(),
       onRejoin: () => undefined,
       onRemove: () => undefined,
+      onUndoAgent: () => undefined,
     });
+    if (which === 'add-agent' || which === 'add-agent-key') {
+      renderAddAgent(body, { keyNeeded: which === 'add-agent-key' }, {}, { onAdd: () => undefined, onClose: () => undefined });
+      return;
+    }
     const invite = body.createEl('button', { text: 'Invite someone' });
     invite.addClass('havemind-invite-cta');
+    const agent = body.createEl('button', { text: 'Add agent' });
+    agent.addClass('havemind-invite-cta');
   }
 }
 
