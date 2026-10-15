@@ -220,4 +220,13 @@ describe('install.sh', () => {
     expect(source).not.toMatch(/-r \/dev\/tty/);
     expect(source).toMatch(/\{ : >\/dev\/tty; \} 2>\/dev\/null/);
   });
+
+  it('runs the Docker and Tailscale install scripts with a normal umask', () => {
+    // umask 077 protects the installer's own secret files; apt keyrings and
+    // sources written under it are unreadable to apt's own user, which breaks
+    // the one-command install on a clean Debian or Ubuntu.
+    const runs = source.split('\n').filter((l) => /^\s*run .*"\$tmp"\s*$/u.test(l) && !l.includes('curl'));
+    expect(runs).toHaveLength(2);
+    for (const line of runs) expect(line).toMatch(/umask 022 && exec sh "\$0"/u);
+  });
 });

@@ -116,7 +116,8 @@ if ! command -v docker >/dev/null 2>&1; then
     tmp="$(mktemp)"
     trap 'rm -f "$tmp"' EXIT
     run curl -fsSL https://get.docker.com -o "$tmp"
-    run ${SUDO} sh "$tmp"
+    # Their own umask: apt keyrings written under 077 are unreadable to apt.
+    run ${SUDO} sh -c 'umask 022 && exec sh "$0"' "$tmp"
     rm -f "$tmp"
   else
     say "Docker is not installed. Install Docker Desktop (docker.com) or OrbStack (orbstack.dev),"
@@ -157,7 +158,7 @@ if ! command -v "$TS" >/dev/null 2>&1; then
     tmp="$(mktemp)"
     trap 'rm -f "$tmp"' EXIT
     run curl -fsSL https://tailscale.com/install.sh -o "$tmp"
-    run sh "$tmp"
+    run sh -c 'umask 022 && exec sh "$0"' "$tmp"
     rm -f "$tmp"
   else
     say "Install the Tailscale app (tailscale.com/download/mac or the App Store), sign in, and run this again."
