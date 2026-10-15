@@ -16,7 +16,9 @@
 #   HAVEMIND_HOME      where compose.yaml and .env live (default: ~/havemind-server)
 #   HAVEMIND_OWNER     owner display name (default: asked)
 #   HAVEMIND_VAULT     vault name (default: asked)
-#   HAVEMIND_YES=1     answer yes to every question (unattended installs)
+#   HAVEMIND_YES=1     answer yes to every question (unattended installs); a re-run
+#                      then keeps the owner's code unless HAVEMIND_ROTATE=1 is set too
+#   HAVEMIND_ROTATE=1  make a new owner code on a re-run without asking
 #   HAVEMIND_DRY_RUN=1 print what would run, change nothing (used by the tests)
 #   HAVEMIND_IMAGE     an image already on this machine, used as is and never
 #                      pulled (an unreleased build, or no registry access)
@@ -43,11 +45,14 @@ run() {
   fi
 }
 
+# True when /dev/tty can really be opened (-r is true even with no controlling terminal).
+have_tty() { { : >/dev/tty; } 2>/dev/null; }
+
 # Yes/no from the terminal, also when the script itself arrives on stdin.
 ask() {
   local question="$1" answer
   if [ "${HAVEMIND_YES:-0}" = "1" ]; then return 0; fi
-  if [ ! -r /dev/tty ]; then die "no terminal to ask: $question (set HAVEMIND_YES=1 to agree in advance)"; fi
+  if ! have_tty; then die "no terminal to ask: $question (set HAVEMIND_YES=1 to agree in advance)"; fi
   printf '%s [y/N] ' "$question" > /dev/tty
   read -r answer < /dev/tty || answer=""
   case "$answer" in y|Y|yes|YES|t|T|tak) return 0 ;; *) return 1 ;; esac
@@ -56,7 +61,7 @@ ask() {
 # A value from the terminal with a default.
 ask_value() {
   local question="$1" fallback="$2" answer
-  if [ "${HAVEMIND_YES:-0}" = "1" ] || [ ! -r /dev/tty ]; then printf '%s' "$fallback"; return; fi
+  if [ "${HAVEMIND_YES:-0}" = "1" ] || ! have_tty; then printf '%s' "$fallback"; return; fi
   printf '%s [%s] ' "$question" "$fallback" > /dev/tty
   read -r answer < /dev/tty || answer=""
   printf '%s' "${answer:-$fallback}"
@@ -66,6 +71,9 @@ ask_value() {
 # the script arrives on stdin, and a command that reads stdin (docker compose
 # exec) would otherwise eat the rest of it and end the install silently.
 main() {
+# Files below hold secrets: nothing group- or world-readable, from the first byte.
+# The containers run as uid 1000 and get their folders chowned further down.
+umask 077
 
 # ---------------------------------------------------------------------------
 # 1. The machine
@@ -105,7 +113,11 @@ if ! command -v docker >/dev/null 2>&1; then
   if [ "$OS" = "Linux" ]; then
     ask "Docker is not installed. Install it now with Docker's official script (needs sudo)?" \
       || die "Docker is required. Install it and run this again."
-    run sh -c "curl -fsSL https://get.docker.com | ${SUDO} sh"
+    tmp="$(mktemp)"
+    trap 'rm -f "$tmp"' EXIT
+    run curl -fsSL https://get.docker.com -o "$tmp"
+    run ${SUDO} sh "$tmp"
+    rm -f "$tmp"
   else
     say "Docker is not installed. Install Docker Desktop (docker.com) or OrbStack (orbstack.dev),"
     say "start it once, and run this again."
@@ -119,6 +131,13 @@ fi
 DOCKER="docker"
 if [ "$OS" = "Linux" ] && [ "$DRY" != "1" ] && ! docker info >/dev/null 2>&1; then
   DOCKER="${SUDO} docker"
+fi
+# The generated compose.yaml uses env_file path/required, which needs Compose 2.24.
+COMPOSE_VERSION="$($DOCKER compose version 2>/dev/null | sed -n 's/^[^0-9]*\([0-9][0-9]*\)\.\([0-9][0-9]*\).*/\1 \2/p' | head -n 1)" || true
+[ -n "$COMPOSE_VERSION" ] || die "the docker compose plugin is missing. Install it (Debian/Ubuntu: sudo apt-get install docker-compose-plugin; macOS: update Docker Desktop or OrbStack) and run this again."
+set -- $COMPOSE_VERSION
+if [ "$1" -lt 2 ] || { [ "$1" -eq 2 ] && [ "$2" -lt 24 ]; }; then
+  die "docker compose $1.$2 is too old, 2.24 or newer is needed. Update the docker compose plugin (Debian/Ubuntu: sudo apt-get install --only-upgrade docker-compose-plugin) and run this again."
 fi
 say "Docker is ready."
 
@@ -135,7 +154,11 @@ if ! command -v "$TS" >/dev/null 2>&1; then
   if [ "$OS" = "Linux" ]; then
     ask "Tailscale is not installed. Install it now with Tailscale's official script (needs sudo)?" \
       || die "Tailscale is required. Install it and run this again."
-    run sh -c "curl -fsSL https://tailscale.com/install.sh | sh"
+    tmp="$(mktemp)"
+    trap 'rm -f "$tmp"' EXIT
+    run curl -fsSL https://tailscale.com/install.sh -o "$tmp"
+    run sh "$tmp"
+    rm -f "$tmp"
   else
     say "Install the Tailscale app (tailscale.com/download/mac or the App Store), sign in, and run this again."
     if command -v brew >/dev/null 2>&1 && ask "Install Tailscale with Homebrew now?"; then
@@ -269,9 +292,8 @@ EOF
     printf 'HAVEMIND_AGENT_SERVICE_TOKEN=hm_svc_%s\n' "$(od -An -tx1 -N32 /dev/urandom | tr -d ' \n')" >> "${HOME_DIR}/.env"
   fi
   chmod 600 "${HOME_DIR}/.env"
-  mkdir -p "${HOME_DIR}/backups" "${HOME_DIR}/agents"
-  mkdir -p "${HOME_DIR}/agent-secrets"
-  chmod 700 "${HOME_DIR}/agent-secrets"
+  mkdir -p "${HOME_DIR}/backups" "${HOME_DIR}/agents" "${HOME_DIR}/agent-secrets"
+  chmod 700 "${HOME_DIR}/backups" "${HOME_DIR}/agents" "${HOME_DIR}/agent-secrets"
 fi
 if [ -z "${HAVEMIND_IMAGE:-}" ]; then
   run $DOCKER compose --project-directory "${HOME_DIR}" pull
@@ -328,6 +350,8 @@ if [ ! -f "$OWNER_MARK" ]; then
   NEW_CODE=1
   OUTPUT="$(run "${CLI[@]}" setup --owner "$OWNER" --vault "$VAULT")"
   run touch "$OWNER_MARK"
+elif [ "${HAVEMIND_YES:-0}" = "1" ] && [ "${HAVEMIND_ROTATE:-0}" != "1" ]; then
+  say "Keeping the owner's code. For a new one, run this again with HAVEMIND_ROTATE=1."
 elif ask "Make a new code to connect another Obsidian as the owner? (the old code stops working)"; then
   NEW_CODE=1
   OUTPUT="$(run "${CLI[@]}" rotate-pairing)"

@@ -11,7 +11,9 @@ import { describe, expect, it } from 'vitest';
 const SCRIPT = join(__dirname, '..', 'deploy', 'install.sh');
 const source = readFileSync(SCRIPT, 'utf8');
 
-function dryRun(dockerStub = '#!/bin/sh\nexit 0\n', extraEnv: Record<string, string> = {}): string {
+const COMPOSE_OK = '[ "$1 $2" = "compose version" ] && echo "Docker Compose version v2.29.1"\n';
+
+function dryRun(dockerStub = `#!/bin/sh\n${COMPOSE_OK}exit 0\n`, extraEnv: Record<string, string> = {}): string {
   const bin = mkdtempSync(join(tmpdir(), 'hm-install-bin-'));
   for (const [name, body] of [['docker', dockerStub], ['tailscale', '#!/bin/sh\nexit 0\n']] as const) {
     const stub = join(bin, name);
@@ -84,7 +86,7 @@ describe('install.sh', () => {
 
   it('runs an image built on this machine when told to, without pulling', () => {
     // For testing an unreleased build, or a server with no registry access.
-    const out = dryRun('#!/bin/sh\nexit 0\n', { HAVEMIND_IMAGE: 'havemind-local:test' });
+    const out = dryRun(undefined, { HAVEMIND_IMAGE: 'havemind-local:test' });
     expect(out).not.toMatch(/ pull$/m);
     expect(out).toContain('havemind-local:test');
   });
@@ -107,7 +109,7 @@ describe('install.sh', () => {
   it('refuses to take over a Havemind stack it did not install', () => {
     // A manual deploy/compose.yaml stack (project "havemind") must never be
     // recreated with the published image and a rewritten .env.
-    const existing = '#!/bin/sh\n[ "$1" = ps ] && echo abc123\nexit 0\n';
+    const existing = `#!/bin/sh\n${COMPOSE_OK}[ "$1" = ps ] && echo abc123\nexit 0\n`;
     let failure: { stderr?: string; status?: number } = {};
     try {
       dryRun(existing);
@@ -126,7 +128,7 @@ describe('install.sh', () => {
     // `curl … | bash` feeds the script on stdin; `docker compose exec` read the
     // rest of it, so bash stopped after "Your vault" with exit 0 (AWS, 1.9.1).
     const bin = mkdtempSync(join(tmpdir(), 'hm-install-bin-'));
-    writeFileSync(join(bin, 'docker'), '#!/bin/sh\ncat >/dev/null\nexit 0\n');
+    writeFileSync(join(bin, 'docker'), `#!/bin/sh\n${COMPOSE_OK}cat >/dev/null\nexit 0\n`);
     writeFileSync(join(bin, 'tailscale'), '#!/bin/sh\nexit 0\n');
     chmodSync(join(bin, 'docker'), 0o755);
     chmodSync(join(bin, 'tailscale'), 0o755);
@@ -154,5 +156,68 @@ describe('install.sh', () => {
   it('never loses the single-use code when it cannot find the one line', () => {
     const at = source.indexOf('step "Done"');
     expect(source.slice(at)).toMatch(/\$OUTPUT/);
+  });
+
+  describe('unattended re-run (item 17)', () => {
+    const rerun = (extra: Record<string, string>): string => {
+      const home = mkdtempSync(join(tmpdir(), 'hm-install-home-'));
+      writeFileSync(join(home, 'compose.yaml'), '');
+      writeFileSync(join(home, '.owner-ready'), '');
+      return dryRun(undefined, { HAVEMIND_HOME: home, ...extra });
+    };
+
+    it('does not rotate the owner code under HAVEMIND_YES=1 and says how to get one', () => {
+      const out = rerun({});
+      expect(out).not.toContain('rotate-pairing');
+      expect(out).toContain('HAVEMIND_ROTATE=1');
+    });
+
+    it('rotates when HAVEMIND_ROTATE=1 is also set', () => {
+      expect(rerun({ HAVEMIND_ROTATE: '1' })).toContain('rotate-pairing');
+    });
+  });
+
+  it('locks down the files it writes before the first one exists (item 18)', () => {
+    expect(source).toMatch(/^umask 077$/m);
+    expect(source.indexOf('umask 077')).toBeLessThan(source.indexOf('cat > "${HOME_DIR}/.env"'));
+    expect(source).toMatch(/chmod 700 "\$\{HOME_DIR\}\/backups" "\$\{HOME_DIR\}\/agents" "\$\{HOME_DIR\}\/agent-secrets"/);
+  });
+
+  it('does not hide a failed download behind a pipe (item 19a)', () => {
+    expect(source).not.toMatch(/sh -c "curl/);
+    expect(source).toMatch(/curl -fsSL https:\/\/get\.docker\.com -o "\$tmp"/);
+    expect(source).toMatch(/curl -fsSL https:\/\/tailscale\.com\/install\.sh -o "\$tmp"/);
+  });
+
+  describe('docker compose plugin (item 19b)', () => {
+    const withCompose = (reply: string): { status?: number; stderr?: string } | string => {
+      try {
+        return dryRun(`#!/bin/sh\n${reply}\nexit 0\n`);
+      } catch (error) {
+        return error as { status?: number; stderr?: string };
+      }
+    };
+
+    it('stops with install help when the plugin is missing', () => {
+      const r = withCompose('[ "$1" = compose ] && exit 1') as { status?: number; stderr?: string };
+      expect(r.status).toBe(1);
+      expect(r.stderr).toMatch(/docker compose plugin/i);
+    });
+
+    it('stops when Compose is older than 2.24', () => {
+      const r = withCompose('[ "$1" = compose ] && echo "Docker Compose version v2.23.3"') as { status?: number; stderr?: string };
+      expect(r.status).toBe(1);
+      expect(r.stderr).toMatch(/2\.24/);
+    });
+
+    it('accepts 2.24 and newer, with or without a v prefix', () => {
+      expect(withCompose('[ "$1" = compose ] && echo "Docker Compose version 2.24.0-desktop.1"')).toContain('==> Done');
+      expect(withCompose('[ "$1" = compose ] && echo "Docker Compose version v3.0.1"')).toContain('==> Done');
+    });
+  });
+
+  it('tests for a usable terminal by opening it, not by -r (item 19c)', () => {
+    expect(source).not.toMatch(/-r \/dev\/tty/);
+    expect(source).toMatch(/\{ : >\/dev\/tty; \} 2>\/dev\/null/);
   });
 });
