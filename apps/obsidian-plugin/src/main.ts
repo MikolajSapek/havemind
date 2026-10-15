@@ -183,7 +183,7 @@ export default class HavemindPlugin extends Plugin {
         },
         composerProvider: () =>
           this.invitations.connectionActive ? this.invitations.composerModel() : null,
-        pendingApprovalsProvider: () => this.invitations.pendingApprovals,
+        pendingApprovalsProvider: () => this.invitations.activePendingApprovals(),
         guestWaitingProvider: () => this.awaitingApproval,
         guestInvalidProvider: () => this.guestInvitationInvalid,
         panelProvider: () => this.connectionPanel(),
@@ -611,6 +611,10 @@ export default class HavemindPlugin extends Plugin {
     this.connectionError = undefined;
     this.awaitingApproval = null;
     this.guestInvitationInvalid = false;
+    // Like Reset: the next connection may be another vault, with other members
+    // and other waiting devices.
+    this.invitations.clearOwnerState();
+    this.people.rosterMembers = [];
     // The saved feed is not scoped to a vault, and the next connection may be
     // to another one, whose history its Restore buttons would not find.
     this.activityLog.clear();
@@ -646,6 +650,7 @@ export default class HavemindPlugin extends Plugin {
       this.lastSyncedAt = Date.now();
       this.connectionError = undefined;
       void this.statusBar.refreshLastEdited();
+      void this.invitations.refreshPendingApprovalsSoon();
     }
     if (status === 'reset-required') {
       // The stored connection is damaged (P1 #5): drop any stale server-side
@@ -777,14 +782,10 @@ export default class HavemindPlugin extends Plugin {
       forgetSharedAccessProvider(this);
       this.people.rosterMembers = [];
       this.people.rejoinWaiting = new Set<string>();
-      this.invitations.pendingInvitation = null;
-      this.invitations.pendingApprovals = [];
+      this.invitations.clearOwnerState();
       this.sendQueue.notifiedQuarantineIds = new Set<string>();
       this.awaitingApproval = null;
       this.guestInvitationInvalid = false;
-      this.invitations.connectionActive = false;
-      this.invitations.connectionNotice = undefined;
-      this.invitations.connectionNoticeKind = undefined;
       this.connectionStatus = 'disconnected';
       this.lastSyncedAt = undefined;
       this.connectionError = undefined;
