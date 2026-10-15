@@ -30,6 +30,9 @@ export { CONFLICT_FOLDER };
 /** First line of the body a delete-vs-edit conflict copy carries (a tombstone has no text). */
 const DELETED_MARKER = 'Deleted on another device.';
 
+/** A copy still exactly as {@link deletedMarkerBody} wrote it: text added to it, or a copy that only starts alike, is real content. */
+const DELETED_MARKER_RE = /^Deleted on another device\.\n\nBy [^\n]+, \d{4}-\d{2}-\d{2} \d{4}\.\s*$/;
+
 /** The body of a conflict copy standing for a peer's delete: who deleted it and when it arrived. */
 export function deletedMarkerBody(author: string, stamp: string): string {
   return `${DELETED_MARKER}\n\nBy ${author}, ${stamp}.\n`;
@@ -37,7 +40,7 @@ export function deletedMarkerBody(author: string, stamp: string): string {
 
 /** True for a copy written by {@link deletedMarkerBody}: Keep theirs means removing the note. */
 export function isDeletedMarker(text: string): boolean {
-  return text.startsWith(`${DELETED_MARKER}\n`);
+  return DELETED_MARKER_RE.test(text);
 }
 
 /** A single UUID (8-4-4-4-12 hex). Legacy copies are two of these joined. */

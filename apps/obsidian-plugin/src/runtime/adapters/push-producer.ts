@@ -43,7 +43,7 @@ import {
   retryFailedCommit,
   type RetryFailedCommitOutcome,
 } from '../commit-recovery';
-import { formatBlockedNotice, pathsNeedingResolution } from '../bootstrap-identities';
+import { formatBlockedNotice, pathsNeedingResolution, pathsToScan } from '../bootstrap-identities';
 import { withKeys, type KeyedMutex } from '../keyed-mutex';
 import { ModifyDebouncer } from '../modify-debounce';
 import {
@@ -229,10 +229,10 @@ export function startPushProducer(plugin: Plugin, wiring: PushProducerWiring): P
   const reconcile = (allowBulkDeletes: boolean): Promise<ReconcileResult> =>
     reconcileVaultState({ observer, repository, allowBulkDeletes, configListingFailed: () => configListingFailed,
       vault: {
-        ...snapshot, listSyncablePaths: async () => (await snapshot.listSyncablePaths()).filter((path) => {
-          const classified = classifyVaultPath(path);
-          return !classified.eligible || !blocked.has(classified.collisionKey);
-        }),
+        ...snapshot, listSyncablePaths: async () => {
+          const mapped = new Set((await repository.listMappings()).map((mapping) => mapping.collisionKey));
+          return pathsToScan(await snapshot.listSyncablePaths(), blocked, mapped);
+        },
       } });
 
   // A mass delete is held (see `reconcileVaultState`), never dropped: the

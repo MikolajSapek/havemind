@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  PermanentApplyError,
   SyncRunner,
   type OpenBuffer,
   type PushItemResult,
@@ -1157,5 +1158,20 @@ describe('SyncRunner parks an incoming change it cannot apply (B2)', () => {
 
     expect(parked).toEqual([]);
     expect(vault.applied.map((e) => e.revision.fileId)).toContain('file-pdf');
+  });
+
+  it('parks a permanent failure on the first attempt (plan 018, item 1)', async () => {
+    const { runner, state, vault, parked } = setup();
+    const apply = vault.applyRemote.bind(vault);
+    vault.applyRemote = async (remoteEvent: RemoteEvent, options) => {
+      if (remoteEvent.revision.fileId === 'file-pdf') throw new PermanentApplyError('its path is outside the sync scope');
+      return apply(remoteEvent, options);
+    };
+
+    await runner.trigger();
+
+    expect(parked).toEqual([{ revisionId: 'rev-1', reason: 'its path is outside the sync scope' }]);
+    expect(state.cursor).toBe(2);
+    expect(vault.applied.map((e) => e.revision.fileId)).toEqual(['file-note']);
   });
 });

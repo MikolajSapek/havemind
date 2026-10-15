@@ -27,6 +27,7 @@ import { deletedMarkerBody } from './conflict-resolution';
 
 import { withKeys, KeyedMutex, type KeyedLock } from './keyed-mutex';
 
+import { PermanentApplyError } from '../sync/sync-runner';
 import type {
   OpenBuffer,
   RemoteApplyOptions,
@@ -288,10 +289,10 @@ export class VaultApplyAdapter implements VaultApplyPort {
     const decoded = await this.resolveRevision(event);
     await this.history?.ensureEvent(event);
     // A peer chooses the path: one outside the sync scope is never written,
-    // moved or deleted. 'noop' moves the cursor on, so it cannot wedge the pull.
+    // moved or deleted. The runner parks this error on the first attempt and
+    // moves the cursor on, so the event shows in the panel and cannot wedge the pull.
     if (!inSyncScope(decoded.path) || (decoded.previousPath !== null && !inSyncScope(decoded.previousPath))) {
-      console.warn(`Havemind: ignored revision ${event.revision.revisionId}, its path is outside the sync scope.`);
-      return 'noop';
+      throw new PermanentApplyError('The path is outside what Havemind syncs, so this change was not applied.');
     }
     const origin: RemoteAppliedOrigin =
       options?.bootstrap === true ? 'bootstrap' : 'live';

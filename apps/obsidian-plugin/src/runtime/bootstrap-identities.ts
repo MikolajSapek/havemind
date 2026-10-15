@@ -18,6 +18,18 @@ export function pathsNeedingResolution(localPaths: readonly string[], blocked: R
   });
 }
 
+/**
+ * `paths` minus the held ones (see {@link bootstrapIdentities}) that still have
+ * no producer mapping. Once the pull maps a held file it is an ordinary file
+ * again: leaving it out of a later scan would read it as deleted.
+ */
+export function pathsToScan(paths: readonly string[], blocked: ReadonlySet<string>, mappedKeys: ReadonlySet<string>): string[] {
+  return paths.filter((path) => {
+    const classified = classifyVaultPath(path);
+    return !classified.eligible || !blocked.has(classified.collisionKey) || mappedKeys.has(classified.collisionKey);
+  });
+}
+
 const NOTICE_NAMED_PATHS = 3;
 
 /** The Notice for files held back from upload: names up to three, then a count. */

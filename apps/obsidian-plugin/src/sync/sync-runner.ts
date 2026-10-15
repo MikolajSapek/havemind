@@ -97,6 +97,17 @@ export interface OpenBuffer {
   readonly unsaved: boolean;
 }
 
+/**
+ * An apply failure no retry can fix (a peer's path outside the sync scope):
+ * the runner parks the change on the first attempt, instead of after a few.
+ */
+export class PermanentApplyError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PermanentApplyError';
+  }
+}
+
 /** `conflict` may come from the vault's on-disk guard (rule 3); `noop` = converged. */
 export type RemoteApplyOutcome = 'applied' | 'conflict' | 'noop' | 'deferred';
 
@@ -599,7 +610,7 @@ export class SyncRunner {
         if (
           isAuthDenied(error) ||
           this.options.state.parkRemote === undefined ||
-          attempts < MAX_APPLY_ATTEMPTS
+          (attempts < MAX_APPLY_ATTEMPTS && !(error instanceof PermanentApplyError))
         ) {
           this.applyFailures.set(id, attempts);
           throw error;

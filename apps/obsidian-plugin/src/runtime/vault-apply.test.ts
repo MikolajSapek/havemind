@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { hashBlob } from '@havemind/protocol';
 
+import { PermanentApplyError } from '../sync/sync-runner';
 import {
   ParentFolderOccupiedError,
   VaultApplyAdapter,
@@ -2193,38 +2194,34 @@ describe('peer paths outside the sync scope (plan 018, item 1)', () => {
     return { adapter, files, decodedById };
   }
 
-  it.each(outOfScope)('ignores a create at %s and still applies the next in-scope event', async (path) => {
+  it.each(outOfScope)('refuses a create at %s with a permanent error and still applies the next in-scope event', async (path) => {
     const { adapter, files, decodedById } = scoped();
     decodedById.set('rev-bad', { ...content(path, 'x\n'), kind: path.endsWith('.md') ? 'markdown' : 'binary' });
     decodedById.set('rev-ok', content('Notes/ok.md', 'ok\n'));
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
-    expect(await adapter.applyRemote(event('rev-bad', 'file-bad'))).toBe('noop');
+    await expect(adapter.applyRemote(event('rev-bad', 'file-bad'))).rejects.toBeInstanceOf(PermanentApplyError);
     expect(await adapter.applyRemote(event('rev-ok', 'file-ok'))).toBe('applied');
 
-    warn.mockRestore();
     expect(files.writes).toEqual([{ path: 'Notes/ok.md', content: 'ok\n' }]);
     expect(files.binaryWrites).toEqual([]);
     expect(files.conflicts).toEqual([]);
   });
 
-  it('ignores a delete whose path is out of scope even when something owns it', async () => {
+  it('refuses a delete whose path is out of scope even when something owns it', async () => {
     const { adapter, files, decodedById } = scoped();
     decodedById.set('rev-bad', { operation: 'delete', path: '.git/hooks/x', previousPath: null, content: null });
     files.owners.set('.git/hooks/x', 'file-bad');
-    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
-    expect(await adapter.applyRemote(event('rev-bad', 'file-bad'))).toBe('noop');
+    await expect(adapter.applyRemote(event('rev-bad', 'file-bad'))).rejects.toBeInstanceOf(PermanentApplyError);
     expect(files.deletes).toEqual([]);
   });
 
-  it('ignores a rename whose previousPath is out of scope', async () => {
+  it('refuses a rename whose previousPath is out of scope', async () => {
     const { adapter, files, decodedById } = scoped();
     decodedById.set('rev-bad', { ...content('Notes/in.md', 'x\n'), operation: 'rename', previousPath: '.git/config' });
     files.owners.set('.git/config', 'file-bad');
-    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
-    expect(await adapter.applyRemote(event('rev-bad', 'file-bad'))).toBe('noop');
+    await expect(adapter.applyRemote(event('rev-bad', 'file-bad'))).rejects.toBeInstanceOf(PermanentApplyError);
     expect(files.writes).toEqual([]);
     expect(files.deletes).toEqual([]);
   });

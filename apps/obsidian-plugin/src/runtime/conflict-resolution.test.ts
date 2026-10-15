@@ -278,6 +278,16 @@ describe('createConflictResolver', () => {
     expect(port.deletes).toEqual([newCopy.copyPath]);
   });
 
+  it('keepTheirs writes a copy that merely starts with the marker line or was typed into', async () => {
+    const lookalike = `${deletedMarkerBody('Magda', '2026-07-16 1542')}and my own notes below\n`;
+    const port = fakePort({ contents: { [newCopy.copyPath]: lookalike, 'Notatka.md': 'mine' } });
+
+    expect(await createConflictResolver(port).resolve(newCopy, 'keepTheirs')).toBe('resolved');
+
+    expect(port.trashed).toEqual([]);
+    expect(port.writes).toEqual([{ path: 'Notatka.md', content: lookalike }]);
+  });
+
   it('keepTheirs on a delete marker whose note is already gone just removes the copy', async () => {
     const port = fakePort({
       contents: { [newCopy.copyPath]: deletedMarkerBody('Magda', '2026-07-16 1542') },

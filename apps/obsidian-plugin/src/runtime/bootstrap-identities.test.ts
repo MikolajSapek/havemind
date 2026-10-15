@@ -1,6 +1,6 @@
 import { expect, it, vi } from 'vitest';
 import { hashBlob, hashPlaintext } from '@havemind/protocol';
-import { bootstrapIdentities, formatBlockedNotice, pathsNeedingResolution } from './bootstrap-identities';
+import { bootstrapIdentities, formatBlockedNotice, pathsNeedingResolution, pathsToScan } from './bootstrap-identities';
 import { RevisionHistory } from './revision-history';
 import { DurableSyncState, type PersistedSyncState, type SyncStatePersistPort } from './sync-state';
 import { OutboxLocalChangeRepository, type ProducerState } from '../sync/outbox-repository';
@@ -195,4 +195,12 @@ it('names at most three held files in the Notice, then counts the rest', () => {
   expect(formatBlockedNotice(['a.md', 'b.md', 'c.md', 'd.md', 'e.md'])).toBe(
     'Havemind: 5 existing file(s) need conflict resolution before upload: a.md, b.md, c.md and 2 more.',
   );
+});
+
+it('scans a held path again once the pull gave it a mapping, so a later confirmed pass never reads it as deleted', () => {
+  const blocked = new Set(['.obsidian/core-plugins.json', 'notes/plan.md']);
+  const paths = ['.obsidian/core-plugins.json', 'Notes/Plan.md', 'Notes/Other.md'];
+
+  expect(pathsToScan(paths, blocked, new Set())).toEqual(['Notes/Other.md']);
+  expect(pathsToScan(paths, blocked, new Set(['.obsidian/core-plugins.json']))).toEqual(['.obsidian/core-plugins.json', 'Notes/Other.md']);
 });
