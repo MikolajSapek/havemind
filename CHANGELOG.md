@@ -7,6 +7,48 @@ and the server.
 
 ## [Unreleased]
 
+## [1.10.4], 2026-10-15
+
+A full review of the code (plan 018, phases 1 and 2).
+
+### Fixed: data and security
+
+- A device now refuses changes from others for paths Havemind never syncs
+  (for example `evil.html` or `.git/hooks/…`); such a change is parked.
+- A failed read of `.obsidian` no longer deletes every setting, theme and
+  snippet on every device.
+- When many notes go missing at once at startup, Havemind holds the deletes
+  and asks before removing them on every device.
+- A conflict copy you edited is never overwritten when the same change
+  arrives again; a deleted-vs-edited conflict says "Deleted on another
+  device" instead of an empty note, and Keep theirs moves the note to trash.
+- `Note.md` from one device and `note.md` on another become a conflict copy
+  instead of a stuck change.
+- Agents: a write without text no longer empties a note; a run is never
+  repeated (and paid for) because the server blinked; folders like
+  `havemind/` or `.Obsidian` are refused as `Havemind/` and `.obsidian`;
+  two agents with similar names no longer share a folder; Codex and Cursor
+  stay off on servers.
+- Server: each vault keeps its own agent login, so one vault's owner cannot
+  change another vault's agents (an existing login moves to the vault on a
+  one-vault server); errors never show internal details; a device left
+  waiting more than an hour must be invited again.
+- Installer: an unattended re-run no longer prints a new owner code; files
+  with secrets are private from the start; a failed download or a missing or
+  old Docker Compose stops with a clear message.
+
+### Fixed: what you saw
+
+- Invite someone and Add agent only for the owner.
+- Typing a code or a key survives the pane refreshing; the pane no longer
+  jumps to the top.
+- The six-digit code goes straight into the "wants to join" card.
+- A fresh vault on a new device no longer reports a settings file as a
+  conflict; when files are held, the notice names them.
+- Old requests to join disappear when they expire and after you disconnect.
+- After Undo, an agent does not redo the same work; Inbox sorter adds only
+  tags a note does not have.
+
 ## [1.10.3], 2026-10-15
 
 ### Fixed
