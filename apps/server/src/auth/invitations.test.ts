@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import {
   ACCESS_TTL_SECONDS,
+  createClock,
   makeTempDir,
   openMigratedDatabase,
   REFRESH_TTL_SECONDS,
@@ -15,6 +16,7 @@ import {
   type InvitationErrorCode,
   type RedeemForOnboardingResult,
 } from './invitations.js';
+import { pruneExpiredRecords } from '../prune-expired.js';
 import { OwnerSetupService, createLocalOwnerSetupContext } from './setup.js';
 import {
   generateRefreshToken,
@@ -36,9 +38,8 @@ interface Fixture {
   readonly vaultId: string;
 }
 
-function makeFixture(): Fixture {
+function makeFixture(now: () => Date = () => new Date(START_TIME)): Fixture {
   const database = openMigratedDatabase(makeTempDir('havemind-invitations-'));
-  const now = (): Date => new Date(START_TIME);
 
   const owner = new OwnerSetupService(database, {
     accessTokenTtlSeconds: ACCESS_TTL_SECONDS,
@@ -260,5 +261,47 @@ describe('InvitationError', () => {
       name: 'InvitationError',
     });
     expect(error.httpStatus).toBe(410);
+  });
+});
+
+describe('pending device TTL', () => {
+  const HOUR_MS = 60 * 60 * 1_000;
+
+  function redeemed() {
+    const clock = createClock(START_TIME);
+    const fixture = makeFixture(clock.now);
+    const invitation = createInvitation(fixture);
+    const result = redeem(fixture, invitation.invitationToken);
+    return { clock, fixture, invitation, result };
+  }
+
+  it('approves a device redeemed within the last hour', () => {
+    const { clock, fixture, invitation, result } = redeemed();
+    clock.advance(HOUR_MS - 1_000);
+    approve(fixture, invitation.invitationId, result.verificationPhrase);
+    expect(deviceCount(fixture.database, 'approved')).toBeGreaterThan(1);
+  });
+
+  it('refuses to approve a device that waited more than an hour', () => {
+    const { clock, fixture, invitation, result } = redeemed();
+    clock.advance(HOUR_MS + 1_000);
+    expectInvitationError(
+      () => approve(fixture, invitation.invitationId, result.verificationPhrase),
+      'NO_PENDING_DEVICE',
+      409,
+    );
+    expect(deviceCount(fixture.database, 'pending')).toBe(1);
+  });
+
+  it('prunes a pending device that waited more than an hour, and only that one', () => {
+    const { clock, fixture } = redeemed();
+    clock.advance(HOUR_MS - 1_000);
+    pruneExpiredRecords(fixture.database, clock.now());
+    expect(deviceCount(fixture.database, 'pending')).toBe(1);
+    clock.advance(2_000);
+    pruneExpiredRecords(fixture.database, clock.now());
+    expect(deviceCount(fixture.database, 'pending')).toBe(0);
+    const users = fixture.database.prepare('SELECT COUNT(*) AS c FROM users').get() as { c: number };
+    expect(users.c).toBe(1);
   });
 });

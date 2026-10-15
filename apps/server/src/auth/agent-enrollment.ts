@@ -16,7 +16,10 @@ import { randomUUID } from 'node:crypto';
 
 import type Database from 'better-sqlite3';
 
-import { InvitationError, type InvitationService } from './invitations.js';
+import { InvitationError, type InvitationErrorCode, type InvitationService } from './invitations.js';
+
+/** Invitation refusals that no retry can fix. */
+const NEVER_SUCCEEDS: ReadonlySet<InvitationErrorCode> = new Set(['INVALID_INVITATION', 'NO_PENDING_DEVICE', 'NOT_AUTHORIZED']);
 
 export class AgentNameTakenError extends Error {
   override readonly name = 'AgentNameTakenError';
@@ -128,13 +131,13 @@ export class AgentEnrollmentService {
         verificationPhrase: redeemed.verificationPhrase,
       });
     } catch (error) {
-      // The token the service sent is malformed: its fault, not the enrollment's.
-      if (error instanceof InvitationError && error.code === 'INVALID_INPUT') throw error;
-      // The owner who enrolled it is no longer an owner with that device: this
-      // enrollment can never complete. Drop it, with the reason, and move on.
+      // Only a refusal that can never change drops the enrollment (the owner
+      // who enrolled it is no longer an owner with that device). Anything else
+      // may pass, a busy database for one, so it is thrown and retried.
+      if (!(error instanceof InvitationError) || !NEVER_SUCCEEDS.has(error.code)) throw error;
       this.#database
         .prepare('UPDATE agent_enrollments SET dropped_at = ?, dropped_reason = ? WHERE id = ?')
-        .run(now, error instanceof InvitationError ? error.code : 'FAILED', row.id);
+        .run(now, error.code, row.id);
       return null;
     }
     this.#database

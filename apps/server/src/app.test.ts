@@ -341,4 +341,35 @@ describe('Fastify application', () => {
     expect(accepted.statusCode).toBe(200);
     expect(rejected.statusCode).toBe(413);
   });
+
+  it('hides the message of an unexpected error and logs it server-side', async () => {
+    const stream = collectLogs();
+    const app = createApp({ loggerStream: stream.writer });
+    app.get('/test-only/boom', async () => {
+      throw new Error('/secret/path ENOENT');
+    });
+
+    const response = await app.inject({ method: 'GET', url: '/test-only/boom' });
+
+    expect(response.statusCode).toBe(500);
+    expect(response.body).not.toContain('/secret/path');
+    expect(response.json()).toEqual({ error: { code: 'INTERNAL' } });
+    expect(response.headers['cache-control']).toBe('no-store');
+    expect(stream.read()).toContain('ENOENT');
+  });
+
+  it('keeps the 4xx answers Fastify already gives', async () => {
+    const app = createApp();
+    app.post('/test-only/json', async (request) => request.body);
+
+    const response = await app.inject({
+      headers: { 'content-type': 'application/json' },
+      method: 'POST',
+      payload: '{not json',
+      url: '/test-only/json',
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ statusCode: 400 });
+  });
 });
