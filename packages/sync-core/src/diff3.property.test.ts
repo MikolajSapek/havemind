@@ -30,7 +30,7 @@ import { describe, expect, it } from 'vitest';
 
 import { mergeText } from './diff3.js';
 
-const RUNS = 500;
+const RUNS = Number(process.env.HAVEMIND_PROPERTY_RUNS ?? 500);
 
 /**
  * A small alphabet of whole lines. Keeping the pool small (and including the
