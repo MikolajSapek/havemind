@@ -5,6 +5,7 @@ import { addAgent, modelKeyConfigured, setModelKey } from '../runtime/agent-api'
 import { agentApiForOwner } from '../runtime/obsidian-adapters';
 import type { AddAgentModel, AgentLogin } from '../ui/screens/add-agent';
 
+import { agentNameProblem } from './agent-name';
 import { writeTaskNote } from './invitations';
 
 const INVALID: Readonly<Record<string, string>> = {
@@ -65,28 +66,23 @@ export class Agents {
   }
 
   public async add(presetId: string, name: string, login: AgentLogin, report: (message: string) => void): Promise<void> {
-    const api = await agentApiForOwner(this.plugin);
-    if (api === null) {
-      report('Connect as the vault owner first.');
+    const problem = agentNameProblem(name);
+    if (problem !== null) {
+      report(problem);
       return;
     }
+    if (login?.kind === 'local') {
+      report('Claude Code on this computer is not available yet in this build.');
+      return;
+    }
+    // The agent is added first and its login saved after: a login saved for an
+    // agent the server then refuses would sit there with nobody to think with it.
+    let loginSaved: string | null = null;
     try {
-      if (login?.kind === 'local') {
-        report('Claude Code on this computer is not available yet in this build.');
+      const api = await agentApiForOwner(this.plugin);
+      if (api === null) {
+        report('Connect as the vault owner first.');
         return;
-      }
-      if (login !== null) {
-        const saved = await setModelKey(api, {
-          provider: login.provider,
-          ...(login.secret === undefined ? {} : { secret: login.secret }),
-          ...(login.model === undefined ? {} : { model: login.model }),
-          ...(login.baseUrl === undefined ? {} : { baseUrl: login.baseUrl }),
-        });
-        if (saved !== 'saved') {
-          // Never the secret itself in a message.
-          report(saved === 'invalid' ? INVALID[login.provider] ?? 'That login was refused.' : 'Could not save it on the server.');
-          return;
-        }
       }
       const added = await addAgent(api, name);
       if (added === 'name-taken') {
@@ -97,13 +93,38 @@ export class Agents {
         report(added === 'unsupported' ? 'This server cannot add agents with one click yet; update it.' : 'Could not add the agent.');
         return;
       }
-      await writeTaskNote(this.plugin, name, presetId);
-      this.notice = `${name} is joining. It appears in yellow within a minute; its task is in Havemind/Agents/${name}.md.`;
-      this.formOpen = false;
-      this.plugin.views.refreshOnboardingNow();
-      void this.waitForAgent(name);
+      if (login !== null) {
+        loginSaved = await setModelKey(api, {
+          provider: login.provider,
+          ...(login.secret === undefined ? {} : { secret: login.secret }),
+          ...(login.model === undefined ? {} : { model: login.model }),
+          ...(login.baseUrl === undefined ? {} : { baseUrl: login.baseUrl }),
+        });
+      }
     } catch {
       report('Could not reach the server. Try again in a moment.');
+      return;
     }
+
+    // The server has the agent now, so nothing below may read as "not added".
+    // Never the secret itself in a message.
+    const missing: string[] = [];
+    if (login !== null && loginSaved !== 'saved') {
+      missing.push(loginSaved === 'invalid' ? `its login was refused (${INVALID[login.provider] ?? 'check it'})` : 'its login could not be saved');
+    }
+    try {
+      await writeTaskNote(this.plugin, name, presetId);
+    } catch {
+      missing.push('its task note could not be written');
+    }
+    if (missing.length === 0) {
+      this.notice = `${name} is joining. It appears in yellow within a minute; its task is in Havemind/Agents/${name}.md.`;
+    } else {
+      this.notice = `Agent added, but ${missing.join(' and ')}.`;
+      report(this.notice);
+    }
+    this.formOpen = false;
+    this.plugin.views.refreshOnboardingNow();
+    void this.waitForAgent(name);
   }
 }

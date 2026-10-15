@@ -19,6 +19,7 @@ import type {
 import type { AppWithVault } from '../runtime/adapters/shared';
 import { AGENT_JOIN_COMMAND, presetById, taskNoteFor, taskNotePath } from '../runtime/agent-presets';
 
+import { agentNameProblem } from './agent-name';
 import { errorMessage } from './error-message';
 
 /** Writes an agent's task note from its preset, never over one already there. */
@@ -251,6 +252,12 @@ export class Invitations {
     agentPresetId?: string,
   ): Promise<void> {
     const agent = role === 'agent';
+    // The name becomes the task note's file name, so check it before any request.
+    const problem = agent && name.length > 0 ? agentNameProblem(name) : null;
+    if (problem !== null) {
+      report(problem);
+      return;
+    }
     const memberRole = role === 'owner' ? 'owner' : 'editor';
     try {
       const invitation = await createInvitationForOwner(this.plugin, {

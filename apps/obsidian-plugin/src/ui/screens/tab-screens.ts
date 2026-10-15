@@ -18,7 +18,8 @@ import type { ConnectDraft, ConnectLiveInputs } from './connect-form';
 import { renderInviteComposer } from './invite-composer';
 import { renderPeopleTab } from './people-tab';
 import { renderConflicts, renderSendQueue } from './alarms';
-import type { AddAgentDraft } from './add-agent';
+import type { AddAgentDraft, AddAgentModel } from './add-agent';
+import { clearAgentSecrets } from './add-agent-login';
 import { renderStatusIndicator } from './status-indicator';
 import { renderStatusHero } from './status-hero';
 import type { TabBodyScreens } from './tab-body';
@@ -46,6 +47,13 @@ function isOwnerView(options: OnboardingViewOptions): boolean {
   } catch {
     return false;
   }
+}
+
+/** The open form's model; while it is closed the typed login is dropped (it also is after success). */
+function openAddAgentModel(options: OnboardingViewOptions, draft: AddAgentDraft): AddAgentModel | null {
+  const model = options.addAgentProvider?.() ?? null;
+  if (model === null) clearAgentSecrets(draft);
+  return model;
 }
 
 export function buildTabScreens(context: TabScreensContext): TabBodyScreens {
@@ -103,7 +111,7 @@ export function buildTabScreens(context: TabScreensContext): TabBodyScreens {
           ? {}
           : {
               addAgent: {
-                model: options.addAgentProvider?.() ?? null,
+                model: openAddAgentModel(options, context.draft),
                 draft: context.draft,
                 actions: {
                   onAdd: options.onAddAgent,

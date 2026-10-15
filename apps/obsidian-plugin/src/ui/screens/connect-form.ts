@@ -107,8 +107,8 @@ export function captureDrafts(draft: PaneDraft, live: PaneLiveInputs): void {
   if (live.token) draft.token = (live.token as HTMLInputElement).value;
   if (live.server) draft.server = (live.server as HTMLInputElement).value;
   if (live.role) {
-    draft.role =
-      (live.role as HTMLSelectElement).value === 'owner' ? 'owner' : 'editor';
+    const role = (live.role as HTMLSelectElement).value;
+    draft.role = role === 'owner' || role === 'agent' ? role : 'editor';
   }
   if (live.name) draft.name = (live.name as HTMLInputElement).value;
 }

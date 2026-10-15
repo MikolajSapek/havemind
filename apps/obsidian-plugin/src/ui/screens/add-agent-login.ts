@@ -45,8 +45,28 @@ export interface BrainInput {
 
 type Field = HTMLElement & { value: string };
 
-function secretField(parent: HTMLElement, label: string, placeholder: string): Field {
-  const field = labelledField(parent, 'havemind-agent-key', label, 'input', { type: 'password', placeholder }) as Field;
+/** Forgets the typed login (not the picked brain, task or name). */
+export function clearAgentSecrets(draft: AddAgentDraft): void {
+  delete draft.agentSecret;
+  delete draft.agentModel;
+  delete draft.agentBaseUrl;
+  delete draft.agentEndpoint;
+}
+
+/** Keeps a field's text in the pane draft as it is typed, so a repaint cannot wipe it. */
+function remember(field: Field, event: 'input' | 'change', keep: (value: string) => void): void {
+  field.addEventListener(event, () => keep(field.value));
+}
+
+function secretField(parent: HTMLElement, label: string, placeholder: string, draft: AddAgentDraft): Field {
+  const field = labelledField(parent, 'havemind-agent-key', label, 'input', {
+    type: 'password',
+    placeholder,
+    value: draft.agentSecret ?? '',
+  }) as Field;
+  remember(field, 'input', (value) => {
+    draft.agentSecret = value;
+  });
   field.setAttribute('type', 'password');
   field.setAttribute('autocomplete', 'off');
   field.addClass('havemind-agent-field');
@@ -79,26 +99,36 @@ export function renderBrains(content: HTMLElement, model: AddAgentModel, draft: 
         return;
       case 'claude-code':
         command(detail, 'In Terminal, run this once and paste what it prints:', 'claude setup-token');
-        fields.secret = secretField(detail, 'Token', 'sk-ant-oat01-…');
+        fields.secret = secretField(detail, 'Token', 'sk-ant-oat01-…', draft);
         break;
       case 'codex':
         command(detail, 'Signed in to Codex on this computer? Copy its login:', 'cat ~/.codex/auth.json | pbcopy');
-        fields.secret = secretField(detail, 'Codex login (auth.json)', '{"tokens": …}');
+        fields.secret = secretField(detail, 'Codex login (auth.json)', '{"tokens": …}', draft);
         break;
       case 'anthropic':
-        fields.secret = secretField(detail, 'Anthropic API key', 'sk-ant-api03-…');
+        fields.secret = secretField(detail, 'Anthropic API key', 'sk-ant-api03-…', draft);
         break;
       case 'openai-compatible': {
         const endpoint = labelledField(detail, 'havemind-agent-endpoint', 'Service', 'select') as Field;
         for (const option of ENDPOINTS) endpoint.createEl('option', { text: option.title, value: option.id });
         const first = ENDPOINTS[0];
-        fields.baseUrl = labelledField(detail, 'havemind-agent-base', 'Address', 'input', { type: 'text', value: first?.baseUrl ?? '' }) as Field;
-        fields.model = labelledField(detail, 'havemind-agent-model', 'Model', 'input', { type: 'text', value: first?.model ?? '' }) as Field;
+        endpoint.value = draft.agentEndpoint ?? first?.id ?? '';
+        fields.baseUrl = labelledField(detail, 'havemind-agent-base', 'Address', 'input', { type: 'text', value: draft.agentBaseUrl ?? first?.baseUrl ?? '' }) as Field;
+        fields.model = labelledField(detail, 'havemind-agent-model', 'Model', 'input', { type: 'text', value: draft.agentModel ?? first?.model ?? '' }) as Field;
         for (const field of [endpoint, fields.baseUrl, fields.model]) field.addClass('havemind-agent-field');
-        fields.secret = secretField(detail, 'API key (none for Ollama)', 'sk-…');
+        remember(fields.baseUrl, 'input', (value) => {
+          draft.agentBaseUrl = value;
+        });
+        remember(fields.model, 'input', (value) => {
+          draft.agentModel = value;
+        });
+        fields.secret = secretField(detail, 'API key (none for Ollama)', 'sk-…', draft);
         endpoint.addEventListener('change', () => {
           const picked = ENDPOINTS.find((option) => option.id === endpoint.value);
           if (picked === undefined) return;
+          draft.agentEndpoint = picked.id;
+          draft.agentBaseUrl = picked.baseUrl;
+          draft.agentModel = picked.model;
           if (fields.baseUrl !== undefined) fields.baseUrl.value = picked.baseUrl;
           if (fields.model !== undefined) fields.model.value = picked.model;
         });
@@ -120,6 +150,8 @@ export function renderBrains(content: HTMLElement, model: AddAgentModel, draft: 
     button.createDiv({ text: choice.title }).addClass('havemind-agent-brain-title');
     button.createDiv({ text: choice.detail }).addClass('havemind-agent-brain-sub');
     button.onClickEvent(() => {
+      // Each brain asks for different things; what was typed for another is not this one's.
+      if (draft.agentBrain !== choice.id) clearAgentSecrets(draft);
       draft.agentBrain = choice.id;
       for (const other of buttons) {
         const on = other === button;
