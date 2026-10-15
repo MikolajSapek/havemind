@@ -192,6 +192,18 @@ function boot(): void {
     });
   }
 
+  // ?screen=people&width=300&theme=light, so a headless browser can shoot one screen.
+  const params = new URLSearchParams(location.search);
+  const asked = params.get('screen');
+  if (asked !== null) screen = asked as Screen;
+  const askedWidth = params.get('width');
+  if (askedWidth !== null && frame !== null) frame.style.width = `${askedWidth}px`;
+  const askedTheme = params.get('theme');
+  if (askedTheme !== null) {
+    document.body.classList.toggle('theme-dark', askedTheme === 'dark');
+    document.body.classList.toggle('theme-light', askedTheme !== 'dark');
+  }
+
   paint();
   sync();
 }

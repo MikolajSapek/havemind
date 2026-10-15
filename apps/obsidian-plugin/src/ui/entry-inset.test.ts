@@ -58,6 +58,9 @@ const FIRST_RUN_BLOCKS = [
   '.havemind-handshake-lead',
   '.havemind-handshake-code',
   '.havemind-handshake-warning',
+  // The Server URL field's wrapper (1.10.2): its label sat on the pane edge
+  // while the token label above was 12px in (found live, 2026-10-15).
+  '.havemind-connect-server-field',
 ] as const;
 
 /**

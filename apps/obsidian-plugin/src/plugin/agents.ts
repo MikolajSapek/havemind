@@ -110,7 +110,7 @@ export class Agents {
     // Never the secret itself in a message.
     const missing: string[] = [];
     if (login !== null && loginSaved !== 'saved') {
-      missing.push(loginSaved === 'invalid' ? `its login was refused (${INVALID[login.provider] ?? 'check it'})` : 'its login could not be saved');
+      missing.push(loginSaved === 'invalid' ? `its login was refused: ${(INVALID[login.provider] ?? 'Check it.').replace(/\.$/u, '').replace(/^./u, (c) => c.toLowerCase())}` : 'its login could not be saved');
     }
     try {
       await writeTaskNote(this.plugin, name, presetId);

@@ -885,6 +885,13 @@
   resize: none;
 }
 
+/* Label over field, spaced like the token field above it. */
+.havemind-connect-server-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-1);
+}
+
 .havemind-connect-server-field.havemind-is-hidden {
   display: none;
 }
@@ -1387,6 +1394,7 @@ button.havemind-history-row.is-active {
 .havemind-view > .havemind-entry-options,
 .havemind-view > .havemind-host-steps,
 .havemind-view > .havemind-step-link,
+.havemind-view > .havemind-connect-server-field,
 .havemind-view > .havemind-empty,
 .havemind-view > .havemind-send-waiting,
 .havemind-view > label,

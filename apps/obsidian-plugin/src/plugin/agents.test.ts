@@ -71,6 +71,15 @@ describe('Agents.add', () => {
     expect(mocks.setModelKey).not.toHaveBeenCalled();
   });
 
+  it('reads as one clean sentence when the login was refused (found live: ".).")', async () => {
+    const { agents, report } = setup();
+    mocks.setModelKey.mockResolvedValue('invalid');
+    await agents.add('triage', 'Scout', LOGIN, report);
+    const message = report.mock.calls[0]?.[0] ?? '';
+    expect(message).toBe('Agent added, but its login was refused: that does not look like an Anthropic API key (sk-ant-api03-…).');
+    expect(message).not.toMatch(/\.\)|\.\./u);
+  });
+
   it('says so when the agent was added but its task note could not be written', async () => {
     const { agents, report } = setup(true);
     await agents.add('triage', 'Scout', null, report);
