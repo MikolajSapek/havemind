@@ -32,15 +32,18 @@ import {
   type PushIdentity,
 } from '../../sync/outbox-repository';
 import {
+  formatHeldDeletesNotice,
   formatReconcileNotices,
   reconcileVaultState,
   warnSkippedPaths,
+  type ReconcileResult,
 } from '../../sync/reconciliation';
 import {
   CommitPathRecovery,
   retryFailedCommit,
   type RetryFailedCommitOutcome,
 } from '../commit-recovery';
+import { formatBlockedNotice, pathsNeedingResolution, pathsToScan } from '../bootstrap-identities';
 import { withKeys, type KeyedMutex } from '../keyed-mutex';
 import { ModifyDebouncer } from '../modify-debounce';
 import {
@@ -126,6 +129,9 @@ export function startPushProducer(plugin: Plugin, wiring: PushProducerWiring): P
   // fileIds into this producer's mapping (FIX 2).
   producerRef.current = repository;
 
+  // Set when the last `.obsidian/` listing failed: the reconcile must not read
+  // the missing config files as deleted.
+  let configListingFailed = false;
   const snapshot: VaultSnapshotPort = {
     async listSyncablePaths() {
       // Markdown notes AND allowlisted binary attachments (F9). Obsidian has no
@@ -146,7 +152,15 @@ export function startPushProducer(plugin: Plugin, wiring: PushProducerWiring): P
             (SYNCABLE_BINARY_EXTENSIONS as readonly string[]).includes(extension)
           );
         });
-      const config = await listSyncableConfigPaths(vault.adapter, CONFIG_DIR);
+      let config: string[] = [];
+      try {
+        config = await listSyncableConfigPaths(vault.adapter, CONFIG_DIR);
+        configListingFailed = false;
+      } catch (error: unknown) {
+        configListingFailed = true;
+        // Reason only: the message of a config read error may quote a path.
+        console.warn('Havemind: could not list the config folder, config deletes are skipped.', error instanceof Error ? error.name : typeof error);
+      }
       return [...notes, ...config];
     },
     // P7: size and mtime without reading the file, so the startup scan can
@@ -202,21 +216,52 @@ export function startPushProducer(plugin: Plugin, wiring: PushProducerWiring): P
       await repository.recover();
       blocked = await initializeIdentities?.(repository, snapshot) ?? new Set();
       if (disposed) return;
-      if (blocked.size > 0) new Notice(`Havemind: ${blocked.size} existing file(s) need conflict resolution before upload.`);
-      const result = await reconcileVaultState({ observer, repository, vault: {
-        ...snapshot, listSyncablePaths: async () => (await snapshot.listSyncablePaths()).filter((path) => {
-          const classified = classifyVaultPath(path);
-          return !classified.eligible || !blocked.has(classified.collisionKey);
-        }),
-      } });
-      if (result.skipped > 0) {
-        new Notice(`Havemind: ${result.skipped} file(s) could not be synced and were skipped.`);
-        warnSkippedPaths(result);
-      }
-      for (const notice of formatReconcileNotices(result)) new Notice(notice);
+      const needResolution = blocked.size === 0 ? [] : pathsNeedingResolution(await snapshot.listSyncablePaths(), blocked);
+      if (needResolution.length > 0) new Notice(formatBlockedNotice(needResolution));
+      reportReconcile(await reconcile(false));
       initialized = true;
     })();
     try { await initializing; } finally { initializing = null; }
+  };
+
+  // Held-back files (see `blocked`) stay out of the scan, so a default config
+  // file on a fresh vault is never pushed over the owner's.
+  const reconcile = (allowBulkDeletes: boolean): Promise<ReconcileResult> =>
+    reconcileVaultState({ observer, repository, allowBulkDeletes, configListingFailed: () => configListingFailed,
+      vault: {
+        ...snapshot, listSyncablePaths: async () => {
+          const mapped = new Set((await repository.listMappings()).map((mapping) => mapping.collisionKey));
+          return pathsToScan(await snapshot.listSyncablePaths(), blocked, mapped);
+        },
+      } });
+
+  // A mass delete is held (see `reconcileVaultState`), never dropped: the
+  // Notice stays up until dismissed and its button re-runs the pass with the
+  // user's yes. Dismissed, the files are held again at the next startup scan.
+  const offerHeldDeletes = (count: number): void => {
+    const fragment = document.createDocumentFragment();
+    const text = document.createElement('div');
+    text.textContent = formatHeldDeletesNotice(count);
+    const confirm = document.createElement('button');
+    confirm.textContent = 'Delete them on all devices';
+    // The bundled typings give Obsidian's HTMLElement augmentation no Node shape.
+    fragment.appendChild(text as unknown as Node);
+    fragment.appendChild(confirm as unknown as Node);
+    // The bundled typings take a string only; the real Notice takes a fragment
+    // (a button needs one) and has `hide`.
+    const notice = new (Notice as unknown as new (message: DocumentFragment, timeout: number) => { hide(): void })(fragment, 0);
+    confirm.addEventListener('click', () => {
+      notice.hide();
+      afterChange(reconcile(true).then(reportReconcile));
+    });
+  };
+  const reportReconcile = (result: ReconcileResult): void => {
+    if (result.skipped > 0) {
+      new Notice(`Havemind: ${result.skipped} file(s) could not be synced and were skipped.`);
+      warnSkippedPaths(result);
+    }
+    for (const notice of formatReconcileNotices(result)) new Notice(notice);
+    if (result.deletesHeld > 0) offerHeldDeletes(result.deletesHeld);
   };
 
   const observer = new VaultChangeObserver({

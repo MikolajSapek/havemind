@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { hashBlob } from '@havemind/protocol';
 
+import { PermanentApplyError } from '../sync/sync-runner';
 import {
   ParentFolderOccupiedError,
   VaultApplyAdapter,
@@ -146,6 +147,13 @@ class FakeFiles implements VaultFilePort {
 
   async conflictArtifactExists(path: string): Promise<boolean> {
     return this.writtenConflictPaths.has(path);
+  }
+
+  /** A different live path that differs from `path` only by letter case. */
+  async pathCaseVariant(path: string): Promise<string | null> {
+    const lower = path.toLowerCase();
+    const live = [...this.owners.keys(), ...this.onDisk.keys()];
+    return live.find((other) => other !== path && other.toLowerCase() === lower) ?? null;
   }
 
   conflictArtifactPathFor(revisionId: string): string | null {
@@ -809,7 +817,7 @@ describe('VaultApplyAdapter', () => {
       expect(files.conflicts).toEqual([
         {
           path: 'Havemind Conflicts/a (conflict Windows 2026-07-22 2156).md',
-          content: '',
+          content: 'Deleted on another device.\n\nBy Windows, 2026-07-22 2156.\n',
         },
       ]);
       // The owned path and its base survive, the file was not retired.
@@ -2174,5 +2182,93 @@ describe('initial catch-up of a file this device never had', () => {
 
     expect(await adapter.applyRemote(event('old', 'file-1'), { bootstrap: true })).toBe('noop');
     expect(downloads).toBe(0);
+  });
+});
+
+describe('peer paths outside the sync scope (plan 018, item 1)', () => {
+  const outOfScope = ['evil.html', '.git/hooks/x', 'Notes/.hidden/x.md', 'Havemind Conflicts/x.md'];
+
+  function scoped() {
+    const decodedById = new Map<string, DecodedRevisionPayload>();
+    const { adapter, files } = build((remote) => decodedById.get(remote.revision.revisionId) as DecodedRevisionPayload);
+    return { adapter, files, decodedById };
+  }
+
+  it.each(outOfScope)('refuses a create at %s with a permanent error and still applies the next in-scope event', async (path) => {
+    const { adapter, files, decodedById } = scoped();
+    decodedById.set('rev-bad', { ...content(path, 'x\n'), kind: path.endsWith('.md') ? 'markdown' : 'binary' });
+    decodedById.set('rev-ok', content('Notes/ok.md', 'ok\n'));
+
+    await expect(adapter.applyRemote(event('rev-bad', 'file-bad'))).rejects.toBeInstanceOf(PermanentApplyError);
+    expect(await adapter.applyRemote(event('rev-ok', 'file-ok'))).toBe('applied');
+
+    expect(files.writes).toEqual([{ path: 'Notes/ok.md', content: 'ok\n' }]);
+    expect(files.binaryWrites).toEqual([]);
+    expect(files.conflicts).toEqual([]);
+  });
+
+  it('refuses a delete whose path is out of scope even when something owns it', async () => {
+    const { adapter, files, decodedById } = scoped();
+    decodedById.set('rev-bad', { operation: 'delete', path: '.git/hooks/x', previousPath: null, content: null });
+    files.owners.set('.git/hooks/x', 'file-bad');
+
+    await expect(adapter.applyRemote(event('rev-bad', 'file-bad'))).rejects.toBeInstanceOf(PermanentApplyError);
+    expect(files.deletes).toEqual([]);
+  });
+
+  it('refuses a rename whose previousPath is out of scope', async () => {
+    const { adapter, files, decodedById } = scoped();
+    decodedById.set('rev-bad', { ...content('Notes/in.md', 'x\n'), operation: 'rename', previousPath: '.git/config' });
+    files.owners.set('.git/config', 'file-bad');
+
+    await expect(adapter.applyRemote(event('rev-bad', 'file-bad'))).rejects.toBeInstanceOf(PermanentApplyError);
+    expect(files.writes).toEqual([]);
+    expect(files.deletes).toEqual([]);
+  });
+
+  it('still applies an allowlisted config path', async () => {
+    const { adapter, files, decodedById } = scoped();
+    decodedById.set('rev-cfg', content('.obsidian/appearance.json', '{}\n'));
+    expect(await adapter.applyRemote(event('rev-cfg', 'file-cfg'))).toBe('applied');
+    expect(files.writes).toHaveLength(1);
+  });
+});
+
+describe('delete-vs-edit conflict copy (plan 018, item 5)', () => {
+  it('writes a marker body, never an empty note, for a tombstone conflict', async () => {
+    const { adapter, files } = build(() => ({ operation: 'delete', path: 'Notes/a.md', previousPath: null, content: null }));
+    files.owners.set('Notes/a.md', 'file-1');
+    files.onDisk.set('Notes/a.md', 'LOCAL-EDIT\n');
+    files.baseHashes.set('file-1', await fakeHash('BASE\n'));
+
+    expect(await adapter.applyRemote(event('rev-d', 'file-1'))).toBe('conflict');
+
+    expect(files.conflicts[0]?.content).toMatch(/^Deleted on another device\./);
+    expect(files.conflicts[0]?.content).toContain('Windows');
+  });
+});
+
+describe('case-insensitive collision on apply (plan 018, item 6)', () => {
+  it('diverts a create to a conflict copy when another file owns a case variant of the path', async () => {
+    const { adapter, files } = build(() => content('Notes/Note.md', 'remote\n'));
+    files.owners.set('Notes/note.md', 'local-file');
+    files.onDisk.set('Notes/note.md', 'local\n');
+
+    expect(await adapter.applyRemote(event('rev-c', 'remote-file'))).toBe('conflict');
+
+    expect(files.writes).toEqual([]);
+    expect(files.conflicts).toEqual([
+      { path: 'Havemind Conflicts/Note (conflict Windows 2026-07-22 2156).md', content: 'remote\n' },
+    ]);
+    expect(files.owners.get('Notes/Note.md')).toBeUndefined();
+  });
+
+  it('still creates the file when the case variant belongs to the same file id', async () => {
+    const { adapter, files } = build(() => content('Notes/Note.md', 'remote\n'));
+    files.owners.set('Notes/note.md', 'remote-file');
+    files.onDisk.set('Notes/note.md', 'local\n');
+
+    expect(await adapter.applyRemote(event('rev-c', 'remote-file'))).not.toBe('conflict');
+    expect(files.conflicts).toEqual([]);
   });
 });

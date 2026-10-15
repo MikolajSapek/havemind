@@ -30,6 +30,7 @@ import {
   mergeConfigContent,
   normalizeConfigContent,
 } from '../../sync/config-normalize';
+import { classifyVaultPath } from '../../obsidian/vault-adapter';
 import type { OpenBuffer } from '../../sync/sync-runner';
 import type { DurableSyncState } from '../sync-state';
 import {
@@ -121,6 +122,51 @@ async function resolveConflictTarget(
   const resolvedFolder =
     folder === '' ? '' : await ensureWritableConflictFolder(vault, folder);
   return resolvedFolder === '' ? filename : `${resolvedFolder}/${filename}`;
+}
+
+/**
+ * The conflict-copy path for the `n`th attempt: `n` > 1 goes before the
+ * ` (conflict ...)` suffix, like `buildConflictPath`'s counter, so the copy still
+ * parses as a conflict copy and pairs with its note.
+ */
+function numberedConflictPath(path: string, n: number): string {
+  const slash = path.lastIndexOf('/');
+  const leaf = path.slice(slash + 1);
+  const marker = leaf.lastIndexOf(' (conflict ');
+  const dot = leaf.lastIndexOf('.');
+  const cut = marker !== -1 ? marker : dot > 0 ? dot : leaf.length;
+  return `${path.slice(0, slash + 1)}${leaf.slice(0, cut)} ${n}${leaf.slice(cut)}`;
+}
+
+/**
+ * Lands a conflict copy on a redelivery without touching what is there. A copy
+ * at the path with the same content is the earlier landing of this revision:
+ * done. One with different content was edited since (the user resolving it by
+ * hand), so modifying it would destroy their work: try the next numbered name.
+ */
+async function placeConflictArtifact(
+  vault: Pick<Vault, 'getAbstractFileByPath'>,
+  path: string,
+  holdsSame: (existing: TFile) => Promise<boolean>,
+  create: (target: string) => Promise<void>,
+): Promise<void> {
+  for (let attempt = 1; ; attempt += 1) {
+    const target = attempt === 1 ? path : numberedConflictPath(path, attempt);
+    const existing = vault.getAbstractFileByPath(target);
+    if (existing === null) return create(target);
+    if (!isFolder(existing) && (await holdsSame(existing as TFile))) return;
+  }
+}
+
+/** Folder lookups the bundled typings omit; an Obsidian without them skips the case probe. */
+interface FolderLookup {
+  getRoot(): { children: readonly { path: string }[] };
+  getFolderByPath(path: string): { children: readonly { path: string }[] } | null;
+}
+
+function sameBytes(a: ArrayBuffer, b: Uint8Array): boolean {
+  const left = new Uint8Array(a);
+  return left.byteLength === b.byteLength && left.every((byte, index) => byte === b[index]);
 }
 
 /**
@@ -340,29 +386,44 @@ export function createVaultFilePort(options: VaultFilePortOptions): VaultFilePor
     },
     async writeConflictArtifact(path, content) {
       const targetPath = await resolveConflictTarget(vault, path);
-      // Idempotent (create-or-overwrite). `vault.create` throws if the path
+      // Idempotent without overwriting. `vault.create` throws if the path
       // already exists, and the runner saves the pull cursor only AFTER apply,
-      // so a crash mid-cycle or a second delivery re-writes the same
-      // `fileId-revisionId.md` artifact. A throw here would be caught by the
-      // cycle as 'offline' and wedge the whole pull loop in infinite backoff.
-      const existing = vault.getAbstractFileByPath(targetPath);
-      if (existing === null) {
-        await vault.create(targetPath, content);
-        return;
-      }
-      await vault.modify(existing as TFile, content);
+      // so a crash mid-cycle or a second delivery lands the same revision again.
+      // A throw here would be caught by the cycle as 'offline' and wedge the
+      // whole pull loop in infinite backoff, and a modify would replace a copy
+      // the user has since edited.
+      await placeConflictArtifact(
+        vault,
+        targetPath,
+        async (existing) => (await vault.read(existing)) === content,
+        (target) => vault.create(target, content).then(() => undefined),
+      );
     },
     async writeBinaryConflictArtifact(path, bytes) {
       // Same idempotent folder-resolution as the markdown conflict writer, but
       // over raw bytes and preserving the original extension (F9).
       const targetPath = await resolveConflictTarget(vault, path);
-      const data = toArrayBuffer(bytes);
-      const existing = vault.getAbstractFileByPath(targetPath);
-      if (existing === null) {
-        await vault.createBinary(targetPath, data);
-        return;
+      await placeConflictArtifact(
+        vault,
+        targetPath,
+        async (existing) => sameBytes(await vault.readBinary(existing), bytes),
+        (target) => vault.createBinary(target, toArrayBuffer(bytes)).then(() => undefined),
+      );
+    },
+    async pathCaseVariant(path) {
+      // Only the leaf is compared, against the siblings in its folder: cheap
+      // enough for every create, where scanning the vault would not be.
+      const slash = path.lastIndexOf('/');
+      const folders = vault as unknown as Partial<FolderLookup>;
+      const parent = slash === -1 ? folders.getRoot?.() : folders.getFolderByPath?.(path.slice(0, slash));
+      const wanted = classifyVaultPath(path);
+      if (parent == null || !wanted.eligible) return null;
+      for (const child of parent.children) {
+        if (child.path === path) continue;
+        const sibling = classifyVaultPath(child.path);
+        if (sibling.eligible && sibling.collisionKey === wanted.collisionKey) return child.path;
       }
-      await vault.modifyBinary(existing as TFile, data);
+      return null;
     },
     recordPathOwner: (fileId, path) => state.recordPathOwner(fileId, path),
     recordApplied: (fileId, path, hash, content) =>

@@ -27,6 +27,22 @@ import { editorTexts } from './adapters/editor-buffers';
  */
 export { CONFLICT_FOLDER };
 
+/** First line of the body a delete-vs-edit conflict copy carries (a tombstone has no text). */
+const DELETED_MARKER = 'Deleted on another device.';
+
+/** A copy still exactly as {@link deletedMarkerBody} wrote it: text added to it, or a copy that only starts alike, is real content. */
+const DELETED_MARKER_RE = /^Deleted on another device\.\n\nBy [^\n]+, \d{4}-\d{2}-\d{2} \d{4}\.\s*$/;
+
+/** The body of a conflict copy standing for a peer's delete: who deleted it and when it arrived. */
+export function deletedMarkerBody(author: string, stamp: string): string {
+  return `${DELETED_MARKER}\n\nBy ${author}, ${stamp}.\n`;
+}
+
+/** True for a copy written by {@link deletedMarkerBody}: Keep theirs means removing the note. */
+export function isDeletedMarker(text: string): boolean {
+  return DELETED_MARKER_RE.test(text);
+}
+
 /** A single UUID (8-4-4-4-12 hex). Legacy copies are two of these joined. */
 const UUID = '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}';
 const LEGACY_UUID_RE = new RegExp(`^${UUID}-${UUID}$`);
@@ -131,6 +147,8 @@ export interface ConflictVaultPort {
    */
   replaceText(path: string, expected: string, content: string): Promise<boolean>;
   deleteFile(path: string): Promise<void>;
+  /** Moves a note to Obsidian's local trash (recoverable), unlike `deleteFile`. */
+  trashFile(path: string): Promise<void>;
 }
 
 export interface ConflictCopy {
@@ -350,6 +368,13 @@ async function resolveOnce(
       if (!(await port.exists(copy.copyPath))) return 'vanished';
       const content = await port.readText(copy.copyPath);
       if (content === null) return 'vanished';
+      // A delete marker is no text to adopt: theirs is "the note is gone". With
+      // the note already gone, nothing is lost by dropping the marker.
+      if (isDeletedMarker(content) && copy.targetPath !== null) {
+        if (await port.exists(copy.targetPath)) await port.trashFile(copy.targetPath);
+        await port.deleteFile(copy.copyPath);
+        return 'resolved';
+      }
       // Without a note to write into, deleting the copy would lose both versions.
       if (copy.targetPath === null || !(await port.exists(copy.targetPath))) {
         return 'target-missing';
@@ -430,6 +455,12 @@ export function createObsidianConflictPort(
       const file = vault.getAbstractFileByPath(path);
       if (file === null) return;
       await vault.delete(file);
+    },
+    trashFile: async (path) => {
+      const file = vault.getAbstractFileByPath(path);
+      if (file === null) return;
+      // Local trash, like a remote delete: the bytes stay recoverable.
+      await vault.trash(file, false);
     },
   };
 }

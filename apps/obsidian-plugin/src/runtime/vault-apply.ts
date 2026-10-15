@@ -16,14 +16,18 @@ import {
   hashBlob,
   isSyncableConfigPath,
   pathExtension,
+  syncContentKind,
   type SyncContentKind,
 } from '@havemind/protocol';
 import { mergeText, type DecodedRevisionPayload } from '@havemind/sync-core';
 
 import { classifyVaultPath } from '../obsidian/vault-adapter';
 
+import { deletedMarkerBody } from './conflict-resolution';
+
 import { withKeys, KeyedMutex, type KeyedLock } from './keyed-mutex';
 
+import { PermanentApplyError } from '../sync/sync-runner';
 import type {
   OpenBuffer,
   RemoteApplyOptions,
@@ -73,6 +77,12 @@ export interface VaultFilePort {
   forgetBaseContent(fileId: string): Promise<void>;
   /** True when a file already exists at `path` (conflict-name collision probe). */
   conflictArtifactExists(path: string): Promise<boolean>;
+  /**
+   * A live vault path other than `path` that differs from it only by letter
+   * case (the producer's collision key), or null. A create at `path` would
+   * collide with it on a case-insensitive disk.
+   */
+  pathCaseVariant?(path: string): Promise<string | null>;
   /** Copy path recorded for `revisionId`, or null; a re-delivery reuses it (MRG-02). */
   conflictArtifactPathFor(revisionId: string): string | null;
   /**
@@ -278,6 +288,12 @@ export class VaultApplyAdapter implements VaultApplyPort {
     }
     const decoded = await this.resolveRevision(event);
     await this.history?.ensureEvent(event);
+    // A peer chooses the path: one outside the sync scope is never written,
+    // moved or deleted. The runner parks this error on the first attempt and
+    // moves the cursor on, so the event shows in the panel and cannot wedge the pull.
+    if (!inSyncScope(decoded.path) || (decoded.previousPath !== null && !inSyncScope(decoded.previousPath))) {
+      throw new PermanentApplyError('The path is outside what Havemind syncs, so this change was not applied.');
+    }
     const origin: RemoteAppliedOrigin =
       options?.bootstrap === true ? 'bootstrap' : 'live';
     // Hold the per-file lock across the WHOLE read→decide→write (rule 3): the
@@ -409,6 +425,15 @@ export class VaultApplyAdapter implements VaultApplyPort {
     const onDisk = await this.read(decoded.kind, decoded.path);
     const converged = onDisk !== null && contentMatches(onDisk, incoming);
     const owner = this.files.fileIdAtPath(decoded.path);
+    // A disk that folds case would refuse this create (a Linux peer's `Note.md`
+    // against a local `note.md`), failing every retry until the event parks.
+    // Another file at the case variant makes it a collision like any other.
+    if (owner === null && onDisk === null && !lastWriterWins) {
+      const variant = await this.files.pathCaseVariant?.(decoded.path);
+      if (variant != null && this.files.fileIdAtPath(variant) !== fileId) {
+        return this.writeConflict(event, decoded);
+      }
+    }
     if (owner !== null && owner !== fileId) {
       // F3, content-addressed reconciliation on connect: two devices that held
       // the SAME note each minted their own fileId. Identical on-disk content is
@@ -682,7 +707,10 @@ export class VaultApplyAdapter implements VaultApplyPort {
   ): Promise<'conflict'> {
     const existing = this.files.conflictArtifactPathFor(event.revision.revisionId);
     const target = existing ?? (await this.buildConflictPath(event, decoded));
-    const content = incomingContent(decoded);
+    // A tombstone has no body: an empty copy would let Keep theirs blank the note.
+    const content = decoded.operation === 'delete'
+      ? deletedMarkerBody(this.resolveAuthorName?.(event) ?? this.fallbackAuthorName, formatConflictTimestamp(this.now()))
+      : incomingContent(decoded);
     await (typeof content === 'string'
       ? this.files.writeConflictArtifact(target, content)
       : this.files.writeBinaryConflictArtifact(target, content));
@@ -726,6 +754,11 @@ export class VaultApplyAdapter implements VaultApplyPort {
     }
     return candidate;
   }
+}
+
+/** Whether a peer-supplied path is a syncable note or attachment, or an allowlisted config path. */
+function inSyncScope(path: string): boolean {
+  return syncContentKind(path) !== null || isSyncableConfigPath(path);
 }
 
 /** The note basename (leaf, extension stripped) used in a conflict-copy name. */

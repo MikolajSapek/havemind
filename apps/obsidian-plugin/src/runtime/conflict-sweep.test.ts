@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { sweepConflictCopies, type ThreeWayMerge } from './conflict-sweep';
 import {
   CONFLICT_FOLDER,
+  deletedMarkerBody,
   type ConflictVaultFile,
   type ConflictVaultPort,
 } from './conflict-resolution';
@@ -71,6 +72,10 @@ class FakeConflictVault implements ConflictVaultPort {
     this.files.set(path, content);
   }
 
+  async trashFile(path: string): Promise<void> {
+    this.files.delete(path);
+  }
+
   async deleteFile(path: string): Promise<void> {
     if (!this.files.has(path)) throw new Error(`missing: ${path}`);
     this.files.delete(path);
@@ -113,6 +118,16 @@ describe('sweepConflictCopies', () => {
     vault = new FakeConflictVault();
     vault.put(NOTE, ANCESTOR);
     vault.put(COPY, ANCESTOR);
+  });
+
+  it('never merges a delete marker into the note (plan 018, item 5)', async () => {
+    vault.put(COPY, deletedMarkerBody('Magda', '2026-07-16 1542'));
+    const deps = baseDeps(vault);
+
+    expect(await sweepConflictCopies(deps)).toBe(0);
+
+    expect(vault.read(NOTE)).toBe(ANCESTOR);
+    expect(vault.has(COPY)).toBe(true);
   });
 
   it('auto-resolves a mergeable copy: note updated, copy deleted, one Notice', async () => {

@@ -137,6 +137,10 @@ class FakeVault {
     return file;
   }
 
+  async read(file: AbstractFileLike): Promise<string> {
+    return this.entries.get(file.path)?.content ?? '';
+  }
+
   async modify(file: AbstractFileLike, data: string): Promise<void> {
     this.entries.set(file.path, { kind: 'file', content: data });
   }
@@ -403,7 +407,7 @@ describe('createVaultFilePort writeConflictArtifact', () => {
     );
   });
 
-  it('overwrites an existing conflict artifact idempotently when the folder already exists', async () => {
+  it('keeps a differing existing conflict artifact and lands the revision under a new name (plan 018, item 4)', async () => {
     const { createVaultFilePort } = await import('./obsidian-adapters');
     const { TFile, TFolder } = await import('obsidian');
     const vault = new FakeVault(TFile, TFolder);
@@ -416,7 +420,8 @@ describe('createVaultFilePort writeConflictArtifact', () => {
 
     await port.writeConflictArtifact('Havemind Conflicts/file-1-rev-1.md', 'NEW\n');
 
-    expect(vault.contentAt('Havemind Conflicts/file-1-rev-1.md')).toBe('NEW\n');
+    expect(vault.contentAt('Havemind Conflicts/file-1-rev-1.md')).toBe('OLD\n');
+    expect(vault.contentAt('Havemind Conflicts/file-1-rev-1 2.md')).toBe('NEW\n');
   });
 
   it('regression: a non-folder file occupying the reserved conflict-folder path must not wedge the pull loop', async () => {
@@ -553,7 +558,7 @@ describe('createVaultFilePort binary attachments (F9)', () => {
     );
   });
 
-  it('overwrites an existing binary conflict artifact idempotently', async () => {
+  it('keeps a differing existing binary conflict artifact and lands the revision under a new name', async () => {
     const { createVaultFilePort } = await import('./obsidian-adapters');
     const { TFile, TFolder } = await import('obsidian');
     const vault = new FakeVault(TFile, TFolder);
@@ -573,7 +578,9 @@ describe('createVaultFilePort binary attachments (F9)', () => {
       next,
     );
 
-    const stored = vault.binaryContentAt('Havemind Conflicts/file-1-rev-1.png');
+    const kept = vault.binaryContentAt('Havemind Conflicts/file-1-rev-1.png');
+    expect(new Uint8Array(kept as ArrayBuffer)).toEqual(new Uint8Array([9, 9]));
+    const stored = vault.binaryContentAt('Havemind Conflicts/file-1-rev-1 2.png');
     expect(new Uint8Array(stored as ArrayBuffer)).toEqual(next);
   });
 });

@@ -435,7 +435,7 @@ describe('two-person steady-state sync (integration)', () => {
     expect(h.state.fileIdAtPath('Notes/peer.md')).toBe(REMOTE_FILE);
   });
 
-  it('(d) writing the same conflict artifact twice (or over a pre-existing file) does not throw', async () => {
+  it('(d) writing a conflict artifact twice (or beside a pre-existing file) does not throw and never overwrites', async () => {
     const h = makeHarness();
     // createVaultFilePort is the port under test here.
     const port = createVaultFilePort({
@@ -445,10 +445,14 @@ describe('two-person steady-state sync (integration)', () => {
 
     const path = 'Havemind Conflicts/fileX-revY.md';
     await expect(port.writeConflictArtifact(path, 'C1\n')).resolves.toBeUndefined();
-    // A second delivery / crash-replay must overwrite, never throw (which the
-    // runner would misread as offline and wedge the whole pull loop).
+    // A second delivery / crash-replay must never throw (which the runner would
+    // misread as offline and wedge the whole pull loop), and must not replace a
+    // copy that differs: it lands beside it (plan 018, item 4).
     await expect(port.writeConflictArtifact(path, 'C2\n')).resolves.toBeUndefined();
-    expect(h.vault.contents.get(path)).toBe('C2\n');
+    expect(h.vault.contents.get(path)).toBe('C1\n');
+    expect(h.vault.contents.get('Havemind Conflicts/fileX-revY 2.md')).toBe('C2\n');
+    await port.writeConflictArtifact(path, 'C1\n');
+    expect(h.vault.contents.get(path)).toBe('C1\n');
   });
 
   it('(e) a remote create into a not-yet-existing folder materializes the folder and applies (5-day field outage repro)', async () => {
