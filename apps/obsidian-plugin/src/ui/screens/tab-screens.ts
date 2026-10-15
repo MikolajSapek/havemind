@@ -25,7 +25,7 @@ import type { TabBodyScreens } from './tab-body';
 
 export interface TabScreensContext {
   readonly options: OnboardingViewOptions;
-  readonly draft: ConnectDraft & { role: string; name: string } & AddAgentDraft;
+  readonly draft: ConnectDraft & { role: string; name: string; codes?: Record<string, string> } & AddAgentDraft;
   readonly liveInputs: ConnectLiveInputs & {
     role?: HTMLElement | undefined;
     name?: HTMLElement | undefined;
@@ -95,6 +95,10 @@ export function buildTabScreens(context: TabScreensContext): TabBodyScreens {
           }),
         onOpenComposer: options.onOpenComposer,
         isOwner: isOwnerView(options),
+        approval: {
+          actions: { onApprove: options.onApprove, onReject: options.onReject },
+          codes: (context.draft.codes ??= {}),
+        },
         ...(options.onAddAgent === undefined
           ? {}
           : {
