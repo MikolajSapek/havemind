@@ -31,6 +31,13 @@ describe('ready-made agents (plan 014)', () => {
     }
   });
 
+  it('tells the Inbox sorter to add only tags a note lacks, on its existing tag line (plan 018 item 26)', () => {
+    const sorter = presetById('inbox-sorter').instructions;
+    expect(sorter).toMatch(/only tags the note does not already have/u);
+    expect(sorter).toMatch(/existing tag line/u);
+    expect(sorter).not.toMatch(/with a line of tags at the end/u);
+  });
+
   it('falls back to a custom agent with no folder until the owner names one', () => {
     expect(presetById('nope')).toBe(CUSTOM_AGENT);
     expect(parseTaskNote(taskNoteFor(CUSTOM_AGENT)).mayWrite).toEqual([]);

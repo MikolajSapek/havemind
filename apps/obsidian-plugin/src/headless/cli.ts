@@ -20,7 +20,7 @@ import { join } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 
 import { finishJoin, HeadlessAgent, startJoin, type AgentPaths } from './agent';
-import { claimNextAgent, folderFor } from './claim';
+import { claimNextAgent, folderFor, resolveAgentFolder } from './claim';
 import { createFetchRequestUrl } from './fetch-request-url';
 import { serveMcp } from './mcp';
 import { acquireLock } from './lock';
@@ -44,6 +44,20 @@ const say = (line: string): void => {
   process.stderr.write(`${line}\n`);
 };
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const MAX_LOG_CHARS = 120;
+/** A log line from text the model or a note could have written: one line, cut short. */
+export function oneLine(text: string): string {
+  return text.replace(/\s+/gu, ' ').trim().slice(0, MAX_LOG_CHARS);
+}
+
+/** Moves a freshly joined agent into place; an existing folder (another agent) is never replaced. */
+export async function renameNoClobber(from: string, to: string): Promise<void> {
+  if (await fs.access(to).then(() => true, () => false)) {
+    throw new Error(`${to} already exists, so the new agent stays in ${from}. Rename that folder by hand.`);
+  }
+  await fs.rename(from, to);
+}
 
 
 async function readInvitation(): Promise<string> {
@@ -71,7 +85,7 @@ async function joinCommand(): Promise<void> {
     const identity = await finishJoin(paths);
     if (identity !== null) {
       const folder = folderFor(identity.name);
-      await fs.rename(join(agentsDir(), temp), join(agentsDir(), folder));
+      await renameNoClobber(join(agentsDir(), temp), join(agentsDir(), folder));
       const agent = await HeadlessAgent.open(pathsFor(folder));
       await agent.sync();
       // Its runs start from now: what people wrote before it joined is not news.
@@ -94,50 +108,75 @@ async function agentFolders(): Promise<string[]> {
     .sort();
 }
 
-async function readMemory(paths: AgentPaths): Promise<RunMemory> {
+const isMemory = (value: unknown): value is RunMemory => {
+  const memory = value as Partial<RunMemory> | null;
+  return typeof memory === 'object' && memory !== null && typeof memory.lastRunAt === 'number' && typeof memory.lastSequence === 'number';
+};
+
+/**
+ * What the last run left. Without a usable file the agent starts from the
+ * vault's newest sequence, never from 0: 0 would hand it every note people ever
+ * wrote as news, and a run costs money.
+ */
+export async function readMemory(paths: AgentPaths, agent: Pick<HeadlessAgent, 'sync' | 'latestSequence'>): Promise<RunMemory> {
   try {
-    return JSON.parse(await fs.readFile(join(paths.stateDir, 'runner.json'), 'utf8')) as RunMemory;
+    const saved: unknown = JSON.parse(await fs.readFile(join(paths.stateDir, 'runner.json'), 'utf8'));
+    if (isMemory(saved)) return saved;
   } catch {
-    return { lastRunAt: 0, lastSequence: 0 };
+    // Absent or half-written: fall through.
   }
+  await agent.sync();
+  return { lastRunAt: 0, lastSequence: await agent.latestSequence() };
 }
 
-/** The model key: the environment, or the file the owner set from Havemind (plan 015). */
-async function modelKey(): Promise<string | null> {
-  const fromEnv = process.env.ANTHROPIC_API_KEY?.trim() ?? '';
-  if (fromEnv !== '') return fromEnv;
-  const dir = process.env.HAVEMIND_AGENT_SECRETS_DIR;
-  if (dir === undefined || dir === '') return null;
-  const fromFile = (await fs.readFile(join(dir, 'model.key'), 'utf8').catch(() => '')).trim();
-  return fromFile === '' ? null : fromFile;
-}
+/** A vault id becomes a folder name, so only plain ids are accepted. */
+const SAFE_ID = /^[A-Za-z0-9_-]+$/u;
 
-async function readSecretFile(name: string): Promise<string | null> {
+/** One secret file of one vault's folder; the root of the secrets folder is never read. */
+async function readVaultSecret(vaultId: string, name: string): Promise<string | null> {
   const dir = process.env.HAVEMIND_AGENT_SECRETS_DIR;
-  if (dir === undefined || dir === '') return null;
-  const text = (await fs.readFile(join(dir, name), 'utf8').catch(() => '')).trim();
+  if (dir === undefined || dir === '' || !SAFE_ID.test(vaultId)) return null;
+  const text = (await fs.readFile(join(dir, vaultId, name), 'utf8').catch(() => '')).trim();
   return text === '' ? null : text;
 }
 
-/**
- * How the agents think (plan 016): the brain the owner chose in Havemind
- * (brain.json and its secret), else plan 015's single login, else the
- * environment; null to sync and wait.
- */
-async function brainOrNull(): Promise<AgentBrain | null> {
-  const saved = parseBrain(await readSecretFile('brain.json'));
-  const claude = async () => ({ bin: await ensureClaudeCode(agentsDir()) });
-  if (saved !== null) {
-    return brainFrom(saved, await readSecretFile('brain.secret'), saved.provider === 'claude-code' ? await claude() : {});
+let lastInstallError = '';
+/** Claude Code's path, or null (and one log line per distinct failure) when it cannot be installed. */
+async function claudeBin(): Promise<{ bin: string } | null> {
+  try {
+    return { bin: await ensureClaudeCode(agentsDir()) };
+  } catch (error) {
+    const line = oneLine(error instanceof Error ? error.message : 'failed');
+    if (line !== lastInstallError) say(`Claude Code could not be installed: ${line}`);
+    lastInstallError = line;
+    return null;
   }
-  const token = (await readSecretFile('model.oauth')) ?? (process.env.CLAUDE_CODE_OAUTH_TOKEN?.trim() || null);
-  if (token !== null) return brainFrom({ provider: 'claude-code' }, token, await claude());
-  const apiKey = await modelKey();
+}
+
+/**
+ * How one vault's agents think (plan 016, per vault since plan 018): the brain
+ * the owner chose in Havemind (`<vaultId>/brain.json` and its secret), else
+ * that vault's single login, else the environment; null to sync and wait.
+ */
+export async function brainOrNull(vaultId: string): Promise<AgentBrain | null> {
+  const saved = parseBrain(await readVaultSecret(vaultId, 'brain.json'));
+  if (saved !== null) {
+    const secret = await readVaultSecret(vaultId, 'brain.secret');
+    if (saved.provider !== 'claude-code') return brainFrom(saved, secret);
+    const claude = await claudeBin();
+    return claude === null ? null : brainFrom(saved, secret, claude);
+  }
+  const token = (await readVaultSecret(vaultId, 'model.oauth')) ?? (process.env.CLAUDE_CODE_OAUTH_TOKEN?.trim() || null);
+  if (token !== null) {
+    const claude = await claudeBin();
+    return claude === null ? null : brainFrom({ provider: 'claude-code' }, token, claude);
+  }
+  const apiKey = (process.env.ANTHROPIC_API_KEY?.trim() || null) ?? (await readVaultSecret(vaultId, 'model.key'));
   return apiKey === null ? null : brainFrom({ provider: 'anthropic', ...(process.env.HAVEMIND_AGENT_MODEL ? { model: process.env.HAVEMIND_AGENT_MODEL } : {}) }, apiKey);
 }
 
-async function brainOrThrow(): Promise<AgentBrain> {
-  const brain = await brainOrNull();
+async function brainOrThrow(vaultId: string): Promise<AgentBrain> {
+  const brain = await brainOrNull(vaultId);
   if (brain === null) throw new Error('No Claude login yet: add one in Havemind (Add agent).');
   return brain;
 }
@@ -157,8 +196,13 @@ async function claimNew(): Promise<void> {
   }
 }
 
-async function writeMemory(paths: AgentPaths, memory: RunMemory): Promise<void> {
-  await fs.writeFile(join(paths.stateDir, 'runner.json'), JSON.stringify(memory), { mode: 0o600 });
+/** Temp file then rename, so a crash never leaves half a file for the next read. */
+export async function writeMemory(paths: AgentPaths, memory: RunMemory): Promise<void> {
+  const file = join(paths.stateDir, 'runner.json');
+  const temp = `${file}.tmp`;
+  await fs.writeFile(temp, JSON.stringify(memory), { mode: 0o600 });
+  await fs.chmod(temp, 0o600);
+  await fs.rename(temp, file);
 }
 
 async function openLocked(folder: string): Promise<{ agent: HeadlessAgent; release: () => Promise<void> } | null> {
@@ -173,20 +217,20 @@ async function openLocked(folder: string): Promise<{ agent: HeadlessAgent; relea
   }
 }
 
-async function runWith(agent: HeadlessAgent, folder: string, force: boolean): Promise<void> {
+async function runWith(agent: HeadlessAgent, folder: string, force: boolean, brain: AgentBrain): Promise<void> {
   const paths = pathsFor(folder);
   const outcome = await runAgentOnce({
     agent,
-    brain: await brainOrThrow(),
-    memory: await readMemory(paths),
+    brain,
+    memory: await readMemory(paths, agent),
     now: Date.now(),
     force,
   });
   await writeMemory(paths, outcome.memory);
   if (outcome.kind === 'done') {
-    say(`${agent.identity.name}: ${outcome.writes.length} note(s) changed. ${outcome.summary}`);
+    say(`${agent.identity.name}: ${outcome.writes.length} note(s) changed. ${oneLine(outcome.summary)}`);
   } else if (outcome.kind === 'failed') {
-    say(`${agent.identity.name}: failed, will try again after its interval. ${outcome.error}`);
+    say(`${agent.identity.name}: failed, will try again after its interval. ${oneLine(outcome.error)}`);
   } else if (force || outcome.kind === 'no-task' || outcome.kind === 'day-cap') {
     say(`${agent.identity.name}: ${outcome.kind}.`);
   }
@@ -199,7 +243,7 @@ async function runOne(folder: string, force: boolean): Promise<void> {
     return;
   }
   try {
-    await runWith(opened.agent, folder, force);
+    await runWith(opened.agent, folder, force, await brainOrThrow(opened.agent.identity.vaultId));
   } finally {
     await opened.release();
   }
@@ -216,21 +260,18 @@ async function main(argv: readonly string[]): Promise<void> {
       return;
     case 'once':
       if (name === undefined) throw new Error('Usage: havemind-agent once <name> [--force]');
-      return runOne(folderFor(name), rest.includes('--force'));
+      return runOne(await resolveAgentFolder(agentsDir(), name), rest.includes('--force'));
     case 'run':
       say('Agents service started; checking every minute.');
       {
         // Each agent stays open, and locked, for the life of this process.
         // Without a model key it still adds and syncs agents, and waits.
         const pool = new AgentPool(openLocked);
-        let toldNoKey = false;
+        const toldNoKey = new Set<string>();
         for (;;) {
           await claimNew().catch((error: unknown) => {
             say(`Adding agents: ${error instanceof Error ? error.message : 'failed'}`);
           });
-          const haveKey = (await brainOrNull()) !== null;
-          if (!haveKey && !toldNoKey) say('No Claude login yet; agents sync but do not run until one is added in Havemind.');
-          toldNoKey = !haveKey;
           for (const folder of await agentFolders()) {
             try {
               const agent = await pool.get(folder);
@@ -238,10 +279,19 @@ async function main(argv: readonly string[]): Promise<void> {
                 say(`${folder}: busy (another process holds it), skipped.`);
                 continue;
               }
-              if (haveKey) await runWith(agent, folder, false);
-              else await agent.sync();
+              // The login is per vault: one vault without it never stops another's agents.
+              const vaultId = agent.identity.vaultId;
+              const brain = await brainOrNull(vaultId);
+              if (brain === null) {
+                if (!toldNoKey.has(vaultId)) say(`${folder}: no Claude login yet; it syncs but does not run until one is added in Havemind.`);
+                toldNoKey.add(vaultId);
+                await agent.sync();
+              } else {
+                toldNoKey.delete(vaultId);
+                await runWith(agent, folder, false, brain);
+              }
             } catch (error) {
-              say(`${folder}: ${error instanceof Error ? error.message : 'failed'}`);
+              say(`${folder}: ${oneLine(error instanceof Error ? error.message : 'failed')}`);
               await pool.drop(folder);
             }
           }
@@ -250,7 +300,7 @@ async function main(argv: readonly string[]): Promise<void> {
       }
     case 'mcp': {
       if (name === undefined) throw new Error('Usage: havemind-agent mcp <name>');
-      const paths = pathsFor(folderFor(name));
+      const paths = pathsFor(await resolveAgentFolder(agentsDir(), name));
       const release = await lock(paths);
       if (release === null) throw new Error(`${name} is busy in another process.`);
       try {

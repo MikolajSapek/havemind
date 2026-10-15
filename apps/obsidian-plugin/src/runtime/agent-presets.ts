@@ -24,7 +24,7 @@ export const AGENT_PRESETS: readonly AgentPreset[] = [
     mayWrite: ['Inbox', 'Notes'],
     every: '1h',
     instructions:
-      'For each new or changed note in Inbox/, pick the best existing folder under Notes/ (or a new one with a plain name) and write the note there unchanged, with a line of tags at the end. Then replace the note in Inbox/ with one line linking to where it went, like "Filed to [[Notes/Work/Idea]]". Never change or drop any of the text people wrote.',
+      'For each new or changed note in Inbox/, pick the best existing folder under Notes/ (or a new one with a plain name) and write the note there unchanged. Add only tags the note does not already have: put them on its existing tag line if there is one, otherwise on one new line at the end, and never repeat a tag. Then replace the note in Inbox/ with one line linking to where it went, like "Filed to [[Notes/Work/Idea]]". Never change or drop any of the text people wrote.',
   },
   {
     id: 'daily-summary',
