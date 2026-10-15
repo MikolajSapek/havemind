@@ -28,6 +28,14 @@ export interface AddAgentDraft {
   agentTask?: string;
   agentName?: string;
   agentBrain?: AgentBrain;
+  /**
+   * What was typed in "How it thinks", kept here so a repaint does not wipe it.
+   * In memory only, never persisted; cleared when the form closes or succeeds.
+   */
+  agentSecret?: string;
+  agentModel?: string;
+  agentBaseUrl?: string;
+  agentEndpoint?: string;
 }
 
 /** What the agent thinks with, as the owner chose it; null keeps the server's brain. */
@@ -59,6 +67,9 @@ function renderTiles(content: HTMLElement, draft: AddAgentDraft, onPick: (preset
   grid.addClass('havemind-agent-tiles');
   const chosen = draft.agentTask ?? AGENT_PRESETS[0]?.id ?? CUSTOM_AGENT.id;
   const tiles: HTMLElement[] = [];
+  // What the picked agent does, in one line under the grid.
+  const summary = content.createDiv({ text: presetById(chosen).summary });
+  summary.addClass('havemind-agent-summary');
   for (const preset of [...AGENT_PRESETS, CUSTOM_AGENT]) {
     const tile = grid.createEl('button', {
       attr: { role: 'radio', 'aria-checked': String(preset.id === chosen), 'data-agent': preset.id },
@@ -77,18 +88,12 @@ function renderTiles(content: HTMLElement, draft: AddAgentDraft, onPick: (preset
         other.toggleClass('is-selected', on);
         other.setAttribute('aria-checked', String(on));
       }
-      summaryRef.el?.setText(preset.summary);
+      summary.setText(preset.summary);
       onPick(preset);
     });
     tiles.push(tile);
   }
-  // What the picked agent does, in one line under the grid.
-  const summary = content.createDiv({ text: presetById(chosen).summary });
-  summary.addClass('havemind-agent-summary');
-  summaryRef.el = summary;
 }
-
-const summaryRef: { el?: HTMLElement } = {};
 
 export function renderAddAgent(
   content: HTMLElement,

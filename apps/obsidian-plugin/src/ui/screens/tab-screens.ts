@@ -18,14 +18,15 @@ import type { ConnectDraft, ConnectLiveInputs } from './connect-form';
 import { renderInviteComposer } from './invite-composer';
 import { renderPeopleTab } from './people-tab';
 import { renderConflicts, renderSendQueue } from './alarms';
-import type { AddAgentDraft } from './add-agent';
+import type { AddAgentDraft, AddAgentModel } from './add-agent';
+import { clearAgentSecrets } from './add-agent-login';
 import { renderStatusIndicator } from './status-indicator';
 import { renderStatusHero } from './status-hero';
 import type { TabBodyScreens } from './tab-body';
 
 export interface TabScreensContext {
   readonly options: OnboardingViewOptions;
-  readonly draft: ConnectDraft & { role: string; name: string } & AddAgentDraft;
+  readonly draft: ConnectDraft & { role: string; name: string; codes?: Record<string, string> } & AddAgentDraft;
   readonly liveInputs: ConnectLiveInputs & {
     role?: HTMLElement | undefined;
     name?: HTMLElement | undefined;
@@ -33,6 +34,26 @@ export interface TabScreensContext {
   readonly helpOpen: boolean;
   /** Flips the getting-started disclosure and repaints; owned by the view. */
   readonly onToggleHelp: () => void;
+}
+
+/**
+ * Whether this device is the vault owner, read from the server roster as
+ * roster-section does. The connection's own membership role is not trusted:
+ * an invited owner is recorded there as an editor.
+ */
+function isOwnerView(options: OnboardingViewOptions): boolean {
+  try {
+    return (options.rejoinRosterProvider?.()?.rows ?? []).some((row) => row.self && row.role === 'owner');
+  } catch {
+    return false;
+  }
+}
+
+/** The open form's model; while it is closed the typed login is dropped (it also is after success). */
+function openAddAgentModel(options: OnboardingViewOptions, draft: AddAgentDraft): AddAgentModel | null {
+  const model = options.addAgentProvider?.() ?? null;
+  if (model === null) clearAgentSecrets(draft);
+  return model;
 }
 
 export function buildTabScreens(context: TabScreensContext): TabBodyScreens {
@@ -81,11 +102,16 @@ export function buildTabScreens(context: TabScreensContext): TabBodyScreens {
             onReject: options.onReject,
           }),
         onOpenComposer: options.onOpenComposer,
+        isOwner: isOwnerView(options),
+        approval: {
+          actions: { onApprove: options.onApprove, onReject: options.onReject },
+          codes: (context.draft.codes ??= {}),
+        },
         ...(options.onAddAgent === undefined
           ? {}
           : {
               addAgent: {
-                model: options.addAgentProvider?.() ?? null,
+                model: openAddAgentModel(options, context.draft),
                 draft: context.draft,
                 actions: {
                   onAdd: options.onAddAgent,

@@ -19,6 +19,7 @@ import type {
 import type { AppWithVault } from '../runtime/adapters/shared';
 import { AGENT_JOIN_COMMAND, presetById, taskNoteFor, taskNotePath } from '../runtime/agent-presets';
 
+import { agentNameProblem } from './agent-name';
 import { errorMessage } from './error-message';
 
 /** Writes an agent's task note from its preset, never over one already there. */
@@ -73,7 +74,7 @@ export class Invitations {
       role: 'editor',
       name: '',
       invitation: this.pendingInvitation,
-      pending: this.pendingApprovals,
+      pending: this.activePendingApprovals(),
       invitationExpired: this.isInvitationExpired(),
       ...(this.pendingInvitationIsAgent ? { agentJoinCommand: AGENT_JOIN_COMMAND } : {}),
       ...(this.connectionNotice === undefined
@@ -191,11 +192,45 @@ export class Invitations {
     }
   }
 
+  /** The waiting devices whose invitation has not expired: all a screen may show. */
+  public activePendingApprovals(now: number = Date.now()): PendingApprovalEntry[] {
+    return this.pendingApprovals.filter((entry) => Date.parse(entry.expiresAt) > now);
+  }
+
+  /** Forgets everything the owner composer held: the next connection may be another vault. */
+  public clearOwnerState(): void {
+    this.pendingInvitation = null;
+    this.pendingApprovals = [];
+    this.connectionActive = false;
+    this.connectionNotice = undefined;
+    this.connectionNoticeKind = undefined;
+  }
+
+  private lastPendingRefresh = 0;
+
+  /**
+   * Re-reads the waiting devices from the server, at most every 30 s: called on
+   * every synced transition so a request made on another device, or one that
+   * expired, shows up without a restart. The role is read from the server
+   * roster too, because an invited owner is recorded as an editor on the
+   * connection; asking as a non-owner is a 403 and a wasted token rotation.
+   */
+  public async refreshPendingApprovalsSoon(): Promise<void> {
+    const ownerOnRoster = this.plugin.people.rosterMembers.some((member) => member.self && member.role === 'owner');
+    if (!ownerOnRoster && this.plugin.connection?.selfMembership?.role !== 'owner') return;
+    const now = Date.now();
+    if (now - this.lastPendingRefresh < 30_000) return;
+    this.lastPendingRefresh = now;
+    await this.restorePendingApprovals();
+  }
+
   /** Hydrates owner approvals after restart; failure never disrupts sync. */
   public async restorePendingApprovals(): Promise<void> {
     try {
       const pending = await listPendingApprovalsForOwner(this.plugin);
       if (pending === null || this.plugin.unloaded) return;
+      // An unchanged list must not repaint: the owner may be typing a code.
+      if (JSON.stringify(pending) === JSON.stringify(this.pendingApprovals)) return;
       this.pendingApprovals = [...pending];
       this.plugin.views.refreshOnboarding();
     } catch {
@@ -217,6 +252,12 @@ export class Invitations {
     agentPresetId?: string,
   ): Promise<void> {
     const agent = role === 'agent';
+    // The name becomes the task note's file name, so check it before any request.
+    const problem = agent && name.length > 0 ? agentNameProblem(name) : null;
+    if (problem !== null) {
+      report(problem);
+      return;
+    }
     const memberRole = role === 'owner' ? 'owner' : 'editor';
     try {
       const invitation = await createInvitationForOwner(this.plugin, {

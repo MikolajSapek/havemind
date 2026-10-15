@@ -14,6 +14,7 @@ import { ItemView, type Menu, type WorkspaceLeaf } from 'obsidian';
 import { renderGuestWaitingScreen } from './screens/guest-waiting';
 import { captureDrafts, renderConnectForm } from './screens/connect-form';
 import { renderConnectedBodyFor } from './screens/connected-body-wiring';
+import { captureViewport, restoreViewport } from './screens/repaint-viewport';
 import { RepaintScheduler } from './screens/repaint-scheduler';
 import { renderGuestInvalid } from './screens/guest-invalid';
 import { readPaneState } from './screens/pane-state';
@@ -61,6 +62,8 @@ export class HavemindOnboardingView extends ItemView {
   private helpOpen = false;
   /** Which tab the connected pane is showing. */
   private activeTab: PaneTabId = 'status';
+  /** The tab the DOM on screen was drawn for; `activeTab` is already the next one mid-switch. */
+  private renderedTab: PaneTabId = 'status';
   /**
    * Set for exactly one render after a keyboard or click selection, so focus
    * lands on the newly opened tab. Cleared as it is consumed: a status-driven
@@ -170,6 +173,9 @@ export class HavemindOnboardingView extends ItemView {
     // Snapshot any typed-but-unsubmitted input before tearing the DOM down, so
     // a re-render (create → approve, status change) never loses in-progress work.
     captureDrafts(this.draft, this.liveInputs);
+    // Focus, caret and scroll live in the DOM about to be destroyed (phone: the
+    // keyboard would close mid-code), so they are put back after the rebuild.
+    const viewport = captureViewport(content, this.renderedTab);
     content.empty();
     content.addClass('havemind-view');
     // Each first-run screen sets this again; a connected pane must not keep it.
@@ -235,14 +241,7 @@ export class HavemindOnboardingView extends ItemView {
     // The body consumes the focus flag; mirror that back so the next render
     // does not steal focus again.
     this.focusTabOnRender = focusTabOnRender;
+    restoreViewport(content, viewport, this.activeTab);
+    this.renderedTab = this.activeTab;
   }
-
-  /**
-   * Everything below the header: the alarms, the tab strip and the open tab.
-   *
-   * Split from `render()` so the dispatcher above stays readable as a list of
-   * screens. The ordering rules it encodes are the load-bearing part, and they
-   * are commented where they apply.
-   */
-  /** Renders the rejoin-aware roster with its owner actions from the options. */
 }

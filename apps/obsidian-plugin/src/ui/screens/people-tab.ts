@@ -10,6 +10,8 @@
 import type { CreateConnectionViewModel, PendingApprovalEntry } from '../onboarding-view';
 import { renderSection } from '../primitives';
 
+import { renderPendingRow, type PendingApprovalActions } from './pending-approval-row';
+
 import { renderAddAgent, type AddAgentActions, type AddAgentDraft, type AddAgentModel } from './add-agent';
 
 export interface PeopleTabActions {
@@ -24,6 +26,10 @@ export interface PeopleTabActions {
   /** Devices waiting for approval, shown even while the composer is closed. */
   readonly pending?: readonly PendingApprovalEntry[];
   readonly now?: number;
+  /** True for the vault owner only: the server refuses invites and agents from an editor. */
+  readonly isOwner?: boolean;
+  /** Approve and Reject for a waiting device, plus the codes typed so far (kept across repaints). */
+  readonly approval?: { readonly actions: PendingApprovalActions; readonly codes: Record<string, string> };
 }
 
 /** "Magda wants to join · As editor · expires in 12 min", and the way to approve. */
@@ -42,13 +48,8 @@ function renderPendingCards(body: HTMLElement, actions: PeopleTabActions): void 
         text: `As ${entry.intendedKind === 'agent' ? 'AI agent' : entry.intendedRole ?? 'editor'} · expires in ${minutes} min`,
       })
       .addClass('havemind-pending-meta');
-    if (actions.onOpenComposer !== undefined) {
-      const open = actions.onOpenComposer;
-      const enter = card.createEl('button', {
-        text: name === undefined ? 'Enter the code' : `Enter ${name}’s code`,
-      });
-      enter.addClass('mod-cta');
-      enter.onClickEvent(() => open());
+    if (actions.approval !== undefined) {
+      renderPendingRow(card, entry, actions.approval.actions, actions.approval.codes);
     }
   }
 }
@@ -75,6 +76,7 @@ export function renderPeopleTab(
   }
   if (agent?.notice !== undefined) body.createDiv({ text: agent.notice }).addClass('havemind-hint');
 
+  if (actions.isOwner !== true) return;
   if (actions.onOpenComposer !== undefined) {
     const open = body.createEl('button', { text: 'Invite someone' });
     open.addClass('havemind-invite-cta');

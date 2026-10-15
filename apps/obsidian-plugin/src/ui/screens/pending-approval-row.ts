@@ -60,9 +60,7 @@ export function renderPendingRow(
     codes[entry.invitationId] = phraseInput.value;
   });
   const status = renderFormStatus(row);
-  const approve = row.createEl('button', { text: 'Approve' });
-  approve.addClass('mod-cta');
-  approve.onClickEvent(() => {
+  const submit = (): void => {
     const phrase = phraseInput.value.trim();
     if (phrase.length === 0) {
       status.setText('Enter the code you heard, then approve.');
@@ -74,7 +72,14 @@ export function renderPendingRow(
     actions.onApprove?.(entry.invitationId, phrase, (message) =>
       status.setText(message),
     );
+  };
+  // Enter in the field approves, so a phone keyboard's Go key finishes the job.
+  phraseInput.addEventListener('keydown', (event) => {
+    if ((event as KeyboardEvent).key === 'Enter') submit();
   });
+  const approve = row.createEl('button', { text: 'Approve' });
+  approve.addClass('mod-cta');
+  approve.onClickEvent(submit);
   const onReject = actions.onReject;
   if (onReject !== undefined) {
     armedButton(row, 'Reject', 'Confirm reject', 'mod-warning', () => {

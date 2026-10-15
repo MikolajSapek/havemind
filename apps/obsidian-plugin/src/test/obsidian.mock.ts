@@ -45,6 +45,18 @@ export type MockElement = {
   focus: () => void;
   /** True once `focus()` has been called on this element. */
   focused: boolean;
+  /** The document focus lives in; `activeElement` is the last element focused. */
+  ownerDocument: { activeElement: MockElement | null };
+  /** True when `node` is this element or one of its descendants. */
+  contains: (node: MockElement | null) => boolean;
+  /** Finds the first descendant for `#id` or `.class`, the only selectors the pane uses. */
+  querySelector: (selector: string) => MockElement | null;
+  scrollTop: number;
+  selectionStart: number | null;
+  selectionEnd: number | null;
+  setSelectionRange: (start: number, end: number) => void;
+  /** Mirrors `HTMLElement.getAttribute`, reading from `attrs`. */
+  getAttribute: (name: string) => string | null;
   /** Mirrors `HTMLElement.setAttribute`, writing into `attrs`. */
   setAttribute: (name: string, value: string) => void;
   setText: (value: string) => void;
@@ -219,6 +231,9 @@ export function requestUrl(): never {
   throw new Error('requestUrl is not available in the headless obsidian mock');
 }
 
+/** One document for every mock element: focus moves between them like a page's. */
+const mockDocument: { activeElement: MockElement | null } = { activeElement: null };
+
 export function createMockElement(): MockElement {
   const children: MockElement[] = [];
   const classes: string[] = [];
@@ -252,6 +267,30 @@ export function createMockElement(): MockElement {
     focused: false,
     focus(): void {
       element.focused = true;
+      mockDocument.activeElement = element;
+    },
+    ownerDocument: mockDocument,
+    contains(node: MockElement | null): boolean {
+      return node === element || children.some((child) => child.contains(node));
+    },
+    querySelector(selector: string): MockElement | null {
+      const match = (candidate: MockElement): boolean =>
+        selector.startsWith('#')
+          ? candidate.attrs.id === selector.slice(1)
+          : candidate.classes.includes(selector.slice(1));
+      for (const child of children) {
+        if (match(child)) return child;
+        const deeper = child.querySelector(selector);
+        if (deeper !== null) return deeper;
+      }
+      return null;
+    },
+    scrollTop: 0,
+    selectionStart: null,
+    selectionEnd: null,
+    setSelectionRange(start: number, end: number): void {
+      element.selectionStart = start;
+      element.selectionEnd = end;
     },
     iconName: '',
     style: {
@@ -302,6 +341,9 @@ export function createMockElement(): MockElement {
       const remaining = existing.filter((candidate) => candidate !== handler);
       if (remaining.length === 0) listeners.delete(type);
       else listeners.set(type, remaining);
+    },
+    getAttribute(name: string): string | null {
+      return element.attrs[name] ?? null;
     },
     setAttribute(name: string, value: string): void {
       element.attrs[name] = value;
