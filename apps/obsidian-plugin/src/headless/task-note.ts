@@ -104,13 +104,18 @@ function inside(path: string, folder: string): boolean {
   return path === folder || path.startsWith(`${folder}/`);
 }
 
+/** How a macOS or Windows peer sees a name: one folder for `Havemind`, `havemind` and its accents. */
+const fold = (value: string): string => value.normalize('NFC').toLowerCase();
+
 /** Null when the agent may write `path`, otherwise the reason it may not. */
 export function checkWrite(path: string, task: AgentTask): string | null {
   const segments = path.split('/');
-  if (segments.some((segment) => segment === '..' || segment === '.' || segment === '')) {
+  // A trailing dot or space is dropped by Windows and macOS peers, so `Havemind.` is `Havemind` there.
+  if (segments.some((segment) => segment === '..' || segment === '.' || segment === '' || /[. ]$/u.test(segment))) {
     return `An agent may never write ${path}: the path is not a plain vault path.`;
   }
-  const blocked = NEVER.find((folder) => inside(path, folder));
+  const folded = fold(path);
+  const blocked = NEVER.find((folder) => inside(folded, fold(folder)));
   if (blocked !== undefined) {
     return `An agent may never write in ${blocked}/, whatever its task note says.`;
   }

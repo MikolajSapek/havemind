@@ -19,6 +19,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 
 import { hashPlaintext } from '@havemind/protocol';
+import type { DecodedRevisionPayload } from '@havemind/sync-core';
 
 import { OnboardingController, type OnboardingViewState } from '../onboarding/controller';
 import { VaultChangeObserver } from '../obsidian/vault-adapter';
@@ -39,7 +40,7 @@ import { DurableSyncState } from '../runtime/sync-state';
 import { RequestUrlTransport, type RequestUrlFn } from '../runtime/sync-transport';
 import { VaultApplyAdapter } from '../runtime/vault-apply';
 import { OutboxLocalChangeRepository } from '../sync/outbox-repository';
-import { SyncRunner, type SyncCycleResult } from '../sync/sync-runner';
+import { SyncRunner, type RemoteEvent, type SyncCycleResult } from '../sync/sync-runner';
 
 import { createFetchRequestUrl } from './fetch-request-url';
 import { openFsVault, type FsVault } from './fs-vault';
@@ -251,11 +252,34 @@ export class HeadlessAgent {
       if (head.serverSequence <= after || author === undefined || agents.has(author)) continue;
       const payload = await this.history.payload(head);
       if (payload.operation === 'delete') continue;
+      if (await this.revertsOwnWork(head, payload)) continue;
       paths.push(payload.path);
       const name = names.get(author);
       if (name !== undefined) authors[payload.path] = name;
     }
     return { latest, paths: paths.sort(), authors };
+  }
+
+  /**
+   * Whether `head` puts a note back to what it was before one of this agent's
+   * own revisions (the owner clicked Undo). That is a verdict on the agent's
+   * work, not news: acting on it would redo the work the owner just undid.
+   * Compared by the note's text: a revision's `contentHash` covers its whole
+   * payload, so a revert never has the same one.
+   */
+  private async revertsOwnWork(head: RemoteEvent, payload: DecodedRevisionPayload): Promise<boolean> {
+    if (payload.content === null || payload.kind === 'binary') return false;
+    const graph = await this.history.graph(head.revision.fileId);
+    for (const event of graph.values()) {
+      if (event.revision.authorMembershipId !== this.identity.memberId) continue;
+      for (const parentId of event.revision.parentRevisionIds ?? []) {
+        const parent = graph.get(parentId);
+        if (parent === undefined) continue;
+        const before = await this.history.payload(parent);
+        if (before.operation !== 'delete' && before.content === payload.content) return true;
+      }
+    }
+    return false;
   }
 
   async listNotes(): Promise<readonly string[]> {

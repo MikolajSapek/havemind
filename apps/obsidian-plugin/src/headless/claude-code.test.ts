@@ -116,3 +116,54 @@ describe('thinking with Claude Code (plan 016)', () => {
     }
   });
 });
+
+/** A stand-in CLI that runs `body` as a node script. */
+function scriptBin(body: string): string {
+  const dir = mkdtempSync(join(tmpdir(), 'hm-fake-cli-'));
+  dirs.push(dir);
+  const bin = join(dir, 'claude');
+  writeFileSync(bin, `#!/usr/bin/env node\n${body}\n`);
+  chmodSync(bin, 0o755);
+  return bin;
+}
+
+describe('a misbehaving CLI (plan 018 item 12)', () => {
+  it('reports a fixed message when its output is not JSON, never the output', async () => {
+    const bin = scriptBin(`process.stdin.resume(); process.stdin.on('end', () => { process.stdout.write('SECRET-NOTE-TEXT not json'); });`);
+    const failure = await createClaudeCodeOneShot({ bin })('s', 'p').then(() => '', (error: Error) => error.message);
+    expect(failure).not.toBe('');
+    expect(failure).not.toContain('SECRET');
+  });
+
+  it('survives a CLI that exits without reading its input (EPIPE)', async () => {
+    const bin = scriptBin('process.exit(1);');
+    await expect(createClaudeCodeOneShot({ bin })('s', 'x'.repeat(4_000_000))).rejects.toThrow(/stopped with code 1|answered/u);
+  });
+
+  it('stops a CLI that prints without end', async () => {
+    const bin = scriptBin(`const chunk = 'y'.repeat(65536); const tick = () => { while (process.stdout.write(chunk)); process.stdout.once('drain', tick); }; tick();`);
+    await expect(createClaudeCodeOneShot({ bin, timeoutMs: 20_000 })('s', 'p')).rejects.toThrow(/too much/u);
+  }, 30_000);
+
+  it('kills the whole process group on timeout, not just the CLI', async () => {
+    const pidFile = join(mkdtempSync(join(tmpdir(), 'hm-pid-')), 'child.pid');
+    dirs.push(join(pidFile, '..'));
+    const bin = scriptBin(
+      `const { spawn } = process.getBuiltinModule('node:child_process');
+const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { stdio: 'inherit' });
+process.getBuiltinModule('node:fs').writeFileSync(${JSON.stringify(pidFile)}, String(child.pid));
+setTimeout(() => {}, 60000);`,
+    );
+    await expect(createClaudeCodeOneShot({ bin, timeoutMs: 700 })('s', 'p')).rejects.toThrow(/stopped|timed out/u);
+    const pid = Number(readFileSync(pidFile, 'utf8'));
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    let alive = true;
+    try {
+      process.kill(pid, 0);
+    } catch {
+      alive = false;
+    }
+    if (alive) process.kill(pid, 'SIGKILL');
+    expect(alive).toBe(false);
+  }, 15_000);
+});

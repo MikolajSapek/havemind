@@ -65,4 +65,26 @@ describe('where an agent may write', () => {
   it('refuses a path that climbs out with ..', () => {
     expect(checkWrite('Inbox/../top.md', task)).toMatch(/never/u);
   });
+
+  it('compares the never-list case-folded and NFC, as macOS peers see the folders (plan 018 item 10)', () => {
+    const greedy = parseTaskNote('---\nmay_write: [havemind/agents, .Obsidian, HAVEMIND CONFLICTS, .TRASH, Notes]\n---\nx');
+    for (const path of [
+      'havemind/agents/Bot.md',
+      'HAVEMIND/Agents/Bot.md',
+      '.Obsidian/appearance.json',
+      'havemind conflicts/a.md',
+      '.Trash/a.md',
+    ]) {
+      expect(checkWrite(path, greedy)).toMatch(/never/u);
+    }
+    expect(checkWrite('Notes/ok.md', greedy)).toBeNull();
+  });
+
+  it('refuses segments ending in a dot or a space, which Windows and macOS peers fold', () => {
+    const task = parseTaskNote('---\nmay_write: [Notes]\n---\nx');
+    for (const path of ['Notes/Havemind./a.md', 'Notes/a /b.md', 'Notes/b.md ', 'Notes/x./y.md']) {
+      expect(checkWrite(path, task)).toMatch(/never/u);
+    }
+    expect(checkWrite('Havemind./Agents/a.md', parseTaskNote('---\nmay_write: [Havemind.]\n---\nx'))).toMatch(/never/u);
+  });
 });

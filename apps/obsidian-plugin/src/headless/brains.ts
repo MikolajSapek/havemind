@@ -30,9 +30,12 @@ export function brainFrom(config: BrainConfig, secret: string | null, options: B
   const login = secret === null || secret === '' ? {} : { secret };
   switch (config.provider) {
     case 'claude-code':
+      return { kind: 'one-shot', ask: createCliOneShot('claude-code', { ...model, ...login }) };
     case 'codex':
     case 'cursor':
-      return { kind: 'one-shot', ask: createCliOneShot(config.provider, { ...model, ...login }) };
+      // They can read the whole disk next to the secrets, and run unsandboxed
+      // here. `createCliOneShot` still speaks them; no saved brain reaches it.
+      return null;
     case 'anthropic':
       if (secret === null || secret === '') return null;
       return { kind: 'tools', model: createClaudeModel({ apiKey: secret, model: config.model ?? DEFAULT_AGENT_MODEL }) };
@@ -51,7 +54,7 @@ export function parseBrain(text: string | null): BrainConfig | null {
   if (text === null) return null;
   try {
     const value = JSON.parse(text) as Partial<BrainConfig>;
-    const providers: readonly string[] = ['claude-code', 'codex', 'cursor', 'anthropic', 'openai-compatible'];
+    const providers: readonly string[] = ['claude-code', 'anthropic', 'openai-compatible'];
     if (typeof value.provider !== 'string' || !providers.includes(value.provider)) return null;
     return {
       provider: value.provider,

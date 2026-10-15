@@ -76,7 +76,10 @@ async function callTool(agent: HeadlessAgent, name: string, args: Record<string,
       await agent.sync();
       const task = await readTask(agent);
       if (task === null) return text('Refused: this agent has no task note, so no folder to write in.', true);
-      const refusal = await writeAsAgent(agent, task, path, typeof args.content === 'string' ? args.content : '');
+      if (typeof args.path !== 'string' || typeof args.content !== 'string') {
+        return text('Refused: write_note needs a text path and text content.', true);
+      }
+      const refusal = await writeAsAgent(agent, task, args.path, args.content);
       if (refusal !== null) return text(`Refused: ${refusal}`, true);
       await agent.sync();
       return text(`Saved and synced ${path}.`);
@@ -104,7 +107,7 @@ export async function handleMcpMessage(agent: HeadlessAgent, message: JsonRpcReq
     case 'tools/call': {
       const params = message.params ?? {};
       const name = typeof params.name === 'string' ? params.name : '';
-      const args = (params.arguments ?? {}) as Record<string, unknown>;
+      const args = (typeof params.arguments === 'object' && params.arguments !== null ? params.arguments : {}) as Record<string, unknown>;
       try {
         return reply(await callTool(agent, name, args));
       } catch (error) {
@@ -132,6 +135,11 @@ export async function serveMcp(agent: HeadlessAgent, input: NodeJS.ReadableStrea
         message = JSON.parse(line) as JsonRpcRequest;
       } catch {
         output.write(`${JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } })}\n`);
+        continue;
+      }
+      // `null`, a number or an array parse fine but are not requests.
+      if (typeof message !== 'object' || message === null || Array.isArray(message) || typeof message.method !== 'string') {
+        output.write(`${JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32600, message: 'Invalid request' } })}\n`);
         continue;
       }
       const response = await handleMcpMessage(agent, message);

@@ -44,22 +44,48 @@ export class ClaudeCodeError extends Error {
 
 const NAMES: Readonly<Record<CliProvider, string>> = { 'claude-code': 'Claude Code', codex: 'Codex', cursor: 'Cursor Agent' };
 
+/** More than this on stdout is not an answer; the CLI is killed rather than buffered without end. */
+const MAX_STDOUT_BYTES = 2 * 1024 * 1024;
+
 function run(name: string, bin: string, args: readonly string[], env: NodeJS.ProcessEnv, cwd: string, stdin: string, timeoutMs: number) {
   return new Promise<string>((resolve, reject) => {
-    const child = spawn(bin, args, { cwd, env, stdio: ['pipe', 'pipe', 'pipe'] });
+    // Detached: the CLI leads its own process group, so a timeout or an
+    // overflow can take down everything it started, not only itself.
+    const child = spawn(bin, args, { cwd, env, stdio: ['pipe', 'pipe', 'pipe'], detached: true });
+    const killGroup = (): void => {
+      try {
+        if (child.pid !== undefined) process.kill(-child.pid, 'SIGKILL');
+      } catch {
+        child.kill('SIGKILL');
+      }
+    };
     let out = '';
+    let failure: ClaudeCodeError | null = null;
     child.stdout.on('data', (chunk: Buffer) => {
+      if (failure !== null) return;
       out += chunk.toString();
+      if (out.length > MAX_STDOUT_BYTES) {
+        failure = new ClaudeCodeError(`${name} printed too much.`);
+        out = '';
+        killGroup();
+      }
     });
     child.stderr.resume();
-    const timer = setTimeout(() => child.kill('SIGKILL'), timeoutMs);
+    const timer = setTimeout(() => {
+      failure ??= new ClaudeCodeError(`${name} timed out.`);
+      killGroup();
+    }, timeoutMs);
+    // A CLI that exits before reading its input closes the pipe (EPIPE); its exit code tells the story.
+    child.stdin.on('error', () => undefined);
     child.on('error', (error) => {
       clearTimeout(timer);
       reject(new ClaudeCodeError(`${name} could not start (${(error as NodeJS.ErrnoException).code ?? 'error'}).`));
     });
     child.on('close', (code) => {
       clearTimeout(timer);
-      if (code === 0) resolve(out);
+      killGroup();
+      if (failure !== null) reject(failure);
+      else if (code === 0) resolve(out);
       else reject(new ClaudeCodeError(`${name} stopped with code ${code ?? 'killed'}.`));
     });
     child.stdin.end(stdin);
@@ -68,7 +94,13 @@ function run(name: string, bin: string, args: readonly string[], env: NodeJS.Pro
 
 /** Claude Code and Cursor Agent answer `--output-format json` the same way. */
 function resultText(name: string, stdout: string): string {
-  const result = JSON.parse(stdout) as { result?: unknown; is_error?: unknown; subtype?: unknown };
+  let result: { result?: unknown; is_error?: unknown; subtype?: unknown };
+  try {
+    result = JSON.parse(stdout) as typeof result;
+  } catch {
+    // Never the parser's message: it quotes the start of the text.
+    throw new ClaudeCodeError(`${name} did not answer in the expected format.`);
+  }
   if (result.is_error === true || typeof result.result !== 'string') {
     // The subtype only: the text could echo the notes.
     throw new ClaudeCodeError(`${name} answered with an error (${String(result.subtype ?? 'unknown')}).`);

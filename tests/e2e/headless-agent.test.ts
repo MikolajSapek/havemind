@@ -408,3 +408,46 @@ describe('headless agent (plan 014)', () => {
     }
   });
 });
+
+describe('an agent after the owner undid its work (plan 018 item 26)', () => {
+  it('does not redo work whose result the owner reverted, but still sees a real edit', async () => {
+    const server = startServer();
+    try {
+      const { agent: magda } = await addAgent(server, 'Magda', 'person');
+      const { agent: sorter } = await addAgent(server, 'Inbox sorter');
+      await magda.writeNote('Havemind/Agents/Inbox sorter.md', '---\nmay_write: [Inbox, Notes]\nevery: 1h\n---\nFile every note.\n');
+      await magda.writeNote('Inbox/idea.md', 'Buy a Raspberry Pi.\n');
+      await magda.sync();
+
+      let asked = 0;
+      const ask = async () => {
+        asked += 1;
+        return JSON.stringify({ writes: [{ path: 'Inbox/idea.md', content: 'Filed to [[Notes/idea]]\n' }], summary: 'filed' });
+      };
+      const brain = { kind: 'one-shot', ask } as const;
+      const first = await runAgentOnce({ agent: sorter, brain, memory: { lastRunAt: 0, lastSequence: 0 }, now: 1_000 });
+      expect(first.kind).toBe('done');
+
+      // Undo: the owner's client puts the note back as a normal edit.
+      await magda.sync();
+      expect(await magda.readNote('Inbox/idea.md')).toBe('Filed to [[Notes/idea]]\n');
+      await magda.writeNote('Inbox/idea.md', 'Buy a Raspberry Pi.\n');
+      await magda.sync();
+
+      const later = 1_000 + 2 * 3_600_000;
+      const second = await runAgentOnce({ agent: sorter, brain, memory: first.memory, now: later });
+      expect(second.kind).toBe('nothing-new');
+      expect(asked).toBe(1);
+
+      // A real edit after the undo still wakes it.
+      await magda.writeNote('Inbox/idea.md', 'Buy two Raspberry Pis.\n');
+      await magda.sync();
+      const third = await runAgentOnce({ agent: sorter, brain, memory: second.memory, now: later + 2 * 3_600_000 });
+      expect(third.kind).toBe('done');
+      expect(asked).toBe(2);
+    } finally {
+      await server.app.close();
+      server.database.close();
+    }
+  });
+});

@@ -95,6 +95,22 @@ function asText(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
 
+/** The model's words never reach logs or errors, so a failed step says only this. */
+const BAD_ANSWER = 'The model did not answer in the expected format.';
+
+/**
+ * A final sync must never lose the run's outcome (the cli saves its memory):
+ * a failure is reported as a short fixed note, never thrown.
+ */
+async function syncQuietly(agent: HeadlessAgent): Promise<string | null> {
+  try {
+    await agent.sync();
+    return null;
+  } catch {
+    return 'The final sync failed; it is retried on the next run.';
+  }
+}
+
 /** How the agent thinks: the API with tools, or one Claude Code answer per run (plan 016). */
 export type AgentBrain =
   | { readonly kind: 'tools'; readonly model: ModelPort }
@@ -148,11 +164,17 @@ export async function runAgentOnce(options: RunOptions): Promise<RunOutcome> {
         ? await converse(agent, task, brain.model, messages, writes)
         : await answerOnce(agent, task, brain.ask, changed, changes.authors, writes);
   } catch (error) {
-    await agent.sync();
-    return { kind: 'failed', memory: spent, error: error instanceof Error ? error.message : 'the run failed' };
+    const syncNote = await syncQuietly(agent);
+    const reason = error instanceof Error ? error.message : 'the run failed';
+    return { kind: 'failed', memory: spent, error: syncNote === null ? reason : `${reason} ${syncNote}` };
   }
-  await agent.sync();
-  return { kind: 'done', memory: { ...spent, lastSequence: changes.latest }, writes, summary };
+  const syncNote = await syncQuietly(agent);
+  return {
+    kind: 'done',
+    memory: { ...spent, lastSequence: changes.latest },
+    writes,
+    summary: syncNote === null ? summary : `${summary} (${syncNote})`.trim(),
+  };
 }
 
 const MAX_NOTE_CHARS = 8_000;
@@ -211,13 +233,18 @@ async function answerOnce(
   ].join('\n');
   const answer = await ask(systemPrompt(agent, task, true), prompt);
   const json = answer.slice(answer.indexOf('{'), answer.lastIndexOf('}') + 1);
-  const parsed = JSON.parse(json) as { writes?: unknown; summary?: unknown };
+  let parsed: { writes?: unknown; summary?: unknown };
+  try {
+    parsed = JSON.parse(json) as { writes?: unknown; summary?: unknown };
+  } catch {
+    throw new Error(BAD_ANSWER);
+  }
   const planned = Array.isArray(parsed.writes) ? parsed.writes : [];
   const refused: string[] = [];
   for (const item of planned.slice(0, MAX_WRITES_PER_RUN)) {
     const write = item as { path?: unknown; content?: unknown };
     if (typeof write.path !== 'string' || typeof write.content !== 'string') continue;
-    const refusal = await writeAsAgent(agent, task, write.path, write.content);
+    const refusal = await writeAsAgent(agent, task, write.path, write.content).catch(() => 'the write failed');
     if (refusal === null) writes.push(write.path);
     else refused.push(write.path);
   }
@@ -254,7 +281,21 @@ async function converse(
   return summary;
 }
 
+/** One failing tool (a folder where a note should be) tells the model so; it never aborts the run. */
 async function runTool(
+  agent: HeadlessAgent,
+  task: AgentTask,
+  call: { name: string; input: Record<string, unknown> },
+  writes: string[],
+): Promise<{ content: string; is_error?: boolean }> {
+  try {
+    return await dispatchTool(agent, task, call, writes);
+  } catch {
+    return { content: `${call.name} failed.`, is_error: true };
+  }
+}
+
+async function dispatchTool(
   agent: HeadlessAgent,
   task: AgentTask,
   call: { name: string; input: Record<string, unknown> },
@@ -273,7 +314,10 @@ async function runTool(
       if (writes.length >= MAX_WRITES_PER_RUN) {
         return { content: `Refused: at most ${MAX_WRITES_PER_RUN} writes per run.`, is_error: true };
       }
-      const refusal = await writeAsAgent(agent, task, path, asText(call.input.content));
+      if (typeof call.input.path !== 'string' || typeof call.input.content !== 'string') {
+        return { content: 'Refused: write_note needs a text path and text content.', is_error: true };
+      }
+      const refusal = await writeAsAgent(agent, task, call.input.path, call.input.content);
       if (refusal !== null) return { content: `Refused: ${refusal}`, is_error: true };
       writes.push(path);
       return { content: `Saved ${path}.` };
