@@ -32,7 +32,21 @@ export interface ReconcileVaultStateOptions {
   vault: VaultSnapshotPort;
   /** Wall clock for recording file stats (P7). Defaults to Date.now. */
   now?: () => number;
+  /**
+   * True when the `.obsidian/` listing behind `vault.listSyncablePaths` failed.
+   * Config files missing from the listing are then not gone, so their mappings
+   * are left alone instead of being tombstoned on every peer. Read after the
+   * listing, so the snapshot can set it while it runs.
+   */
+  configListingFailed?: () => boolean;
+  /** The user confirmed a bulk delete the breaker held on an earlier pass. */
+  allowBulkDeletes?: boolean;
 }
+
+/** Unmatched mappings at which a pass looks like a mass delete rather than edits. */
+const BULK_DELETE_MIN = 25;
+/** ...and the share of all mappings (30%) at which it does. Both must hold. */
+const BULK_DELETE_SHARE = 0.3;
 
 /**
  * Upper bound on how many per-file skip reasons a single reconcile reports. The
@@ -85,6 +99,12 @@ export interface ReconcileResult {
   skippedPaths: readonly SkippedFileDetail[];
   unchanged: number;
   updated: number;
+  /**
+   * Deletes the mass-delete breaker held back on this pass (0 when it did not
+   * trip). The mappings stay, so a later pass finds the same files missing; the
+   * caller asks the user and re-runs with `allowBulkDeletes`.
+   */
+  deletesHeld: number;
 }
 
 const MAX_BINARY_FILE_MB = MAX_BINARY_FILE_BYTES / (1024 * 1024);
@@ -111,6 +131,14 @@ export function formatReconcileNotices(result: ReconcileResult): string[] {
     );
   }
   return notices;
+}
+
+/**
+ * The Notice for deletes the breaker held back. Plain text: the wiring adds
+ * the confirm action, so a bulk delete the user means still goes through.
+ */
+export function formatHeldDeletesNotice(count: number): string {
+  return `Havemind: ${count} synced file(s) are missing from this vault. Not deleted on your other devices yet, in case this is a mistake.`;
 }
 
 /**
@@ -202,8 +230,15 @@ export async function reconcileVaultState(
   }
 
   const mappingsByCollision = new Map<string, LocalFileMapping>();
-  for (const mapping of await repository.listMappings()) {
+  const allMappings = await repository.listMappings();
+  for (const mapping of allMappings) {
     mappingsByCollision.set(mapping.collisionKey, mapping);
+  }
+  // A failed config listing says nothing about which config files exist.
+  if (options.configListingFailed?.() === true) {
+    for (const [key, mapping] of mappingsByCollision) {
+      if (isSyncableConfigPath(mapping.path)) mappingsByCollision.delete(key);
+    }
   }
 
   let unchanged = 0;
@@ -285,6 +320,7 @@ export async function reconcileVaultState(
   const {
     created,
     deleted,
+    deletesHeld,
     renamed,
     skipped: tailSkipped,
   } = await applyRenamesCreatesDeletes(
@@ -292,6 +328,7 @@ export async function reconcileVaultState(
     unmatchedVault,
     unmatchedMappings,
     recordSkip,
+    options.allowBulkDeletes === true ? null : allMappings.length,
   );
 
   return {
@@ -306,6 +343,7 @@ export async function reconcileVaultState(
     skippedPaths,
     unchanged,
     updated,
+    deletesHeld,
   };
 }
 
@@ -350,7 +388,9 @@ async function applyRenamesCreatesDeletes(
   unmatchedVault: readonly EligibleVaultFile[],
   unmatchedMappings: readonly LocalFileMapping[],
   onSkip: (detail: SkippedFileDetail) => void,
-): Promise<{ created: number; deleted: number; renamed: number; skipped: number }> {
+  /** Mapping count the breaker measures against, or null when it is off. */
+  breakerTotal: number | null,
+): Promise<{ created: number; deleted: number; deletesHeld: number; renamed: number; skipped: number }> {
   const vaultByContent = groupBy(unmatchedVault, (file) => `${file.kind}:${file.contentHash}`);
   const mappingsByContent = groupBy(unmatchedMappings, (m) => `${m.contentKind ?? 'markdown'}:${m.contentHash}`);
 
@@ -395,9 +435,22 @@ async function applyRenamesCreatesDeletes(
     }
   }
 
+  // Mass-delete breaker. It covers this startup reconcile only: live deletes
+  // (watcher events, folder deletes) go through the observer one at a time and
+  // are not counted here. A bulk loss while Obsidian was closed (a sync client,
+  // a restored backup, a wiped folder) would otherwise tombstone the notes on
+  // every peer; the held mappings are retried on a confirmed pass.
+  const pending = unmatchedMappings.filter((mapping) => !consumedMappings.has(mapping));
+  if (
+    breakerTotal !== null &&
+    pending.length >= BULK_DELETE_MIN &&
+    pending.length >= breakerTotal * BULK_DELETE_SHARE
+  ) {
+    return { created, deleted: 0, deletesHeld: pending.length, renamed, skipped };
+  }
+
   let deleted = 0;
-  for (const mapping of unmatchedMappings) {
-    if (consumedMappings.has(mapping)) continue;
+  for (const mapping of pending) {
     if (
       await observeResilient(mapping.path, onSkip, () =>
         observer.observeDelete(mapping.path),
@@ -409,7 +462,7 @@ async function applyRenamesCreatesDeletes(
     }
   }
 
-  return { created, deleted, renamed, skipped };
+  return { created, deleted, deletesHeld: 0, renamed, skipped };
 }
 
 function groupBy<T>(

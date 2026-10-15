@@ -128,10 +128,31 @@ describe('listSyncableConfigPaths', () => {
     );
   });
 
-  it('returns [] for a vault with no .obsidian directory rather than throwing', async () => {
-    await expect(listSyncableConfigPaths(new InMemoryAdapter())).resolves.toEqual(
-      [],
-    );
+  it('throws when the root listing fails, so no caller reads it as "no config files" (plan 018, item 2)', async () => {
+    const adapter = seededAdapter();
+    adapter.dirs.add('.obsidian');
+    adapter.list = async () => {
+      throw new Error('EIO');
+    };
+    await expect(listSyncableConfigPaths(adapter)).rejects.toThrow('EIO');
+    // An adapter that cannot tell whether the folder exists gets no benefit of the doubt.
+    await expect(listSyncableConfigPaths({ list: adapter.list })).rejects.toThrow('EIO');
+  });
+
+  it('returns [] for a vault whose .obsidian folder does not exist, as a fresh vault has none', async () => {
+    await expect(listSyncableConfigPaths(new InMemoryAdapter())).resolves.toEqual([]);
+  });
+
+  it('still skips a subdirectory that fails to list', async () => {
+    const adapter = seededAdapter();
+    const list = adapter.list.bind(adapter);
+    adapter.list = async (dir) => {
+      if (dir === '.obsidian/themes') throw new Error('EACCES');
+      return list(dir);
+    };
+    const paths = await listSyncableConfigPaths(adapter);
+    expect(paths).toContain('.obsidian/app.json');
+    expect(paths).not.toContain('.obsidian/themes/Minimal/theme.css');
   });
 });
 

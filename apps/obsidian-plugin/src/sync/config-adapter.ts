@@ -61,11 +61,11 @@ function isUnderHavemindPlugin(folder: string): boolean {
  * list. The walk still DESCENDS into `.obsidian/plugins/` (minus our own
  * `havemind-sync/` folder, pruned outright): descending and then rejecting is
  * what lets the tests prove the allowlist is doing the work, rather than an
- * enumeration blind spot. A missing/uninitialised directory yields no entries
- * rather than throwing, so a fresh vault never wedges the walk.
+ * enumeration blind spot. A subdirectory that fails to list is skipped, but a
+ * failed listing of `root` itself throws, unless `root` is known not to exist.
  */
 export async function listSyncableConfigPaths(
-  adapter: Pick<ConfigAdapterPort, 'list'>,
+  adapter: Pick<ConfigAdapterPort, 'list'> & Partial<Pick<ConfigAdapterPort, 'exists'>>,
   root: string = CONFIG_DIR,
 ): Promise<string[]> {
   const found: string[] = [];
@@ -80,9 +80,14 @@ export async function listSyncableConfigPaths(
     let listing: ConfigAdapterListing;
     try {
       listing = await adapter.list(dir);
-    } catch {
-      // A directory that does not exist yet (or is unreadable) contributes
-      // nothing; enumeration of the rest of the tree continues uninterrupted.
+    } catch (error) {
+      // A failed ROOT listing must not read as "no config files": the poller
+      // would tombstone every config file on every peer. Callers skip their
+      // delete phase when this throws. Only a root the adapter positively
+      // reports as absent (a fresh vault) is an empty answer.
+      if (dir === root && (await adapter.exists?.(root).catch(() => true)) !== false) throw error;
+      // A subdirectory that is unreadable contributes nothing; enumeration of
+      // the rest of the tree continues uninterrupted.
       continue;
     }
 

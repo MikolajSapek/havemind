@@ -1,8 +1,31 @@
-import { canonicalizeMarkdown, hashBlob, hashPlaintext } from '@havemind/protocol';
+import { canonicalizeMarkdown, hashBlob, hashPlaintext, isSyncableConfigPath } from '@havemind/protocol';
 import { classifyVaultPath, type VaultSnapshotPort } from '../obsidian/vault-adapter';
+import { normalizeConfigContent } from '../sync/config-normalize';
 import type { OutboxLocalChangeRepository } from '../sync/outbox-repository';
 import type { DurableSyncState } from './sync-state';
 import type { RevisionHistory } from './revision-history';
+
+/**
+ * The held paths that need the user. A held CONFIG file does not: it is last
+ * writer wins, so it stays out of the upload (a brand-new vault's default
+ * settings must not overwrite the owner's) and the pull replaces this device's
+ * copy with the vault's.
+ */
+export function pathsNeedingResolution(localPaths: readonly string[], blocked: ReadonlySet<string>): string[] {
+  return localPaths.filter((path) => {
+    const classified = classifyVaultPath(path);
+    return classified.eligible && blocked.has(classified.collisionKey) && !isSyncableConfigPath(classified.canonicalPath);
+  });
+}
+
+const NOTICE_NAMED_PATHS = 3;
+
+/** The Notice for files held back from upload: names up to three, then a count. */
+export function formatBlockedNotice(paths: readonly string[]): string {
+  const named = paths.slice(0, NOTICE_NAMED_PATHS).join(', ');
+  const more = paths.length > NOTICE_NAMED_PATHS ? ` and ${paths.length - NOTICE_NAMED_PATHS} more` : '';
+  return `Havemind: ${paths.length} existing file(s) need conflict resolution before upload: ${named}${more}.`;
+}
 
 /** Establish identity before observers enumerate a populated vault. A divergent
  * untracked path remains visible locally and is held for explicit resolution;
@@ -48,7 +71,8 @@ export async function bootstrapIdentities(options: {
       contentHash = await hashBlob(bytes);
       if (remote.binaryContent == null || contentHash !== await hashBlob(remote.binaryContent)) continue;
     } else {
-      content = canonicalizeMarkdown(await vault.readText(remote.path));
+      // The form a push hashes: a config file minus its machine-local fields.
+      content = canonicalizeMarkdown(normalizeConfigContent(remote.path, await vault.readText(remote.path)));
       if (content !== remote.content) continue;
       contentHash = await hashPlaintext(content);
     }

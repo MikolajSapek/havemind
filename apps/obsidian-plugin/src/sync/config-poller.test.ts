@@ -31,7 +31,8 @@ class InMemoryAdapter implements ConfigAdapterPort {
   readonly files = new Map<string, string>();
   async list(dir: string): Promise<ConfigAdapterListing> {
     const prefix = dir.endsWith('/') ? dir : `${dir}/`;
-    if (![...this.files.keys()].some((p) => p.startsWith(prefix))) {
+    // Obsidian keeps `.obsidian/` even when every file in it is gone.
+    if (dir !== '.obsidian' && ![...this.files.keys()].some((p) => p.startsWith(prefix))) {
       throw new Error(`ENOENT: ${dir}`);
     }
     const files = new Set<string>();
@@ -58,7 +59,7 @@ class InMemoryAdapter implements ConfigAdapterPort {
   }
   async writeBinary(): Promise<void> {}
   async exists(path: string): Promise<boolean> {
-    return this.files.has(path);
+    return path === '.obsidian' || this.files.has(path);
   }
   async mkdir(): Promise<void> {}
   async remove(path: string): Promise<void> {
@@ -229,6 +230,26 @@ describe('config poller, create/update/delete lifecycle', () => {
     expect(deleted).toHaveLength(1);
     expect(deleted[0]?.kind).toBe('delete');
     expect(enqueued).toHaveLength(2);
+  });
+});
+
+describe('config poller, a failed listing is not an empty vault (plan 018, item 2)', () => {
+  it('rejects and tombstones nothing when the config root cannot be listed', async () => {
+    const adapter = new InMemoryAdapter();
+    const { enqueued, poll } = makeHarness(adapter);
+    adapter.files.set('.obsidian/app.json', '{}');
+    adapter.files.set('.obsidian/hotkeys.json', '{}');
+    expect(await poll()).toHaveLength(2);
+
+    const list = adapter.list.bind(adapter);
+    adapter.list = async () => {
+      throw new Error('EIO');
+    };
+    await expect(poll()).rejects.toThrow('EIO');
+    expect(enqueued).toHaveLength(2);
+
+    adapter.list = list;
+    expect(await poll()).toHaveLength(0);
   });
 });
 

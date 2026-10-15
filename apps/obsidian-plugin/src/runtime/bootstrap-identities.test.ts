@@ -1,6 +1,6 @@
 import { expect, it, vi } from 'vitest';
 import { hashBlob, hashPlaintext } from '@havemind/protocol';
-import { bootstrapIdentities } from './bootstrap-identities';
+import { bootstrapIdentities, formatBlockedNotice, pathsNeedingResolution } from './bootstrap-identities';
 import { RevisionHistory } from './revision-history';
 import { DurableSyncState, type PersistedSyncState, type SyncStatePersistPort } from './sync-state';
 import { OutboxLocalChangeRepository, type ProducerState } from '../sync/outbox-repository';
@@ -125,4 +125,74 @@ it('never downloads a head whose file this device already maps', async () => {
   const { fetched, options } = establishedDevice(['known.md', 'local-only.md']);
   await bootstrapIdentities(options);
   expect(fetched).not.toContain(MAPPED_ID);
+});
+
+// A brand-new vault creates default config files (core-plugins.json and
+// friends) before the first pull. They differ from the owner's, were held as
+// "existing files that need conflict resolution", and the phone said so right
+// after joining. Config is last writer wins: nothing for the user to resolve.
+const CONFIG_ID = '00000000-0000-4000-8000-000000000030';
+const NOTE_ID = '00000000-0000-4000-8000-000000000031';
+
+async function freshVaultWith(local: Record<string, string>, remote: Record<string, string>) {
+  let producerRaw: ProducerState = { mappings: [], heads: {} };
+  const state = new DurableSyncState({ persist: { load: async () => null, loadBackup: async () => null,
+    preserveCorrupt: async () => undefined, save: async () => undefined } });
+  const producer = new OutboxLocalChangeRepository({
+    identity: { vaultId: 'vault', memberId: 'member', deviceId: 'device' },
+    store: { load: async () => producerRaw, save: async (next) => { producerRaw = structuredClone(next); } },
+    recovery: state, generateRevisionId: () => 'unused',
+  });
+  const ids = [CONFIG_ID, NOTE_ID];
+  const remotePaths = Object.keys(remote);
+  const history = new RevisionHistory({ state,
+    transport: { pull: async (after) => ({ cursor: remotePaths.length, events: after === 0 ? remotePaths.map((_, index) => ({
+      serverSequence: index + 1,
+      revision: { fileId: ids[index] as string, revisionId: `rev-${index}`, contentHash: `h-${index}`, parentRevisionIds: [] },
+    })) : [] }) },
+    resolveRevision: async (event) => {
+      const path = remotePaths[ids.indexOf(event.revision.fileId)] as string;
+      return { operation: 'create', kind: 'markdown', path, previousPath: null, content: remote[path] as string };
+    },
+  });
+  const paths = Object.keys(local);
+  const vault = { exists: async (path: string) => path in local, readText: async (path: string) => local[path] ?? '',
+    readBinary: async () => new Uint8Array(), listSyncablePaths: async () => paths, listAllPaths: async () => paths };
+  const blocked = await bootstrapIdentities({ state, producer, history, vault });
+  return { blocked, paths, mappings: () => producerRaw.mappings };
+}
+
+it('does not ask the user to resolve a default config file the vault already has', async () => {
+  const { blocked, paths, mappings } = await freshVaultWith(
+    { '.obsidian/core-plugins.json': '["file-explorer"]\n' },
+    { '.obsidian/core-plugins.json': '["file-explorer","graph","canvas"]\n' },
+  );
+  expect(pathsNeedingResolution(paths, blocked)).toEqual([]);
+  // ...but it is still not uploaded: the pull replaces it with the vault's.
+  expect(mappings()).toEqual([]);
+  expect(blocked.has('.obsidian/core-plugins.json')).toBe(true);
+});
+
+it('still asks about a real note that differs, next to a config file', async () => {
+  const { blocked, paths } = await freshVaultWith(
+    { '.obsidian/core-plugins.json': '["a"]\n', 'Notes/Plan.md': 'my text\n' },
+    { '.obsidian/core-plugins.json': '["b"]\n', 'Notes/Plan.md': 'their text\n' },
+  );
+  expect(pathsNeedingResolution(paths, blocked)).toEqual(['Notes/Plan.md']);
+});
+
+it('adopts a config file that matches once its machine-local fields are filtered', async () => {
+  const { blocked, mappings } = await freshVaultWith(
+    { '.obsidian/graph.json': '{"colorGroups":[],"scale":1.7}\n' },
+    { '.obsidian/graph.json': '{\n  "colorGroups": []\n}\n' },
+  );
+  expect(blocked.size).toBe(0);
+  expect(mappings()).toMatchObject([{ path: '.obsidian/graph.json' }]);
+});
+
+it('names at most three held files in the Notice, then counts the rest', () => {
+  expect(formatBlockedNotice(['a.md'])).toBe('Havemind: 1 existing file(s) need conflict resolution before upload: a.md.');
+  expect(formatBlockedNotice(['a.md', 'b.md', 'c.md', 'd.md', 'e.md'])).toBe(
+    'Havemind: 5 existing file(s) need conflict resolution before upload: a.md, b.md, c.md and 2 more.',
+  );
 });

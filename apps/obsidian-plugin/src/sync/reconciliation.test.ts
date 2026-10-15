@@ -16,6 +16,7 @@ import {
   type VaultSnapshotPort,
 } from '../obsidian/vault-adapter';
 import {
+  formatHeldDeletesNotice,
   formatReconcileNotices,
   reconcileVaultState,
   warnSkippedPaths,
@@ -128,6 +129,95 @@ class MessagelessFailureRepository extends ReconciliationRepository {
     throw failure;
   }
 }
+
+/** `total` mapped notes `n0.md`..; the vault still holds the first `present` of them. */
+function bulkVault(total: number, present: number) {
+  const vault = new ReconciliationVault();
+  const mappings: LocalFileMapping[] = [];
+  for (let i = 0; i < total; i += 1) {
+    mappings.push(mapping(`file-${i}`, `Notes/n${i}.md`, `body ${i}`));
+    if (i < present) vault.contents.set(`Notes/n${i}.md`, `body ${i}`);
+  }
+  const repository = new ReconciliationRepository(mappings);
+  return { vault, repository, observer: createObserver(vault, repository) };
+}
+
+describe('mass-delete breaker (plan 018, item 3)', () => {
+  it('holds every delete when 25+ mappings and 30%+ of all are unmatched', async () => {
+    const { vault, repository, observer } = bulkVault(30, 5);
+
+    const result = await reconcileVaultState({ observer, repository, vault });
+
+    expect(result).toMatchObject({ completed: true, deleted: 0, deletesHeld: 25 });
+    expect(repository.commits).toEqual([]);
+    expect(repository.mappings.size).toBe(30);
+  });
+
+  it('lets a bulk delete through once the caller confirms it', async () => {
+    const { vault, repository, observer } = bulkVault(30, 5);
+
+    const result = await reconcileVaultState({ observer, repository, vault, allowBulkDeletes: true });
+
+    expect(result).toMatchObject({ deleted: 25, deletesHeld: 0 });
+    expect(repository.commits.filter((c) => c.operation.kind === 'delete')).toHaveLength(25);
+  });
+
+  it('deletes normally below 25 unmatched mappings, however large their share', async () => {
+    const { vault, repository, observer } = bulkVault(30, 6);
+
+    const result = await reconcileVaultState({ observer, repository, vault });
+
+    expect(result).toMatchObject({ deleted: 24, deletesHeld: 0 });
+  });
+
+  it('deletes normally below 30% of all mappings, however many they are', async () => {
+    const { vault, repository, observer } = bulkVault(100, 75);
+
+    const result = await reconcileVaultState({ observer, repository, vault });
+
+    expect(result).toMatchObject({ deleted: 25, deletesHeld: 0 });
+  });
+
+  it('still creates and renames while the deletes are held', async () => {
+    const { vault, repository, observer } = bulkVault(30, 5);
+    vault.contents.set('Notes/Brand new.md', 'fresh');
+
+    const result = await reconcileVaultState({ observer, repository, vault });
+
+    expect(result).toMatchObject({ created: 1, deleted: 0, deletesHeld: 25 });
+  });
+
+  it('words the held-deletes notice with the count', () => {
+    expect(formatHeldDeletesNotice(25)).toContain('25');
+  });
+});
+
+describe('failed config listing (plan 018, item 2)', () => {
+  it('keeps every config mapping but still deletes a vanished note', async () => {
+    const vault = new ReconciliationVault();
+    const repository = new ReconciliationRepository([
+      mapping('cfg-1', '.obsidian/app.json', '{}'),
+      mapping('cfg-2', '.obsidian/hotkeys.json', '{}'),
+      mapping('note-1', 'Notes/Gone.md', 'bye'),
+    ]);
+    const observer = createObserver(vault, repository);
+
+    const result = await reconcileVaultState({ observer, repository, vault, configListingFailed: () => true });
+
+    expect(result.deleted).toBe(1);
+    expect([...repository.mappings.keys()].sort()).toEqual(['cfg-1', 'cfg-2']);
+  });
+
+  it('tombstones vanished config files when the listing succeeded', async () => {
+    const vault = new ReconciliationVault();
+    const repository = new ReconciliationRepository([mapping('cfg-1', '.obsidian/app.json', '{}')]);
+    const observer = createObserver(vault, repository);
+
+    const result = await reconcileVaultState({ observer, repository, vault, configListingFailed: () => false });
+
+    expect(result.deleted).toBe(1);
+  });
+});
 
 describe('startup reconciliation', () => {
   it('commits create, update, and delete observations before reporting completion', async () => {
@@ -527,6 +617,7 @@ function baseResult(overrides: Partial<ReconcileResult> = {}): ReconcileResult {
     completed: true,
     created: 0,
     deleted: 0,
+    deletesHeld: 0,
     ignored: 0,
     renamed: 0,
     skipped: 0,
