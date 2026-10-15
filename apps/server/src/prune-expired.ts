@@ -1,5 +1,7 @@
 import type Database from 'better-sqlite3';
 
+import { PENDING_APPROVAL_TTL_SECONDS } from './auth/invitations.js';
+
 /**
  * How long a row is kept after its own deadline before it is deleted. Every
  * row pruned here is already inert at its deadline (an expired access token
@@ -55,6 +57,20 @@ export function pruneExpiredRecords(
     const idempotencyRecords = database
       .prepare('DELETE FROM idempotency_records WHERE expires_at < ?')
       .run(cutoff).changes;
+    // A redeemed device the owner never approved within its TTL: remove the
+    // pending user, as rejecting it would (the device cascades with it).
+    const pendingCutoff = new Date(
+      now.getTime() - PENDING_APPROVAL_TTL_SECONDS * 1_000,
+    ).toISOString();
+    database
+      .prepare(
+        `DELETE FROM users WHERE id IN (
+           SELECT i.consumed_by_user_id FROM invitations i
+           JOIN devices d ON d.id = i.pending_device_id
+           WHERE d.status = 'pending' AND i.consumed_at < ?
+         )`,
+      )
+      .run(pendingCutoff);
     return { accessTokens, idempotencyRecords, refreshTokens };
   });
   return prune.immediate();

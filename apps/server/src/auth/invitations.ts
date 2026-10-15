@@ -24,6 +24,8 @@ const DEFAULT_ACCESS_TOKEN_TTL_SECONDS = 10 * 60;
 const DEFAULT_REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
 /** Invitations live for exactly 15 minutes and cannot be replayed. */
 export const INVITATION_TTL_SECONDS = 15 * 60;
+/** How long a redeemed device may wait for the owner's approval. */
+export const PENDING_APPROVAL_TTL_SECONDS = 60 * 60;
 const MAX_DISPLAY_NAME_LENGTH = 80;
 const PUBLIC_KEY_LENGTH = 32;
 const DEFAULT_INTENDED_MEMBER_NAME = 'Invited member';
@@ -774,6 +776,15 @@ export class InvitationService {
         pendingDeviceId === null ||
         pendingUserId === null ||
         refreshTokenHash === null
+      ) {
+        throw new InvitationError('NO_PENDING_DEVICE');
+      }
+      // A device nobody approved within the hour is stale, not approvable
+      // weeks later. The hourly prune removes its rows.
+      if (
+        invitation.consumedAt === null ||
+        requireStoredDate(invitation.consumedAt) + PENDING_APPROVAL_TTL_SECONDS * 1_000 <=
+          now.getTime()
       ) {
         throw new InvitationError('NO_PENDING_DEVICE');
       }
