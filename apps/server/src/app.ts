@@ -1,3 +1,4 @@
+import { STATUS_CODES } from 'node:http';
 import type { Writable } from 'node:stream';
 
 import {
@@ -90,6 +91,26 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
   });
 
   const discovery = createDiscoveryDocument(options.config);
+
+  // Fastify sends err.message on a 500 (paths, SQLite text). Client errors
+  // (bad JSON, body too large, rate limit) keep Fastify's own answer; anything
+  // else is logged here and answered with a bare code.
+  app.setErrorHandler((error, request, reply) => {
+    const status = (error as { statusCode?: unknown }).statusCode;
+    if (typeof status === 'number' && status >= 400 && status < 500) {
+      return reply.status(status).send({
+        code: (error as { code?: unknown }).code,
+        error: STATUS_CODES[status] ?? 'Error',
+        message: error instanceof Error ? error.message : 'Bad request',
+        statusCode: status,
+      });
+    }
+    request.log.error({ err: error }, 'unhandled error');
+    return reply
+      .header('cache-control', 'no-store')
+      .status(500)
+      .send({ error: { code: 'INTERNAL' } });
+  });
 
   app.addHook('onResponse', async (request, reply) => {
     request.log.info(
