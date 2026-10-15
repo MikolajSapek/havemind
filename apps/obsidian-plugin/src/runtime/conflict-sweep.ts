@@ -30,6 +30,7 @@
 import { mergeText } from '@havemind/sync-core';
 
 import {
+  isDeletedMarker,
   listConflictCopies,
   type ConflictVaultPort,
 } from './conflict-resolution';
@@ -104,6 +105,8 @@ export async function sweepConflictCopies(
       // MINOR 6: a null read means the note or copy vanished mid-sweep; leave the
       // copy for the manual modal rather than merging against a missing side.
       if (mine === null || theirs === null) continue;
+      // A delete marker is not text to merge: only the user decides to trash.
+      if (isDeletedMarker(theirs)) continue;
 
       const result = merge(ancestor, mine, theirs);
       if (result.status !== 'merged') continue;

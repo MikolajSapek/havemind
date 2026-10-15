@@ -6,6 +6,7 @@ import {
   createConflictResolver,
   createObsidianConflictPort,
   listConflictCopies,
+  deletedMarkerBody,
   parseConflictCopyName,
   type ConflictVaultFile,
   type ConflictVaultPort,
@@ -29,6 +30,7 @@ function fakePort(
   reads: string[];
   writes: Array<{ path: string; content: string }>;
   deletes: string[];
+  trashed: string[];
 } {
   const contents = overrides.contents ?? {};
   const present = new Set(overrides.existingPaths ?? Object.keys(contents));
@@ -36,10 +38,12 @@ function fakePort(
   const reads: string[] = [];
   const writes: Array<{ path: string; content: string }> = [];
   const deletes: string[] = [];
+  const trashed: string[] = [];
   return {
     reads,
     writes,
     deletes,
+    trashed,
     listConflictFiles: () => overrides.conflictFiles ?? [],
     listNoteFiles: () => overrides.noteFiles ?? [],
     exists: async (path: string) => present.has(path),
@@ -57,6 +61,9 @@ function fakePort(
     },
     deleteFile: async (path: string) => {
       deletes.push(path);
+    },
+    trashFile: async (path: string) => {
+      trashed.push(path);
     },
   };
 }
@@ -258,6 +265,31 @@ describe('createConflictResolver', () => {
     expect(port.deletes).toEqual([newCopy.copyPath]);
   });
 
+  it('keepTheirs on a delete marker trashes the note instead of writing the marker (plan 018, item 5)', async () => {
+    const port = fakePort({
+      contents: { [newCopy.copyPath]: deletedMarkerBody('Magda', '2026-07-16 1542'), 'Notatka.md': 'mine' },
+    });
+
+    const result = await createConflictResolver(port).resolve(newCopy, 'keepTheirs');
+
+    expect(result).toBe('resolved');
+    expect(port.writes).toEqual([]);
+    expect(port.trashed).toEqual(['Notatka.md']);
+    expect(port.deletes).toEqual([newCopy.copyPath]);
+  });
+
+  it('keepTheirs on a delete marker whose note is already gone just removes the copy', async () => {
+    const port = fakePort({
+      contents: { [newCopy.copyPath]: deletedMarkerBody('Magda', '2026-07-16 1542') },
+    });
+
+    const result = await createConflictResolver(port).resolve(newCopy, 'keepTheirs');
+
+    expect(result).toBe('resolved');
+    expect(port.trashed).toEqual([]);
+    expect(port.deletes).toEqual([newCopy.copyPath]);
+  });
+
   it('keepBoth touches no files', async () => {
     const port = fakePort();
     const resolver = createConflictResolver(port);
@@ -373,9 +405,11 @@ describe('createObsidianConflictPort', () => {
     vault: Parameters<typeof createObsidianConflictPort>[0];
     modified: Array<{ path: string; content: string }>;
     deleted: string[];
+    trashed: string[];
   } {
     const modified: Array<{ path: string; content: string }> = [];
     const deleted: string[] = [];
+    const trashed: string[] = [];
     const byPath = new Map(files.map((file) => [file.path, file]));
     const vault = {
       getFiles: () => files,
@@ -392,8 +426,11 @@ describe('createObsidianConflictPort', () => {
       delete: async (file: FakeFile) => {
         deleted.push(file.path);
       },
+      trash: async (file: FakeFile, system: boolean) => {
+        trashed.push(`${file.path}:${String(system)}`);
+      },
     } as unknown as Parameters<typeof createObsidianConflictPort>[0];
-    return { vault, modified, deleted };
+    return { vault, modified, deleted, trashed };
   }
 
   it('splits vault files into conflict copies and candidate notes', () => {
@@ -421,6 +458,15 @@ describe('createObsidianConflictPort', () => {
     await port.deleteFile(`${CONFLICT_FOLDER}/c.md`);
     expect(modified).toEqual([{ path: 'N.md', content: 'new body' }]);
     expect(deleted).toEqual([`${CONFLICT_FOLDER}/c.md`]);
+  });
+
+  it('trashes a note into Obsidian local trash, never a permanent delete', async () => {
+    const { vault, deleted, trashed } = fakeVault([{ path: 'N.md', name: 'N.md' }]);
+    const port = createObsidianConflictPort(vault);
+    await port.trashFile('N.md');
+    await port.trashFile('Gone.md');
+    expect(trashed).toEqual(['N.md:false']);
+    expect(deleted).toEqual([]);
   });
 
   it('refuses to write into a note that no longer exists', async () => {
