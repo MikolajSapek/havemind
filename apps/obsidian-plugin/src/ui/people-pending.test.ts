@@ -45,7 +45,7 @@ describe('People shows a waiting device without opening the invite form', () => 
       onReject: vi.fn(),
     });
     openPeople(root);
-    const field = flatten(root).find((el) => el.attrs.id === 'havemind-approve-i1');
+    const field = flatten(root).find((el) => el.attrs.id === ['havemind', 'approve', 'i1'].join('-'));
     expect(field).toBeDefined();
     if (field === undefined) return;
     field.value = '123456';

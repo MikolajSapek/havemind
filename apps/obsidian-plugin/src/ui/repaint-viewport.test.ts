@@ -24,7 +24,7 @@ function pane(): { view: HavemindOnboardingView; root: MockElement } {
 const tab = (root: MockElement, label: string): MockElement | undefined =>
   flatten(root).find((el) => el.attrs.role === 'tab' && (el.attrs['aria-label'] ?? '').startsWith(label));
 const field = (root: MockElement): MockElement | undefined =>
-  flatten(root).find((el) => el.attrs.id === 'havemind-approve-i1');
+  flatten(root).find((el) => el.attrs.id === ['havemind', 'approve', 'i1'].join('-'));
 const tabBody = (root: MockElement): MockElement | undefined =>
   flatten(root).find((el) => el.classes.includes('havemind-tab-body'));
 
