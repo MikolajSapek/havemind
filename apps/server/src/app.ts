@@ -11,6 +11,7 @@ import {
 } from '@havemind/protocol';
 import Fastify, { LogController, type FastifyInstance } from 'fastify';
 
+import { migrateLegacyBrain } from './auth/agent-brain-store.js';
 import { registerAuthRoutes, type AuthRoutesDeps } from './auth/auth-routes.js';
 import { registerMemberRosterRoutes } from './auth/member-roster-routes.js';
 import { registerRejoinRoutes } from './auth/rejoin-routes.js';
@@ -134,6 +135,11 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
   });
 
   if (options.auth !== undefined) {
+    if (options.config.agentServiceToken !== undefined && options.config.agentSecretsDir !== undefined) {
+      migrateLegacyBrain(options.auth.database, options.config.agentSecretsDir, (message) => {
+        app.log.warn(message);
+      });
+    }
     registerAuthRoutes(app, {
       ...options.auth,
       ...(options.config.agentServiceToken === undefined || options.config.agentSecretsDir === undefined
