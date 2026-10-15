@@ -20,7 +20,8 @@ import {
   releaseTestResources,
   rowSeeder,
 } from '../test/fixtures/server-fixtures.js';
-import { InvitationService } from './invitations.js';
+import { AgentEnrollmentService } from './agent-enrollment.js';
+import { InvitationError, InvitationService } from './invitations.js';
 import { SessionRepository } from './session-repository.js';
 import { createRefreshSuccessor, generateRefreshToken } from './tokens.js';
 
@@ -257,5 +258,33 @@ describe('one-click agents (plan 015)', () => {
     const s = setup();
     const discovery = (await s.app.inject({ method: 'GET', url: '/.well-known/havemind' })).json() as { capabilities: string[] };
     expect(discovery.capabilities).toContain('agent-service-v1');
+  });
+
+  describe('a claim that fails', () => {
+    const failing = (s: Setup, error: Error) =>
+      new AgentEnrollmentService(s.database, {
+        createInvitation: () => {
+          throw error;
+        },
+      } as unknown as InvitationService);
+    const droppedAt = (s: Setup) =>
+      (s.database.prepare('SELECT dropped_at AS d, dropped_reason AS r FROM agent_enrollments').get() as { d: string | null; r: string | null });
+    const input = () => ({ initialRefreshToken: generateRefreshToken(), redemptionId: '90000000-0000-4000-8000-00000000c101' });
+
+    it('keeps the enrollment when the failure may pass (a busy database)', async () => {
+      const s = setup();
+      await enroll(s, s.owner, 'Retry me');
+      expect(() => failing(s, new Error('SQLITE_BUSY')).claim(input())).toThrow('SQLITE_BUSY');
+      expect(droppedAt(s)).toEqual({ d: null, r: null });
+      expect(() => failing(s, new InvitationError('INVITATION_EXPIRED')).claim(input())).toThrow(InvitationError);
+      expect(droppedAt(s)).toEqual({ d: null, r: null });
+    });
+
+    it('drops the enrollment when it can never succeed', async () => {
+      const s = setup();
+      await enroll(s, s.owner, 'Orphan');
+      expect(failing(s, new InvitationError('NOT_AUTHORIZED')).claim(input())).toBeNull();
+      expect(droppedAt(s)).toEqual({ d: expect.any(String), r: 'NOT_AUTHORIZED' });
+    });
   });
 });
