@@ -24,6 +24,8 @@ export interface PeopleTabActions {
   /** Devices waiting for approval, shown even while the composer is closed. */
   readonly pending?: readonly PendingApprovalEntry[];
   readonly now?: number;
+  /** True for the vault owner only: the server refuses invites and agents from an editor. */
+  readonly isOwner?: boolean;
 }
 
 /** "Magda wants to join · As editor · expires in 12 min", and the way to approve. */
@@ -75,6 +77,7 @@ export function renderPeopleTab(
   }
   if (agent?.notice !== undefined) body.createDiv({ text: agent.notice }).addClass('havemind-hint');
 
+  if (actions.isOwner !== true) return;
   if (actions.onOpenComposer !== undefined) {
     const open = body.createEl('button', { text: 'Invite someone' });
     open.addClass('havemind-invite-cta');

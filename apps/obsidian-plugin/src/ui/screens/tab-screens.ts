@@ -35,6 +35,19 @@ export interface TabScreensContext {
   readonly onToggleHelp: () => void;
 }
 
+/**
+ * Whether this device is the vault owner, read from the server roster as
+ * roster-section does. The connection's own membership role is not trusted:
+ * an invited owner is recorded there as an editor.
+ */
+function isOwnerView(options: OnboardingViewOptions): boolean {
+  try {
+    return (options.rejoinRosterProvider?.()?.rows ?? []).some((row) => row.self && row.role === 'owner');
+  } catch {
+    return false;
+  }
+}
+
 export function buildTabScreens(context: TabScreensContext): TabBodyScreens {
   const { options } = context;
   return {
@@ -81,6 +94,7 @@ export function buildTabScreens(context: TabScreensContext): TabBodyScreens {
             onReject: options.onReject,
           }),
         onOpenComposer: options.onOpenComposer,
+        isOwner: isOwnerView(options),
         ...(options.onAddAgent === undefined
           ? {}
           : {
