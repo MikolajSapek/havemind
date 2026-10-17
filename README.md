@@ -35,6 +35,8 @@ vault with five AI agents, step by step, with screenshots.
 more) join your vault in yellow, each with a task note: see
 [docs/agents.md](docs/agents.md).
 
+**Project page:** [mikolajpawelsapek.eu/Projects/havemind.html](https://mikolajpawelsapek.eu/Projects/havemind.html).
+
 ## Install
 
 Havemind needs two things: the plugin, and a server you run.
